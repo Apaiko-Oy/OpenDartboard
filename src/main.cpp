@@ -39,16 +39,32 @@ int main(int argc, char **argv)
   // Replace boolean flag with detector type string
   string detector_type = getArg(argc, argv, "--detector", "geometry");
 
+  // i817: file logging is off unless it is asked for. It ships off because the only
+  // thing that ever set it was the header's own default, its default path is inside
+  // debug_frames/, and a released binary that appends a file to whatever directory it
+  // was started in is a surprise nobody asked for. --debug asks for it, next to the
+  // debug images it already writes; --log-file <path> asks for it on its own.
+  string log_file = getArg(argc, argv, "--log-file", string(""));
+
   // set log level based on debug mode
   if (debug_mode)
   {
     logging::setLogLevel(logging::LogLevel::DEBUG); // Show everything
+    if (log_file.empty())
+    {
+      log_file = "debug_frames/opendartboard.log";
+    }
     log_info("Debug mode enabled - showing all log messages");
   }
   else if (quite_mode)
   {
     logging::setLogLevel(logging::LogLevel::ERROR); // Only errors
     log_info("Quiet mode enabled - showing only error messages");
+  }
+
+  if (!log_file.empty())
+  {
+    logging::setFileLogging(true, log_file);
   }
 
   // Print startup and configuration information

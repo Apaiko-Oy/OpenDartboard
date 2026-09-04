@@ -60,11 +60,29 @@ namespace logging
         DEBUG = 3    // Least important - rarely show
     };
 
-    // Global settings
-    static LogLevel globalLogLevel = LogLevel::INFO;              // Default: show ERROR and WARNING only
-    static bool showTimestamp = false;                            // Console timestamps off by default
-    static bool enableFileLogging = true;                         // File logging off by default
-    static string logFilePath = "debug_frames/opendartboard.log"; // Default log file
+    // ---- i817: one copy of the logging state, and a log target that outlives exit ----
+    //
+    // These were four `static` variables at namespace scope in a header included by 17
+    // translation units, so the program held 17 copies of each and `setLogLevel` from
+    // main() configured whichever one the linker happened to keep. `inline` makes each
+    // of them one object across the whole program, which is what every reader already
+    // assumed. All three scalars are constant-initialised, so no order of
+    // initialisation across translation units can reach them before they have a value.
+    inline LogLevel globalLogLevel = LogLevel::INFO; // Default: show ERROR and WARNING only
+    inline bool showTimestamp = false;               // Console timestamps off by default
+    inline bool enableFileLogging = false;           // File logging off by default
+
+    // The path cannot be one of those, because a std::string has a destructor and this
+    // program logs from threads that are still running when exit() runs the destructors:
+    // a destroyed string's freed heap pointer was being read as a filename. A
+    // function-local static is ordered by the standard rather than by link order, and
+    // this one is deliberately never destroyed, so there is no window in which a log
+    // call can read it after its lifetime has ended.
+    inline string &logFilePath()
+    {
+        static string *path = new string("debug_frames/opendartboard.log"); // owned for the life of the process
+        return *path;
+    }
 
     // Set the global log level
     inline void setLogLevel(LogLevel level)
@@ -82,21 +100,27 @@ namespace logging
     inline void setFileLogging(bool enable, const string &filepath = "debug_frames/opendartboard.log")
     {
         enableFileLogging = enable;
-        logFilePath = filepath;
+        logFilePath() = filepath;
 
         if (enable)
         {
-            // Create directory if it doesn't exist. If it cannot be created there is
-            // nowhere to append to, so file logging is turned back off rather than
-            // silently dropping every line.
-            if (!odfs::ensureDirectory("debug_frames"))
+            // Create the directory the log is appended to, which is the one named by
+            // the path rather than always "debug_frames" (i817: the two disagreed the
+            // moment a caller passed a path). If it cannot be created there is nowhere
+            // to append to, so file logging is turned back off rather than silently
+            // dropping every line.
+            const size_t slash = filepath.find_last_of("/\\");
+            if (slash != string::npos)
             {
-                enableFileLogging = false;
-                return;
+                if (!odfs::ensureDirectory(filepath.substr(0, slash).c_str()))
+                {
+                    enableFileLogging = false;
+                    return;
+                }
             }
 
             // Write header to log file
-            ofstream logFile(logFilePath, ios::app);
+            ofstream logFile(logFilePath(), ios::app);
             if (logFile.is_open())
             {
                 logFile << "\n========== OpenDartboard Session Started ==========\n";
@@ -253,7 +277,7 @@ namespace logging
         // File logging (always with timestamp, NO colors)
         if (enableFileLogging)
         {
-            ofstream logFile(logFilePath, ios::app);
+            ofstream logFile(logFilePath(), ios::app);
             if (logFile.is_open())
             {
                 // Strip color codes from message for clean file output
