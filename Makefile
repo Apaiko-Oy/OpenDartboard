@@ -1,9 +1,18 @@
-.PHONY: build run deb release
+.PHONY: build build-dev run deb release
 
 PROJECT_VERSION_VAL := $(if $(VERSION),$(VERSION),0.0.0-dev)
+# Debug-only defines. These are NOT part of a release build: DEBUG_VIA_VIDEO_INPUT
+# puts a 16.7 ms sleep in every capture cycle and opens an MJPEG listener on 8081,
+# and DEBUG_SEEK_VIDEO seeks a file source past its first three seconds.
+DEV_DEFS = -DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT
+OD_DEFS ?=
+
 CMAKE_FLAGS = -DCMAKE_PREFIX_PATH=/usr/local \
-              -DCMAKE_CXX_FLAGS="-DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT" \
+              -DCMAKE_CXX_FLAGS="$(OD_DEFS)" \
               -DAPP_VERSION=$(PROJECT_VERSION_VAL)
+
+build-dev: OD_DEFS = $(DEV_DEFS)
+build-dev: build
 
 build:
 	mkdir -p build

@@ -1,4 +1,5 @@
 #include "contour_processing.hpp"
+#include "logging.hpp"
 #include "utils.hpp"
 
 using namespace cv;
@@ -65,7 +66,7 @@ namespace contour_processing
 
             // Create and save visualization
             Mat contourVis = visualizeContours(originalFrame, filteredContours, params);
-            system("mkdir -p debug_frames/contour_processing");
+            odfs::ensureDirectory("debug_frames/contour_processing");
             imwrite("debug_frames/contour_processing/contours_" + to_string(camera_idx) + ".jpg", contourVis);
         }
 

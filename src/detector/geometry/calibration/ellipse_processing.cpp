@@ -1,4 +1,5 @@
 #include "ellipse_processing.hpp"
+#include "logging.hpp"
 #include "utils.hpp"
 #include <cmath>
 
@@ -483,7 +484,7 @@ namespace ellipse_processing
             // circle(ellipseVis, bullCenter, 8, Scalar(0, 0, 0), -1);
             // circle(ellipseVis, bullCenter, 10, Scalar(255, 255, 255), 2);
 
-            system("mkdir -p debug_frames/ellipse_processing");
+            odfs::ensureDirectory("debug_frames/ellipse_processing");
             imwrite("debug_frames/ellipse_processing/ellipse_result_" + to_string(camera_idx) + ".jpg", ellipseVis);
 
             log_debug("Saved ellipse visualization with all ring types");

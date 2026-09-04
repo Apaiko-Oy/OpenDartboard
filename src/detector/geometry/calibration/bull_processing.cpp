@@ -1,4 +1,5 @@
 #include "bull_processing.hpp"
+#include "logging.hpp"
 #include "color_processing.hpp"
 #include "utils.hpp"
 #include <cmath>
@@ -25,7 +26,7 @@ namespace bull_processing
         // Debug: Save masks
         if (debug_mode)
         {
-            system("mkdir -p debug_frames/bull_processing");
+            odfs::ensureDirectory("debug_frames/bull_processing");
             imwrite("debug_frames/bull_processing/blurred_frame_" + to_string(camera_idx) + ".jpg", blurredFrame);
             imwrite("debug_frames/bull_processing/binary_mask_" + to_string(camera_idx) + ".jpg", binaryMask);
         }

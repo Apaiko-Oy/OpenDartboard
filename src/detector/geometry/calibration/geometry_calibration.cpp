@@ -1,4 +1,5 @@
 #include <iostream>
+#include "logging.hpp"
 #include <cmath>
 #include <algorithm>
 #include <numeric>
@@ -120,7 +121,7 @@ namespace geometry_calibration
             {
                 // Create a debug visualization showing the calibration
                 cv::Mat visFrame = dartboard_visualization::drawCalibrationOverlay(frames[cam_idx], calibration, true);
-                system("mkdir -p debug_frames/geometry_calibration");
+                odfs::ensureDirectory("debug_frames/geometry_calibration");
                 imwrite("debug_frames/geometry_calibration/calibration_camera_" + to_string(cam_idx) + ".jpg", visFrame);
             }
         }
@@ -135,7 +136,7 @@ namespace geometry_calibration
 
             if (!combinedViz.empty())
             {
-                system("mkdir -p debug_frames");
+                odfs::ensureDirectory("debug_frames");
                 string filename = "debug_frames/calibration_summary_all_cameras.jpg";
                 imwrite(filename, combinedViz);
                 log_debug("Saved combined calibration visualization: " + filename);

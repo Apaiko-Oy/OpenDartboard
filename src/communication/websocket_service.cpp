@@ -1,3 +1,4 @@
+#include <deque>
 #include "websocket_service.hpp"
 #include "utils.hpp"
 #include <httplib.h>
@@ -437,25 +438,30 @@ void WebSocketService::run()
 
         server_->Get("/debug/logs", [](const httplib::Request &req, httplib::Response &res)
                      {
-            // Use tail command for fast last N lines
-            int result = system("tail -100 debug_frames/opendartboard.log > /tmp/recent_logs.txt 2>/dev/null");
-            if (result != 0) {
-                res.set_content("[]", "application/json");
-                return;
-            }
-            
-            ifstream file("/tmp/recent_logs.txt");
+            // Last N lines, read in process: no shell, no /tmp, and no second
+            // request racing the first over one shared scratch file.
+            ifstream file("debug_frames/opendartboard.log");
             if (!file) {
                 res.set_content("[]", "application/json");
                 return;
             }
-            
-            json logs = json::array();
+
+            const size_t kMaxLines = 100;
+            deque<string> tail;
             string line;
             while (getline(file, line)) {
-                if (!line.empty()) {
-                    logs.push_back(line);
+                if (line.empty()) {
+                    continue;
                 }
+                tail.push_back(line);
+                if (tail.size() > kMaxLines) {
+                    tail.pop_front();
+                }
+            }
+
+            json logs = json::array();
+            for (const auto &l : tail) {
+                logs.push_back(l);
             }
             
             res.set_content(logs.dump(), "application/json"); });

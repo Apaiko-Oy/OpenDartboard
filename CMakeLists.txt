@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.17)
 project(opendartboard LANGUAGES CXX)
 
+# std::filesystem is used for directory creation; nothing set a standard before, so
+# g++ 10 on bullseye compiled this project as gnu++14.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Add FetchContent module for dependency management
 include(FetchContent)
 
@@ -39,10 +44,6 @@ if(NOT OpenCV_FOUND)
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0)
-pkg_check_modules(GSTREAMER_APP REQUIRED gstreamer-app-1.0)
-pkg_check_modules(GSTREAMER_BASE REQUIRED gstreamer-base-1.0)
-pkg_check_modules(GSTREAMER_VIDEO REQUIRED gstreamer-video-1.0)
 
 add_executable(opendartboard
     src/main.cpp
@@ -75,10 +76,6 @@ target_include_directories(opendartboard PRIVATE
     /usr/local/include
     ${OpenCV_INCLUDE_DIRS}
     ${NCNN_INCLUDE_DIRS}
-    ${GSTREAMER_INCLUDE_DIRS}
-    ${GSTREAMER_APP_INCLUDE_DIRS}
-    ${GSTREAMER_BASE_INCLUDE_DIRS}
-    ${GSTREAMER_VIDEO_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
     /usr/include/opencv4  # Add explicit path to OpenCV headers
@@ -89,10 +86,6 @@ target_link_libraries(opendartboard
     PRIVATE
         ${OpenCV_LIBS}
         ${NCNN_LIBRARIES}
-        ${GSTREAMER_LIBRARIES}
-        ${GSTREAMER_APP_LIBRARIES}
-        ${GSTREAMER_BASE_LIBRARIES}
-        ${GSTREAMER_VIDEO_LIBRARIES}
         nlohmann_json::nlohmann_json
         ${CMAKE_DL_LIBS}
         Threads::Threads  # Add pthread linking

@@ -1,4 +1,5 @@
 #include <opencv2/imgproc.hpp>
+#include "logging.hpp"
 #include <opencv2/opencv.hpp>
 #include <iostream>
 
@@ -359,7 +360,7 @@ namespace orientation_processing
         if (enableDebug)
         {
             debugFrame = frame.clone();
-            system("mkdir -p debug_frames/orientation_processing");
+            odfs::ensureDirectory("debug_frames/orientation_processing");
         }
 
         // STEP 1: Create the number region mask and apply preprocessing

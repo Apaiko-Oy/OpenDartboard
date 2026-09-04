@@ -1,4 +1,5 @@
 #include "scorer.hpp"
+#include "logging.hpp"
 #include "utils.hpp"
 #include "detector/detector_factory.hpp"
 #include "communication/websocket_service.hpp"
@@ -9,6 +10,7 @@
 #include <random>
 #include <opencv2/opencv.hpp>
 #include <algorithm>
+#include <cstdlib>
 
 using namespace std;
 using namespace cv;
@@ -88,8 +90,28 @@ void Scorer::run()
     log_info("Using detector: " + detector_type_name);
     cout << "-------------------------------------" << endl;
 
+    // ---- i803 instrumentation: a cycle budget, so two runs stop on the same frame ----
+    const char *max_cycles_env = getenv("OD_MAX_CYCLES");
+    const long max_cycles = max_cycles_env ? atol(max_cycles_env) : 0;
+    long cycles = 0;
+    auto loop_started = chrono::steady_clock::now();
+
     while (running)
     {
+        if (max_cycles > 0 && cycles >= max_cycles)
+        {
+            auto loop_ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - loop_started).count();
+            cout << "[i803] cycle budget reached: cycles=" << cycles
+                 << " loop_ms=" << loop_ms
+                 << " ensure_calls=" << odfs::ensure_calls.load()
+                 << " ensure_failures=" << odfs::ensure_failures.load() << endl;
+            for (size_t c = 0; c < cameras.size(); c++)
+            {
+                cout << "[i803] cam " << c << " pos_ms=" << (long)cameras[c].get(cv::CAP_PROP_POS_MSEC) << endl;
+            }
+            break;
+        }
+        cycles++;
 
         // start a clock to measure FPS
         auto start_time = chrono::steady_clock::now();

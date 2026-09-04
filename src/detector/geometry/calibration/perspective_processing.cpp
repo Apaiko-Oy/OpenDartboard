@@ -1,4 +1,5 @@
 #include "perspective_processing.hpp"
+#include "logging.hpp"
 #include "geometry_calibration.hpp"
 #include "utils.hpp"
 
@@ -183,7 +184,7 @@ namespace perspective_processing
         // Debug output with correspondence verification
         if (enableDebug)
         {
-            system("mkdir -p debug_frames/perspective_processing");
+            odfs::ensureDirectory("debug_frames/perspective_processing");
 
             // Save rectified image
             imwrite("debug_frames/perspective_processing/rectified_" + to_string(calib.camera_index) + ".jpg", rectified);

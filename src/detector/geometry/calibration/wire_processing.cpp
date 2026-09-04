@@ -1,4 +1,5 @@
 #include <opencv2/imgproc.hpp>
+#include "logging.hpp"
 #include <iostream>
 
 #include "wire_processing.hpp"
@@ -195,7 +196,7 @@ namespace wire_processing
         // Debug visualization
         if (debug_mode)
         {
-            system("mkdir -p debug_frames/wire_processing");
+            odfs::ensureDirectory("debug_frames/wire_processing");
 
             // Show detected lines
             Mat linesDebug = mask.clone();
@@ -319,7 +320,7 @@ namespace wire_processing
         {
 
             // Create debug visualizations
-            system("mkdir -p debug_frames/wire_processing");
+            odfs::ensureDirectory("debug_frames/wire_processing");
 
             // Existing debug: Show all contours
             Mat contoursImg = Mat::zeros(mask.size(), CV_8UC3);
@@ -572,7 +573,7 @@ namespace wire_processing
         // Debug visualization
         if (debug_mode)
         {
-            system("mkdir -p debug_frames/wire_processing");
+            odfs::ensureDirectory("debug_frames/wire_processing");
 
             Mat ensembleDebug = mask.clone();
 
@@ -668,7 +669,7 @@ namespace wire_processing
                 putText(debug, to_string(i), Point(wireEnd.x + 10, wireEnd.y), FONT_HERSHEY_SIMPLEX, 0.6, Scalar(255, 255, 255), 2);
             }
 
-            system("mkdir -p debug_frames/wire_processing");
+            odfs::ensureDirectory("debug_frames/wire_processing");
             imwrite("debug_frames/wire_processing/wire_edges_" + to_string(calib.camera_index) + ".jpg", detectMetalWires(frame, colorMask, calib));
             imwrite("debug_frames/wire_processing/wire_result_" + to_string(calib.camera_index) + ".jpg", debug);
         }

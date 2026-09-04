@@ -1,4 +1,5 @@
 #include "score_processing.hpp"
+#include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
 #include "../calibration/geometry_calibration.hpp"
@@ -208,7 +209,7 @@ namespace score_processing
                     circle(some_mat, dart_result.camera_results[i].tip_position, 5, Scalar(0, 255, 0), -1);
                     putText(some_mat, score_test, dart_result.camera_results[i].tip_position + Point2f(10, 10),
                             FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 0, 0), 1);
-                    system("mkdir -p debug_frames/score_processing");
+                    odfs::ensureDirectory("debug_frames/score_processing");
                     imwrite("debug_frames/score_processing/point_on_screen" + to_string(i) + ".jpg", some_mat);
 
                     points_on_screen.push_back(some_mat);

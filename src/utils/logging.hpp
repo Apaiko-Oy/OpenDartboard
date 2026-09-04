@@ -6,8 +6,49 @@
 #include <iomanip>
 #include <chrono>
 #include <sstream>
+#include <algorithm>
 
 using namespace std;
+
+// ---- i803: one directory helper, used at the 21 former system("mkdir -p") sites ----
+#include <atomic>
+#include <cerrno>
+#include <cstring>
+#include <cstdlib>
+#ifndef OD_SHELL_MKDIR
+#include <filesystem>
+#endif
+
+namespace odfs
+{
+    inline std::atomic<long> ensure_calls{0};
+    inline std::atomic<long> ensure_failures{0};
+
+    // Returns true when the directory exists after the call.
+    inline bool ensureDirectory(const char *path)
+    {
+        ensure_calls++;
+#ifdef OD_SHELL_MKDIR
+        // Pre-change behaviour, kept behind a flag so the two can be measured against
+        // each other: fork + exec of /bin/sh, return value discarded.
+        std::string cmd = std::string("mkdir -p ") + path;
+        (void)::system(cmd.c_str());
+        return true;
+#else
+        std::error_code ec;
+        std::filesystem::create_directories(path, ec);
+        if (ec && !std::filesystem::is_directory(path))
+        {
+            if (ensure_failures++ < 8) // say it, but do not flood a per-cycle loop
+            {
+                std::cerr << "[ERROR] cannot create directory " << path << ": " << ec.message() << std::endl;
+            }
+            return false;
+        }
+        return true;
+#endif
+    }
+}
 
 namespace logging
 {
@@ -45,8 +86,14 @@ namespace logging
 
         if (enable)
         {
-            // Create directory if it doesn't exist
-            system("mkdir -p debug_frames");
+            // Create directory if it doesn't exist. If it cannot be created there is
+            // nowhere to append to, so file logging is turned back off rather than
+            // silently dropping every line.
+            if (!odfs::ensureDirectory("debug_frames"))
+            {
+                enableFileLogging = false;
+                return;
+            }
 
             // Write header to log file
             ofstream logFile(logFilePath, ios::app);

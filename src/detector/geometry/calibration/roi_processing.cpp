@@ -1,4 +1,5 @@
 #include "roi_processing.hpp"
+#include "logging.hpp"
 #include "../../../utils/math.hpp"
 #include <algorithm>
 
@@ -34,7 +35,7 @@ namespace roi_processing
         // Debug output
         if (debug_mode)
         {
-            system("mkdir -p debug_frames/roi_processing");
+            odfs::ensureDirectory("debug_frames/roi_processing");
             imwrite("debug_frames/roi_processing/roi_frame_" + to_string(camera_idx) + ".jpg", roiFrame);
         }
 

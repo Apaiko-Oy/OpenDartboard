@@ -1,4 +1,5 @@
 #include "motion_processing.hpp"
+#include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
 
@@ -89,7 +90,7 @@ namespace motion_processing
             // Debug: Save motion detection images
             if (debug_mode)
             {
-                system("mkdir -p debug_frames/motion_processing");
+                odfs::ensureDirectory("debug_frames/motion_processing");
                 imwrite("debug_frames/motion_processing/diff_cam_" + to_string(i) + ".jpg", diff);
                 imwrite("debug_frames/motion_processing/thresh_cam_" + to_string(i) + ".jpg", thresh);
 

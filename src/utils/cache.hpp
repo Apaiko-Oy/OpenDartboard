@@ -36,8 +36,9 @@ namespace cache
         // Generate standard filename for calibration cache
         inline string generateFilename()
         {
-            // Create cache directory if it doesn't exist
-            system("mkdir -p cache");
+            // Create cache directory if it doesn't exist. ensureDirectory reports the
+            // failure; the caller opens the returned path and reports that too.
+            (void)odfs::ensureDirectory("cache");
             return "cache/geometry_calibration.dat";
         }
 
@@ -132,7 +133,10 @@ namespace cache
         {
             try
             {
-                system("mkdir -p cache/backgrounds");
+                if (!odfs::ensureDirectory("cache/backgrounds"))
+                {
+                    return false;
+                }
 
                 for (size_t i = 0; i < background_frames.size(); i++)
                 {

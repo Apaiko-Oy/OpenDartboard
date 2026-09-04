@@ -1,4 +1,5 @@
 #include "dart_processing.hpp"
+#include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
 
@@ -219,7 +220,7 @@ namespace dart_processing
             }
 
             // Save debug image
-            system("mkdir -p debug_frames/dart_processing");
+            odfs::ensureDirectory("debug_frames/dart_processing");
             imwrite("debug_frames/dart_processing/tip_detection_cam_" + to_string(camera_id) + ".jpg", debug_img);
 
             // Add to debug vector / streams
@@ -352,7 +353,7 @@ namespace dart_processing
             if (debug_mode)
             {
                 // Save debug images
-                system("mkdir -p debug_frames/dart_processing");
+                odfs::ensureDirectory("debug_frames/dart_processing");
                 imwrite("debug_frames/dart_processing/diff_cam_" + to_string(i) + ".jpg", diff);
                 imwrite("debug_frames/dart_processing/thresh_cam_" + to_string(i) + ".jpg", thresh);
                 imwrite("debug_frames/dart_processing/averaged_cam_" + to_string(i) + ".jpg", averaged_frame);

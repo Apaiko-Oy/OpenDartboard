@@ -1,4 +1,5 @@
 #include "color_processing.hpp"
+#include "logging.hpp"
 #include <iostream>
 #include <string>
 
@@ -282,7 +283,7 @@ namespace color_processing
         // Save debug images
         if (debug_mode)
         {
-            system("mkdir -p debug_frames/color_processing");
+            odfs::ensureDirectory("debug_frames/color_processing");
             imwrite("debug_frames/color_processing/red_green_frame_" + to_string(camera_idx) + ".jpg", redGreenFrame);
         }
 

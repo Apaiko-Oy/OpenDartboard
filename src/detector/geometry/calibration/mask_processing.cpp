@@ -1,4 +1,5 @@
 #include "mask_processing.hpp"
+#include "logging.hpp"
 #include <iostream>
 
 using namespace cv;
@@ -120,7 +121,7 @@ namespace mask_processing
 
         if (debug_mode)
         {
-            system("mkdir -p debug_frames/mask_processing");
+            odfs::ensureDirectory("debug_frames/mask_processing");
             imwrite("debug_frames/mask_processing/full_mask_" + to_string(camera_idx) + ".jpg", result.fullMask);
             imwrite("debug_frames/mask_processing/doubles_mask_" + to_string(camera_idx) + ".jpg", result.doublesMask);
             imwrite("debug_frames/mask_processing/triples_mask_" + to_string(camera_idx) + ".jpg", result.triplesMask);
