@@ -177,11 +177,26 @@ namespace debug
             return cv::Mat();
 
         int numCams = min(3, (int)frames.size());
-        int frameWidth = frames[0].cols;
-        int frameHeight = frames[0].rows;
+
+        // #798: take the geometry from the first slot that has a frame, not from slot 0,
+        // which may be a camera that failed to read.
+        const Mat *reference = nullptr;
+        for (int i = 0; i < numCams; i++)
+        {
+            if (!frames[i].empty())
+            {
+                reference = &frames[i];
+                break;
+            }
+        }
+        if (!reference)
+            return cv::Mat();
+
+        int frameWidth = reference->cols;
+        int frameHeight = reference->rows;
 
         // Horizontal layout: [Cam0][Cam1][Cam2]
-        Mat combined(frameHeight, frameWidth * numCams, frames[0].type());
+        Mat combined(frameHeight, frameWidth * numCams, reference->type());
 
         for (int i = 0; i < numCams; i++)
         {
@@ -202,7 +217,7 @@ namespace debug
             {
                 // put black frame
                 Rect roi(i * frameWidth, 0, frameWidth, frameHeight);
-                Mat blackFrame = Mat::zeros(frameHeight, frameWidth, frames[0].type());
+                Mat blackFrame = Mat::zeros(frameHeight, frameWidth, reference->type());
                 blackFrame.copyTo(combined(roi));
             }
         }

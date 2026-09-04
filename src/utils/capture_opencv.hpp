@@ -11,6 +11,12 @@
 
 namespace camera
 {
+    inline int odEnvInt(const char *name, int fallback)
+    {
+        const char *v = std::getenv(name);
+        return (v && *v) ? std::atoi(v) : fallback;
+    }
+
     // The OpenCV-backed capture source. On Linux it opens devices with CAP_V4L2 and
     // negotiates MJPEG; a path that looks like a video file is opened with OpenCV's
     // default backend. A Windows implementation is a sibling of this class and nothing
@@ -126,6 +132,18 @@ namespace camera
 
         std::vector<Frame> read() override
         {
+            // ---- #798 instrumentation: fault injection + drop reporting. NOT a fix. ----
+            // It forces one named camera's read to fail on a schedule, so that a marked
+            // slot can be produced on footage that never drops one. It moved here with
+            // the seam; it used to live in captureFrames.
+            static long od_cycle = 0;
+            static const int od_drop_cam = odEnvInt("OD_DROP_CAM", -1);
+            static const int od_drop_every = odEnvInt("OD_DROP_EVERY", 0);
+            static const int od_report_every = odEnvInt("OD_REPORT_EVERY", 0);
+            static long od_short_cycles = 0;
+            od_cycle++;
+            const bool od_inject = (od_drop_every > 0 && (od_cycle % od_drop_every) == 0);
+
             std::vector<Frame> frames(captures_.size());
 
             for (size_t i = 0; i < captures_.size(); i++)
@@ -135,6 +153,12 @@ namespace camera
 
                 cv::Mat image;
                 bool success = captures_[i].read(image);
+
+                if (od_inject && static_cast<int>(i) == od_drop_cam)
+                {
+                    success = false;
+                    image.release();
+                }
 
                 // The acquisition instant, taken from the backend, immediately after the
                 // frame is in hand. This is the camera's own clock, not the loop's.
@@ -159,8 +183,27 @@ namespace camera
                 else
                 {
                     // The slot stays, marked, so that a camera's position never changes.
-                    log_error("Failed to capture frame from camera " + log_string(i + 1));
+                    log_error("Failed to capture frame from camera " + log_string(i + 1) + " - slot marked unavailable");
+                    frames[i].pos_ms = pos_ms;
                     frames[i].returned_ns = now_ns;
+                }
+            }
+
+            // #798's drop report: a cycle that lost a slot says so, by camera and by
+            // stream position, because nothing else in the program ever did.
+            {
+                std::string pos;
+                for (size_t i = 0; i < frames.size(); i++)
+                    pos += (i ? "," : "") + std::to_string((long)frames[i].pos_ms);
+                const size_t have = validCount(frames);
+                if (have != captures_.size())
+                {
+                    od_short_cycles++;
+                    log_error("CAPDROP cycle=" + std::to_string(od_cycle) + " returned=" + std::to_string(have) + "/" + std::to_string(captures_.size()) + " pos_ms=[" + pos + "]");
+                }
+                if (od_report_every > 0 && (od_cycle % od_report_every) == 0)
+                {
+                    log_info("CAPSTAT cycle=" + std::to_string(od_cycle) + " returned=" + std::to_string(have) + "/" + std::to_string(captures_.size()) + " short_so_far=" + std::to_string(od_short_cycles) + " pos_ms=[" + pos + "]");
                 }
             }
 

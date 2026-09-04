@@ -39,7 +39,7 @@ namespace motion_processing
 
             for (const auto &frame : current_frames)
             {
-                previous_frames.push_back(frame.clone());
+                previous_frames.push_back(frame.clone()); // an unavailable slot stays empty and self-heals
             }
 
             initialized = true;
@@ -113,10 +113,13 @@ namespace motion_processing
             motion_data[i].motion_detected = (motion_ratio > params.threshold_ratio);
         }
 
-        // Update previous frames for next iteration
+        // Update previous frames for next iteration.
+        // #798: a camera that did not answer keeps the last frame it really produced,
+        // so the next comparison is against a real image rather than against nothing.
         for (size_t i = 0; i < current_frames.size(); i++)
         {
-            previous_frames[i] = current_frames[i].clone();
+            if (!current_frames[i].empty())
+                previous_frames[i] = current_frames[i].clone();
         }
 
         if (debug_mode)
@@ -141,15 +144,21 @@ namespace motion_processing
         // Calculate overall motion intensity (average across all cameras)
         double total_intensity = 0.0;
         int cameras_with_motion = 0;
+        int cameras_answering = 0;
 
-        for (const auto &data : motion_data)
+        for (size_t i = 0; i < motion_data.size(); i++)
         {
-            total_intensity += data.motion_ratio;
-            if (data.motion_detected)
+            // #798: a camera that produced no frame did not say "no motion".
+            if (i < current_frames.size() && current_frames[i].empty())
+                continue;
+
+            cameras_answering++;
+            total_intensity += motion_data[i].motion_ratio;
+            if (motion_data[i].motion_detected)
                 cameras_with_motion++;
         }
 
-        double current_intensity = total_intensity / motion_data.size();
+        double current_intensity = cameras_answering > 0 ? total_intensity / cameras_answering : 0.0;
 
         // Initialize cameras_spiked vector if needed
         if (cameras_spiked.size() != motion_data.size())

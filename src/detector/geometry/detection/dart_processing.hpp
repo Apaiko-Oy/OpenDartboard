@@ -44,6 +44,7 @@ namespace dart_processing
         Point2f tip_position = Point2f(-1, -1);    // Position of dart tip if found
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame
+        bool frame_available = true;               // #798: did this camera contribute any frame to the window
     };
 
     // Result of dart state detection

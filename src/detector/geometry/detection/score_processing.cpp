@@ -195,6 +195,16 @@ namespace score_processing
 
             for (size_t i = 0; i < dart_result.camera_results.size(); i++)
             {
+                // #798: no frame from this camera in the window, so calibrations[i] has
+                // nothing to score. It abstains rather than contributing a MISS.
+                if (!dart_result.camera_results[i].frame_available)
+                {
+                    log_warning("Camera " + to_string(i) + " score: ABSTAIN (no frame captured)");
+                    if (debug_mode)
+                        points_on_screen.push_back(Mat());
+                    continue;
+                }
+
                 log_debug("-------");
                 string score_test = getScoreAtPoint(dart_result.camera_results[i].tip_position, calibrations[i]);
                 log_debug("-------");

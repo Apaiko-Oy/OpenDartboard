@@ -20,7 +20,8 @@ namespace dart_processing
     // Frame averaging state machine - OPTIMIZED
     static bool collecting_frames = false;
     static vector<Mat> accumulated_frames; // Pre-computed sum per camera (CV_32F)
-    static int frames_collected = 0;
+    static int frames_collected = 0;       // cycles in the window
+    static vector<int> frames_accumulated; // #798: frames each camera really contributed
 
     // Working backgrounds - one per camera
     static vector<Mat> working_backgrounds;
@@ -239,6 +240,7 @@ namespace dart_processing
         if (!initialized)
         {
             accumulated_frames.resize(current_frames.size());
+            frames_accumulated.assign(current_frames.size(), 0);
             working_backgrounds.resize(current_frames.size()); // Initialize working backgrounds
 
             if (debug_mode)
@@ -259,14 +261,16 @@ namespace dart_processing
             collecting_frames = true;
             frames_collected = 0;
 
-            // Initialize accumulated frames to zero
+            // Initialize accumulated frames to zero.
+            // #798: a camera whose slot is marked still gets its accumulator zeroed, sized
+            // from its own background, so it can join the rest of the window.
+            frames_accumulated.assign(current_frames.size(), 0);
             for (size_t i = 0; i < current_frames.size(); i++)
             {
-                if (!current_frames[i].empty())
+                const Mat &reference = !current_frames[i].empty() ? current_frames[i] : (i < background_frames.size() ? background_frames[i] : current_frames[i]);
+                if (!reference.empty())
                 {
-                    Mat gray;
-                    cvtColor(current_frames[i], gray, COLOR_BGR2GRAY);
-                    accumulated_frames[i] = Mat::zeros(gray.size(), CV_32F);
+                    accumulated_frames[i] = Mat::zeros(reference.size(), CV_32F);
                 }
             }
             // log_info("Motion finished - starting frame collection");
@@ -277,12 +281,13 @@ namespace dart_processing
             // Add current frames to accumulation (spreads the cost across frames)
             for (size_t i = 0; i < current_frames.size(); i++)
             {
-                if (!current_frames[i].empty())
+                if (!current_frames[i].empty() && !accumulated_frames[i].empty())
                 {
                     Mat current_gray, float_frame;
                     cvtColor(current_frames[i], current_gray, COLOR_BGR2GRAY);
                     current_gray.convertTo(float_frame, CV_32F);
                     accumulated_frames[i] += float_frame; // Accumulate sum
+                    frames_accumulated[i]++;              // #798: per-camera divisor
                 }
             }
             frames_collected++;
@@ -315,12 +320,28 @@ namespace dart_processing
 
         for (size_t i = 0; i < current_frames.size(); i++)
         {
+            // #798: a camera that contributed nothing to this window has no average to
+            // take. It abstains: no state, no tip, and no vote - rather than being
+            // divided by a count of frames it never supplied.
+            if (i >= frames_accumulated.size() || frames_accumulated[i] == 0 ||
+                accumulated_frames[i].empty() || i >= background_frames.size() || background_frames[i].empty())
+            {
+                result.camera_results[i].frame_available = false;
+                log_warning("DART: camera " + to_string(i) + " contributed no frames to this window - abstaining");
+                if (debug_mode)
+                {
+                    dart_diffs.push_back(Mat());
+                    dart_threshs.push_back(Mat());
+                    dart_thresh_diffs.push_back(Mat());
+                }
+                continue;
+            }
 
             Mat background_gray;
             cvtColor(background_frames[i], background_gray, COLOR_BGR2GRAY);
 
             Mat averaged_frame;
-            accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_collected);
+            accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_accumulated[i]);
 
             // Calculate difference from background
             Mat diff;
@@ -505,6 +526,9 @@ namespace dart_processing
         // Loop through all cameras once
         for (size_t i = 0; i < result.camera_results.size(); i++)
         {
+            if (!result.camera_results[i].frame_available)
+                continue; // #798: an abstaining camera is not a vote for anything
+
             if (result.camera_results[i].detected_state == DartBoardState::CLEAN)
             {
                 goes_clean++;
