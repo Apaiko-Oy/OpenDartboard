@@ -53,9 +53,9 @@ struct DetectorResult {
 class DetectorInterface {
 public:
     virtual ~DetectorInterface() = default;
-    virtual bool initialize(std::vector<cv::VideoCapture>& cameras) = 0;
+    virtual bool initialize(const std::vector<camera::Frame>& calibration_frames, double capture_fps) = 0;
     virtual bool isInitialized() const = 0;
-    virtual DetectorResult process(const std::vector<cv::Mat>& frames) = 0;
+    virtual DetectorResult process(const std::vector<camera::Frame>& frames) = 0;
 };
 ```
 
@@ -70,9 +70,9 @@ public:
     MyCoolDetector(bool debug_mode, int width, int height, int fps);
     virtual ~MyCoolDetector() = default;
 
-    virtual bool initialize(std::vector<cv::VideoCapture>& cameras) override;
+    virtual bool initialize(const std::vector<camera::Frame>& calibration_frames, double capture_fps) override;
     virtual bool isInitialized() const override;
-    virtual DetectorResult process(const std::vector<cv::Mat>& frames) override;
+    virtual DetectorResult process(const std::vector<camera::Frame>& frames) override;
 
 private:
     bool initialized = false;
@@ -97,7 +97,7 @@ MyCoolDetector::MyCoolDetector(bool debug_mode, int width, int height, int fps)
     : debug_mode(debug_mode), target_width(width), target_height(height), target_fps(fps) {
 }
 
-bool MyCoolDetector::initialize(std::vector<cv::VideoCapture>& cameras) {
+bool MyCoolDetector::initialize(const std::vector<camera::Frame>& calibration_frames, double capture_fps) {
     // Your calibration/initialization logic here
     // Return true if successful
     initialized = true;
@@ -204,7 +204,7 @@ public:
                                           "detectors/YOLO/yolo.weights");
     }
 
-    bool initialize(std::vector<cv::VideoCapture>& cameras) override {
+    bool initialize(const std::vector<camera::Frame>& calibration_frames, double capture_fps) override {
         initialized = !net.empty();
         return initialized;
     }
@@ -213,7 +213,7 @@ public:
         return initialized;
     }
 
-    DetectorResult process(const std::vector<cv::Mat>& frames) override {
+    DetectorResult process(const std::vector<camera::Frame>& frames) override {
         DetectorResult result;
 
         for (size_t i = 0; i < frames.size(); i++) {
@@ -259,7 +259,7 @@ public:
         dartTemplate = cv::imread("detectors/Template/dart_template.jpg", 0);
     }
 
-    DetectorResult process(const std::vector<cv::Mat>& frames) override {
+    DetectorResult process(const std::vector<camera::Frame>& frames) override {
         DetectorResult result;
 
         for (size_t i = 0; i < frames.size(); i++) {

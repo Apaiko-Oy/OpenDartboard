@@ -17,28 +17,33 @@ GeometryDetector::GeometryDetector(bool debug_mode, int target_width, int target
 }
 
 // Main process method - simplified to basic structure
-DetectorResult GeometryDetector::process(const vector<Mat> &frames)
+DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
 {
+    // The three vision stages read a camera's position in this vector as its identity, so
+    // the images are handed down in their own slots; a camera that did not produce a frame
+    // leaves an empty Mat where its image would be.
+    const vector<Mat> images = camera::images(frames);
+
 #ifdef DEBUG_VIA_VIDEO_INPUT
-    if (!frames.empty())
+    if (!images.empty())
     {
-        Mat combined_raw = debug::createCombinedFrame(frames, "RAW");
+        Mat combined_raw = debug::createCombinedFrame(images, "RAW");
         raw_streamer->push(combined_raw);
     }
 #endif
 
     DetectorResult result;
 
-    if (!calibrated || frames.empty())
+    if (!calibrated || camera::validCount(frames) == 0)
     {
         return result;
     }
 
     // Process motion session - all motion logic is now handled in motion_processing
-    motion_processing::MotionResult motion_result = motion_processing::processMotion(frames, background_frames, debug_mode);
+    motion_processing::MotionResult motion_result = motion_processing::processMotion(images, background_frames, debug_mode);
 
     // Process dart state detection
-    dart_processing::DartStateResult dart_result = dart_processing::processDartState(frames, background_frames, motion_result.motion_finished, debug_mode);
+    dart_processing::DartStateResult dart_result = dart_processing::processDartState(images, background_frames, motion_result.motion_finished, debug_mode);
 
     // Process scoring using the new scoring system
     score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode);
@@ -51,17 +56,19 @@ DetectorResult GeometryDetector::process(const vector<Mat> &frames)
         result.position = score_result.pixel_position;
         result.confidence = score_result.confidence;
         result.camera_index = score_result.camera_index;
+        // The instant the frames behind this score were acquired, from the backend.
+        result.timestamp = camera::newestInstantUs(frames);
     }
 
     return result;
 }
 
 // Main initialization method
-bool GeometryDetector::initialize(vector<VideoCapture> &cameras)
+bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frames, double capture_fps)
 {
 #ifdef DEBUG_VIA_VIDEO_INPUT
     // Initialize multiple debug streamers
-    raw_streamer = make_unique<streamer>(8081, cameras[0].get(cv::CAP_PROP_FPS));
+    raw_streamer = make_unique<streamer>(8081, capture_fps);
     cv::Mat startup_img_raw(target_height, target_width, CV_8UC3, cv::Scalar::all(0));
     cv::putText(startup_img_raw, "Raw Cameras", {50, 100}, cv::FONT_HERSHEY_SIMPLEX, 1.2, {0, 255, 0}, 2);
 #endif
@@ -82,10 +89,9 @@ bool GeometryDetector::initialize(vector<VideoCapture> &cameras)
         return true;
     }
 
-    log_info("Capturing frames for calibration...");
-    vector<Mat> initial_frames = camera::captureAndAverageFrames(cameras, 30); // Capture 75 frames for averaging
+    vector<Mat> initial_frames = camera::images(calibration_frames);
 
-    if (!initial_frames.empty())
+    if (camera::validCount(calibration_frames) > 0)
     {
         log_info("Performing immediate calibration...");
 

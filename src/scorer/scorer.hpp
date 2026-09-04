@@ -4,6 +4,7 @@
 #include <atomic>
 #include <opencv2/opencv.hpp>
 #include "detector/detector_interface.hpp"
+#include "../utils/capture.hpp"
 #include "../communication/websocket_service.hpp"
 #include "../communication/score_queue.hpp"
 #include <memory>
@@ -32,8 +33,8 @@ private:
   bool debug_display;
   string detector_type_name;
 
-  // Hardware
-  vector<cv::VideoCapture> cameras;
+  // Hardware, behind the seam
+  std::unique_ptr<camera::CaptureSource> capture;
   std::unique_ptr<DetectorInterface> detector;
 
   // Simple control

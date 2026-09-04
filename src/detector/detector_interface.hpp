@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <opencv2/opencv.hpp>
+#include "../utils/frame.hpp"
 
 using namespace cv;
 using namespace std;
@@ -30,12 +31,13 @@ class DetectorInterface
 public:
     virtual ~DetectorInterface() = default;
 
-    // Initialize the detector
-    virtual bool initialize(vector<VideoCapture> &cameras) = 0;
+    // Initialize the detector. A detector is given the frames it calibrates on and the
+    // rate they arrive at; it is not given the device they came from.
+    virtual bool initialize(const vector<camera::Frame> &calibration_frames, double capture_fps) = 0;
 
     // Whether the detector is ready
     virtual bool isInitialized() const = 0;
 
     // Process frames and return detection results
-    virtual DetectorResult process(const vector<Mat> &frames) = 0;
+    virtual DetectorResult process(const vector<camera::Frame> &frames) = 0;
 };

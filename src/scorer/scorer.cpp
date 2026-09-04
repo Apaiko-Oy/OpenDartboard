@@ -23,7 +23,8 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520);
 
     // Initialize cameras
-    if (!camera::initializeCameras(cameras, camera_sources, width, height, fps))
+    capture = camera::makeCaptureSource();
+    if (!capture->open(camera_sources, width, height, fps))
     {
         log_error("Failed to initialize cameras");
         return;
@@ -32,8 +33,13 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     // Create detector
     detector = DetectorFactory::createDetector(detector_type_name, debug_display, width, height, fps);
 
+    // Acquire the frames the detector calibrates on. The detector is handed frames; it is
+    // not handed the capture.
+    log_info("Capturing frames for calibration...");
+    vector<camera::Frame> calibration_frames = capture->readAveraged(30);
+
     // Initialize detector
-    if (!detector->initialize(cameras))
+    if (!detector->initialize(calibration_frames, capture->nominalFps()))
     {
         log_error("Failed to initialize detector.");
     }
@@ -59,6 +65,11 @@ void Scorer::sendResult(const DetectorResult &result)
     score_queue_->push(result);
 
     // Keep logging for debug
+    if (result.dart_detected && getenv("OD_CAPSEAM"))
+    {
+        log_info("CAPSEAM result timestamp_us=" + to_string(result.timestamp) + " score=" + result.score);
+    }
+
     if (result.dart_detected)
     {
         log_info("SCORE: " + result.score +
@@ -90,11 +101,16 @@ void Scorer::run()
     log_info("Using detector: " + detector_type_name);
     cout << "-------------------------------------" << endl;
 
-    // ---- i803 instrumentation: a cycle budget, so two runs stop on the same frame ----
+    // ---- harness, not upstream: one cycle budget, so two runs stop on the same frame.
+    // #803 opened it, #802 wrote a second one over the seam; they are one here. ----
     const char *max_cycles_env = getenv("OD_MAX_CYCLES");
     const long max_cycles = max_cycles_env ? atol(max_cycles_env) : 0;
     long cycles = 0;
     auto loop_started = chrono::steady_clock::now();
+    // The last stream/acquisition position each camera reported, so the budget line can
+    // say which frame the run stopped on. #803 read it off the VideoCapture; behind the
+    // seam it is the Frame's own.
+    vector<long> last_pos_ms;
 
     while (running)
     {
@@ -105,10 +121,11 @@ void Scorer::run()
                  << " loop_ms=" << loop_ms
                  << " ensure_calls=" << odfs::ensure_calls.load()
                  << " ensure_failures=" << odfs::ensure_failures.load() << endl;
-            for (size_t c = 0; c < cameras.size(); c++)
+            for (size_t c = 0; c < last_pos_ms.size(); c++)
             {
-                cout << "[i803] cam " << c << " pos_ms=" << (long)cameras[c].get(cv::CAP_PROP_POS_MSEC) << endl;
+                cout << "[i803] cam " << c << " pos_ms=" << last_pos_ms[c] << endl;
             }
+            log_info("HARNESS cycle budget reached: " + to_string(cycles));
             break;
         }
         cycles++;
@@ -117,8 +134,13 @@ void Scorer::run()
         auto start_time = chrono::steady_clock::now();
 
         // 1. Capture frames
-        vector<cv::Mat> frames = camera::captureFrames(cameras);
-        if (!frames.empty())
+        vector<camera::Frame> frames = capture->read();
+        last_pos_ms.assign(frames.size(), -1);
+        for (size_t c = 0; c < frames.size(); c++)
+        {
+            last_pos_ms[c] = (long)frames[c].pos_ms;
+        }
+        if (camera::validCount(frames) > 0)
         {
             // 2. Process frames by the detector
             DetectorResult result = detector->process(frames);

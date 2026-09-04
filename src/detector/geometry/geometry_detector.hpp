@@ -16,11 +16,11 @@ public:
     GeometryDetector(bool debug_mode, int target_width, int target_height, int target_fps);
     virtual ~GeometryDetector() = default;
 
-    virtual bool initialize(vector<VideoCapture> &cameras) override;
+    virtual bool initialize(const vector<camera::Frame> &calibration_frames, double capture_fps) override;
     virtual bool isInitialized() const override { return initialized; }
 
     // Process method that handles motion + detection
-    virtual DetectorResult process(const vector<Mat> &frames) override;
+    virtual DetectorResult process(const vector<camera::Frame> &frames) override;
 
 protected:
     bool initialized;
