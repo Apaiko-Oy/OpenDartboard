@@ -31,7 +31,8 @@ public:
           lastReport_(std::chrono::steady_clock::now())
     {
         odnet::startup();
-        std::cout << "[streamer] start on port " << port_ << ", fps " << fps << '\n';
+        std::cout << "[streamer] start on " << odnet::loopbackName() << ':' << port_
+                  << ", fps " << fps << '\n';
         srvThread_ = std::thread([this]
                                  { serve(); });
     }
@@ -103,13 +104,12 @@ private:
         int one = 1;
         ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&one), sizeof(one));
 
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port = ::htons(port_);
-        addr.sin_addr.s_addr = ::htonl(INADDR_ANY);
-        if (::bind(srv, reinterpret_cast<sockaddr *>(&addr), sizeof addr) != 0)
+        // #824: loopback, structurally. bindLoopbackOnly takes no address, so this
+        // call site has no way to name a routable one — see od_socket.hpp.
+        if (!odnet::bindLoopbackOnly(srv, port_))
         {
-            std::cout << "[streamer] bind() failed on port " << port_ << '\n';
+            std::cout << "[streamer] bind() failed on " << odnet::loopbackName()
+                      << ':' << port_ << '\n';
             odnet::closeSocket(srv);
             return;
         }

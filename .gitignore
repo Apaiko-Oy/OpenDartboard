@@ -9,4 +9,8 @@ docker-build.log
 /debug_frames
 .DS_Store
 /cache
-todo.md
+todo.md/build-rel
+/build-win
+/build-win-dev
+/build-win-static
+/build-win-static-dev

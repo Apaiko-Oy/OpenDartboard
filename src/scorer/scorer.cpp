@@ -1,6 +1,7 @@
 #include "scorer.hpp"
 #include "logging.hpp"
 #include "utils.hpp"
+#include "utils/debug.hpp"
 #include "detector/detector_factory.hpp"
 #include "communication/websocket_service.hpp"
 #include "communication/score_queue.hpp"
@@ -19,12 +20,23 @@
 using namespace std;
 using namespace cv;
 
-Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> &cams, bool debug_mode, const string &detector_type)
-    : model_path(model), width(w), height(h), fps(fps), camera_sources(cams), debug_display(debug_mode), detector_type_name(detector_type)
+Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> &cams, bool debug_mode, const string &detector_type, bool setup_mode)
+    : model_path(model), width(w), height(h), fps(fps), camera_sources(cams), debug_display(debug_mode), detector_type_name(detector_type), setup_mode(setup_mode)
 {
     // Initialize score queue and WebSocket service
     score_queue_ = std::make_shared<ScoreQueue>();
-    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520);
+    // #824: --setup publishes nothing. The decision, and the reason, is in main.cpp;
+    // what it means here is that the service is never constructed, so its listener on
+    // 13520 — the one this program opens on 0.0.0.0 in every build — is not opened
+    // either. A setup run holds exactly one listener and it is on loopback.
+    if (!setup_mode)
+    {
+        websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520);
+    }
+    else
+    {
+        log_info("SETUP MODE: scores are not published; the WebSocket service is not started");
+    }
 
     // Initialize cameras
     capture = camera::makeCaptureSource();
@@ -91,14 +103,33 @@ void Scorer::sendResult(const DetectorResult &result)
 
 void Scorer::run()
 {
-    if (!detector->isInitialized())
+    // #824: a detector that could not calibrate is fatal to scoring and is exactly the
+    // state a person opening --setup is in — the board has not been found yet, which is
+    // why they want to look. So setup runs the loop anyway and shows the frames; only
+    // detection is skipped until the detector says it is ready.
+    if (!detector->isInitialized() && !setup_mode)
     {
         log_error("Detector not initialized - cannot run");
         return;
     }
+    if (!detector->isInitialized())
+    {
+        log_warning("SETUP MODE: the detector did not initialise (no calibration). "
+                    "Showing the camera feeds anyway - that is what --setup is for.");
+    }
 
-    // Start WebSocket service
-    websocket_service_->start();
+    if (setup_mode)
+    {
+        // The address is not named here and cannot be: see od_socket.hpp.
+        setup_streamer_ = make_unique<streamer>(8081, fps > 0 ? fps : 15);
+        log_info("SETUP VIEW: open http://127.0.0.1:8081/ in a browser on this machine. "
+                 "Ctrl+C stops it and releases the cameras.");
+    }
+    else
+    {
+        // Start WebSocket service
+        websocket_service_->start();
+    }
 
     running = true;
     // #815: the stream's own period, if camera.hpp already took one, wins over --fps.
@@ -173,7 +204,18 @@ void Scorer::run()
         {
             last_pos_ms[c] = (long)frames[c].pos_ms;
         }
-        if (camera::validCount(frames) > 0)
+        // #824: the setup view, pushed before anything else looks at the frames and
+        // whether or not the detector is ready. What it shows is the raw feeds side by
+        // side and nothing drawn on them — see the note in main.cpp on why the
+        // calibration overlay is a different question and is not this.
+        if (setup_streamer_ && camera::validCount(frames) > 0)
+        {
+            Mat setup_view = debug::createCombinedFrame(camera::images(frames), "SETUP");
+            if (!setup_view.empty())
+                setup_streamer_->push(setup_view);
+        }
+
+        if (camera::validCount(frames) > 0 && detector->isInitialized())
         {
             // 2. Process frames by the detector
             DetectorResult result = detector->process(frames);

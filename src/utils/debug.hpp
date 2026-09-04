@@ -53,6 +53,8 @@ namespace debug
         std::cout << "  --height <height>    Frame height (default: 720)\n";
         std::cout << "  --fps <fps>          Frames per second (default: 15)\n";
         std::cout << "  --detector <type>    Detector type: geometry, ai, custom (default: geometry)\n";
+        std::cout << "  --setup              Show what each camera sees at http://127.0.0.1:8081/ (loopback only).\n";
+        std::cout << "                       Publishes no scores. Ctrl+C releases the cameras.\n";
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
         std::cout << "  --version            Show version information\n";
