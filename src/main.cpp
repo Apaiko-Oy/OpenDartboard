@@ -24,7 +24,11 @@ int main(int argc, char **argv)
     debug::printHelpAndExit();
 
   // Parse command line arguments with defaults
+#ifdef _WIN32
+  string model_path = getArg(argc, argv, "--model", "models/dart.param");
+#else
   string model_path = getArg(argc, argv, "--model", "/usr/local/share/opendartboard/models/dart.param");
+#endif
   bool useAuto = hasFlag(argc, argv, "--autocams");
   int width = getArg(argc, argv, "--width", 1280);
   int height = getArg(argc, argv, "--height", 720);
@@ -58,7 +62,12 @@ int main(int argc, char **argv)
   }
   else
   {
+#ifdef _WIN32
+    // Media Foundation has no filesystem name for a camera, so a device is an index.
+    cams = getArgVector(argc, argv, "--cams", "0,1,2");
+#else
     cams = getArgVector(argc, argv, "--cams", "/dev/video0,/dev/video1,/dev/video2");
+#endif
   }
 
   debug::printConfig(width, height, fps, model_path, cams);

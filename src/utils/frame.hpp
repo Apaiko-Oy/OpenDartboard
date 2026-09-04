@@ -25,7 +25,7 @@ namespace camera
         int index = -1;                                 // which camera this slot is, always
         double pos_ms = -1.0;                           // CAP_PROP_POS_MSEC as the backend reported it
         CaptureClock clock = CaptureClock::Unknown;     // what pos_ms means
-        int64_t anchor_ns = 0;                          // host steady_clock at this camera's first frame
+        int64_t anchor_ns = 0;                          // host steady_clock instant at which this camera's clock reads zero
         int64_t returned_ns = 0;                        // host steady_clock when read() returned: decode, not capture
 
         bool empty() const { return !valid || image.empty(); }

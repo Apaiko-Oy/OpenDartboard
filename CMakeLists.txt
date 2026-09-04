@@ -29,7 +29,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json httplib)
 
 # Tell CMake where the static ncnn & OpenCV we just built/installed live.
-set(CMAKE_PREFIX_PATH "/usr/local" ${CMAKE_PREFIX_PATH})
+# /usr/local is a Linux answer; on Windows OpenCV is found through OpenCV_DIR or
+# CMAKE_PREFIX_PATH given on the command line.
+if(NOT WIN32)
+    set(CMAKE_PREFIX_PATH "/usr/local" ${CMAKE_PREFIX_PATH})
+endif()
 
 # Find threads package for threading support
 find_package(Threads REQUIRED)
@@ -37,13 +41,17 @@ find_package(Threads REQUIRED)
 # Use pkg-config to find OpenCV if standard find_package fails
 find_package(OpenCV QUIET)
 if(NOT OpenCV_FOUND)
+    # pkg-config is the Linux fallback only. On Windows find_package is the whole
+    # story and a failure here should say so rather than look for a tool that is
+    # not part of the toolchain.
+    if(WIN32)
+        message(FATAL_ERROR "OpenCV not found. Pass -DOpenCV_DIR=<path containing OpenCVConfig.cmake>")
+    endif()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(OPENCV REQUIRED opencv4)
     set(OpenCV_INCLUDE_DIRS ${OPENCV_INCLUDE_DIRS})
     set(OpenCV_LIBS ${OPENCV_LIBRARIES})
 endif()
-
-find_package(PkgConfig REQUIRED)
 
 add_executable(opendartboard
     src/main.cpp
@@ -73,14 +81,18 @@ add_executable(opendartboard
 
 # Add include directories for easier includes
 target_include_directories(opendartboard PRIVATE
-    /usr/local/include
     ${OpenCV_INCLUDE_DIRS}
     ${NCNN_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
-    /usr/include/opencv4  # Add explicit path to OpenCV headers
     ${httplib_SOURCE_DIR}  # Add httplib include path (not libwebsockets)
 )
+
+# /usr/local/include and /usr/include/opencv4 were unconditional. They are dead on
+# Windows, and find_package/pkg-config already answer for them on Linux.
+if(NOT WIN32)
+    target_include_directories(opendartboard PRIVATE /usr/local/include /usr/include/opencv4)
+endif()
 
 target_link_libraries(opendartboard
     PRIVATE
@@ -96,5 +108,30 @@ target_compile_definitions(opendartboard
   PRIVATE
     APP_VERSION="${APP_VERSION}"
 )
+
+# ---------------------------------------------------------------- Windows
+# Media Foundation is what CAP_MSMF and --autocams talk to, and ws2_32 is the
+# debug MJPEG streamer's sockets. ${CMAKE_DL_LIBS} above is already the portable
+# spelling and resolves to nothing here.
+if(WIN32)
+    target_link_libraries(opendartboard PRIVATE mfplat mf mfreadwrite mfuuid ole32 ws2_32)
+    target_compile_definitions(opendartboard PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        _CRT_SECURE_NO_WARNINGS
+        _WINSOCK_DEPRECATED_NO_WARNINGS
+    )
+endif()
+
+if(MSVC)
+    # The sources are UTF-8 and MSVC assumes the active code page without this.
+    # /FI puts the Windows SDK ahead of OpenCV in every translation unit; the
+    # header says why that is load-bearing rather than tidy.
+    # /EHsc is stated here rather than left to CMAKE_CXX_FLAGS, because the build
+    # passes OD_DEFS through that variable and overwriting it drops CMake's own
+    # default flags — of which /EHsc is the one whose absence turns every use of
+    # std::ostream in a template into warning C4530 and then a failed build.
+    target_compile_options(opendartboard PRIVATE /utf-8 /bigobj /EHsc /FIod_platform_first.hpp)
+endif()
 
 target_compile_features(opendartboard PRIVATE cxx_std_17)

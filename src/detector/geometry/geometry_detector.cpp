@@ -25,7 +25,7 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
     const vector<Mat> images = camera::images(frames);
 
 #ifdef DEBUG_VIA_VIDEO_INPUT
-    if (!images.empty())
+    if (!images.empty() && raw_streamer)
     {
         Mat combined_raw = debug::createCombinedFrame(images, "RAW");
         raw_streamer->push(combined_raw);
@@ -67,8 +67,10 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
 bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frames, double capture_fps)
 {
 #ifdef DEBUG_VIA_VIDEO_INPUT
-    // Initialize multiple debug streamers
-    raw_streamer = make_unique<streamer>(8081, capture_fps);
+    // #812: the raw camera feed. It was behind the build define alone, so a dev
+    // build opened it with no --debug on the command line. Both, now.
+    if (debug_mode)
+        raw_streamer = make_unique<streamer>(8081, capture_fps);
     cv::Mat startup_img_raw(target_height, target_width, CV_8UC3, cv::Scalar::all(0));
     cv::putText(startup_img_raw, "Raw Cameras", {50, 100}, cv::FONT_HERSHEY_SIMPLEX, 1.2, {0, 255, 0}, 2);
 #endif

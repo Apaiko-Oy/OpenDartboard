@@ -286,10 +286,18 @@ namespace logging
     }
 
 // Smart macros that auto-detect the module name
-#define LOG_ERROR(message) logging::log(message, logging::LogLevel::ERROR, logging::extractModuleName(__PRETTY_FUNCTION__))
-#define LOG_WARNING(message) logging::log(message, logging::LogLevel::WARNING, logging::extractModuleName(__PRETTY_FUNCTION__))
-#define LOG_INFO(message) logging::log(message, logging::LogLevel::INFO, logging::extractModuleName(__PRETTY_FUNCTION__))
-#define LOG_DEBUG(message) logging::log(message, logging::LogLevel::DEBUG, logging::extractModuleName(__PRETTY_FUNCTION__))
+// __PRETTY_FUNCTION__ is a GCC/Clang extension; MSVC spells it __FUNCSIG__. The
+// module name in every log line is parsed out of it, so this is not cosmetic.
+#ifdef _MSC_VER
+#define OD_FUNCTION_SIGNATURE __FUNCSIG__
+#else
+#define OD_FUNCTION_SIGNATURE __PRETTY_FUNCTION__
+#endif
+
+#define LOG_ERROR(message) logging::log(message, logging::LogLevel::ERROR, logging::extractModuleName(OD_FUNCTION_SIGNATURE))
+#define LOG_WARNING(message) logging::log(message, logging::LogLevel::WARNING, logging::extractModuleName(OD_FUNCTION_SIGNATURE))
+#define LOG_INFO(message) logging::log(message, logging::LogLevel::INFO, logging::extractModuleName(OD_FUNCTION_SIGNATURE))
+#define LOG_DEBUG(message) logging::log(message, logging::LogLevel::DEBUG, logging::extractModuleName(OD_FUNCTION_SIGNATURE))
 
 // Even simpler macros (what you wanted!)
 #define log_error(message) LOG_ERROR(message)
