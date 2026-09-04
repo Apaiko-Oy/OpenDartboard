@@ -64,4 +64,7 @@ namespace motion_processing
         bool debug_mode = false,
         const MotionParams &params = MotionParams());
 
+    // #811: write the per-cycle trace to $OD_TRACE, if set.
+    void dumpTrace();
+
 } // namespace motion_processing

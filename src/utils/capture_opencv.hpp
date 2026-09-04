@@ -2,6 +2,8 @@
 
 #include "capture.hpp"
 #include "logging.hpp"
+#include "od_clock.hpp"
+#include "od_fix.hpp"
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
@@ -45,6 +47,18 @@ namespace camera
                 {
                     log_debug("Detected video file: " + sources[i]);
                     cap.open(sources[i]);
+
+                    // #815: the frame period the spike window is converted with, taken
+                    // from the stream itself rather than from the --fps flag, when asked.
+                    if (od_fix::fpsFromStream() && cap.isOpened())
+                    {
+                        double stream_fps = cap.get(cv::CAP_PROP_FPS);
+                        if (stream_fps > 0)
+                        {
+                            od_clock::frame_period_ms() = 1000.0 / stream_fps;
+                            log_info("FRAME PERIOD from stream: " + log_string(stream_fps) + " fps -> " + log_string(od_clock::frame_period_ms()) + " ms");
+                        }
+                    }
                     clock = CaptureClock::StreamPosition;
 
 #ifdef DEBUG_SEEK_VIDEO
@@ -206,6 +220,18 @@ namespace camera
                     log_info("CAPSTAT cycle=" + std::to_string(od_cycle) + " returned=" + std::to_string(have) + "/" + std::to_string(captures_.size()) + " short_so_far=" + std::to_string(od_short_cycles) + " pos_ms=[" + pos + "]");
                 }
             }
+
+            // #811: the acquisition clock the motion state machine may be judged on.
+            // The newest position this cycle carried, monotonically.
+            for (size_t i = 0; i < frames.size(); i++)
+            {
+                if (frames[i].empty())
+                    continue;
+                long long pos = (long long)frames[i].pos_ms;
+                if (pos > od_clock::capture_ms().load())
+                    od_clock::capture_ms().store(pos);
+            }
+            od_clock::cycles().fetch_add(1);
 
             reportCycle(frames);
 

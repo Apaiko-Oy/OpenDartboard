@@ -2,6 +2,9 @@
 #include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
+#include "utils/od_clock.hpp"
+#include "utils/od_fix.hpp"
+#include <cstdio>
 
 using namespace cv;
 using namespace std;
@@ -17,11 +20,29 @@ namespace motion_processing
 
     // Event-based dart detection state
     static DartEventState current_state = DartEventState::IDLE;
-    static chrono::steady_clock::time_point event_start_time;
-    static chrono::steady_clock::time_point cooldown_start_time;
+    static long long event_start_time = 0;
+    static long long cooldown_start_time = 0;
     static vector<bool> cameras_spiked;
     static vector<double> intensity_history;
     static int stable_frame_count = 0;
+
+    // #811 trace. A ring-free append into memory; nothing is written until the dump,
+    // so the per-cycle cost is a push_back and the wall clock is not disturbed.
+    struct MotionTrace
+    {
+        long long cycle;
+        long long now_ms;
+        long long wall_ms;
+        long long capture_ms;
+        double intensity;
+        double r0, r1, r2;
+        int state_in;
+        int state_out;
+        long long event_ms;
+        int spiked;
+        int stable;
+    };
+    static vector<MotionTrace> motion_trace;
 
     vector<MotionData> detectMotion(const vector<Mat> &current_frames, const vector<Mat> &background_frames, bool debug_mode, const MotionParams &params)
     {
@@ -139,7 +160,8 @@ namespace motion_processing
 
         // Get motion data from all cameras
         vector<MotionData> motion_data = detectMotion(current_frames, background_frames, debug_mode, params);
-        auto now = chrono::steady_clock::now();
+        long long now = od_clock::now_ms();
+        DartEventState state_in = current_state;
 
         // Calculate overall motion intensity (average across all cameras)
         double total_intensity = 0.0;
@@ -169,7 +191,7 @@ namespace motion_processing
         // Calculate detection duration if we're in an active state
         if (current_state != DartEventState::IDLE && current_state != DartEventState::COOLDOWN)
         {
-            result.detection_duration_ms = chrono::duration_cast<chrono::milliseconds>(now - event_start_time).count();
+            result.detection_duration_ms = (int)(now - event_start_time);
         }
 
         // State machine for dart event detection
@@ -210,7 +232,13 @@ namespace motion_processing
             }
 
             int cameras_that_spiked = count(cameras_spiked.begin(), cameras_spiked.end(), true);
-            auto event_duration = chrono::duration_cast<chrono::milliseconds>(now - event_start_time).count();
+            long long event_duration = now - event_start_time;
+
+            // #815 defect 2: shipped code is `spike_window_frames * 50`, an unstated 20 fps.
+            // The fix converts the frame count with the frame period the program actually has.
+            long long spike_window_ms = od_fix::spikewin()
+                                            ? (long long)(params.spike_window_frames * od_clock::frame_period_ms())
+                                            : (long long)(params.spike_window_frames * 50);
 
             // Check if we have enough camera participation and motion is settling
             if (cameras_that_spiked >= params.min_cameras_for_event &&
@@ -221,10 +249,27 @@ namespace motion_processing
             }
             // Timeout if event takes too long or insufficient participation
             else if (event_duration > params.max_event_duration_ms ||
-                     (event_duration > params.spike_window_frames * 50 && cameras_that_spiked < params.min_cameras_for_event))
+                     (event_duration > spike_window_ms && cameras_that_spiked < params.min_cameras_for_event))
             {
+                bool safety_timeout = event_duration > params.max_event_duration_ms;
                 current_state = DartEventState::IDLE;
-                log_warning("DART EVENT: Event timeout or insufficient cameras (" + to_string(cameras_that_spiked) + "/" + to_string(params.min_cameras_for_event) + ") after " + to_string(event_duration) + "ms");
+                od_clock::timeouts(safety_timeout ? 0 : 1).fetch_add(1);
+                if (od_fix::warnsplit())
+                {
+                    // #815 defect 3: two branches, two messages.
+                    if (safety_timeout)
+                    {
+                        log_warning("DART EVENT: Abandoned - event exceeded max_event_duration_ms (" + to_string(event_duration) + "ms > " + to_string(params.max_event_duration_ms) + "ms) with " + to_string(cameras_that_spiked) + "/" + to_string(params.min_cameras_for_event) + " cameras spiked");
+                    }
+                    else
+                    {
+                        log_warning("DART EVENT: Abandoned - only " + to_string(cameras_that_spiked) + "/" + to_string(params.min_cameras_for_event) + " cameras joined the spike within the " + to_string(spike_window_ms) + "ms window (" + to_string(event_duration) + "ms elapsed)");
+                    }
+                }
+                else
+                {
+                    log_warning("DART EVENT: Event timeout or insufficient cameras (" + to_string(cameras_that_spiked) + "/" + to_string(params.min_cameras_for_event) + ") after " + to_string(event_duration) + "ms");
+                }
             }
             break;
         }
@@ -241,6 +286,13 @@ namespace motion_processing
                     current_state = DartEventState::END;
                     result.motion_finished = true;
                     int cameras_that_spiked = count(cameras_spiked.begin(), cameras_spiked.end(), true);
+                }
+                // #815 defect 1: shipped code has no break here, so control falls through
+                // into case END and the event finishes on the first settled cycle whatever
+                // stable_frame_count says. This is the missing break.
+                else if (od_fix::stability())
+                {
+                    break;
                 }
             }
             else
@@ -272,7 +324,7 @@ namespace motion_processing
 
         case DartEventState::COOLDOWN:
         {
-            auto cooldown_elapsed = chrono::duration_cast<chrono::milliseconds>(now - cooldown_start_time).count();
+            long long cooldown_elapsed = now - cooldown_start_time;
             if (cooldown_elapsed >= params.cooldown_period_ms)
             {
                 current_state = DartEventState::IDLE;
@@ -285,8 +337,44 @@ namespace motion_processing
         }
         }
 
+        {
+            MotionTrace t;
+            t.cycle = od_clock::cycles().load();
+            t.now_ms = now;
+            t.wall_ms = od_clock::wall_ms();
+            t.capture_ms = od_clock::capture_ms().load();
+            t.intensity = current_intensity;
+            t.r0 = motion_data.size() > 0 ? motion_data[0].motion_ratio : -1.0;
+            t.r1 = motion_data.size() > 1 ? motion_data[1].motion_ratio : -1.0;
+            t.r2 = motion_data.size() > 2 ? motion_data[2].motion_ratio : -1.0;
+            t.state_in = (int)state_in;
+            t.state_out = (int)current_state;
+            t.event_ms = (state_in == DartEventState::IDLE) ? 0 : (now - event_start_time);
+            t.spiked = (int)count(cameras_spiked.begin(), cameras_spiked.end(), true);
+            t.stable = stable_frame_count;
+            motion_trace.push_back(t);
+        }
+
         result.current_state = current_state;
         return result;
+    }
+
+
+
+    void dumpTrace()
+    {
+        const char *path = std::getenv("OD_TRACE");
+        if (!path)
+            return;
+        FILE *f = std::fopen(path, "w");
+        if (!f)
+            return;
+        std::fprintf(f, "cycle,now_ms,wall_ms,capture_ms,intensity,r0,r1,r2,state_in,state_out,event_ms,spiked,stable\n");
+        for (const auto &t : motion_trace)
+            std::fprintf(f, "%lld,%lld,%lld,%lld,%.6f,%.6f,%.6f,%.6f,%d,%d,%lld,%d,%d\n",
+                         t.cycle, t.now_ms, t.wall_ms, t.capture_ms, t.intensity,
+                         t.r0, t.r1, t.r2, t.state_in, t.state_out, t.event_ms, t.spiked, t.stable);
+        std::fclose(f);
     }
 
 } // namespace motion_processing

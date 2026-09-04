@@ -7,6 +7,10 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <cstdlib>
+#include "utils/od_clock.hpp"
+#include "utils/od_fix.hpp"
+#include "detector/geometry/detection/motion_processing.hpp"
 #include <random>
 #include <opencv2/opencv.hpp>
 #include <algorithm>
@@ -97,12 +101,23 @@ void Scorer::run()
     websocket_service_->start();
 
     running = true;
+    // #815: the stream's own period, if camera.hpp already took one, wins over --fps.
+    if (!od_fix::fpsFromStream())
+    {
+        od_clock::frame_period_ms() = 1000.0 / (double)(fps > 0 ? fps : 15);
+    }
+    log_info("MOTION CLOCK: " + string(od_clock::mode_name()) +
+             " frame_period_ms=" + to_string(od_clock::frame_period_ms()));
+    log_info("MOTION FIX: " + string(od_fix::selected()) +
+             " stability=" + to_string(od_fix::stability()) +
+             " spikewin=" + to_string(od_fix::spikewin()) +
+             " warnsplit=" + to_string(od_fix::warnsplit()));
     log_info("Scorer running with " + to_string(camera_sources.size()) + " cameras");
     log_info("Using detector: " + detector_type_name);
     cout << "-------------------------------------" << endl;
 
     // ---- harness, not upstream: one cycle budget, so two runs stop on the same frame.
-    // #803 opened it, #802 wrote a second one over the seam; they are one here. ----
+    // #803, #802 and #811/#815 each wrote one of these; this is the one they became. ----
     const char *max_cycles_env = getenv("OD_MAX_CYCLES");
     const long max_cycles = max_cycles_env ? atol(max_cycles_env) : 0;
     long cycles = 0;
@@ -126,6 +141,11 @@ void Scorer::run()
                 cout << "[i803] cam " << c << " pos_ms=" << last_pos_ms[c] << endl;
             }
             log_info("HARNESS cycle budget reached: " + to_string(cycles));
+            log_info("CYCLE BUDGET REACHED: " + to_string(cycles) + " cycles");
+            log_info("TIMEOUT CENSUS: safety=" + to_string(od_clock::timeouts(0).load()) +
+                     " spike_window=" + to_string(od_clock::timeouts(1).load()));
+            motion_processing::dumpTrace();
+            running = false;
             break;
         }
         cycles++;
@@ -154,6 +174,7 @@ void Scorer::run()
                 sendResult(result);
             }
         }
+
     }
 
     log_info("Scorer stopped");
