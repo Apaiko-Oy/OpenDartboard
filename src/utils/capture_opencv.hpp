@@ -4,6 +4,7 @@
 #include "logging.hpp"
 #include "od_clock.hpp"
 #include "od_fix.hpp"
+#include "skew_recorder.hpp"
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
@@ -28,6 +29,8 @@ namespace camera
     public:
         bool open(const std::vector<std::string> &sources, int width, int height, int fps) override
         {
+            // Instrument (#813): what CAP_PROP_POS_MSEC will mean for these sources.
+            skew::clockKind() = (!sources.empty() && isVideoFile(sources[0])) ? "stream" : "host";
             captures_.clear();
             clocks_.clear();
             anchors_.clear();
@@ -233,6 +236,21 @@ namespace camera
             }
             od_clock::cycles().fetch_add(1);
 
+            // Instrument (#813): one line per capture cycle, when OD_SKEW_LOG names a
+            // file. The three instants come off the Frame the seam already fills in.
+            {
+                std::vector<double> skew_pos_ms(frames.size(), -1.0);
+                std::vector<long long> skew_anchor_us(frames.size(), -1);
+                std::vector<long long> skew_ret_us(frames.size(), -1);
+                for (size_t i = 0; i < frames.size(); i++)
+                {
+                    skew_pos_ms[i] = frames[i].empty() ? -1.0 : frames[i].pos_ms;
+                    skew_anchor_us[i] = frames[i].anchor_ns / 1000;
+                    skew_ret_us[i] = frames[i].returned_ns / 1000;
+                }
+                skew::record(frames.size(), validCount(frames), skew_pos_ms, skew_anchor_us, skew_ret_us);
+            }
+
             reportCycle(frames);
 
 #ifdef DEBUG_VIA_VIDEO_INPUT
@@ -244,6 +262,13 @@ namespace camera
 
         std::vector<Frame> readAveraged(int numFrames) override
         {
+            // Instrument (#813): calibration averaging is not a scoring cycle.
+            struct SkewSuppress
+            {
+                SkewSuppress() { skew::suppressed() = true; }
+                ~SkewSuppress() { skew::suppressed() = false; }
+            } skew_suppress;
+
             std::vector<cv::Mat> sums(captures_.size());
             std::vector<int> counts(captures_.size(), 0);
             std::vector<Frame> out(captures_.size());
