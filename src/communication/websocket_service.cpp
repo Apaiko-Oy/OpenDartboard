@@ -2,6 +2,10 @@
 #include "websocket_service.hpp"
 #include "utils.hpp"
 #include <httplib.h>
+#include "utils/od_fix.hpp"
+#include <mutex>
+#include <sstream>
+#include <atomic>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <mutex>
@@ -263,9 +267,49 @@ void WebSocketService::start()
     if (running_)
         return;
 
+    // #816: shipped code constructs server_ inside the worker thread and reads the
+    // same pointer from the main thread's stop(). Constructing it here makes the
+    // write happen-before the thread that reads it.
+    if (od_fix::shutdownFix())
+    {
+        server_ = make_unique<httplib::Server>();
+    }
+
     running_ = true;
     worker_thread_ = thread(&WebSocketService::run, this);
     log_debug("WebSocket service starting on port " + to_string(port_));
+}
+
+// #816: httplib::Server::stop() asserts svr_sock_ != INVALID_SOCKET while is_running_
+// is still true. Two callers - this class's stop() on the main thread and run()'s own
+// tail on the worker thread - call it on one server, and the second one to arrive
+// asserts if the listening thread has not yet cleared is_running_. Under load it has
+// not. One flag, so the socket is closed exactly once.
+static std::once_flag od816_server_stop_once;
+
+static std::atomic<int> od816_stop_calls{0};
+
+void WebSocketService::stopServerOnce()
+{
+    if (od_fix::shutdownTrace())
+    {
+        int n = ++od816_stop_calls;
+        std::ostringstream tid;
+        tid << std::this_thread::get_id();
+        log_info("SHUTDOWN TRACE: server stop call #" + to_string(n) +
+                 " thread=" + tid.str() +
+                 " server_=" + (server_ ? "set" : "null") +
+                 " is_running=" + to_string(server_ ? server_->is_running() : false));
+    }
+    if (!server_)
+        return;
+    if (od_fix::shutdownFix())
+    {
+        std::call_once(od816_server_stop_once, [this]
+                       { server_->stop(); });
+        return;
+    }
+    server_->stop();
 }
 
 void WebSocketService::stop()
@@ -281,10 +325,7 @@ void WebSocketService::stop()
         }
     }
 
-    if (server_)
-    {
-        server_->stop();
-    }
+    stopServerOnce();
     if (worker_thread_.joinable())
     {
         worker_thread_.join();
@@ -294,7 +335,10 @@ void WebSocketService::stop()
 
 void WebSocketService::run()
 {
-    server_ = make_unique<httplib::Server>();
+    if (!server_)
+    {
+        server_ = make_unique<httplib::Server>();
+    }
 
     try
     {
@@ -511,7 +555,7 @@ void WebSocketService::run()
             }
         }
 
-        server_->stop();
+        stopServerOnce();
         if (server_thread.joinable())
         {
             server_thread.join();

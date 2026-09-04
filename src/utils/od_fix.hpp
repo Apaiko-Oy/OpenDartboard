@@ -6,14 +6,15 @@
 
 namespace od_fix
 {
-    inline bool has(const char *name)
+    // #816: `member` ignores the "all" shorthand. #815's `all` names its own three
+    // fixes and must go on naming exactly those, or its eight runs stop being
+    // reproducible from this binary.
+    inline bool member(const char *name)
     {
         const char *e = std::getenv("OD_MOTION_FIX");
         if (!e)
             return false;
         std::string s = e;
-        if (s == "all")
-            return true;
         std::string n = name;
         size_t p = 0;
         while ((p = s.find(n, p)) != std::string::npos)
@@ -26,6 +27,14 @@ namespace od_fix
             p = q;
         }
         return false;
+    }
+
+    inline bool has(const char *name)
+    {
+        const char *e = std::getenv("OD_MOTION_FIX");
+        if (e && std::string(e) == "all")
+            return true;
+        return member(name);
     }
 
     inline bool stability()
@@ -42,6 +51,50 @@ namespace od_fix
     {
         static bool v = has("warnsplit");
         return v;
+    }
+    // #816: max_event_duration_ms tested in STABILIZING as well as in SPIKE_DETECTED.
+    inline bool safety()
+    {
+        static bool v = member("safety");
+        return v;
+    }
+
+    // #816: the shutdown race in WebSocketService, behind its own variable because it
+    // is not a motion fix and must be selectable on a run that changes nothing else.
+    inline bool shutdownFix()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_SHUTDOWN_FIX");
+            return e && std::string(e) == "1";
+        }();
+        return v;
+    }
+
+    // #816: the break of #815 defect 1 moves the whole of an event's life into
+    // STABILIZING, which is the one state max_event_duration_ms is not tested in.
+    // So this build refuses to run `stability` without `safety`. The hatch exists
+    // only so #815's own eight runs can be reproduced byte for byte.
+    inline bool unguardedBreakAllowed()
+    {
+        const char *e = std::getenv("OD_UNGUARDED_BREAK");
+        return e && std::string(e) == "1";
+    }
+    // #816: log every server_->stop() call site with the state httplib asserts on,
+    // so the window can be measured on runs that do not happen to crash.
+    inline bool shutdownTrace()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_SHUTDOWN_TRACE");
+            return e && std::string(e) == "1";
+        }();
+        return v;
+    }
+
+    inline bool breakIsUnguarded()
+    {
+        return stability() && !safety() && !unguardedBreakAllowed();
     }
 
     inline const char *selected()

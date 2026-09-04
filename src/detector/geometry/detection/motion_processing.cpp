@@ -276,6 +276,22 @@ namespace motion_processing
 
         case DartEventState::STABILIZING:
         {
+            // #816: max_event_duration_ms is tested only in case SPIKE_DETECTED. With
+            // #815 defect 1's break restored an event spends nearly all of its life
+            // here, which is the one state the safety timeout cannot reach.
+            if (od_fix::safety())
+            {
+                long long event_duration = now - event_start_time;
+                if (event_duration > params.max_event_duration_ms)
+                {
+                    int cameras_that_spiked = count(cameras_spiked.begin(), cameras_spiked.end(), true);
+                    current_state = DartEventState::IDLE;
+                    od_clock::timeouts(0).fetch_add(1);
+                    log_warning("DART EVENT: Abandoned in STABILIZING - event exceeded max_event_duration_ms (" + to_string(event_duration) + "ms > " + to_string(params.max_event_duration_ms) + "ms) with " + to_string(cameras_that_spiked) + "/" + to_string(params.min_cameras_for_event) + " cameras spiked, stable_frame_count " + to_string(stable_frame_count));
+                    break;
+                }
+            }
+
             // Track motion intensity to confirm stability
             if (current_intensity <= params.low_threshold)
             {

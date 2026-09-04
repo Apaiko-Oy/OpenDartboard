@@ -13,6 +13,7 @@ public:
 
     void start();
     void stop();
+    void stopServerOnce(); // #816
     bool isRunning() const { return running_; }
 
 private:

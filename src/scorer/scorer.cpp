@@ -111,7 +111,20 @@ void Scorer::run()
     log_info("MOTION FIX: " + string(od_fix::selected()) +
              " stability=" + to_string(od_fix::stability()) +
              " spikewin=" + to_string(od_fix::spikewin()) +
-             " warnsplit=" + to_string(od_fix::warnsplit()));
+             " warnsplit=" + to_string(od_fix::warnsplit()) +
+             " safety=" + to_string(od_fix::safety()) +
+             " shutdown=" + to_string(od_fix::shutdownFix()));
+    // #816: the break of #815 defect 1 puts an event's whole life in STABILIZING,
+    // which is the one state max_event_duration_ms is not tested in. Refuse rather
+    // than run a machine whose safety timeout cannot fire.
+    if (od_fix::breakIsUnguarded())
+    {
+        log_error("MOTION FIX REFUSED: stability restores the break that keeps an event "
+                  "in STABILIZING, and max_event_duration_ms is tested only in "
+                  "SPIKE_DETECTED. Add safety to OD_MOTION_FIX. To reproduce #815's "
+                  "runs as they were measured, set OD_UNGUARDED_BREAK=1 and say so.");
+        exit(78);
+    }
     log_info("Scorer running with " + to_string(camera_sources.size()) + " cameras");
     log_info("Using detector: " + detector_type_name);
     cout << "-------------------------------------" << endl;
