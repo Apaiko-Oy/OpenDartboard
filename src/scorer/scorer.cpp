@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include "utils/od_clock.hpp"
 #include "utils/od_fix.hpp"
+#include "utils/signals.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
 #include <random>
 #include <opencv2/opencv.hpp>
@@ -142,6 +143,18 @@ void Scorer::run()
 
     while (running)
     {
+        // #825: the flag the signal handler set, observed here. This is the exit path
+        // the program did not have: the loop leaves, run() returns, main returns, and
+        // every destructor in the program runs with the threads already joined.
+        // Granularity is one cycle -- a signal arriving while capture->read() is
+        // blocked on a device is seen when that read returns.
+        if (int sig = signals::shutdownRequested())
+        {
+            log_warning("Received signal " + to_string(sig) +
+                        ", finishing the cycle in flight and shutting down...");
+            running = false;
+            break;
+        }
         if (max_cycles > 0 && cycles >= max_cycles)
         {
             auto loop_ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - loop_started).count();

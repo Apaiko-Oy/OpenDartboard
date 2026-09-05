@@ -91,13 +91,16 @@ int main(int argc, char **argv)
   // Initialise the scorer with debug mode if requested
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type);
 
-  // Register signal handlers with a lambda to stop the scorer
-  signals::setupSignalHandlers([&scorer]()
-                               { scorer.stop(); });
+  // #825: the handler records the signal and returns; Scorer::run()'s loop is what
+  // observes it. There is no callback here any more, because a callback called from a
+  // signal context is a callback that runs while the interrupted thread holds locks.
+  signals::setupSignalHandlers();
 
-  // Start the scorer processing in background thread
+  // Run the scorer on this thread. It returns when the loop sees the shutdown flag.
   scorer.run();
 
-  // Best practice: wait for the scorer thread to finish
+  // #825: and then this function ends normally, which is the whole point. ~Scorer runs
+  // here -- joining the WebSocket worker, stopping the HTTP server and releasing the
+  // cameras -- because main is unwound rather than skipped by exit().
   return 0;
 }
