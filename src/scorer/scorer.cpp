@@ -4,6 +4,7 @@
 #include "detector/detector_factory.hpp"
 #include "communication/websocket_service.hpp"
 #include "communication/score_queue.hpp"
+#include "communication/turnaus_client.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -64,10 +65,24 @@ void Scorer::stop()
     running = false;
 }
 
+void Scorer::attachTurnaus(std::unique_ptr<TurnausClient> client)
+{
+    turnaus_ = std::move(client);
+}
+
 void Scorer::sendResult(const DetectorResult &result)
 {
     // Push to queue for WebSocket broadcasting
     score_queue_->push(result);
+
+    // #822: and hand the same result to the outbound client. offer() takes a mutex,
+    // pushes onto a deque and returns -- no socket, no file, no allocation the network
+    // can stall. A board whose Turnaus is unreachable spends the same time here as one
+    // whose Turnaus answers, and a board that was never paired spends less.
+    if (turnaus_)
+    {
+        turnaus_->offer(result);
+    }
 
     // Keep logging for debug
     if (result.dart_detected && getenv("OD_CAPSEAM"))
@@ -100,6 +115,13 @@ void Scorer::run()
 
     // Start WebSocket service
     websocket_service_->start();
+
+    // #822: and the outbound client, if there is one. It starts its own worker thread;
+    // an unpaired board starts nothing and says so once.
+    if (turnaus_)
+    {
+        turnaus_->start();
+    }
 
     running = true;
     // #815: the stream's own period, if camera.hpp already took one, wins over --fps.

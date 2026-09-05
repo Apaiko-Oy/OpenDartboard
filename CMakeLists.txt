@@ -59,6 +59,8 @@ add_executable(opendartboard
     # Communication components
     src/communication/score_queue.cpp
     src/communication/websocket_service.cpp
+    # #822: the outbound client -- pairing, and the push of what the scorer publishes.
+    src/communication/turnaus_client.cpp
     # src/detector/ai/yolo_detector.cpp // Uncomment when AI detector is ready
     src/detector/geometry/geometry_detector.cpp
     # calibration files
@@ -114,7 +116,11 @@ target_compile_definitions(opendartboard
 # debug MJPEG streamer's sockets. ${CMAKE_DL_LIBS} above is already the portable
 # spelling and resolves to nothing here.
 if(WIN32)
-    target_link_libraries(opendartboard PRIVATE mfplat mf mfreadwrite mfuuid ole32 ws2_32)
+    # winhttp is #822's outbound transport. winhttp.dll is an in-box Windows DLL and it
+    # brings Schannel with it, so TLS costs the standalone artefact nothing: no OpenSSL,
+    # no extra file beside the .exe, no VC++ redistributable, and no /MT-versus-/MD
+    # question about a third-party library, because there is no third-party library.
+    target_link_libraries(opendartboard PRIVATE mfplat mf mfreadwrite mfuuid ole32 ws2_32 winhttp)
     target_compile_definitions(opendartboard PRIVATE
         WIN32_LEAN_AND_MEAN
         NOMINMAX

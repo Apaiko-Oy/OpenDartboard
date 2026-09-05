@@ -4,6 +4,8 @@
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
 #include "utils/autocam.hpp"
+#include "utils/od_paths.hpp"
+#include "communication/turnaus_client.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -70,6 +72,56 @@ int main(int argc, char **argv)
   // Print startup and configuration information
   debug::printStartup("OpenDartboard", version);
 
+  // #822: where this board posts what it sees, and where it keeps what it was given.
+  //
+  // The address, in order of precedence: --turnaus, then OD_TURNAUS_URL, then the
+  // base_url the pairing wrote into the credential file, then the default. A board is
+  // paired once and the address it was paired against is the address it keeps, so a
+  // pub PC needs no flag and no configuration file of its own after the pairing.
+  TurnausConfig turnaus_config;
+  turnaus_config.credentials_path =
+      getArg(argc, argv, "--credentials", od_paths::join(od_paths::configDir(), "credentials.json"));
+  turnaus_config.allow_plaintext = hasFlag(argc, argv, "--allow-plaintext");
+
+  string configured_url = getArg(argc, argv, "--turnaus", string(""));
+  if (configured_url.empty())
+  {
+    configured_url = od_paths::env("OD_TURNAUS_URL");
+  }
+  if (configured_url.empty())
+  {
+    // What the last pairing was made against, if there was one.
+    string raw;
+    if (od_paths::readFile(turnaus_config.credentials_path, raw))
+    {
+      size_t at = raw.find("\"base_url\"");
+      if (at != string::npos)
+      {
+        size_t open_quote = raw.find('"', raw.find(':', at) + 1);
+        size_t close_quote = open_quote == string::npos ? string::npos : raw.find('"', open_quote + 1);
+        if (close_quote != string::npos)
+        {
+          configured_url = raw.substr(open_quote + 1, close_quote - open_quote - 1);
+        }
+      }
+    }
+  }
+  if (configured_url.empty())
+  {
+    configured_url = "https://turnaus.fi";
+  }
+  turnaus_config.base_url = configured_url;
+
+  // --pair exchanges a code for a credential and stops. It opens no camera and starts
+  // no detector: a board being paired is a board somebody is standing in front of with
+  // a six-digit code that expires in ten minutes, not a board that needs to calibrate.
+  string pairing_code = getArg(argc, argv, "--pair", string(""));
+  if (!pairing_code.empty())
+  {
+    TurnausClient client(turnaus_config);
+    return client.pair(pairing_code) ? 0 : 1;
+  }
+
   // setup cams
   vector<string> cams;
   if (useAuto)
@@ -90,6 +142,7 @@ int main(int argc, char **argv)
 
   // Initialise the scorer with debug mode if requested
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type);
+  scorer.attachTurnaus(std::unique_ptr<TurnausClient>(new TurnausClient(turnaus_config)));
 
   // #825: the handler records the signal and returns; Scorer::run()'s loop is what
   // observes it. There is no callback here any more, because a callback called from a

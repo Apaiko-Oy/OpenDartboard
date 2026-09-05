@@ -7,6 +7,7 @@
 #include "../utils/capture.hpp"
 #include "../communication/websocket_service.hpp"
 #include "../communication/score_queue.hpp"
+#include "../communication/turnaus_client.hpp"
 #include <memory>
 
 using namespace std;
@@ -21,6 +22,11 @@ public:
 
   void run();
   void stop();
+
+  // #822: the outbound client, handed in rather than built here, because pairing must
+  // be possible without opening a camera. Scorer owns it so that #825's exit path --
+  // main unwound, ~Scorer run -- is what stops and joins it.
+  void attachTurnaus(std::unique_ptr<TurnausClient> client);
 
 private:
   //  Result sending
@@ -42,4 +48,8 @@ private:
 
   std::shared_ptr<ScoreQueue> score_queue_;
   std::unique_ptr<WebSocketService> websocket_service_;
+
+  // Declared last, so member destruction in reverse order stops and joins the push
+  // worker first -- before the queue it reads from and the cameras it never touches.
+  std::unique_ptr<TurnausClient> turnaus_;
 };
