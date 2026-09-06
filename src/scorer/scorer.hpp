@@ -32,6 +32,11 @@ private:
   //  Result sending
   void sendResult(const DetectorResult &result);
 
+  // #895: what run() does instead of scoring when the constructor could not give this
+  // object a detector to score with. It is a loop rather than a return, because the
+  // board is still there and #892 gave it a word for exactly this.
+  void runFaultVigil();
+
   // Configuration
   string model_path;
   int width, height, fps;

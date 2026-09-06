@@ -234,9 +234,24 @@ namespace camera
             static const int od_drop_cam = odEnvInt("OD_DROP_CAM", -1);
             static const int od_drop_every = odEnvInt("OD_DROP_EVERY", 0);
             static const int od_report_every = odEnvInt("OD_REPORT_EVERY", 0);
+            // ---- #895 instrumentation, the same shape and equally NOT a fix. ----
+            // OD_DROP_CAM fails ONE named slot on a schedule, which is a camera that
+            // drops frames. This fails EVERY slot from a named cycle onward and never
+            // recovers, which is the different thing a pub actually produces: somebody
+            // catches the USB hub at nine o'clock and the board is blind from then on.
+            // At the seam the two are the same observable -- read() returning false for
+            // every capture -- so this stands in for an unplug that cannot be performed
+            // on a container with three video files for cameras.
+            static const int od_blind_after = odEnvInt("OD_BLIND_AFTER", 0);
             static long od_short_cycles = 0;
             od_cycle++;
             const bool od_inject = (od_drop_every > 0 && (od_cycle % od_drop_every) == 0);
+            const bool od_blind = (od_blind_after > 0 && od_cycle >= od_blind_after);
+            if (od_blind && od_cycle == od_blind_after)
+            {
+                log_error("BLINDING cycle=" + std::to_string(od_cycle) +
+                          " every camera stops answering from here (OD_BLIND_AFTER)");
+            }
 
             std::vector<Frame> frames(captures_.size());
 
@@ -249,6 +264,13 @@ namespace camera
                 bool success = captures_[i].read(image);
 
                 if (od_inject && static_cast<int>(i) == od_drop_cam)
+                {
+                    success = false;
+                    image.release();
+                }
+
+                // #895: and the unplug, which takes every slot and keeps them.
+                if (od_blind)
                 {
                     success = false;
                     image.release();
