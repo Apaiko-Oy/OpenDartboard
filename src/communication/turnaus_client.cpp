@@ -498,6 +498,13 @@ bool TurnausClient::deliver(const OwedPush &item)
 
 void TurnausClient::start()
 {
+    // #892: idempotent, because the beat now starts in main -- before the cameras are
+    // opened, so that INITIALISING and CALIBRATING are beaten rather than passed in
+    // silence -- and `Scorer::run()` goes on calling this the way #822 wrote it.
+    if (running_.load())
+    {
+        return;
+    }
     if (!paired_)
     {
         log_info("TURNAUS: no credential, so nothing is pushed. Scoring and the score "
@@ -514,6 +521,9 @@ void TurnausClient::start()
     loadSpool();
     running_ = true;
     worker_ = std::thread(&TurnausClient::run, this);
+    // #892. Two threads and one flag: `stop()` drops `running_`, notifies both condition
+    // variables and joins both, so neither can outlive the other or the object.
+    beater_ = std::thread(&TurnausClient::beat, this);
     log_info("TURNAUS: pushing to " + url_.host + " over " + std::string(odhttp::transportName()) +
              (url_.tls ? " (TLS)" : " (plaintext, --allow-plaintext)"));
 }
@@ -525,9 +535,14 @@ void TurnausClient::stop()
         return;
     }
     condition_.notify_all();
+    beat_condition_.notify_all();
     if (worker_.joinable())
     {
         worker_.join();
+    }
+    if (beater_.joinable())
+    {
+        beater_.join();
     }
 
     // Whatever the worker never reached is written down on the way out, so that leaving
@@ -555,7 +570,9 @@ void TurnausClient::stop()
              " delivered=" + std::to_string(delivered_.load()) +
              " attempts=" + std::to_string(attempts_.load()) +
              " dropped=" + std::to_string(dropped_.load()) +
-             " still_owed=" + std::to_string(backlog()));
+             " still_owed=" + std::to_string(backlog()) +
+             " beats=" + std::to_string(beats_.load()) +
+             " beats_lost=" + std::to_string(beats_lost_.load()));
 }
 
 size_t TurnausClient::backlog() const
@@ -645,5 +662,195 @@ void TurnausClient::run()
         {
             backoff_ms = config_.backoff_max_ms;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// #892: the heartbeat. Everything below this line is the beat and nothing above it is.
+// ---------------------------------------------------------------------------------
+
+bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &silence_s)
+{
+    // Note what this does NOT do, because it is the acceptance criterion rather than an
+    // omission: no `OwedPush` is built, `newIdempotencyKey()` is not called, `queue_` is
+    // not touched, `spool()` is not called, and `attempts_`/`delivered_`/`dropped_` --
+    // the dart counters -- do not move. A beat is a message about the last interval and
+    // about no turn at all.
+    std::map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + credential_;
+    headers["Accept"] = "application/json";
+
+    const std::string body = std::string("{\"condition\":\"") + condition_word + "\"}";
+
+    odhttp::Response res = odhttp::postJson(url_, "/api/v1/autoscorer/heartbeats", body, headers,
+                                            config_.connect_timeout_s, config_.read_timeout_s);
+    if (!res.reached_a_server())
+    {
+        return false;
+    }
+    if (res.status == 200)
+    {
+        try
+        {
+            json j = json::parse(res.body);
+            interval_s = j["data"].value("intervalSeconds", 0);
+            silence_s = j["data"].value("silenceSeconds", 0);
+        }
+        catch (const std::exception &)
+        {
+            interval_s = 0;
+            silence_s = 0;
+        }
+        return true;
+    }
+    if (res.status == 401 || res.status == 403)
+    {
+        // The same refusal `deliver()` makes, for the same reason, and it has to be made
+        // here too: a board whose credential is gone would otherwise go on beating for
+        // ever at a server that will never write its condition down.
+        log_error("TURNAUS: this board's credential was refused on a heartbeat (HTTP " +
+                  std::to_string(res.status) + "). Re-pair with --pair <code>.");
+        paired_ = false;
+        return false;
+    }
+    if (res.status == 409)
+    {
+        // The club has stood this board at no Station, so there is no row for a
+        // condition to belong to. Somebody clears that in a browser; keep beating.
+        log_warning("TURNAUS: the server says this board stands at no Station (409); the beat has nowhere to land");
+        return false;
+    }
+    if (res.status == 422)
+    {
+        // ADR-0065 refuses an unrecognised word rather than degrading it, and says why:
+        // this is our own door, and the detector's author is the person who can fix it.
+        // So say the word out loud -- it is not a secret, and a beat that is silently
+        // wrong is the failure this whole slice exists to remove.
+        log_error("TURNAUS: the server refused the condition \"" + std::string(condition_word) +
+                  "\" (422). A board may only state UPDATING, INITIALISING, CALIBRATING, READY or ERROR.");
+        return false;
+    }
+    return false;
+}
+
+void TurnausClient::beat()
+{
+    // The frame count as of the previous beat. The whole of this thread's state, and the
+    // reason the freshness question needs no window of its own: "has a frame arrived
+    // since I last said I could see" is answered by two reads of one counter.
+    uint64_t frames_at_last_beat = board_sight::framesSeen().load();
+    // Whether the ladder has already spent its one "calibration has only just finished"
+    // answer. See board_sight.hpp: it is spent once and never refilled.
+    bool asked_since_calibration = false;
+
+    // Used only until the server has answered once. After that every wait is the
+    // interval the server named, and this is not consulted again.
+    int backoff_ms = config_.backoff_initial_ms;
+
+    // When this board last got a `200`. `steady_clock`, because what is being measured
+    // is an elapsed time on this machine and a pub PC's wall clock may step.
+    auto last_answer = std::chrono::steady_clock::now();
+    bool ever_answered = false;
+    bool warned_about_silence = false;
+
+    while (running_)
+    {
+        const board_sight::Condition condition = board_sight::conditionSince(frames_at_last_beat, asked_since_calibration);
+        const char *word = board_sight::word(condition);
+
+        int interval_s = 0;
+        int silence_s = 0;
+        const bool answered = postBeat(word, interval_s, silence_s);
+
+        int wait_ms = 0;
+
+        if (answered)
+        {
+            beats_++;
+            last_answer = std::chrono::steady_clock::now();
+            warned_about_silence = false;
+
+            if (interval_s > 0)
+            {
+                const int previous = interval_s_.exchange(interval_s);
+                silence_s_ = silence_s;
+                if (previous != interval_s || !ever_answered)
+                {
+                    log_info("TURNAUS: beating " + std::string(word) + " every " + std::to_string(interval_s) +
+                             "s; this server gives up on a silent board after " + std::to_string(silence_s) + "s");
+                }
+                if (silence_s > 0 && interval_s >= silence_s)
+                {
+                    // Not this board's to fix and not its to ignore either. Beating no
+                    // oftener than the server gives up means every Station's screen
+                    // degrades to the keypad in front of a board that is watching.
+                    log_warning("TURNAUS: this server asks for a beat every " + std::to_string(interval_s) +
+                                "s and gives up after " + std::to_string(silence_s) +
+                                "s, so no beat of ours can keep it believing this board");
+                }
+                wait_ms = interval_s * 1000;
+            }
+            else
+            {
+                // A `200` that named no interval. The message was recorded, so the board
+                // is not silent, but there is no cadence in the answer to adopt -- so
+                // back off rather than spin, and say so once.
+                if (!ever_answered)
+                {
+                    log_warning("TURNAUS: the server recorded a beat but named no interval; falling back to this "
+                                "board's own backoff until it does");
+                }
+                wait_ms = backoff_ms;
+                backoff_ms = backoff_ms * 2 > config_.backoff_max_ms ? config_.backoff_max_ms : backoff_ms * 2;
+            }
+            ever_answered = true;
+        }
+        else
+        {
+            beats_lost_++;
+            if (!paired_)
+            {
+                break; // a refused credential; postBeat() has said so
+            }
+
+            const int known = interval_s_.load();
+            if (known > 0)
+            {
+                // §11: a failed beat is dropped, not spooled. There is nothing to retry,
+                // because the next beat carries the same claim, fresher -- so the cadence
+                // does not change when one is lost, and a board coming back after an
+                // outage is beating at the interval it was already told.
+                wait_ms = known * 1000;
+            }
+            else
+            {
+                wait_ms = backoff_ms;
+                backoff_ms = backoff_ms * 2 > config_.backoff_max_ms ? config_.backoff_max_ms : backoff_ms * 2;
+            }
+
+            // §11's other use for the second number: past the silence window the
+            // Station's screen has already degraded to a keypad, and the people at this
+            // board are the only ones who can see this machine. Say it here, once per
+            // outage, rather than leaving them to wonder why the scoreboard stopped.
+            const int silence = silence_s_.load();
+            if (ever_answered && silence > 0 && !warned_about_silence)
+            {
+                const auto since = std::chrono::duration_cast<std::chrono::seconds>(
+                                       std::chrono::steady_clock::now() - last_answer)
+                                       .count();
+                if (since > silence)
+                {
+                    log_warning("TURNAUS: nothing has reached the server for " + std::to_string(since) +
+                                "s, which is past this deployment's " + std::to_string(silence) +
+                                "s window. The Station's screen has degraded to the keypad and the players "
+                                "should mark by hand until this line stops.");
+                    warned_about_silence = true;
+                }
+            }
+        }
+
+        std::unique_lock<std::mutex> lock(beat_mutex_);
+        beat_condition_.wait_for(lock, std::chrono::milliseconds(wait_ms),
+                                 [this] { return !running_.load(); });
     }
 }

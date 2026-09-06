@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include "utils/od_clock.hpp"
+#include "utils/board_sight.hpp"
 #include "utils/od_fix.hpp"
 #include "utils/signals.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
@@ -35,8 +36,13 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     if (!capture->open(camera_sources, width, height, fps))
     {
         log_error("Failed to initialize cameras");
+        // #892: a camera that will not open is a board that cannot see, and it is the
+        // one thing a beat can say that silence cannot -- a machine that is running and
+        // blind is a different errand from a machine that is off.
+        board_sight::faulted() = true;
         return;
     }
+    board_sight::camerasOpen() = true;
 
     // Create detector
     detector = DetectorFactory::createDetector(detector_type_name, debug_display, width, height, fps);
@@ -50,10 +56,15 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     if (!detector->initialize(calibration_frames, capture->nominalFps()))
     {
         log_error("Failed to initialize detector.");
+        // #892: calibration is the second half of being able to see. A detector that
+        // did not calibrate is as blind as a camera that did not open, and READY says
+        // "calibration is valid" as well as "frames are arriving".
+        board_sight::faulted() = true;
     }
     else
     {
         log_info("Detector initialized successfully");
+        board_sight::calibrated() = true;
     }
 }
 
@@ -212,6 +223,11 @@ void Scorer::run()
         }
         if (camera::validCount(frames) > 0)
         {
+            // #892: the one observation READY rests on, taken where it is made. A cycle
+            // that read no valid frame does not count, so a board whose cameras have
+            // stopped answering stops earning the word within one beat -- and it says
+            // ERROR rather than going silent, because it is still there to say it.
+            board_sight::framesSeen().fetch_add(1, std::memory_order_relaxed);
             // 2. Process frames by the detector
             DetectorResult result = detector->process(frames);
             // 3. Send result if something detected

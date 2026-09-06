@@ -140,9 +140,18 @@ int main(int argc, char **argv)
 
   debug::printConfig(width, height, fps, model_path, cams);
 
+  // #892: the client is built and STARTED before the Scorer, so the beat covers the
+  // startup it used to pass over in silence. Opening three cameras and calibrating on
+  // thirty averaged frames is seconds of a board being up and not yet able to see, and
+  // INITIALISING and CALIBRATING are two of the five words a board may say precisely so
+  // that interval is not indistinguishable from a machine nobody switched on. start()
+  // is idempotent, so Scorer::run()'s own call is unchanged and harmless.
+  std::unique_ptr<TurnausClient> turnaus(new TurnausClient(turnaus_config));
+  turnaus->start();
+
   // Initialise the scorer with debug mode if requested
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type);
-  scorer.attachTurnaus(std::unique_ptr<TurnausClient>(new TurnausClient(turnaus_config)));
+  scorer.attachTurnaus(std::move(turnaus));
 
   // #825: the handler records the signal and returns; Scorer::run()'s loop is what
   // observes it. There is no callback here any more, because a callback called from a
