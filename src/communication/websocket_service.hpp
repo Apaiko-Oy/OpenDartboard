@@ -8,7 +8,10 @@
 class WebSocketService
 {
 public:
-    WebSocketService(std::shared_ptr<ScoreQueue> queue, int port = 13520);
+    // #812: debug_mode decides whether the saved camera frames under debug_frames/
+    // are reachable over this listener. The score API is the documented product
+    // interface and is not gated here; the images are.
+    WebSocketService(std::shared_ptr<ScoreQueue> queue, int port = 13520, bool debug_mode = false);
     ~WebSocketService();
 
     void start();
@@ -26,4 +29,5 @@ private:
     std::atomic<bool> running_{false};
     std::unique_ptr<httplib::Server> server_; // Use httplib, not libwebsockets
     int port_;
+    bool debug_mode_; // #812
 };

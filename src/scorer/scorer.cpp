@@ -26,7 +26,9 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
 {
     // Initialize score queue and WebSocket service
     score_queue_ = std::make_shared<ScoreQueue>();
-    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520);
+    // #812: debug_display is --debug. It decides whether this listener serves the
+    // saved camera frames as well as the scores.
+    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520, debug_display);
 
     // Initialize cameras
     capture = camera::makeCaptureSource();
