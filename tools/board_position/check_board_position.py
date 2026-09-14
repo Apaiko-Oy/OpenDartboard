@@ -121,9 +121,17 @@ class RawWebSocket:
                 self.body += self.raw
                 self.raw = b""
 
+    def send_control(self, opcode, payload=b""):
+        """A control frame from client to board, masked as a client's frames must be
+        (RFC 6455 5.1). Since #1188 the board expects a pong to its ping."""
+        mask = os.urandom(4)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(bytes([0x80 | opcode, 0x80 | len(payload)]) + mask + masked)
+
     def frames(self):
-        """Yield text payloads until the socket closes. Pings are answered by ignoring
-        them; the board never expects a pong."""
+        """Yield text payloads until the socket closes. A ping is answered with a pong
+        carrying the same payload, because since #1188 a subscriber that does not
+        answer is dropped; that is the one thing this client says back."""
         while True:
             while len(self.body) < 2:
                 try:
@@ -152,6 +160,8 @@ class RawWebSocket:
             self.body = self.body[offset + length:]
             if opcode == 0x1:
                 yield payload.decode("utf-8")
+            elif opcode == 0x9:
+                self.send_control(0xA, payload)
             elif opcode == 0x8:
                 return
 
