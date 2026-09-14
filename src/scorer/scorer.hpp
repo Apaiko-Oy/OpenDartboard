@@ -16,7 +16,8 @@ class Scorer
 public:
   Scorer(const std::string &model, int width, int height, int fps,
          const std::vector<std::string> &cams, bool debug_mode = false,
-         const std::string &detector_type = "geometry");
+         const std::string &detector_type = "geometry",
+         const ScoreSocketSettings &socket = ScoreSocketSettings());
   ~Scorer();
 
   void run();

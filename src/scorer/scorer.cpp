@@ -19,12 +19,13 @@
 using namespace std;
 using namespace cv;
 
-Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> &cams, bool debug_mode, const string &detector_type)
+Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> &cams, bool debug_mode, const string &detector_type,
+               const ScoreSocketSettings &socket)
     : model_path(model), width(w), height(h), fps(fps), camera_sources(cams), debug_display(debug_mode), detector_type_name(detector_type)
 {
     // Initialize score queue and WebSocket service
     score_queue_ = std::make_shared<ScoreQueue>();
-    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520);
+    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, socket);
 
     // Initialize cameras
     capture = camera::makeCaptureSource();
