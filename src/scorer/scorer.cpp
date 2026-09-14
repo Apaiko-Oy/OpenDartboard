@@ -81,6 +81,9 @@ void Scorer::sendResult(const DetectorResult &result)
                  " | Confidence: " + to_string(result.confidence) +
                  " | Camera: " + to_string(result.camera_index) +
                  " | Processing: " + to_string(result.processing_time_ms) + "ms");
+        // #1186: the board-frame fields are logged by score_processing on their own BOARD
+        // line, with whether the wedge was measured, so the SCORE line above stays
+        // byte-for-byte what every control in the research chain was extracted from.
     }
 
     if (debug_display && result.motion_detected)
