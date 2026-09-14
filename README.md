@@ -10,6 +10,13 @@
 
 <h1 align="center">OpenDartboard</h1>
 
+> **This is Apaiko-Oy's fork**, maintained for [Turnaus](https://github.com/Apaiko-Oy/turnaus)
+> and forked from upstream [OpenDartboard/OpenDartboard](https://github.com/OpenDartboard/OpenDartboard)
+> at commit `c919ef85998f`. The upstream `LICENSE` (GPL-3.0) is carried unmodified. The Windows
+> port lands on the `windows-port` branch. A release zip from this fork carries the `.exe`, the
+> `LICENSE`, and the commit its source was built from, which is what makes handing somebody the
+> binary lawful: the source offer is this repository at that commit.
+
 <div align="center">
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](https://github.com/OpenDartboard/OpenDartboard/blob/main/LICENSE)
