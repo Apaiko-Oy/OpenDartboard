@@ -298,7 +298,7 @@ def case_both():
 
 def case_midrun():
     port = 18914
-    stub = Stub("midrun", port, STUB_CLUB_CODES=CLUB + "," + CLUB2, STUB_REVOKE_CLUB_AFTER_BEATS=3)
+    stub = Stub("midrun", port, STUB_CLUB_CODES=CLUB + "," + CLUB2, STUB_REVOKE_CLUB_AFTER_BEATS=5)
     board = Board("midrun", env_for(port), [])
     check(board.wait_for(QUESTION, 1, 30), "midrun: asks")
     board.type(CLUB)
@@ -315,6 +315,15 @@ def case_midrun():
     check(board.wait_for("again, after a new pairing", 1, 20), "midrun: pushing resumes with no restart")
     beat = stub.wait_event(lambda e: e["event"] == "beat" and e["auth_sha256_16"] == sha16(TOKEN2), 30)
     check(beat is not None, "midrun: and beats with the second credential")
+    # The stub revoked after a READY beat, so the board was seeing; its first beat under the
+    # new credential must say so. A beat thread that snapshots the frame count at resume and
+    # beats in the same instant says ERROR here (found on Windows, #1259).
+    before = [e for e in stub.events("beat") if e["auth_sha256_16"] == sha16(TOKEN1)]
+    said = beat["condition"] if beat else None
+    check(said is not None and said != "ERROR",
+          "midrun: the first beat after re-pairing does not call a seeing board blind (the last beat "
+          "before the refusal said %s, the first after it said %s)"
+          % (before[-1]["condition"] if before else None, said))
     stored = read_credential(board)
     check(stored is not None and stored.get("token") == TOKEN2 and stored.get("device_id") == 2,
           "midrun: the second credential is written over the first")

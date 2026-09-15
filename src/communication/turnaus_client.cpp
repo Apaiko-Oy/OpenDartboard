@@ -1202,10 +1202,11 @@ void TurnausClient::beat()
     // The frame count as of the previous beat. The whole of this thread's state, and the
     // reason the freshness question needs no window of its own: "has a frame arrived
     // since I last said I could see" is answered by two reads of one counter.
-    uint64_t frames_at_last_beat = board_sight::framesSeen().load();
+    uint64_t frames_at_last_beat =
+        beat_state_kept_ ? kept_frames_at_last_beat_ : board_sight::framesSeen().load(); // #1259
     // Whether the ladder has already spent its one "calibration has only just finished"
     // answer. See board_sight.hpp: it is spent once and never refilled.
-    bool asked_since_calibration = false;
+    bool asked_since_calibration = beat_state_kept_ ? kept_asked_since_calibration_ : false;
 
     // Used only until the server has answered once. After that every wait is the
     // interval the server named, and this is not consulted again.
@@ -1327,4 +1328,9 @@ void TurnausClient::beat()
         beat_condition_.wait_for(lock, std::chrono::milliseconds(wait_ms),
                                  [this] { return !running_.load(); });
     }
+
+    // #1259: whatever ended this thread -- a refusal or a stop -- the next one continues from here.
+    kept_frames_at_last_beat_ = frames_at_last_beat;
+    kept_asked_since_calibration_ = asked_since_calibration;
+    beat_state_kept_ = true;
 }

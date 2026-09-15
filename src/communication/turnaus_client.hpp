@@ -332,6 +332,15 @@ private:
     // length of its first beat and is not a number standing in for one.
     std::atomic<int> interval_s_{0};
     std::atomic<int> silence_s_{0};
+    // #1259. The beat thread's own two locals, kept when it leaves so a thread started again by
+    // resume() asks "has a frame arrived since my LAST beat" rather than "since this instant".
+    // Asked of a snapshot taken a microsecond earlier, the answer is always no, and the first
+    // beat after a new pairing said ERROR about a board that was seeing (measured on Windows
+    // and in the pty check). Only the beat thread reads or writes them, and resume() starts it
+    // only after quiesce() has joined the last one.
+    uint64_t kept_frames_at_last_beat_ = 0;
+    bool kept_asked_since_calibration_ = false;
+    bool beat_state_kept_ = false;
 
     std::string spool_path_;
     std::string cursor_path_;
