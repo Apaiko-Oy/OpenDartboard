@@ -19,7 +19,12 @@ struct ScoreSocketSettings
 class WebSocketService
 {
 public:
-    WebSocketService(std::shared_ptr<ScoreQueue> queue, ScoreSocketSettings settings = ScoreSocketSettings());
+    // #1187: where the socket binds, its port and the token a subscriber presents.
+    // #812: debug_mode decides whether the saved camera frames under debug_frames/
+    // are reachable over this listener. The score API is the documented product
+    // interface and is not gated here; the images are.
+    WebSocketService(std::shared_ptr<ScoreQueue> queue, ScoreSocketSettings settings = ScoreSocketSettings(),
+                     bool debug_mode = false);
     ~WebSocketService();
 
     void start();
@@ -38,4 +43,5 @@ private:
     std::unique_ptr<httplib::Server> server_; // Use httplib, not libwebsockets
     ScoreSocketSettings settings_;
     int port_;
+    bool debug_mode_; // #812
 };

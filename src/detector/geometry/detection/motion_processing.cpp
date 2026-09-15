@@ -66,11 +66,14 @@ namespace motion_processing
             initialized = true;
             log_debug("Motion processing initialized with " + to_string(current_frames.size()) + " cameras");
 
+#ifdef DEBUG_VIA_VIDEO_INPUT
+            // #812: see dart_processing.cpp — the debug build and the debug flag, both.
             if (debug_mode)
             {
                 motion_streamer = make_unique<streamer>(8082, 15);
                 motion2_streamer = make_unique<streamer>(8083, 15);
             }
+#endif
 
             // Return no motion on first frame
             return vector<MotionData>(current_frames.size());
@@ -143,7 +146,7 @@ namespace motion_processing
                 previous_frames[i] = current_frames[i].clone();
         }
 
-        if (debug_mode)
+        if (debug_mode && motion_streamer)
         {
             Mat combined_motion = debug::createCombinedFrame(motion_viz_frames, "diff");
             motion_streamer->push(combined_motion);
