@@ -28,6 +28,17 @@ disconnecting and being dropped changed nothing about what the board published.
     python3 tools/score_socket/check_subscribers.py \\
         --cams mocks/cam_1.mp4,mocks/cam_2.mp4,mocks/cam_3.mp4
 
+With --turnaus-stub, each run also pairs the board with #822's stub
+(testers/turnaus_stub.py) before it starts, and asserts on the outbound side: what the
+board posted to the stub in each run is the reference - a detection per scoring dart,
+a takeout per END, in order, none absorbed, none refused, each with its own reference -
+and run 1's pushes are run 2's. So subscribing, reconnecting and being dropped change
+nothing about what the board pushes to a server, measured on the push itself. Without
+the flag the check is the 22 it always was.
+
+    python3 tools/score_socket/check_subscribers.py --turnaus-stub \\
+        --cams mocks/cam_1.mp4,mocks/cam_2.mp4,mocks/cam_3.mp4
+
 Python 3.8+, standard library only, Linux (it reads TCP_INFO). The WebSocket client
 is the raw one from tools/board_position, so the bytes read are the bytes on the wire.
 """
@@ -69,6 +80,77 @@ DROP_BOUND = PING_INTERVAL + PONG_WAIT
 
 TCP_CLOSE_WAIT, TCP_CLOSE = 8, 7
 
+STUB_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "testers", "turnaus_stub.py")
+
+
+class TurnausStub:
+    """#822's stub for one run: started, the board paired against it, stopped, read.
+
+    The PIN is the stub's own and single-use per stub process, so every run gets a
+    fresh stub, a fresh transcript and a fresh credential file in its own workdir. The
+    pairing's output goes to a file and is never printed: the stub's credential is a
+    fixture, but the rule for a credential is the same whoever minted it."""
+
+    PIN = "483920"
+
+    def __init__(self, binary, workdir, port):
+        os.makedirs(workdir, exist_ok=True)
+        self.transcript = os.path.join(workdir, "turnaus-transcript.jsonl")
+        self.credentials = os.path.join(workdir, "turnaus-credentials.json")
+        self.url = f"http://127.0.0.1:{port}"
+        env = dict(os.environ, STUB_PORT=str(port), STUB_TRANSCRIPT=self.transcript)
+        self.stderr = open(os.path.join(workdir, "turnaus-stub.err"), "wb")
+        self.proc = subprocess.Popen([sys.executable, os.path.abspath(STUB_SCRIPT)], env=env,
+                                     stdout=subprocess.DEVNULL, stderr=self.stderr)
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        with open(os.path.join(workdir, "turnaus-pair.out"), "wb") as out:
+            paired = subprocess.run([binary, "--pair", self.PIN, "--turnaus", self.url, "--allow-plaintext",
+                                     "--credentials", self.credentials],
+                                    cwd=workdir, stdout=out, stderr=subprocess.STDOUT, timeout=60)
+        self.paired = paired.returncode == 0
+
+    def detector_args(self):
+        return ["--turnaus", self.url, "--allow-plaintext", "--credentials", self.credentials]
+
+    def stop(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+        self.stderr.close()
+
+    def events(self):
+        try:
+            with open(self.transcript) as handle:
+                return [json.loads(line) for line in handle if line.strip()]
+        except OSError:
+            return []
+
+
+def pushes(events):
+    """What the board posted, in the order the stub received it."""
+    out = []
+    for event in events:
+        if event.get("event") in ("counted", "absorbed"):
+            out.append((event["event"], event.get("sector")))
+        elif event.get("event") == "takeout":
+            out.append(("takeout", None))
+    return out
+
+
+def client_stopped(log):
+    """(queued, delivered, attempts, dropped, still_owed) from #822's last summary line, or None."""
+    found = re.findall(r"client stopped\. queued=(\d+) delivered=(\d+) attempts=(\d+) dropped=(\d+) still_owed=(\d+)", log)
+    return tuple(int(v) for v in found[-1]) if found else None
+
 
 def tcp_state(sock):
     """The kernel's state for this socket; CLOSE_WAIT once the far end has closed."""
@@ -77,11 +159,11 @@ def tcp_state(sock):
 
 
 class Run:
-    def __init__(self, binary, cams, width, height, workdir, cycles, label):
+    def __init__(self, binary, cams, width, height, workdir, cycles, label, extra_args=()):
         self.workdir = workdir
         os.makedirs(workdir, exist_ok=True)
         env = dict(os.environ, OD_MAX_CYCLES=str(cycles))
-        argv = [binary, "--debug", "--cams", cams, "--width", str(width), "--height", str(height)]
+        argv = [binary, "--debug", "--cams", cams, "--width", str(width), "--height", str(height)] + list(extra_args)
         self.stdout_path = os.path.join(workdir, f"detector-{label}.out")
         self.stdout = open(self.stdout_path, "wb")
         self.proc = subprocess.Popen(argv, cwd=workdir, env=env, stdout=self.stdout, stderr=subprocess.STDOUT)
@@ -282,6 +364,8 @@ def main():
     parser.add_argument("--connect-timeout", type=float, default=180.0)
     parser.add_argument("--run-timeout", type=float, default=900.0)
     parser.add_argument("--latency-bound", type=float, default=1.0, help="seconds; A's worst delivery latency while C is stalled")
+    parser.add_argument("--turnaus-stub", action="store_true", help="pair each run with #822's stub and assert on what the board pushed")
+    parser.add_argument("--stub-port", type=int, default=8899)
     args = parser.parse_args()
 
     workdir = args.workdir or tempfile.mkdtemp(prefix="subscribers-")
@@ -304,7 +388,9 @@ def main():
 
     # ---------------------------------------------------------------- run 1
     print("run 1: two readers, B reconnects after the first END")
-    run = Run(binary, cams, args.width, args.height, os.path.join(workdir, "run1"), args.cycles, "two-readers")
+    stub1 = TurnausStub(binary, os.path.join(workdir, "run1"), args.stub_port) if args.turnaus_stub else None
+    run = Run(binary, cams, args.width, args.height, os.path.join(workdir, "run1"), args.cycles, "two-readers",
+              stub1.detector_args() if stub1 else ())
     token = read_token(os.path.join(workdir, "run1", "score_token"), time.time() + args.connect_timeout)
     if token is None:
         print("FAIL: no token, nothing to present")
@@ -330,6 +416,8 @@ def main():
     reconnected_at = time.time()
     b2.start()
     exit1 = run.wait(args.run_timeout)
+    if stub1:
+        stub1.stop()
     a1.join(timeout=10)
     b2.join(timeout=10)
     log1 = run.log_text()
@@ -355,7 +443,9 @@ def main():
 
     # ---------------------------------------------------------------- run 2
     print("run 2: A reads, C accepts the upgrade after A's first message and never reads again")
-    run = Run(binary, cams, args.width, args.height, os.path.join(workdir, "run2"), args.cycles, "one-dead")
+    stub2 = TurnausStub(binary, os.path.join(workdir, "run2"), args.stub_port) if args.turnaus_stub else None
+    run = Run(binary, cams, args.width, args.height, os.path.join(workdir, "run2"), args.cycles, "one-dead",
+              stub2.detector_args() if stub2 else ())
     token = read_token(os.path.join(workdir, "run2", "score_token"), time.time() + args.connect_timeout)
     deadline = time.time() + args.connect_timeout
     first = threading.Event()
@@ -364,6 +454,8 @@ def main():
     a2.start()
     c.start()
     exit2 = run.wait(args.run_timeout)
+    if stub2:
+        stub2.stop()
     a2.join(timeout=10)
     c.join(timeout=DROP_BOUND + 15)
     log2 = run.log_text()
@@ -403,6 +495,30 @@ def main():
     record("ensure_calls agree between the runs", budget1[2] if budget1 else None, budget2[2] if budget2 else None)
     if args.cycles in REFERENCE_ENSURE_CALLS:
         record(f"ensure_calls at {args.cycles} cycles is the reference's", REFERENCE_ENSURE_CALLS[args.cycles], budget2[2] if budget2 else None)
+
+    if args.turnaus_stub:
+        # #822: the push to a server, which #1188's issue asked about and this fork did
+        # not have when the check was written. Run 1 is the churn - B closing and coming
+        # back, eight probes opening and closing - and run 2 is the dead subscriber held
+        # until the pong rule drops it. Neither may change what the board posts.
+        print("both runs: what the board pushed to the server (#822, against testers/turnaus_stub.py)")
+        want_push = [("takeout", None) if s == "END" else ("counted", s) for s, _, _ in reference]
+        pushed = {}
+        for n, stub, log in ((1, stub1, log1), (2, stub2, log2)):
+            events = stub.events()
+            pushed[n] = pushes(events)
+            stopped = client_stopped(log)
+            counted_refs = [e.get("reference") for e in events if e.get("event") == "counted"]
+            print(f"    run {n}: " + " ".join(f"{kind}:{sector}" if sector else kind for kind, sector in pushed[n]))
+            print(f"    run {n}: client stopped (queued, delivered, attempts, dropped, still_owed) = {stopped}")
+            record(f"run {n}: the board paired with the stub", True, stub.paired)
+            record(f"run {n}: what the board pushed is the reference, in order", want_push, pushed[n])
+            record(f"run {n}: no push was absorbed, refused or sent anywhere unknown", 0,
+                   sum(1 for e in events if e.get("event") in ("absorbed", "answer_lost", "pairing_refused", "unknown_path")))
+            record(f"run {n}: every detection carried its own reference", len(counted_refs), len(set(counted_refs)))
+            record(f"run {n}: the client dropped nothing and owed nothing at exit", "0 0",
+                   f"{stopped[3]} {stopped[4]}" if stopped else "no summary line")
+        record("run 1's pushes are run 2's", pushed[1], pushed[2])
 
     failed = results.count(False)
     print(f"checks {len(results)}   failed {failed}")
