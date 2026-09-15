@@ -61,6 +61,8 @@ add_executable(opendartboard
     src/communication/websocket_service.cpp
     # #822: the outbound client -- pairing, and the push of what the scorer publishes.
     src/communication/turnaus_client.cpp
+    # #1189: the QR code the setup view prints; vendored, MIT, src/third_party/qrcodegen/LICENSE
+    src/third_party/qrcodegen/qrcodegen.cpp
     # src/detector/ai/yolo_detector.cpp // Uncomment when AI detector is ready
     src/detector/geometry/geometry_detector.cpp
     # calibration files

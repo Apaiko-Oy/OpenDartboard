@@ -91,6 +91,12 @@ namespace debug
         std::cout << "  --listen             Open the score socket on the network (0.0.0.0:13520); loopback only without it\n";
         std::cout << "  --show-token         Print the token a subscriber presents as ws://.../scores?token=..., creating it if absent, and exit\n";
         std::cout << "  --token-file <path>  Where the token is kept (default: score_token in the working directory, mode 0600)\n";
+        std::cout << "  --label <name>       What the board is announced as and called in --setup (default: the hostname)\n";
+        std::cout << "  --announce-dir <dir> Avahi services directory the announcement is written to while --listen is on\n";
+        std::cout << "                       (default: /etc/avahi/services); nothing is announced without --listen\n";
+        std::cout << "  --setup              Print the setup view - a QR code a phone scans to subscribe, encoding\n";
+        std::cout << "                       ws://<address>:13520/scores?token=<token> - and exit; the token is inside the QR only\n";
+        std::cout << "  --setup-address <a>  The address the QR names (default: this board's first non-loopback IPv4 address)\n";
         std::cout << "  --version            Show version information\n";
         std::cout << "  --help               Show this help message\n";
         exit(0);

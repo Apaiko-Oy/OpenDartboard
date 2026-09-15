@@ -5,6 +5,8 @@
 #include "utils/logging.hpp"
 #include "utils/autocam.hpp"
 #include "communication/score_token.hpp"
+#include "communication/announce.hpp"
+#include "utils/setup_view.hpp"
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
 #include <iostream>
@@ -32,6 +34,14 @@ int main(int argc, char **argv)
   string token_path = getArg(argc, argv, "--token-file", score_token::kDefaultPath);
   if (hasFlag(argc, argv, "--show-token"))
     debug::printTokenAndExit(token_path);
+
+  // #1189: the board's label - what it is announced as and what the setup view
+  // calls it - and the setup view itself, which prints the QR a phone scans.
+  string label = getArg(argc, argv, "--label", announce::defaultLabel());
+  bool listen = hasFlag(argc, argv, "--listen");
+  if (hasFlag(argc, argv, "--setup"))
+    setup_view::printAndExit(token_path, label, ScoreSocketSettings().port,
+                             getArg(argc, argv, "--setup-address", ""), listen);
 
   // Parse command line arguments with defaults
 #ifdef _WIN32
@@ -150,7 +160,7 @@ int main(int argc, char **argv)
 
   // #1187: loopback unless --listen; the token is required either way.
   ScoreSocketSettings socket;
-  socket.bind_address = hasFlag(argc, argv, "--listen") ? "0.0.0.0" : "127.0.0.1";
+  socket.bind_address = listen ? "0.0.0.0" : "127.0.0.1";
   score_token::Resolved token = score_token::loadOrCreate(token_path);
   if (token.token.empty())
   {
@@ -161,6 +171,28 @@ int main(int argc, char **argv)
   debug::printSocketConfig(socket.bind_address, socket.port, token_path, token.created,
                            score_token::isReadableByOthers(token_path));
 
+  // #1189: announced through the host's responder while - and only while - the
+  // socket is on the network. A loopback-only start withdraws what an earlier
+  // --listen run may have left, so the two states cannot disagree.
+  string announce_dir = getArg(argc, argv, "--announce-dir", announce::kDefaultDir);
+  if (listen)
+  {
+    announce::Outcome published = announce::publish(announce_dir, label, socket.port, version);
+    if (published.done)
+      log_info("announced as '" + label + "' (" + announce::kServiceType + ", port " + to_string(socket.port) +
+               ") via " + published.detail);
+    else
+      log_warning("not announced: " + published.detail + " (--announce-dir names another directory)");
+  }
+  else
+  {
+    announce::Outcome withdrawn = announce::withdraw(announce_dir);
+    if (withdrawn.done)
+      log_info("not announced: loopback only; removed " + withdrawn.detail + " left by an earlier --listen run");
+    else
+      log_info("not announced: loopback only");
+  }
+
   // Initialise the scorer with debug mode if requested
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
   scorer.attachTurnaus(std::unique_ptr<TurnausClient>(new TurnausClient(turnaus_config)));
@@ -168,10 +200,26 @@ int main(int argc, char **argv)
   // #825: the handler records the signal and returns; Scorer::run()'s loop is what
   // observes it. There is no callback here any more, because a callback called from a
   // signal context is a callback that runs while the interrupted thread holds locks.
+  //
+  // #1189 withdrew the announcement inside the old callback, because the old handler
+  // exit()ed straight after it and the withdrawal below was never reached on SIGINT or
+  // SIGTERM. Under #825 the loop leaves, run() returns and control reaches the
+  // withdrawal below on a signal exactly as on the cycle-budget exit, still before
+  // ~Scorer stops the socket. A second signal re-raises with the default disposition
+  // and leaves the file behind, as a SIGKILL always did.
   signals::setupSignalHandlers();
 
   // Run the scorer on this thread. It returns when the loop sees the shutdown flag.
   scorer.run();
+
+  // #1189: the announcement does not outlive the socket. Reached on the cycle budget
+  // and, since #825, on SIGINT and SIGTERM too.
+  if (listen)
+  {
+    announce::Outcome withdrawn = announce::withdraw(announce_dir);
+    log_info(withdrawn.done ? "announcement withdrawn: removed " + withdrawn.detail
+                            : "announcement not withdrawn: " + withdrawn.detail);
+  }
 
   // #825: and then this function ends normally, which is the whole point. ~Scorer runs
   // here -- joining the WebSocket worker, stopping the HTTP server and releasing the
