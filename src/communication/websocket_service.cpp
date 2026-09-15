@@ -16,10 +16,14 @@
 #include <optional>
 #include <cerrno>
 #include <cstring>
+#ifndef _WIN32
+// #1249: the Winsock half of these arrives with od_platform_first.hpp on MSVC, and the
+// /proc walk below is Linux's alone.
 #include <dirent.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 
 using namespace std;
 using json = nlohmann::json;
@@ -300,6 +304,14 @@ static const chrono::seconds kWriteWait{5};
 // subscriber is held to the write bound alone and the log says so.
 static int findSocketOf(const string &remote_addr, int remote_port, int local_port)
 {
+#ifdef _WIN32
+    // #1249: no /proc on Windows, so the socket is never found and a subscriber is held
+    // to the write bound alone - the not-found path above, which the log already names.
+    (void)remote_addr;
+    (void)remote_port;
+    (void)local_port;
+    return -1;
+#else
     DIR *dir = opendir("/proc/self/fd");
     if (!dir)
         return -1;
@@ -327,6 +339,7 @@ static int findSocketOf(const string &remote_addr, int remote_port, int local_po
     }
     closedir(dir);
     return found;
+#endif
 }
 
 // What a subscriber sends back. A client's frames are masked (RFC 6455 5.1).
@@ -588,6 +601,8 @@ void WebSocketService::run()
 
                             // 2. what the subscriber sent back: a pong, a ping, a close, or nothing more
                             if (fd >= 0) {
+#ifndef _WIN32
+                                // #1249: fd is -1 on Windows (findSocketOf), so this read is Linux's alone.
                                 uint8_t buf[4096];
                                 for (;;) {
                                     const ssize_t n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
@@ -602,6 +617,7 @@ void WebSocketService::run()
                                     }
                                     break;
                                 }
+#endif
                                 ClientFrame frame;
                                 while (ended.empty() && takeClientFrame(inbound, frame)) {
                                     if (frame.opcode == 0xA) {

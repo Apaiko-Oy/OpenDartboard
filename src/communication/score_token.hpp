@@ -20,8 +20,16 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+// #1249: MSVC has no <unistd.h>. The CRT's <io.h> carries the same four calls under
+// underscored names, and _S_IREAD|_S_IWRITE is the nearest thing to 0600 there is:
+// what the token's directory inherits decides who else can read it, exactly as for
+// the pairing credential (od_paths::writeSecret). No explicit ACL is set or claimed.
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace score_token
 {
@@ -61,10 +69,17 @@ namespace score_token
     // repaired: a permission somebody loosened on purpose is theirs to tighten.
     inline bool isReadableByOthers(const std::string &path)
     {
+#ifdef _WIN32
+        // A DACL is not a mode, and this will not pretend to have read one
+        // (od_paths::worldReadable answers the same way for the same reason).
+        (void)path;
+        return false;
+#else
         struct stat st;
         if (::stat(path.c_str(), &st) != 0)
             return false;
         return (st.st_mode & (S_IRWXG | S_IRWXO)) != 0;
+#endif
     }
 
     // What happened when the token was resolved, so the caller can say it.
@@ -101,6 +116,33 @@ namespace score_token
                 return readExisting(path);
         }
         std::string token = generate();
+#ifdef _WIN32
+        {
+            int fd = ::_open(path.c_str(), _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
+            if (fd < 0)
+            {
+                if (errno == EEXIST)
+                    return readExisting(path);
+                Resolved r;
+                r.error = std::strerror(errno);
+                return r;
+            }
+            std::string line = token + "\n";
+            int n = ::_write(fd, line.data(), static_cast<unsigned int>(line.size()));
+            ::_close(fd);
+            if (n != static_cast<int>(line.size()))
+            {
+                ::_unlink(path.c_str());
+                Resolved r;
+                r.error = "short write";
+                return r;
+            }
+            Resolved r;
+            r.token = token;
+            r.created = true;
+            return r;
+        }
+#else
         int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
         if (fd < 0)
         {
@@ -124,6 +166,7 @@ namespace score_token
         r.token = token;
         r.created = true;
         return r;
+#endif
     }
 
     // Length-independent comparison, so a wrong token costs the same as a right one.
