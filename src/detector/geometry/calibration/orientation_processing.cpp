@@ -132,12 +132,19 @@ namespace orientation_processing
                     float t = (float)i / sampleCount;
                     Point2f samplePoint = wireEndpoint + direction * (params.wireExtensionDistance * t);
 
-                    // Check bounds
-                    if (samplePoint.x >= 0 && samplePoint.x < mask.cols &&
-                        samplePoint.y >= 0 && samplePoint.y < mask.rows)
+                    // Check bounds on the index the access actually uses.
+                    // Mat::at(Point) takes an integer Point, and the Point2f -> Point
+                    // conversion is saturate_cast<int>, i.e. cvRound. Testing the float
+                    // against mask.rows therefore admits y in [rows-0.5, rows), which
+                    // rounds to row `rows` and reads one full row past the mask.
+                    const int sampleX = cvRound(samplePoint.x);
+                    const int sampleY = cvRound(samplePoint.y);
+
+                    if (sampleX >= 0 && sampleX < mask.cols &&
+                        sampleY >= 0 && sampleY < mask.rows)
                     {
                         // If we hit white (dartboard), this is not a clip wire
-                        if (mask.at<uchar>(samplePoint) > 128)
+                        if (mask.at<uchar>(sampleY, sampleX) > 128)
                         {
                             hitsEmptySpace = false;
                             break;

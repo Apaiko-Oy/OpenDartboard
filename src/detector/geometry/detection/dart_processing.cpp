@@ -243,6 +243,11 @@ namespace dart_processing
             frames_accumulated.assign(current_frames.size(), 0);
             working_backgrounds.resize(current_frames.size()); // Initialize working backgrounds
 
+#ifdef DEBUG_VIA_VIDEO_INPUT
+            // #812: four more unauthenticated MJPEG listeners on 0.0.0.0. They were
+            // behind debug_mode alone, so a release binary run with --debug opened
+            // them. The rule is now the same everywhere: a listener needs the debug
+            // BUILD and the debug FLAG, not one of the two.
             if (debug_mode)
             {
                 // Initialize streamers for debugging (1fps is sufficient for debugging)
@@ -251,6 +256,7 @@ namespace dart_processing
                 dart_thresh_diff_streamer = make_unique<streamer>(8086, 1);
                 dart_tip_streamer = make_unique<streamer>(8087, 1);
             }
+#endif
 
             initialized = true;
         }
@@ -495,7 +501,7 @@ namespace dart_processing
         }
 
         // debug via streamers
-        if (debug_mode)
+        if (debug_mode && dart_diff_streamer)
         {
             try
             {
