@@ -34,8 +34,13 @@ They carry no credential; nothing in this document changes that.
 
 ### Several subscribers, and what each one is promised
 
-Any number of clients may subscribe to one board at once - a marking screen and a phone
-beside it, say - and each is promised the same three things:
+Several clients may subscribe to one board at once - a marking screen and a phone beside it,
+say - and each is promised the same three things. **How many** is bounded by the web server:
+every connection, a subscriber or a REST request, is served on one thread of a fixed pool of
+`max(8, hardware threads - 1)` - **eight** on a Raspberry Pi 4 - and a subscriber keeps its
+thread for as long as it is subscribed. A connection beyond the pool is not refused; its
+upgrade waits unanswered until a thread frees, and while every thread is held by a subscriber
+the REST routes wait too.
 
 - **Every subscriber receives every message, in the order it was published**, from the
   moment its upgrade is accepted. Nothing is replayed: a subscriber that connects, or
@@ -43,12 +48,14 @@ beside it, say - and each is promised the same three things:
   away. If a client needs the earlier darts it keeps them itself.
 - **A subscriber that stops reading is dropped after a bounded wait, and the wait is
   logged.** The board pings every subscriber every **30 seconds** and expects a pong within
-  **10 seconds** (every browser `WebSocket` and every WebSocket library answers a ping on its
-  own; a hand-rolled client must). A subscriber that has not answered is dropped - so one that
-  stops reading is gone **within 40 seconds** of doing so - and so is one whose socket does
-  not accept a frame within **5 seconds**. Each drop is one log line naming the peer, the
-  wait, the reason and how many messages it was still owed. A subscriber that closes, with a
-  close frame or by closing its socket, is let go at once.
+  **10 seconds** (a browser's `WebSocket` answers a ping on its own, and so do the libraries in
+  the examples below; a hand-rolled client must). A subscriber that has not answered is
+  dropped - so one that stops reading is gone **within 41 seconds** of doing so: the 30 and the
+  10, and the tenth of a second the board takes to look - and so is one whose socket does not
+  accept a frame within **5 seconds**. Each drop is one warning line naming the peer, the wait,
+  the reason, and how many messages were delivered and how many were still owed. A subscriber
+  that closes, with a close frame or by closing its socket, is let go within a tenth of a
+  second, and it holds its thread until then.
 - **The others are never delayed by it.** Every subscriber has its own outbox and its own
   writer; the board's publishing loop puts a message on every outbox and never waits for a
   socket. A subscriber that has stopped taking messages blocks nothing but itself.
