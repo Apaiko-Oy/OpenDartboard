@@ -32,6 +32,39 @@ and nowhere else. Hand it to the app that will subscribe; there is one token per
 The REST routes below share the listener, so `--listen` puts them on the network as well.
 They carry no credential; nothing in this document changes that.
 
+### Several subscribers, and what each one is promised
+
+Several clients may subscribe to one board at once - a marking screen and a phone beside it,
+say - and each is promised the same three things. **How many** is bounded by the web server:
+every connection, a subscriber or a REST request, is served on one thread of a fixed pool of
+`max(8, hardware threads - 1)` - **eight** on a Raspberry Pi 4 - and a subscriber keeps its
+thread for as long as it is subscribed. A connection beyond the pool is not refused; its
+upgrade waits unanswered until a thread frees, and while every thread is held by a subscriber
+the REST routes wait too.
+
+- **Every subscriber receives every message, in the order it was published**, from the
+  moment its upgrade is accepted. Nothing is replayed: a subscriber that connects, or
+  reconnects, receives what is published from then on and not what it missed while it was
+  away. If a client needs the earlier darts it keeps them itself.
+- **A subscriber that stops reading is dropped after a bounded wait, and the wait is
+  logged.** The board pings every subscriber every **30 seconds** and expects a pong within
+  **10 seconds** (a browser's `WebSocket` answers a ping on its own, and so do the libraries in
+  the examples below; a hand-rolled client must). A subscriber that has not answered is
+  dropped - so one that stops reading is gone **within 41 seconds** of doing so: the 30 and the
+  10, and the tenth of a second the board takes to look - and so is one whose socket does not
+  accept a frame within **5 seconds**. Each drop is one warning line naming the peer, the wait,
+  the reason, and how many messages were delivered and how many were still owed. A subscriber
+  that closes, with a close frame or by closing its socket, is let go within a tenth of a
+  second, and it holds its thread until then.
+- **The others are never delayed by it.** Every subscriber has its own outbox and its own
+  writer; the board's publishing loop puts a message on every outbox and never waits for a
+  socket. A subscriber that has stopped taking messages blocks nothing but itself.
+
+Subscribing changes nothing about what the board detects or publishes: the socket is a
+reader of the score stream, not a participant in it.
+
+When the board stops, each subscriber is sent a close frame.
+
 ### Real-time Score Streaming
 
 The **main feature** - connects and receives live dart scores as JSON messages in real-time.
@@ -333,7 +366,8 @@ GET http://<ip-adress>:13520/calibrate/status
 
 - **Connection Failed**: Check if OpenDartboard is running - and, from another device, that it was started with `--listen`; without it the socket is loopback only
 - **401 Unauthorized on the upgrade**: no `token` query parameter, or a wrong one; `opendartboard --show-token` on the board prints the right one
-- **Connection Lost**: Implement exponential backoff reconnection
+- **Connection Lost**: Implement exponential backoff reconnection; a reconnecting subscriber receives what is published from then on, nothing is replayed
+- **Dropped after 10-40 seconds while the app was in the background**: the board pings every 30 seconds and drops a subscriber that does not pong within 10; a client that cannot answer while backgrounded should reconnect when it returns
 - **Invalid JSON**: Parse errors in client code
 
 ### HTTP Errors
@@ -350,6 +384,6 @@ GET http://<ip-adress>:13520/calibrate/status
 ## Performance Notes
 
 - **WebSocket**: No rate limiting, handle high-frequency dart detections
-- **Ping frames**: Sent every 30 seconds for connection keep-alive
+- **Ping frames**: Sent every 30 seconds; a subscriber that does not pong within 10 seconds is dropped, and a stalled subscriber never delays the others
 - **Message bursts**: Possible during rapid scoring sequences
 - **Reconnection**: Client responsibility for WebSocket reconnection
