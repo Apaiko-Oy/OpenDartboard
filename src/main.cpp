@@ -10,6 +10,10 @@
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
 #include "communication/turnaus_address.hpp"
+#ifdef _WIN32
+// #1258: the question at start, Windows only. Linux compiles none of it.
+#include "utils/camera_setup.hpp"
+#endif
 #include <iostream>
 #include <vector>
 #include <string>
@@ -176,7 +180,14 @@ int main(int argc, char **argv)
   {
 #ifdef _WIN32
     // Media Foundation has no filesystem name for a camera, so a device is an index.
-    cams = getArgVector(argc, argv, "--cams", "0,1,2");
+    //
+    // #1258: --cams on the command line is taken as given and never asked about. Without
+    // it, the remembered choice or 0,1,2 -- and, in an interactive console only, the
+    // question when one of them does not open. camera_setup.hpp says the rest.
+    if (hasFlag(argc, argv, "--cams"))
+      cams = getArgVector(argc, argv, "--cams", "0,1,2");
+    else
+      cams = camera_setup::camerasAtStart(turnaus_config.credentials_path, width, height, fps);
 #else
     cams = getArgVector(argc, argv, "--cams", "/dev/video0,/dev/video1,/dev/video2");
 #endif

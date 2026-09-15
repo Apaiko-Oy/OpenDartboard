@@ -42,7 +42,19 @@ namespace autocam
     {
         int index = -1;
         std::string name;
+        // #1258: Media Foundation's symbolic link, the identity a remembered camera is
+        // found by when its index has moved. Empty when the source publishes none.
+        std::string id;
     };
+
+    inline std::string narrow(const WCHAR *wide, UINT32 length)
+    {
+        int bytes = ::WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, nullptr, 0, nullptr, nullptr);
+        std::string text(bytes > 0 ? bytes : 0, '\0');
+        if (bytes > 0)
+            ::WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, &text[0], bytes, nullptr, nullptr);
+        return text;
+    }
 
     // The friendly names Media Foundation publishes, in MF's own order — which is
     // the order OpenCV's MSMF backend indexes them in.
@@ -72,10 +84,14 @@ namespace autocam
                     UINT32 length = 0;
                     if (SUCCEEDED(found[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &wide, &length)))
                     {
-                        int bytes = ::WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, nullptr, 0, nullptr, nullptr);
-                        device.name.resize(bytes > 0 ? bytes : 0);
-                        if (bytes > 0)
-                            ::WideCharToMultiByte(CP_UTF8, 0, wide, (int)length, &device.name[0], bytes, nullptr, nullptr);
+                        device.name = narrow(wide, length);
+                        ::CoTaskMemFree(wide);
+                    }
+                    wide = nullptr;
+                    length = 0;
+                    if (SUCCEEDED(found[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &wide, &length)))
+                    {
+                        device.id = narrow(wide, length);
                         ::CoTaskMemFree(wide);
                     }
                     devices.push_back(device);
