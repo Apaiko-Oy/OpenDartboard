@@ -97,6 +97,66 @@ segment the detector asserts, and `angle` says where in that wedge the dart is.
 carry `"segment": null, "ring": null, "board": null`; a bull carries `"segment": null` with a
 ring and a radius, and `"angle": null` when the orientation is unknown.
 
+### Finding a board on the network
+
+A board whose socket is open on the network - started with `--listen` - **announces itself
+over mDNS** so an app can list the boards on the wifi and offer them by name. A board on
+loopback only announces nothing, and a board that stops withdraws its announcement.
+
+| What | Value |
+| --- | --- |
+| Service type | `_opendartboard._tcp` (browse `_opendartboard._tcp.local.`) |
+| Instance name | the board's **label** |
+| Port (SRV) | `13520`, the score socket |
+| TXT `path` | `/scores` |
+| TXT `label` | the label again, unescaped, for resolvers that mangle instance names |
+| TXT `version` | the detector's version |
+| TXT `auth` | `token` - the upgrade needs `?token=`, which the announcement never carries |
+
+**The label** is `--label <name>`, or the board's hostname when that is not given. Give each
+board in a club its own (`--label "Kello 1"`): two boards announcing one label leave it to
+the responder to rename one of them, and the new name says nothing a person can use.
+
+**How it is announced.** The detector writes an Avahi service file,
+`/etc/avahi/services/opendartboard.service` (`--announce-dir <dir>` moves it), when it opens
+the socket with `--listen`, and removes it when it stops or starts without `--listen`; the
+host's `avahi-daemon` publishes what is in that directory, so the host must run it
+(package `avahi-daemon`). A board that cannot write the file logs `not announced:` once and runs anyway. A
+detector killed outright (`SIGKILL`, a crash) leaves the file behind until its next start.
+**Windows is not announced**: it has no Avahi, and announcing would need a library the
+binary does not carry. Use the setup view's QR there.
+
+**When several boards answer**, a client:
+
+- lists every board it resolved, **by label**, and lets the person pick one;
+- never connects to more than one board on its own, and never picks one silently - not
+  even when only one answers, because the one that answered may not be the board in front
+  of the player;
+- asks for that board's token (the setup view's QR, or `--show-token`) - a token belongs to
+  one board, and the announcement names which board is which, not who may subscribe;
+- treats an announcement as a hint: the address and port are where to try, and the `401`
+  or the subscription is the answer.
+
+### The setup view: a QR code a phone scans
+
+```
+opendartboard --setup [--label <name>] [--setup-address <address>]
+```
+
+prints the board's label, the socket address with the token elided, and a **QR code drawn
+in the terminal** that encodes the whole subscription URL,
+
+```
+ws://<address>:13520/scores?token=<token>
+```
+
+so a phone camera pointed at the screen reads exactly the URL this document describes.
+The token is inside the QR only; it is not printed beside it. `<address>` is the board's
+first non-loopback IPv4 address when `--setup` runs; `--setup-address` names another on a
+board with more than one. The URL is the same with or without `--listen`, but the socket
+answers there only when the detector runs with `--listen`, and the view says so. The QR is
+produced by a vendored encoder (`src/third_party/qrcodegen`, MIT) and needs no network.
+
 ## Simple Client Example
 
 ### JavaScript
