@@ -3,6 +3,7 @@
 #include "utils.hpp"
 #include "utils/streamer.hpp"
 #include "../calibration/geometry_calibration.hpp"
+#include "../calibration/perspective_processing.hpp"
 
 using namespace cv;
 using namespace std;
@@ -35,74 +36,91 @@ namespace score_processing
         return (rotated.x * rotated.x) / (a * a) + (rotated.y * rotated.y) / (b * b) <= 1.0f;
     }
 
-    // Clean, angle-based scoring function
-    string getScoreAtPoint(Point2f pixel, const DartboardCalibration &calib)
+    // #1186: distance along a ray from `origin` in direction `direction` (unit) to the
+    // boundary of `ellipse`, or a negative number where the ray never crosses it. The
+    // helper in utils/math.hpp answers a made-up radius in that case; a ruler mark that
+    // was not found has to be absent, not invented.
+    static float rayDistanceToEllipse(Point2f origin, Point2f direction, const RotatedRect &ellipse)
     {
-        // Validation check
-        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < 20)
-        {
-            log_debug("SCORE: Invalid calibration data");
-            return "MISS";
-        }
+        float a = ellipse.size.width / 2.0f;
+        float b = ellipse.size.height / 2.0f;
+        if (!(a > 0.0f) || !(b > 0.0f))
+            return -1.0f;
+        float theta = -ellipse.angle * CV_PI / 180.0f;
+        float c = cos(theta), sn = sin(theta);
+        Point2f rel = origin - ellipse.center;
+        float x0 = rel.x * c - rel.y * sn;
+        float y0 = rel.x * sn + rel.y * c;
+        float dx = direction.x * c - direction.y * sn;
+        float dy = direction.x * sn + direction.y * c;
+        float A = (dx * dx) / (a * a) + (dy * dy) / (b * b);
+        float B = 2.0f * ((x0 * dx) / (a * a) + (y0 * dy) / (b * b));
+        float C = (x0 * x0) / (a * a) + (y0 * y0) / (b * b) - 1.0f;
+        float disc = B * B - 4.0f * A * C;
+        if (disc < 0.0f || !(A > 0.0f))
+            return -1.0f;
+        float t = (-B + sqrt(disc)) / (2.0f * A); // the crossing ahead of an origin inside the ellipse
+        return t > 0.0f ? t : -1.0f;
+    }
 
+    // #1186: the radial ruler. The six ring ellipses cross the ray from the bull through
+    // the tip at known distances, and the board's own radii for those rings are known in
+    // millimetres, so the tip's pixel distance is read off between the two marks it lies
+    // between. Returns the radius normalised to the outer edge of the double ring, or a
+    // negative number where the ruler has no outer mark. Membership in a ring by the
+    // ellipse test above and position on this ruler agree by construction: a point on the
+    // ray is inside a convex ellipse that contains the bull exactly when it is short of
+    // the crossing.
+    static float boardRadius(Point2f pixel, const DartboardCalibration &calib)
+    {
         Point2f center = Point2f(calib.bullCenter);
-
-        // 1. RING DETECTION - Check from inside out
-        bool in_inner_bull = isPointInEllipse(pixel, calib.ellipses.innerBullEllipse);
-        if (in_inner_bull)
+        Point2f rel = pixel - center;
+        float d = sqrt(rel.x * rel.x + rel.y * rel.y);
+        if (d <= 0.0f)
+            return 0.0f;
+        Point2f u = rel * (1.0f / d);
+        const perspective_processing::DartboardSpec spec;
+        struct Mark
         {
-            log_debug("SCORE: Point in INNER BULL");
-            return "BULL";
-        }
-
-        bool in_outer_bull = isPointInEllipse(pixel, calib.ellipses.outerBullEllipse);
-        if (in_outer_bull)
+            const RotatedRect *ellipse;
+            float mm;
+        };
+        const Mark marks[6] = {
+            {&calib.ellipses.innerBullEllipse, spec.bullRadius},
+            {&calib.ellipses.outerBullEllipse, spec.bull25Radius},
+            {&calib.ellipses.innerTripleEllipse, spec.innerTripleRadius},
+            {&calib.ellipses.outerTripleEllipse, spec.outerTripleRadius},
+            {&calib.ellipses.innerDoubleEllipse, spec.innerDoubleRadius},
+            {&calib.ellipses.outerDoubleEllipse, spec.outerDoubleRadius},
+        };
+        // Usable marks, in increasing pixel distance; a mark that was not crossed or that
+        // sits inside the previous one is dropped rather than bent into place.
+        vector<pair<float, float>> ruler; // (pixels, mm)
+        ruler.push_back({0.0f, 0.0f});
+        for (const Mark &m : marks)
         {
-            log_debug("SCORE: Point in OUTER BULL");
-            return "OUTER";
+            float t = rayDistanceToEllipse(center, u, *m.ellipse);
+            if (t > ruler.back().first)
+                ruler.push_back({t, m.mm});
         }
+        if (ruler.back().second != spec.outerDoubleRadius)
+            return -1.0f; // no outer mark, no ruler
+        size_t k = 1;
+        while (k + 1 < ruler.size() && d > ruler[k].first)
+            k++;
+        float p0 = ruler[k - 1].first, p1 = ruler[k].first;
+        float m0 = ruler[k - 1].second, m1 = ruler[k].second;
+        float mm = m0 + (d - p0) * (m1 - m0) / (p1 - p0); // extrapolates past the last mark
+        return mm / spec.outerDoubleRadius;
+    }
 
-        bool in_inner_triple = isPointInEllipse(pixel, calib.ellipses.innerTripleEllipse);
-        bool in_outer_triple = isPointInEllipse(pixel, calib.ellipses.outerTripleEllipse);
-        bool in_inner_double = isPointInEllipse(pixel, calib.ellipses.innerDoubleEllipse);
-        bool in_outer_double = isPointInEllipse(pixel, calib.ellipses.outerDoubleEllipse);
-
-        log_debug("SCORE: Ellipse tests - Inner_T:" + log_string(in_inner_triple) +
-                  " Outer_T:" + log_string(in_outer_triple) +
-                  " Inner_D:" + log_string(in_inner_double) +
-                  " Outer_D:" + log_string(in_outer_double));
-
-        // Determine ring type with clear logic
-        string ring_prefix;
-        if (in_outer_double && !in_inner_double)
-        {
-            ring_prefix = "D"; // In the double ring (narrow band)
-            log_debug("SCORE: Ring type = DOUBLE");
-        }
-        else if (in_outer_triple && !in_inner_triple)
-        {
-            ring_prefix = "T"; // In the triple ring (narrow band)
-            log_debug("SCORE: Ring type = TRIPLE");
-        }
-        else if (in_outer_double)
-        {
-            ring_prefix = "S"; // Anywhere else inside the dartboard
-            log_debug("SCORE: Ring type = SINGLE");
-        }
-        else
-        {
-            log_debug("SCORE: Point outside dartboard");
-            return "MISS";
-        }
-
-        // 2. WEDGE DETECTION using angles
-        if (!calib.orientation.isStarCamera || calib.orientation.wedge20WireIndex < 0)
-        {
-            log_debug("SCORE: No orientation data, defaulting to 20");
-            return ring_prefix + "20";
-        }
-
-        // Calculate angle from center to point
+    // #1186: the angular ruler. Upstream's wedge loop, kept as it was - the first wire
+    // pair whose span contains the tip's image angle, scanning from `start` - and made to
+    // say where between the two wires the tip is. Returns the slot (0..19 from `start`)
+    // or -1, and writes the fraction across the wedge from its first wire.
+    static int findWedgeSlot(Point2f pixel, const DartboardCalibration &calib, int start, float &fraction)
+    {
+        Point2f center = Point2f(calib.bullCenter);
         Point2f direction = pixel - center;
         float point_angle = atan2(direction.y, direction.x);
         if (point_angle < 0)
@@ -110,15 +128,11 @@ namespace score_processing
 
         log_debug("SCORE: Point angle = " + log_string(point_angle * 180.0f / CV_PI) + " degrees");
 
-        // Standard dartboard sequence starting from 20
-        vector<int> dartboard_numbers = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
-        int wire20_index = calib.orientation.wedge20WireIndex;
-
-        // Check each wedge by calculating its angular boundaries
+        const int wires = (int)calib.wires.wireEndpoints.size();
         for (int i = 0; i < 20; i++)
         {
-            int wire1_index = (wire20_index + i) % calib.wires.wireEndpoints.size();
-            int wire2_index = (wire20_index + i + 1) % calib.wires.wireEndpoints.size();
+            int wire1_index = (start + i) % wires;
+            int wire2_index = (start + i + 1) % wires;
 
             Point2f wire1 = calib.wires.wireEndpoints[wire1_index];
             Point2f wire2 = calib.wires.wireEndpoints[wire2_index];
@@ -145,16 +159,155 @@ namespace score_processing
 
             if (test_angle >= angle1 && test_angle <= angle2)
             {
-                int number = dartboard_numbers[i];
-                log_debug("SCORE: Found wedge " + log_string(number) +
+                float span = angle2 - angle1;
+                fraction = span > 0.0f ? (test_angle - angle1) / span : 0.0f;
+                log_debug("SCORE: Found wedge slot " + log_string(i) +
                           " (angle1=" + log_string(angle1 * 180.0f / CV_PI) +
-                          ", angle2=" + log_string(angle2 * 180.0f / CV_PI) + ")");
-                return ring_prefix + to_string(number);
+                          ", angle2=" + log_string(angle2 * 180.0f / CV_PI) +
+                          ", fraction=" + log_string(fraction) + ")");
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // Standard dartboard sequence starting from 20, clockwise
+    static const vector<int> dartboard_numbers = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
+
+    // Clean, angle-based scoring function. #1186: the same decision upstream made, stated
+    // as fields; `score` is composed from them and is byte-for-byte what it was.
+    PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib)
+    {
+        PointScore out;
+
+        // Validation check
+        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < 20)
+        {
+            log_debug("SCORE: Invalid calibration data");
+            return out;
+        }
+
+        // 1. RING DETECTION - Check from inside out
+        bool in_inner_bull = isPointInEllipse(pixel, calib.ellipses.innerBullEllipse);
+        bool in_outer_bull = !in_inner_bull && isPointInEllipse(pixel, calib.ellipses.outerBullEllipse);
+        bool on_bull = in_inner_bull || in_outer_bull;
+
+        string ring_prefix;
+        if (in_inner_bull)
+        {
+            log_debug("SCORE: Point in INNER BULL");
+            out.score = "BULL";
+            out.ring = "bull";
+        }
+        else if (in_outer_bull)
+        {
+            log_debug("SCORE: Point in OUTER BULL");
+            out.score = "OUTER";
+            out.ring = "outer";
+        }
+        else
+        {
+            bool in_inner_triple = isPointInEllipse(pixel, calib.ellipses.innerTripleEllipse);
+            bool in_outer_triple = isPointInEllipse(pixel, calib.ellipses.outerTripleEllipse);
+            bool in_inner_double = isPointInEllipse(pixel, calib.ellipses.innerDoubleEllipse);
+            bool in_outer_double = isPointInEllipse(pixel, calib.ellipses.outerDoubleEllipse);
+
+            log_debug("SCORE: Ellipse tests - Inner_T:" + log_string(in_inner_triple) +
+                      " Outer_T:" + log_string(in_outer_triple) +
+                      " Inner_D:" + log_string(in_inner_double) +
+                      " Outer_D:" + log_string(in_outer_double));
+
+            // Determine ring type with clear logic
+            if (in_outer_double && !in_inner_double)
+            {
+                ring_prefix = "D"; // In the double ring (narrow band)
+                out.ring = "double";
+                log_debug("SCORE: Ring type = DOUBLE");
+            }
+            else if (in_outer_triple && !in_inner_triple)
+            {
+                ring_prefix = "T"; // In the triple ring (narrow band)
+                out.ring = "triple";
+                log_debug("SCORE: Ring type = TRIPLE");
+            }
+            else if (in_outer_double)
+            {
+                ring_prefix = "S"; // Anywhere else inside the dartboard
+                out.ring = "single";
+                log_debug("SCORE: Ring type = SINGLE");
+            }
+            else
+            {
+                log_debug("SCORE: Point outside dartboard");
+                return out; // MISS, and nothing on the board to place
             }
         }
 
-        log_debug("SCORE: No wedge found - this shouldn't happen");
-        return "MISS";
+        // The radial ruler answers for every ring, the bull included.
+        float radius = boardRadius(pixel, calib);
+        if (radius >= 0.0f)
+        {
+            out.board.has_radius = true;
+            out.board.radius = radius;
+        }
+
+        // 2. WEDGE DETECTION using angles
+        out.wedge_measured = calib.orientation.isStarCamera && calib.orientation.wedge20WireIndex >= 0;
+        if (!out.wedge_measured && !on_bull)
+        {
+            log_debug("SCORE: No orientation data, defaulting to 20");
+        }
+
+        // On a bull there is no wedge to decide, but the angle is still known where the
+        // orientation is; where it is not, nothing implies one, and the angle stays absent.
+        if (on_bull && !out.wedge_measured)
+        {
+            return out;
+        }
+
+        float fraction = 0.0f;
+        int start = out.wedge_measured ? calib.orientation.wedge20WireIndex : 0;
+        int slot = findWedgeSlot(pixel, calib, start, fraction);
+        if (slot < 0)
+        {
+            log_debug("SCORE: No wedge found - this shouldn't happen");
+            if (on_bull)
+            {
+                return out;
+            }
+            if (!out.wedge_measured)
+            {
+                // Upstream asserted the 20 without looking at a wire; so does this, and
+                // with no wedge to place the tip in there is no angle to state.
+                out.segment = 20;
+                out.score = ring_prefix + "20";
+                return out;
+            }
+            out.score = "MISS";
+            out.ring.clear();
+            out.board = BoardPosition();
+            return out;
+        }
+
+        // With no orientation the wedge the tip is in is asserted to be the 20 - slot 0 of
+        // the sequence - and the fraction says where across that wedge the tip is.
+        int sequence_slot = out.wedge_measured ? slot : 0;
+        float angle = 18.0f * sequence_slot - 9.0f + 18.0f * fraction;
+        while (angle < 0.0f)
+            angle += 360.0f;
+        while (angle >= 360.0f)
+            angle -= 360.0f;
+        out.board.has_angle = true;
+        out.board.angle = angle;
+
+        if (!on_bull)
+        {
+            int number = dartboard_numbers[sequence_slot];
+            log_debug("SCORE: Found wedge " + log_string(number));
+            out.segment = number;
+            out.score = ring_prefix + to_string(number);
+        }
+        return out;
     }
 
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
@@ -203,6 +356,7 @@ namespace score_processing
             // Collect scores from all cameras with detected tips
             vector<pair<string, int>> camera_scores; // (score, camera_index)
             vector<Mat> points_on_screen;            // For debug images
+            vector<PointScore> point_scores(dart_result.camera_results.size()); // #1186: each camera's decision, as fields
 
             for (size_t i = 0; i < dart_result.camera_results.size(); i++)
             {
@@ -217,7 +371,9 @@ namespace score_processing
                 }
 
                 log_debug("-------");
-                string score_test = getScoreAtPoint(dart_result.camera_results[i].tip_position, calibrations[i]);
+                PointScore point = scorePoint(dart_result.camera_results[i].tip_position, calibrations[i]);
+                string score_test = point.score;
+                point_scores[i] = point;
                 log_debug("-------");
 
                 // print image
@@ -301,6 +457,16 @@ namespace score_processing
                 result.confidence = consensus_score.empty() ? 0.7f : 0.9f;
                 result.camera_index = best_camera;
                 result.valid = true;
+                // #1186: the board-frame fields come from the same camera and the same
+                // decision the score string came from, never from the string.
+                result.ring = point_scores[best_camera].ring;
+                result.segment = point_scores[best_camera].segment;
+                result.board = point_scores[best_camera].board;
+                log_info(string("BOARD: ") + (point_scores[best_camera].wedge_measured ? "wedge measured" : "wedge by default") +
+                         " | ring=" + result.ring +
+                         " | segment=" + to_string(result.segment) +
+                         " | radius=" + (result.board.has_radius ? to_string(result.board.radius) : string("none")) +
+                         " | angle=" + (result.board.has_angle ? to_string(result.board.angle) : string("none")));
             }
             else
             {

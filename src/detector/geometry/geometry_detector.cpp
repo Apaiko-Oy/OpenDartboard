@@ -56,6 +56,13 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.position = score_result.pixel_position;
         result.confidence = score_result.confidence;
         result.camera_index = score_result.camera_index;
+        // #1186: the board-frame fields ride beside the pixels they were derived with.
+        result.ring = score_result.ring;
+        result.segment = score_result.segment;
+        result.board_radius_known = score_result.board.has_radius;
+        result.board_angle_known = score_result.board.has_angle;
+        result.board_radius = score_result.board.radius;
+        result.board_angle = score_result.board.angle;
         // The instant the frames behind this score were acquired, from the backend.
         result.timestamp = camera::newestInstantUs(frames);
     }

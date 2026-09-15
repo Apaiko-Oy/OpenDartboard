@@ -17,6 +17,9 @@ The **main feature** - connects and receives live dart scores as JSON messages i
 ```json
 {
   "score": "D20",
+  "segment": 20,
+  "ring": "double",
+  "board": { "radius": 0.97, "angle": 3.4 },
   "position": { "x": 150, "y": 200 },
   "confidence": 0.95,
   "camera": 0,
@@ -27,15 +30,48 @@ The **main feature** - connects and receives live dart scores as JSON messages i
 
 ### Field Contract
 
-| Field             | Type      | Range                                                | Description             |
-| ----------------- | --------- | ---------------------------------------------------- | ----------------------- |
-| `score`           | `string`  | `"S1"-"D20"`, `"BULL"`, `"OUTER"`, `"MISS"`, `"END"` | Dart score value        |
-| `position.x`      | `integer` | `0-XXX`                                              | X coordinate in pixels  |
-| `position.y`      | `integer` | `0-XXX`                                              | Y coordinate in pixels  |
-| `confidence`      | `float`   | `0.0-1.0`                                            | Detection confidence    |
-| `camera`          | `integer` | `0-2`                                                | Camera index            |
-| `processing_time` | `integer` | `1-1000`                                             | Processing time in ms   |
-| `timestamp`       | `integer` | Unix timestamp                                       | Message timestamp in ms |
+| Field             | Type              | Range                                                    | Description                                                   |
+| ----------------- | ----------------- | -------------------------------------------------------- | ------------------------------------------------------------- |
+| `score`           | `string`          | `"S1"-"D20"`, `"BULL"`, `"OUTER"`, `"MISS"`, `"END"`     | Dart score value                                              |
+| `segment`         | `integer`, `null` | `1-20`                                                   | The number the dart is in; `null` on a bull, a miss and `END` |
+| `ring`            | `string`, `null`  | `"single"`, `"double"`, `"triple"`, `"bull"`, `"outer"`  | The ring the dart is in; `null` on a miss and `END`           |
+| `board.radius`    | `float`           | `0.0-1.0`                                                | Distance from the bull centre, `1.0` at the outer edge of the double ring |
+| `board.angle`     | `float`, `null`   | `0.0-360.0`                                              | Degrees clockwise from the vertical through the middle of the 20 |
+| `board`           | `object`, `null`  |                                                          | `null` on a miss and `END`                                    |
+| `position.x`      | `integer`         | `0-XXX`                                                  | X coordinate in pixels, in the frame of `camera`              |
+| `position.y`      | `integer`         | `0-XXX`                                                  | Y coordinate in pixels, in the frame of `camera`              |
+| `confidence`      | `float`           | `0.0-1.0`                                                | Detection confidence                                          |
+| `camera`          | `integer`         | `0-2`                                                    | Camera index                                                  |
+| `processing_time` | `integer`         | `1-1000`                                                 | Processing time in ms                                         |
+| `timestamp`       | `integer`         | Unix timestamp                                           | Message timestamp in ms                                       |
+
+### Where the dart is
+
+`segment`, `ring` and `board` say where the dart is **on the board**, so a client can draw it
+on its own picture of a board without knowing which camera saw it. `position` says where the
+dart is **in a picture**: it is, and always was, in the pixels of the one camera `camera`
+names - the camera whose reading the board published - and it is kept for the developer's
+debug views. Nothing can be drawn from it without that camera's calibration.
+
+`segment` and `ring` are the decision `score` is composed from, stated as fields; a client
+never needs to parse the string. `board` is polar: `radius` is `0.0` at the centre of the bull
+and `1.0` at the outer edge of the double ring, so the rings lie at the board's own radii -
+the bull to `0.037`, the outer bull to `0.094`, the triple ring from `0.582` to `0.629`, the
+double ring from `0.953` to `1.0`; `angle` is degrees clockwise from the vertical through the
+middle of the 20, so the 20 spans `351`-`9`, the 1 spans `9`-`27`, and every segment is 18
+degrees wide, in the order `20 1 18 4 13 6 10 15 2 17 3 19 7 16 8 11 14 9 12 5`.
+
+The position is derived from the calibration of the camera `camera` names - its ring ellipses
+as a radial ruler and its wires as an angular ruler - and from the same decision that produced
+`score`, so it always falls inside the segment and ring the score names. It is a rectification
+against that camera's calibration, not a measurement against a second camera, and it is only
+as good as that calibration: a wire-to-wire fraction is read in image angle. Where the camera
+that scored has no orientation - the detector's own log says `wedge by default` - the 20 is the
+segment the detector asserts, and `angle` says where in that wedge the dart is.
+
+**An absence is `null`, never `0`.** `0.0` is a real angle and a real radius. `END` and `MISS`
+carry `"segment": null, "ring": null, "board": null`; a bull carries `"segment": null` with a
+ring and a radius, and `"angle": null` when the orientation is unknown.
 
 ## Simple Client Example
 
@@ -49,6 +85,10 @@ socket.onmessage = function (event) {
   console.log(
     `Score: ${score.score} at (${score.position.x}, ${score.position.y})`
   );
+  if (score.board) {
+    // where on the board, for a picture of your own: radius 0..1, angle clockwise from the 20
+    console.log(`On the board: r=${score.board.radius} angle=${score.board.angle}`);
+  }
 };
 
 socket.onopen = () => console.log("Connected to OpenDartboard");

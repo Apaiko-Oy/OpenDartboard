@@ -645,6 +645,30 @@ string WebSocketService::formatScoreJson(const DetectorResult &result)
         {"y", (int)result.position.y}};
     j["confidence"] = result.confidence;
     j["camera"] = result.camera_index;
+    // #1186: the dart in the board's frame. Every field is either a value or null; an
+    // absence is never a zero, because 0 is a real angle and a real radius.
+    if (result.segment >= 1 && result.segment <= 20)
+        j["segment"] = result.segment;
+    else
+        j["segment"] = nullptr;
+    if (!result.ring.empty())
+        j["ring"] = result.ring;
+    else
+        j["ring"] = nullptr;
+    if (result.board_radius_known)
+    {
+        json board;
+        board["radius"] = result.board_radius;
+        if (result.board_angle_known)
+            board["angle"] = result.board_angle;
+        else
+            board["angle"] = nullptr;
+        j["board"] = board;
+    }
+    else
+    {
+        j["board"] = nullptr;
+    }
     j["processing_time"] = result.processing_time_ms;
     j["timestamp"] = chrono::duration_cast<chrono::milliseconds>(
                          chrono::system_clock::now().time_since_epoch())
