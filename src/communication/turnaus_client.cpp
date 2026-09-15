@@ -949,6 +949,12 @@ void TurnausClient::quiesce()
     }
     haltThreads();
     spoolUnwritten();
+    // #1259: BOTH threads can meet the same refusal -- the push worker on a dart and the beat
+    // thread on the next beat -- and each sets the flag. Taking it once and asking once is
+    // right; what is wrong is the second one outliving the pairing that answered it, which
+    // asked the person for a second code the moment the first had worked (measured on
+    // Windows). The threads are joined here, so nothing can set it again until they run.
+    unpaired_while_running_ = false;
     quiesced_ = true;
 }
 

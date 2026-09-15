@@ -327,6 +327,15 @@ def case_midrun():
     stored = read_credential(board)
     check(stored is not None and stored.get("token") == TOKEN2 and stored.get("device_id") == 2,
           "midrun: the second credential is written over the first")
+    # One refusal is one question, however many threads met it. Both the push worker and the
+    # beat thread can see the same 401, and a second flag outliving the pairing asked the
+    # person for another code the moment the first had worked (measured on Windows, #1259).
+    board.settle(8)
+    check(board.output().count(QUESTION) == 2, "midrun: asked twice in the whole run, not again after pairing")
+    check("the board was unpaired" not in board.output().split("device 2")[-1],
+          "midrun: it does not say the board was unpaired again after the pairing worked")
+    later = [e for e in stub.events("beat") if e["auth_sha256_16"] == sha16(TOKEN2)]
+    check(len(later) >= 3, "midrun: beats keep coming with the second credential (%d in the seconds after)" % len(later))
     check(board.proc.poll() is None, "midrun: the detector never exited")
     rc = board.stop()
     check(rc == 0, "midrun: SIGINT still ends it normally with the watcher running (rc=%s)" % rc)
