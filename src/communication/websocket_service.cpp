@@ -1,5 +1,6 @@
 #include <deque>
 #include "websocket_service.hpp"
+#include "score_token.hpp"
 #include "utils.hpp"
 #include <httplib.h>
 #include "utils/od_fix.hpp"
@@ -254,8 +255,8 @@ struct ActiveConnection
 static vector<shared_ptr<ActiveConnection>> active_connections;
 static mutex connections_mutex;
 
-WebSocketService::WebSocketService(shared_ptr<ScoreQueue> queue, int port, bool debug_mode)
-    : score_queue_(queue), port_(port), debug_mode_(debug_mode) {}
+WebSocketService::WebSocketService(shared_ptr<ScoreQueue> queue, ScoreSocketSettings settings, bool debug_mode)
+    : score_queue_(queue), settings_(std::move(settings)), port_(settings_.port), debug_mode_(debug_mode) {}
 
 WebSocketService::~WebSocketService()
 {
@@ -353,6 +354,20 @@ void WebSocketService::run()
             // Check for WebSocket upgrade
             if (req.get_header_value("Upgrade") == "websocket" &&
                 req.get_header_value("Connection").find("Upgrade") != string::npos) {
+
+                // #1187: a subscriber presents the token as a query parameter, on
+                // loopback as on the network. Refused before the key is looked at, so
+                // a refusal is one status and one log line, and the log line never
+                // carries what was presented.
+                if (!score_token::equals(req.get_param_value("token"), settings_.token)) {
+                    res.status = 401;
+                    res.set_content("a token is required: ws://<host>:" + to_string(port_) +
+                                        "/scores?token=<token>  (opendartboard --show-token prints it)\n",
+                                    "text/plain");
+                    log_warning("score socket: upgrade from " + req.remote_addr + " refused with 401, " +
+                                (req.has_param("token") ? "wrong token" : "no token"));
+                    return;
+                }
                 
                 string websocket_key = req.get_header_value("Sec-WebSocket-Key");
                 if (websocket_key.empty()) {
@@ -560,12 +575,19 @@ void WebSocketService::run()
             string content((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
             res.set_content(content, "application/json"); });
 
-        // Start server thread
-        thread server_thread([&]()
+        // Start server thread. #1187: the address is the setting's - loopback unless
+        // --listen - and the log says which, so a reader can tell from the log alone
+        // whether the board is on the network.
+        const string bind = settings_.bind_address;
+        const bool on_network = bind != "127.0.0.1" && bind != "localhost" && bind != "::1";
+        thread server_thread([&, bind, on_network]()
                              {
-            log_info("WebSocket server listening on ws://0.0.0.0:" + to_string(port_) + "/scores");
-            log_info("Rest server listening on http://0.0.0.0:" + to_string(port_) + "/");
-            server_->listen("0.0.0.0", port_); });
+            log_info("WebSocket server listening on ws://" + bind + ":" + to_string(port_) + "/scores" +
+                     (on_network ? " (open on the network; a subscriber presents ?token=)"
+                                 : " (loopback only; --listen opens it on the network, a subscriber presents ?token=)"));
+            log_info("Rest server listening on http://" + bind + ":" + to_string(port_) + "/");
+            if (!server_->listen(bind.c_str(), port_))
+                log_error("score socket: could not listen on " + bind + ":" + to_string(port_)); });
 
         // MAIN BROADCASTING LOOP - this is where the magic happens!
         while (running_)

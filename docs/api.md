@@ -5,8 +5,32 @@ Real-time dart scoring via WebSocket and HTTP REST API.
 ## WebSocket Endpoint (Primary)
 
 ```
-ws://<ip-adress>:13520/scores
+ws://<ip-adress>:13520/scores?token=<token>
 ```
+
+### Where it listens, and who may subscribe
+
+The socket listens on **loopback only** (`127.0.0.1:13520`) unless the detector is started
+with **`--listen`**, which opens it on every interface (`0.0.0.0:13520`). The startup banner
+and the log line `WebSocket server listening on ws://...` say which.
+
+Every subscriber presents the board's **token** as the `token` query parameter on the
+upgrade request - on loopback as on the network, so a local tool and a phone use one path.
+It goes in the query string because a browser's `WebSocket` cannot set a header. An upgrade
+without it, or with a wrong one, is refused with **`401 Unauthorized`** and one log line
+naming the address it came from; the token itself is never logged.
+
+The token is generated on the detector's first run and kept in `score_token` in its working
+directory, mode `0600` (`--token-file <path>` moves it). It is printed by
+
+```
+opendartboard --show-token
+```
+
+and nowhere else. Hand it to the app that will subscribe; there is one token per board.
+
+The REST routes below share the listener, so `--listen` puts them on the network as well.
+They carry no credential; nothing in this document changes that.
 
 ### Real-time Score Streaming
 
@@ -78,7 +102,8 @@ ring and a radius, and `"angle": null` when the orientation is unknown.
 ### JavaScript
 
 ```javascript
-const socket = new WebSocket("ws://<ip-adress>:13520/scores");
+// the token is what `opendartboard --show-token` printed on the board
+const socket = new WebSocket(`ws://<ip-adress>:13520/scores?token=${encodeURIComponent(token)}`);
 
 socket.onmessage = function (event) {
   const score = JSON.parse(event.data);
@@ -105,7 +130,9 @@ def on_message(ws, message):
     score = json.loads(message)
     print(f"Score: {score['score']} at ({score['position']['x']}, {score['position']['y']})")
 
-ws = websocket.WebSocketApp("ws://<ip-adress>:13520/scores", on_message=on_message)
+from urllib.parse import quote
+token = "..."  # what `opendartboard --show-token` printed on the board
+ws = websocket.WebSocketApp(f"ws://<ip-adress>:13520/scores?token={quote(token, safe='')}", on_message=on_message)
 ws.run_forever()
 ```
 
@@ -118,8 +145,11 @@ import Starscream
 class DartboardClient: WebSocketDelegate {
     var socket: WebSocket!
 
-    init() {
-        var request = URLRequest(url: URL(string: "ws://<ip-address>:13520/scores")!)
+    init(token: String) {
+        // the token is what `opendartboard --show-token` printed on the board
+        var components = URLComponents(string: "ws://<ip-address>:13520/scores")!
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        var request = URLRequest(url: components.url!)
         socket = WebSocket(request: request)
         socket.delegate = self
         socket.connect()
@@ -166,10 +196,16 @@ import org.json.JSONObject
 class DartboardClient : WebSocketListener() {
     private var webSocket: WebSocket? = null
 
-    fun connect() {
+    fun connect(token: String) {
+        // the token is what `opendartboard --show-token` printed on the board
         val client = OkHttpClient()
+        val url = HttpUrl.Builder()
+            .scheme("http").host("<ip-address>").port(13520)
+            .addPathSegment("scores")
+            .addQueryParameter("token", token)
+            .build()
         val request = Request.Builder()
-            .url("ws://<ip-address>:13520/scores")
+            .url(url)
             .build()
         webSocket = client.newWebSocket(request, this)
     }
@@ -203,7 +239,7 @@ class DartboardClient : WebSocketListener() {
 
 // Usage
 val client = DartboardClient()
-client.connect()
+client.connect(token)
 ```
 
 ---
@@ -295,13 +331,15 @@ GET http://<ip-adress>:13520/calibrate/status
 
 ### WebSocket Errors
 
-- **Connection Failed**: Check if OpenDartboard is running
+- **Connection Failed**: Check if OpenDartboard is running - and, from another device, that it was started with `--listen`; without it the socket is loopback only
+- **401 Unauthorized on the upgrade**: no `token` query parameter, or a wrong one; `opendartboard --show-token` on the board prints the right one
 - **Connection Lost**: Implement exponential backoff reconnection
 - **Invalid JSON**: Parse errors in client code
 
 ### HTTP Errors
 
 - **400 Bad Request**: Invalid JSON in PUT/POST requests
+- **401 Unauthorized**: A WebSocket upgrade on `/scores` without the token
 - **404 Not Found**: Endpoint doesn't exist
 - **500 Internal Error**: Server-side issue
 

@@ -5,6 +5,7 @@
 #include <map>
 #include <opencv2/opencv.hpp>
 #include "logging.hpp"
+#include "communication/score_token.hpp"
 
 namespace debug
 {
@@ -34,6 +35,37 @@ namespace debug
         std::cout << "-------------------------------------" << std::endl;
     }
 
+    // #1187: where the score socket is and where its token is kept. The token itself
+    // is never printed here; --show-token is the one place it is.
+    inline void printSocketConfig(const std::string &bind, int port, const std::string &token_path,
+                                  bool token_created, bool token_readable_by_others)
+    {
+        bool loopback = bind == "127.0.0.1";
+        std::cout << "Score socket:\n";
+        std::cout << "  - Listening: ws://" << bind << ":" << port << "/scores"
+                  << (loopback ? "  (loopback only; --listen opens it on the network)" : "  (open on the network)") << "\n";
+        std::cout << "  - Token: " << token_path << (token_created ? "  (created now, mode 0600)" : "")
+                  << "; a subscriber presents it as ?token=...; --show-token prints it\n";
+        if (token_readable_by_others)
+        {
+            std::cout << "  - WARNING: " << token_path << " is readable by other users; chmod 600 it\n";
+        }
+        std::cout << "-------------------------------------" << std::endl;
+    }
+
+    // #1187: print the score socket token and exit, creating it on the first run.
+    inline void printTokenAndExit(const std::string &token_path)
+    {
+        score_token::Resolved token = score_token::loadOrCreate(token_path);
+        if (token.token.empty())
+        {
+            std::cerr << "cannot read or create the score token at " << token_path << ": " << token.error << std::endl;
+            exit(1);
+        }
+        std::cout << token.token << std::endl;
+        exit(0);
+    }
+
     // Print version information and exit
     inline void printVersionAndExit(const std::string &version)
     {
@@ -56,6 +88,9 @@ namespace debug
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
         std::cout << "  --log-file <path>    Also append the log to a file (off unless asked for; --debug implies debug_frames/opendartboard.log)\n";
+        std::cout << "  --listen             Open the score socket on the network (0.0.0.0:13520); loopback only without it\n";
+        std::cout << "  --show-token         Print the token a subscriber presents as ws://.../scores?token=..., creating it if absent, and exit\n";
+        std::cout << "  --token-file <path>  Where the token is kept (default: score_token in the working directory, mode 0600)\n";
         std::cout << "  --version            Show version information\n";
         std::cout << "  --help               Show this help message\n";
         exit(0);

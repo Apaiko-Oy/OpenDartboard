@@ -4,6 +4,7 @@
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
 #include "utils/autocam.hpp"
+#include "communication/score_token.hpp"
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
 #include <iostream>
@@ -24,6 +25,13 @@ int main(int argc, char **argv)
     debug::printVersionAndExit(version);
   if (hasFlag(argc, argv, "--help"))
     debug::printHelpAndExit();
+
+  // #1187: the score socket's credential, resolved before anything else opens. The
+  // token is created on the first run and printed only by --show-token; the
+  // detector refuses to start rather than serve a socket with no credential.
+  string token_path = getArg(argc, argv, "--token-file", score_token::kDefaultPath);
+  if (hasFlag(argc, argv, "--show-token"))
+    debug::printTokenAndExit(token_path);
 
   // Parse command line arguments with defaults
 #ifdef _WIN32
@@ -140,8 +148,21 @@ int main(int argc, char **argv)
 
   debug::printConfig(width, height, fps, model_path, cams);
 
+  // #1187: loopback unless --listen; the token is required either way.
+  ScoreSocketSettings socket;
+  socket.bind_address = hasFlag(argc, argv, "--listen") ? "0.0.0.0" : "127.0.0.1";
+  score_token::Resolved token = score_token::loadOrCreate(token_path);
+  if (token.token.empty())
+  {
+    log_error("score socket: cannot read or create the token at " + token_path + ": " + token.error);
+    return 1;
+  }
+  socket.token = token.token;
+  debug::printSocketConfig(socket.bind_address, socket.port, token_path, token.created,
+                           score_token::isReadableByOthers(token_path));
+
   // Initialise the scorer with debug mode if requested
-  Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type);
+  Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
   scorer.attachTurnaus(std::unique_ptr<TurnausClient>(new TurnausClient(turnaus_config)));
 
   // #825: the handler records the signal and returns; Scorer::run()'s loop is what

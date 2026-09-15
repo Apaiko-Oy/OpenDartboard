@@ -2,8 +2,10 @@
 """Board-position check for OpenDartboard (issue #1186).
 
 One command. It runs the detector for a stated cycle budget against stated inputs,
-subscribes to ws://127.0.0.1:<port>/scores like any third-party client would, and
-asserts over every message it receives:
+subscribes to ws://127.0.0.1:<port>/scores?token=... like any third-party client would
+- since #1187 every subscriber presents the board's token, and this check reads it from
+the file the detector writes in its working directory - and asserts over every message
+it receives:
 
   * a scoring dart (S/D/T n, BULL, OUTER) carries `segment`, `ring` and `board`, and
     the published polar position falls inside the segment and ring `score` names;
@@ -29,6 +31,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 
 # The board's own radii in millimetres (perspective_processing::DartboardSpec), as
 # fractions of the outer edge of the double ring - the same numbers the detector's
@@ -54,7 +57,11 @@ class RawWebSocket:
     """A text-frame reader over one socket. Handles a chunked upgrade body, because
     httplib streams the frames through a content provider."""
 
-    def __init__(self, host, port, path="/scores"):
+    def __init__(self, host, port, path="/scores", token=None):
+        # #1187: the token goes in the query string, because a browser's WebSocket cannot
+        # set a header. None presents nothing, which is how the refusal is measured.
+        if token is not None:
+            path = f"{path}?token={urllib.parse.quote(token, safe='')}"
         self.sock = socket.create_connection((host, port), timeout=5)
         key = base64.b64encode(os.urandom(16)).decode()
         request = (
@@ -242,18 +249,34 @@ def check_message(message):
 
 # ---------------------------------------------------------------- the run
 
-def collect(host, port, sink, stop, connect_timeout):
+def read_token(path, deadline):
+    """The detector writes its token before it listens; wait for the file, then read it."""
+    while time.time() < deadline:
+        try:
+            with open(path) as handle:
+                token = handle.read().strip()
+            if token:
+                return token
+        except OSError:
+            pass
+        time.sleep(0.25)
+    return None
+
+
+def collect(host, port, sink, stop, connect_timeout, token=None):
     """Connect - retrying while the board is still calibrating - and read until the
     socket closes or `stop` is set."""
     deadline = time.time() + connect_timeout
     ws = None
+    last_error = "no attempt"
     while ws is None and time.time() < deadline and not stop.is_set():
         try:
-            ws = RawWebSocket(host, port)
-        except (OSError, ConnectionError):
+            ws = RawWebSocket(host, port, token=token)
+        except (OSError, ConnectionError) as error:
+            last_error = repr(error)
             time.sleep(0.25)
     if ws is None:
-        sink.append(("error", "never connected to the score socket"))
+        sink.append(("error", f"never connected to the score socket (last: {last_error})"))
         return
     sink.append(("connected", ws.chunked))
     try:
@@ -277,6 +300,7 @@ def main():
     parser.add_argument("--expect-darts", type=int, default=None, help="fail unless exactly this many SCORE messages arrive")
     parser.add_argument("--connect-timeout", type=float, default=180.0)
     parser.add_argument("--run-timeout", type=float, default=900.0)
+    parser.add_argument("--token", default=None, help="the board's token; read from <workdir>/score_token by default")
     args = parser.parse_args()
 
     workdir = args.workdir or tempfile.mkdtemp(prefix="board-position-")
@@ -291,9 +315,13 @@ def main():
         cwd=workdir, env=env, stdout=stdout, stderr=stderr,
     )
 
+    token_path = os.path.join(workdir, "score_token")
+    token = args.token if args.token is not None else read_token(token_path, time.time() + args.connect_timeout)
     events = []
     stop = threading.Event()
-    reader = threading.Thread(target=collect, args=("127.0.0.1", args.port, events, stop, args.connect_timeout), daemon=True)
+    reader = threading.Thread(
+        target=collect, args=("127.0.0.1", args.port, events, stop, args.connect_timeout, token), daemon=True
+    )
     reader.start()
     try:
         proc.wait(timeout=args.run_timeout)
@@ -309,6 +337,7 @@ def main():
     print(f"cycles   {args.cycles}   workdir {workdir}   detector exit {proc.returncode}")
     connected = [e for e in events if e[0] == "connected"]
     print(f"socket   {'connected (chunked upgrade body)' if connected and connected[0][1] else 'connected' if connected else 'NEVER CONNECTED'}")
+    print(f"token    {'given on the command line' if args.token is not None else f'read from {token_path}' if token else f'NOT FOUND at {token_path}'}, presented as ?token=")
 
     messages = []
     for kind, payload in events:
