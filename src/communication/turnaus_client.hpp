@@ -47,6 +47,28 @@ struct TurnausConfig
     int backoff_max_ms = 30000;
 };
 
+/**
+ * #891: which of the two things this board may be bound to a push is owed to.
+ *
+ * A board is paired to an Organisation for Matches (#822) and may ALSO be paired to one
+ * Casual Contest for an evening (#887, ADR-0069). Both bindings are kept, because a club
+ * board is Station 3 on Tuesday and somebody's knockabout on Wednesday, and walking to it
+ * with a new six-digit code each way is the thing pairing-once exists to avoid. Only one
+ * of them is ever the destination: while a Contest binding is held it wins, because it is
+ * the one with a lifetime -- it ends when the evening is given up -- and the Organisation
+ * binding is the months-long one still there afterwards.
+ *
+ * It is on the OwedPush and not read from the client, deliberately. A spooled dart is
+ * owed to the binding it was thrown under, not to whatever this board is bound to when it
+ * is finally posted, and those are different things across exactly the restart the spool
+ * exists for.
+ */
+enum class Binding
+{
+    Organisation,
+    Contest,
+};
+
 /** One thing owed to the server: a detection or a takeout, already serialised. */
 struct OwedPush
 {
@@ -54,6 +76,11 @@ struct OwedPush
     std::string path;     // "/api/v1/autoscorer/detections"
     std::string body;     // the JSON, exactly as it will be posted, forever
     bool spooled = false; // written to the spool file once, by the worker
+    // #891. Which credential it is posted with, and -- for a Contest -- which evening it
+    // belongs to, so a dart owed to Tuesday's knockabout can never be delivered into
+    // Wednesday's.
+    Binding binding = Binding::Organisation;
+    long long contest_id = 0;
 };
 
 class TurnausClient
@@ -69,6 +96,25 @@ public:
      * server sent back that might contain the token -- on any failure.
      */
     bool pair(const std::string &code);
+
+    /**
+     * #891: the same exchange at the third door -- `POST /api/v1/casual/boards` -- and
+     * what comes back is bound to one Casual Contest and to nothing else. No Station, no
+     * Organisation: which is what makes a board in somebody's garage work exactly as a
+     * pub's does (ADR-0069).
+     *
+     * A separate flag rather than a fallback loop over both doors, for
+     * `AutoscorerDetectionController`'s own reason turned around: what a request does
+     * should be decided by where it is sent and not by a field somebody can get wrong.
+     * The two codes are six digits apiece, live in different tables and neither door
+     * reads the other's, so nothing in the digits says which evening they are for -- the
+     * person typing them knows, and this is where they say so. Trying both would also
+     * spend two attempts of one shared `api-pairing` allowance per code.
+     *
+     * Any Organisation binding already in the file is kept, not replaced. An existing
+     * Contest binding IS replaced: a board is on one evening at a time.
+     */
+    bool pairContest(const std::string &code);
 
     /** True when a credential was loaded and the address is usable. */
     bool isPaired() const { return paired_; }
@@ -122,6 +168,33 @@ public:
 
 private:
     void run();
+    /** #891. The live destination: the Contest binding while there is one, else the club's. */
+    Binding destination() const { return contest_bound_.load() ? Binding::Contest : Binding::Organisation; }
+    const std::string &credentialFor(Binding binding) const;
+    /**
+     * #891. The three addresses, per binding. A Contest board holds
+     * `autoscorer:detections.push` and nothing else, exactly as a club's board does
+     * (ADR-0065) -- what differs is the door, because `RequireAutoscorerDevice` will not
+     * have a `CasualContestBoard` at any price and a board on somebody's evening must not
+     * be able to reach a league night by holding the wrong end of its own credential.
+     */
+    static const char *detectionsPath(Binding binding);
+    static const char *takeoutsPath(Binding binding);
+    static const char *heartbeatsPath(Binding binding);
+    /**
+     * #891. The evening ended: forget the Contest binding, drop what was owed to it, and
+     * fall back to the Organisation binding if this board has one.
+     *
+     * What is owed is DROPPED rather than kept, which is the opposite of what a refused
+     * Organisation credential does (#822 leaves that spool alone, because those darts are
+     * still owed to whoever re-pairs the board). Nobody re-pairs to a Contest that has
+     * been Given Up: #887 deletes the token and refuses the code in the same words as one
+     * that never existed. A record naming it can therefore never be delivered, and the
+     * only thing keeping it could do is land in somebody else's evening.
+     */
+    void releaseContestBinding(const char *why);
+    /** Rewrite the credential file without its `contest` object, keeping everything else. */
+    bool forgetContestInFile();
     /**
      * One beat. Posts the word and reads the two numbers back. Returns false for every
      * outcome that is not a `200`, which is the only answer that means the server has
@@ -140,6 +213,20 @@ private:
     odhttp::Url url_;
     std::string credential_; // the secret. Never logged.
     std::string device_id_;  // not a secret; it is what the server calls this board.
+    // #891: the second credential, and it is as secret as the first. The two are held
+    // apart rather than in one slot because a board really does hold both, and because
+    // the one that is refused is the one that has to be forgotten.
+    std::string contest_credential_;
+    long long contest_id_ = 0;   // not a secret: it is the evening's own identifier.
+    std::string contest_board_id_;
+    std::atomic<bool> contest_bound_{false};
+    // Set when a Contest binding is dropped mid-run, so the push worker can pick up the
+    // next item at once instead of serving a backoff it no longer has a reason for.
+    std::atomic<bool> binding_changed_{false};
+    // A deployment whose Casual door has no heartbeat address answers 404. Silence is
+    // always available and always safe (#822 §11), so the board stops beating and says so
+    // once, rather than beating at a 404 every interval for the length of an evening.
+    std::atomic<bool> beat_unsupported_{false};
     std::atomic<bool> paired_{false};
     std::atomic<bool> running_{false};
 

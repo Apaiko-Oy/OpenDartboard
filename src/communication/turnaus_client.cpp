@@ -99,6 +99,26 @@ TurnausClient::~TurnausClient()
     stop();
 }
 
+const std::string &TurnausClient::credentialFor(Binding binding) const
+{
+    return binding == Binding::Contest ? contest_credential_ : credential_;
+}
+
+const char *TurnausClient::detectionsPath(Binding binding)
+{
+    return binding == Binding::Contest ? "/api/v1/casual/detections" : "/api/v1/autoscorer/detections";
+}
+
+const char *TurnausClient::takeoutsPath(Binding binding)
+{
+    return binding == Binding::Contest ? "/api/v1/casual/takeouts" : "/api/v1/autoscorer/takeouts";
+}
+
+const char *TurnausClient::heartbeatsPath(Binding binding)
+{
+    return binding == Binding::Contest ? "/api/v1/casual/heartbeats" : "/api/v1/autoscorer/heartbeats";
+}
+
 bool TurnausClient::loadCredential()
 {
     std::string raw;
@@ -111,15 +131,32 @@ bool TurnausClient::loadCredential()
         json j = json::parse(raw);
         credential_ = j.value("token", "");
         device_id_ = std::to_string(j.value("device_id", 0));
+        // #891: the second binding, if this board took an evening's code. Absent from
+        // every file #822 wrote and from every board that never paired to a Contest,
+        // which is why it is read with value() rather than asked for.
+        if (j.contains("contest") && j["contest"].is_object())
+        {
+            contest_credential_ = j["contest"].value("token", "");
+            contest_id_ = j["contest"].value("casual_contest_id", (long long)0);
+            contest_board_id_ = std::to_string(j["contest"].value("board_id", 0));
+            contest_bound_ = !contest_credential_.empty();
+        }
     }
     catch (const std::exception &)
     {
         log_warning("TURNAUS: the credential file could not be parsed; this board is unpaired");
         return false;
     }
-    if (credential_.empty())
+    if (credential_.empty() && !contest_bound_.load())
     {
         return false;
+    }
+    if (contest_bound_.load())
+    {
+        // Which evening, and whether the club binding is still underneath it. Neither is
+        // a secret: one is the Contest's own identifier and the other is a yes/no.
+        log_info("TURNAUS: bound to Casual Contest " + std::to_string(contest_id_) +
+                 (credential_.empty() ? " (and to no Organisation)" : " (over an Organisation pairing kept underneath it)"));
     }
     if (od_paths::worldReadable(config_.credentials_path))
     {
@@ -185,7 +222,28 @@ bool TurnausClient::pair(const std::string &code)
             log_error("TURNAUS: pairing answered 201 with no credential in it");
             return false;
         }
-        json stored;
+        // #891: whatever is already in the file is kept and the Organisation half is
+        // written over it. A board that took an evening's code an hour ago and is being
+        // re-paired to its club must not lose the evening, and the reverse is the case
+        // this slice is actually about.
+        json stored = json::object();
+        std::string existing;
+        if (od_paths::readFile(config_.credentials_path, existing))
+        {
+            try
+            {
+                json previous = json::parse(existing);
+                if (previous.is_object())
+                {
+                    stored = previous;
+                }
+            }
+            catch (const std::exception &)
+            {
+                // An unreadable file is replaced rather than merged into. Nothing in it
+                // could be trusted to name a binding.
+            }
+        }
         stored["token"] = token;
         stored["organisation_id"] = j["data"].value("organisationId", 0);
         stored["device_id"] = j["data"]["device"].value("id", 0);
@@ -217,6 +275,221 @@ bool TurnausClient::pair(const std::string &code)
     return true;
 }
 
+bool TurnausClient::pairContest(const std::string &code)
+{
+    // The same four refusals `pair()` makes before it dials, for the same reasons. They
+    // are repeated rather than shared because the message a person reads has to name the
+    // flag they typed, and because a Contest code is presented at a different door.
+    if (!url_.valid)
+    {
+        log_error("TURNAUS: --turnaus is not a URL this build can parse");
+        return false;
+    }
+    if (url_.tls && !odhttp::tlsAvailable())
+    {
+        log_error("TURNAUS: this build has no TLS transport (" + std::string(odhttp::transportName()) +
+                  ") and will not downgrade an https:// address to plaintext");
+        return false;
+    }
+    if (!url_.tls && !config_.allow_plaintext)
+    {
+        log_error("TURNAUS: refusing to send a Contest pairing code over http://. Pass "
+                  "--allow-plaintext if this really is a loopback or a lab.");
+        return false;
+    }
+    if (config_.credentials_path.empty())
+    {
+        log_error("TURNAUS: no writable configuration directory, so a credential could not be kept");
+        return false;
+    }
+
+    json body;
+    body["pin"] = code;
+    body["label"] = "OpenDartboard";
+
+    odhttp::Response res = odhttp::postJson(url_, "/api/v1/casual/boards", body.dump(), {},
+                                            config_.connect_timeout_s, config_.read_timeout_s);
+    if (!res.reached_a_server())
+    {
+        log_error("TURNAUS: Contest pairing could not reach " + url_.host + ": " + res.transport_error);
+        return false;
+    }
+    if (res.status != 201)
+    {
+        // Not echoed, for `pair()`'s reason: a 201 body carries the token. And there is
+        // nothing useful to echo anyway -- #887 answers every refusal in the same words,
+        // on purpose, so that a guessing loop learns nothing per attempt. Never minted,
+        // already spent, expired, and *the evening ended* are one refusal at this door.
+        log_error("TURNAUS: Contest pairing refused with HTTP " + std::to_string(res.status) +
+                  " (a code is six digits, single use, expires in ten minutes, and dies with the Contest)");
+        return false;
+    }
+
+    try
+    {
+        json j = json::parse(res.body);
+        std::string token = j["data"].value("token", "");
+        if (token.empty())
+        {
+            log_error("TURNAUS: Contest pairing answered 201 with no credential in it");
+            return false;
+        }
+
+        json stored = json::object();
+        std::string existing;
+        if (od_paths::readFile(config_.credentials_path, existing))
+        {
+            try
+            {
+                json previous = json::parse(existing);
+                if (previous.is_object())
+                {
+                    stored = previous;
+                }
+            }
+            catch (const std::exception &)
+            {
+            }
+        }
+
+        // THE DECISION, in four lines: the Organisation binding already in this file is
+        // left exactly where it is, and the Contest binding is written beside it. Taking
+        // an evening's code does not cost a club its board, and giving the evening up
+        // does not cost it one either.
+        json contest;
+        contest["token"] = token;
+        contest["casual_contest_id"] = j["data"].value("casualContestId", 0);
+        contest["board_id"] = j["data"].contains("board") ? j["data"]["board"].value("id", 0) : 0;
+        contest["label"] = j["data"].contains("board") ? j["data"]["board"].value("label", "") : "";
+        stored["contest"] = contest;
+        if (!stored.contains("base_url"))
+        {
+            stored["base_url"] = config_.base_url;
+        }
+
+        if (!od_paths::ensureDir(od_paths::configDir()))
+        {
+            log_error("TURNAUS: could not create the configuration directory");
+            return false;
+        }
+        if (!od_paths::writeSecret(config_.credentials_path, stored.dump(2)))
+        {
+            log_error("TURNAUS: could not write the credential file");
+            return false;
+        }
+        contest_credential_ = token;
+        contest_id_ = contest.value("casual_contest_id", (long long)0);
+        contest_board_id_ = std::to_string(contest.value("board_id", 0));
+        contest_bound_ = true;
+        paired_ = true;
+    }
+    catch (const std::exception &e)
+    {
+        log_error("TURNAUS: Contest pairing response could not be read: " + std::string(e.what()));
+        return false;
+    }
+
+    log_info("TURNAUS: paired to Casual Contest " + std::to_string(contest_id_) + " as board " +
+             contest_board_id_ + ", credential kept at " + config_.credentials_path);
+    return true;
+}
+
+bool TurnausClient::forgetContestInFile()
+{
+    std::string existing;
+    if (!od_paths::readFile(config_.credentials_path, existing))
+    {
+        return false;
+    }
+    try
+    {
+        json stored = json::parse(existing);
+        if (!stored.is_object() || !stored.contains("contest"))
+        {
+            return false;
+        }
+        stored.erase("contest");
+        // Through writeSecret, so the mode is the one the pairing set and a token that is
+        // no longer valid does not land in a file anybody may read.
+        return od_paths::writeSecret(config_.credentials_path, stored.dump(2));
+    }
+    catch (const std::exception &)
+    {
+        return false;
+    }
+}
+
+void TurnausClient::releaseContestBinding(const char *why)
+{
+    if (!contest_bound_.exchange(false))
+    {
+        return;
+    }
+    const long long was = contest_id_;
+    contest_credential_.clear();
+    contest_id_ = 0;
+
+    // Everything still owed to that evening. Dropped, counted, and said out loud -- the
+    // opposite of what a refused Organisation credential does, and §"Give-up" in the
+    // document argues the asymmetry. Nobody re-pairs to a Contest that has been Given Up.
+    size_t abandoned = 0;
+    size_t already_written = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (std::deque<OwedPush>::iterator it = queue_.begin(); it != queue_.end();)
+        {
+            if (it->binding == Binding::Contest)
+            {
+                if (it->spooled)
+                {
+                    already_written++;
+                }
+                it = queue_.erase(it);
+                dropped_++;
+                abandoned++;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    // MEASURED, AND IT IS THE FINDING THIS SLICE DID NOT KNOW IT WAS ASKING FOR. The
+    // cursor is a COUNT of settled leading records, not a set of them, so a record dropped
+    // out of the queue without settling it makes every later settle account for the record
+    // before it -- and the run ends one short. The first version of this function left
+    // that one behind: the run afterwards resumed a club dart that had already been
+    // delivered, and only #821's dedup made it harmless, answering ABSORBED because the
+    // round in hand had not moved. A dart that is never retried is settled, by the same
+    // definition the horizon uses two functions up, and it is settled HERE.
+    for (size_t i = 0; i < already_written; i++)
+    {
+        settleOneRecord();
+    }
+
+    log_warning("TURNAUS: the binding to Casual Contest " + std::to_string(was) + " has ended (" +
+                std::string(why) + "). " + std::to_string(abandoned) +
+                " push(es) owed to it were dropped rather than kept: a Contest that has been given "
+                "up cannot be re-paired to, so a dart still owed to it could only ever land in "
+                "somebody else's evening.");
+    forgetContestInFile();
+    beat_unsupported_ = false;
+    binding_changed_ = true;
+
+    if (!credential_.empty())
+    {
+        log_info("TURNAUS: this board is still paired to its Organisation, so Match scoring "
+                 "continues. Pair to another Contest with --pair-contest <code>.");
+        return;
+    }
+    // A board in somebody's garage holds nothing else. It stops, rather than retrying an
+    // evening that is over for as long as the machine is switched on.
+    paired_ = false;
+    log_info("TURNAUS: this board holds no other binding, so nothing further will be pushed. "
+             "Pair to a new Contest with --pair-contest <code>.");
+}
+
 std::string TurnausClient::newIdempotencyKey()
 {
     return makeUlid();
@@ -230,6 +503,11 @@ bool TurnausClient::offer(const DetectorResult &result)
     }
 
     OwedPush item;
+    // #891: stamped once, here, on the scoring thread's own item. Everything downstream
+    // reads it off the item rather than off the client, so a restart cannot deliver a
+    // Tuesday dart into a Wednesday evening.
+    item.binding = destination();
+    item.contest_id = item.binding == Binding::Contest ? contest_id_ : 0;
     if (result.score == "END")
     {
         // The published END is the takeout: #821's /takeouts is the seam where the Visit
@@ -237,7 +515,7 @@ bool TurnausClient::offer(const DetectorResult &result)
         // dart. A takeout carries no reference and needs none -- a repeated takeout finds
         // no round in hand and answers with a null visitId, so it is idempotent by the
         // server's own construction.
-        item.path = "/api/v1/autoscorer/takeouts";
+        item.path = takeoutsPath(item.binding);
         item.body = "{}";
         item.idempotency_key = "";
     }
@@ -259,7 +537,7 @@ bool TurnausClient::offer(const DetectorResult &result)
         body["sector"] = sector;
         body["bounced_out"] = false;
         item.idempotency_key = body["reference"];
-        item.path = "/api/v1/autoscorer/detections";
+        item.path = detectionsPath(item.binding);
         item.body = body.dump();
     }
 
@@ -304,6 +582,12 @@ void TurnausClient::spool(const OwedPush &item)
     line["path"] = item.path;
     line["body"] = item.body;
     line["key"] = item.idempotency_key;
+    // #891. A spool record that does not name its binding is a record a restart delivers
+    // to whichever binding happens to be live, which is the one thing the horizon exists
+    // to prevent, arrived at by a different door. Absent on a file #822 wrote, and read
+    // back as "organisation", which is what such a file held.
+    line["binding"] = item.binding == Binding::Contest ? "contest" : "organisation";
+    line["contest_id"] = item.contest_id;
     line["spooled_ms"] = (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
@@ -335,7 +619,7 @@ void TurnausClient::loadSpool()
                        .count();
     std::string line;
     uint64_t index = 0;
-    size_t resumed = 0, stale = 0;
+    size_t resumed = 0, stale = 0, orphaned = 0;
 
     while (std::getline(in, line))
     {
@@ -358,6 +642,12 @@ void TurnausClient::loadSpool()
             item.body = j.value("body", "");
             item.idempotency_key = j.value("key", "");
             spooled_ms = j.value("spooled_ms", (uint64_t)0);
+            // #891. A record #822 wrote carries neither field, and "organisation" is
+            // exactly what such a record was owed to.
+            item.binding = j.value("binding", std::string("organisation")) == "contest"
+                               ? Binding::Contest
+                               : Binding::Organisation;
+            item.contest_id = j.value("contest_id", (long long)0);
         }
         catch (const std::exception &)
         {
@@ -388,16 +678,31 @@ void TurnausClient::loadSpool()
             settled_records_ = index;
             continue;
         }
+
+        // #891: THE SECOND HORIZON, and it is a binding rather than a clock. A record
+        // owed to a Contest this board is no longer bound to -- the evening was given up,
+        // or this board has since taken a different evening's code -- can never be
+        // delivered where it was owed, and posting it anywhere else is the fifteen-minute
+        // failure without the fifteen minutes. It is settled here, counted, and named.
+        if (item.binding == Binding::Contest && (!contest_bound_.load() || item.contest_id != contest_id_))
+        {
+            orphaned++;
+            dropped_++;
+            settled_records_ = index;
+            continue;
+        }
+
         item.spooled = true; // it is already in the file; do not write it twice
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.push_back(item);
         resumed++;
     }
 
-    if (resumed || stale)
+    if (resumed || stale || orphaned)
     {
         log_info("TURNAUS: resumed " + std::to_string(resumed) + " owed push(es) from the spool; " +
-                 std::to_string(stale) + " abandoned as older than the round they belonged to");
+                 std::to_string(stale) + " abandoned as older than the round they belonged to; " +
+                 std::to_string(orphaned) + " abandoned as owed to a Contest this board is no longer bound to");
     }
 }
 
@@ -441,7 +746,8 @@ bool TurnausClient::deliver(const OwedPush &item)
 {
     attempts_++;
     std::map<std::string, std::string> headers;
-    headers["Authorization"] = "Bearer " + credential_;
+    // #891: the item's own binding, not this board's current one.
+    headers["Authorization"] = "Bearer " + credentialFor(item.binding);
     headers["Accept"] = "application/json";
 
     odhttp::Response res = odhttp::postJson(url_, item.path, item.body, headers,
@@ -470,12 +776,35 @@ bool TurnausClient::deliver(const OwedPush &item)
     }
     if (res.status == 401 || res.status == 403)
     {
+        if (item.binding == Binding::Contest)
+        {
+            // #891: THE GIVE-UP CASE, and it is a real one rather than a hypothetical.
+            // #887's `CasualContestBoard::release()` DELETES the token when the evening
+            // is given up, so the guard refuses the next push rather than some check
+            // somebody had to remember to write. A board cannot tell that from a
+            // credential somebody revoked, and does not need to: both mean this evening
+            // is over for this board. It stops pushing into the Contest -- it does not
+            // retry it, this run or any later one -- and falls back to the club binding
+            // if it has one.
+            releaseContestBinding(res.status == 401 ? "HTTP 401" : "HTTP 403");
+            return false;
+        }
         // The credential is gone or was never right. Retrying a 401 forever is a board
         // hammering a server it will never satisfy, so the client stops pushing and says
         // what to do. The spool is left alone: the darts are still owed.
         log_error("TURNAUS: this board's credential was refused (HTTP " + std::to_string(res.status) +
                   "). Re-pair with --pair <code>. Nothing further will be pushed.");
         paired_ = false;
+        return false;
+    }
+    if (res.status == 404 && item.binding == Binding::Contest)
+    {
+        // A deployment that does not serve the Casual door at all. Retrying is a board
+        // posting into a wall for the length of an evening, and the person who can fix it
+        // is the one reading this line on a pub PC.
+        log_error("TURNAUS: this deployment has no Casual push address (404 at " + item.path +
+                  "). Nothing further will be pushed into that Contest.");
+        releaseContestBinding("HTTP 404");
         return false;
     }
     if (res.status == 409)
@@ -572,7 +901,13 @@ void TurnausClient::stop()
              " dropped=" + std::to_string(dropped_.load()) +
              " still_owed=" + std::to_string(backlog()) +
              " beats=" + std::to_string(beats_.load()) +
-             " beats_lost=" + std::to_string(beats_lost_.load()));
+             " beats_lost=" + std::to_string(beats_lost_.load()) +
+             // #891. Which binding was live at the end, and never anything about either
+             // credential: a Contest's identifier is the evening's own, and "none" is a
+             // board that was refused or never paired.
+             " binding=" + (contest_bound_.load() ? "contest:" + std::to_string(contest_id_)
+                                                  : (credential_.empty() ? std::string("none")
+                                                                         : std::string("organisation"))));
 }
 
 size_t TurnausClient::backlog() const
@@ -651,6 +986,15 @@ void TurnausClient::run()
             break; // a refused credential; deliver() has said so
         }
 
+        // #891: the Contest binding was dropped under us and its items went with it, so
+        // the next item is a club one and there is nothing to back off from. Waiting here
+        // would be a board idling for a second per dart because an evening ended.
+        if (binding_changed_.exchange(false))
+        {
+            backoff_ms = config_.backoff_initial_ms;
+            continue;
+        }
+
         // The network is gone, or the server is unwell. Wait, and wake immediately if
         // the program is shutting down -- so #825's exit path never waits 30 seconds for
         // a sleeping worker.
@@ -676,13 +1020,16 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
     // not touched, `spool()` is not called, and `attempts_`/`delivered_`/`dropped_` --
     // the dart counters -- do not move. A beat is a message about the last interval and
     // about no turn at all.
+    // #891: the beat follows the live binding, because what it is claiming -- that this
+    // board can see -- is claimed to whoever is drawing this board's screen right now.
+    const Binding binding = destination();
     std::map<std::string, std::string> headers;
-    headers["Authorization"] = "Bearer " + credential_;
+    headers["Authorization"] = "Bearer " + credentialFor(binding);
     headers["Accept"] = "application/json";
 
     const std::string body = std::string("{\"condition\":\"") + condition_word + "\"}";
 
-    odhttp::Response res = odhttp::postJson(url_, "/api/v1/autoscorer/heartbeats", body, headers,
+    odhttp::Response res = odhttp::postJson(url_, heartbeatsPath(binding), body, headers,
                                             config_.connect_timeout_s, config_.read_timeout_s);
     if (!res.reached_a_server())
     {
@@ -705,12 +1052,36 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
     }
     if (res.status == 401 || res.status == 403)
     {
+        if (binding == Binding::Contest)
+        {
+            // #891: the beat is often what meets a Given Up Contest first, because it
+            // goes every interval while darts go only when somebody throws. Same verdict
+            // as `deliver()`'s, reached from the other thread.
+            releaseContestBinding(res.status == 401 ? "HTTP 401 on a heartbeat" : "HTTP 403 on a heartbeat");
+            return false;
+        }
         // The same refusal `deliver()` makes, for the same reason, and it has to be made
         // here too: a board whose credential is gone would otherwise go on beating for
         // ever at a server that will never write its condition down.
         log_error("TURNAUS: this board's credential was refused on a heartbeat (HTTP " +
                   std::to_string(res.status) + "). Re-pair with --pair <code>.");
         paired_ = false;
+        return false;
+    }
+    if (res.status == 404 && binding == Binding::Contest)
+    {
+        // #891: a deployment that serves the Casual push door but no beat at it. NOT a
+        // reason to drop the binding -- the darts are the point and they are arriving --
+        // and not a reason to go on posting into a 404 every interval either. Silence is
+        // always available and always safe (#822 §11), so this board goes quiet about its
+        // condition and says so once.
+        if (!beat_unsupported_.exchange(true))
+        {
+            log_warning("TURNAUS: this deployment has no heartbeat address for a Casual Contest board "
+                        "(404 at " + std::string(heartbeatsPath(binding)) +
+                        "). This board will push darts and say nothing about its condition while it is "
+                        "bound to a Contest.");
+        }
         return false;
     }
     if (res.status == 409)
@@ -755,6 +1126,16 @@ void TurnausClient::beat()
 
     while (running_)
     {
+        // #891: a deployment with no Casual beat address has been told once and is not
+        // told again. The thread stays alive rather than exiting, because the Contest
+        // binding can end -- and then this board's club binding has a beat to make again.
+        if (beat_unsupported_.load() && destination() == Binding::Contest)
+        {
+            std::unique_lock<std::mutex> lock(beat_mutex_);
+            beat_condition_.wait_for(lock, std::chrono::seconds(5), [this] { return !running_.load(); });
+            continue;
+        }
+
         const board_sight::Condition condition = board_sight::conditionSince(frames_at_last_beat, asked_since_calibration);
         const char *word = board_sight::word(condition);
 
