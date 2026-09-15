@@ -8,7 +8,9 @@ to the end. B closes its socket the moment it has read the first END and subscri
 again at once. The check asserts A received the reference stream in order with nothing
 dropped or duplicated; that B's first subscription is a prefix of it and its second a
 suffix of it that overlaps the first nowhere - so what a reconnecting subscriber gets
-is what is published from then on, and nothing is replayed.
+is what is published from then on, and nothing is replayed. While A and B are
+subscribed it opens as many upgrades at once as httplib has pool threads and counts
+how many are admitted, and whether the rest are admitted once those close.
 
 Run 2, one dead subscriber: A reads to the end; C accepts the upgrade with a small
 receive buffer and never reads again, never answering a ping. The check measures
@@ -31,15 +33,19 @@ is the raw one from tools/board_position, so the bytes read are the bytes on the
 """
 
 import argparse
+import base64
+import fcntl
 import json
 import os
 import re
+import select
 import signal
 import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 
@@ -191,6 +197,7 @@ class DeadSubscriber(threading.Thread):
         self.connected_at = self.closed_at = None
         self.peer = None
         self.state = None
+        self.queued = None  # bytes the kernel held for C, unread, when the board closed it
 
     def run(self):
         self.after.wait(timeout=max(0.0, self.deadline - time.time()))
@@ -203,9 +210,47 @@ class DeadSubscriber(threading.Thread):
             self.state = tcp_state(ws.sock)
             if self.state in (TCP_CLOSE_WAIT, TCP_CLOSE):
                 self.closed_at = time.time()
+                self.queued = struct.unpack("i", fcntl.ioctl(ws.sock.fileno(), termios.FIONREAD, b"\0\0\0\0"))[0]
                 break
             time.sleep(0.1)
         ws.sock.close()
+
+
+def probe_capacity(port, token, attempts, wait):
+    """httplib serves every connection on a thread from a fixed pool, and a subscriber
+    keeps its thread for as long as it is subscribed. Opens `attempts` upgrades at once
+    and returns (peers, answered at once, answered once those had closed): how many
+    subscribers the board admits beside the ones already there, and whether the rest
+    are admitted when a thread frees rather than refused."""
+    socks = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(attempts)]
+    peers = ["%s:%d" % s.getsockname() for s in socks]
+    for s in socks:
+        key = base64.b64encode(os.urandom(16)).decode()
+        s.sendall((f"GET /scores?token={token} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+                   f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+
+    def answered(pending, seconds):
+        heads, admitted = {s: b"" for s in pending}, []
+        end = time.time() + seconds
+        while pending and time.time() < end:
+            ready, _, _ = select.select(pending, [], [], max(0.0, end - time.time()))
+            for s in ready:
+                piece = s.recv(4096)
+                heads[s] += piece
+                if not piece or b"\r\n" in heads[s]:
+                    pending = [p for p in pending if p is not s]
+                    if b" 101 " in heads[s].split(b"\r\n", 1)[0]:
+                        admitted.append(s)
+        return admitted
+
+    at_once = answered(list(socks), wait)
+    for s in at_once:
+        s.close()
+    later = answered([s for s in socks if s not in at_once], wait + 2)
+    time.sleep(0.5)
+    for s in socks:
+        s.close()
+    return peers, len(at_once), len(later)
 
 
 def summary(messages):
@@ -267,10 +312,19 @@ def main():
         return 1
     deadline = time.time() + args.connect_timeout
     first_end = reference.index(("END", -1, -1)) + 1
-    a1 = Reader("A", port, token, deadline)
+    first1 = threading.Event()
+    a1 = Reader("A", port, token, deadline, on_first=first1)
     b1 = Reader("B", port, token, deadline, until=first_end)
     a1.start()
     b1.start()
+    # How many subscribers one board holds at once: httplib 0.14.3's pool is
+    # max(8, hardware threads - 1), and A and B already hold two of it.
+    pool = max(8, (os.cpu_count() or 1) - 1)
+    probe_peers = []
+    if first1.wait(timeout=args.connect_timeout + args.run_timeout):
+        probe_peers, at_once, later = probe_capacity(port, token, pool, 3.0)
+        record(f"subscribers admitted at once beside A and B (pool of {pool} threads)", pool - 2, at_once)
+        record("the ones left waiting are admitted once those close, not refused", 2, later)
     b1.join(timeout=args.run_timeout)
     b2 = Reader("B'", port, token, time.time() + args.connect_timeout)
     reconnected_at = time.time()
@@ -293,7 +347,7 @@ def main():
     print(f"    B reconnected {reconnected_at - (b1.received[-1][0] if b1.received else reconnected_at):.3f} s after closing; "
           f"published in the gap and so never received by B: {missed}")
     record("the log says B closed its connection", 1, len(re.findall(r"subscriber " + re.escape(b1.peer or "?") + r" disconnected after [\d.]+ s: the subscriber closed the connection", log1)))
-    record("nothing was dropped in run 1", 0, len(re.findall(r"subscriber \S+ dropped after", log1)))
+    record("nothing was dropped in run 1", 0, len([p for p in re.findall(r"subscriber (\S+) dropped after", log1) if p not in probe_peers]))
     lat1 = latencies(a1.received)
     print(f"    A's delivery latency, run 1: max {max(lat1):.3f} s, median {sorted(lat1)[len(lat1) // 2]:.3f} s over {len(lat1)}" if lat1 else "    A received nothing")
     scores1, budget1 = score_lines(log1), ensure_calls(log1)
@@ -325,6 +379,7 @@ def main():
     record("the log says C was dropped, and why", True, drop is not None, drop.group(2) if drop else "no drop line for C")
     record(f"the logged wait is within {DROP_BOUND:.0f} s", True, drop is not None and float(drop.group(1)) <= DROP_BOUND + 2.0, f"{drop.group(1)} s" if drop else "")
     record("the reason is the missing pong", True, drop is not None and "no pong within" in drop.group(2))
+    print(f"    bytes the kernel was holding for C, unread, when the board closed it: {c.queued}")
     record("A was not dropped and did not disconnect early", "board (close frame)", a2.closed_by)
     lat2 = latencies(a2.received)
     if lat2:
@@ -334,6 +389,9 @@ def main():
               f"    A's delivery latency, run 2: max {max(lat2):.3f} s over {len(lat2)}; no message fell inside C's stall")
         record(f"A's worst delivery latency while C was stalled is under {args.latency_bound:.1f} s", True,
                bool(during) and max(during) < args.latency_bound, f"{max(during):.3f} s" if during else "nothing measured")
+        if lat1:
+            record("A's worst latency beside C is within 0.1 s of run 1's, where there was no C", True,
+                   max(lat2) <= max(lat1) + 0.1, f"run 2 {max(lat2):.3f} s, run 1 {max(lat1):.3f} s")
     scores2, budget2 = score_lines(log2), ensure_calls(log2)
     print(f"    detector exit {exit2}; budget line {budget2}")
 
