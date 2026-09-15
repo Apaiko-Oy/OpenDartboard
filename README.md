@@ -16,6 +16,14 @@
 > port lands on the `windows-port` branch. A release zip from this fork carries the `.exe`, the
 > `LICENSE`, and the commit its source was built from, which is what makes handing somebody the
 > binary lawful: the source offer is this repository at that commit.
+>
+> **Which Turnaus a board talks to.** `--pair <code>` and the score push resolve the address in
+> this order, and the first one set wins: `--turnaus <url>`, then the `OD_TURNAUS_URL`
+> environment variable, then the `base_url` the last successful pairing stored in the credential
+> file, then the default, **`https://turnaus.apaiko.fi`** — Turnaus' production. The board logs
+> one line at startup naming the address and which of the four chose it. The default is written
+> once, in `src/communication/turnaus_address.hpp`, and `testers/check_default_address.sh` fails
+> the tree if a second copy appears or if the parked domain an earlier default named comes back.
 
 <div align="center">
 
