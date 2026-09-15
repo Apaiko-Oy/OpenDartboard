@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include "utils/od_clock.hpp"
+#include "utils/board_sight.hpp"
 #include "utils/od_fix.hpp"
 #include "utils/signals.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
@@ -37,8 +38,13 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     if (!capture->open(camera_sources, width, height, fps))
     {
         log_error("Failed to initialize cameras");
+        // #892: a camera that will not open is a board that cannot see, and it is the
+        // one thing a beat can say that silence cannot -- a machine that is running and
+        // blind is a different errand from a machine that is off.
+        board_sight::faulted() = true;
         return;
     }
+    board_sight::camerasOpen() = true;
 
     // Create detector
     detector = DetectorFactory::createDetector(detector_type_name, debug_display, width, height, fps);
@@ -52,10 +58,15 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     if (!detector->initialize(calibration_frames, capture->nominalFps()))
     {
         log_error("Failed to initialize detector.");
+        // #892: calibration is the second half of being able to see. A detector that
+        // did not calibrate is as blind as a camera that did not open, and READY says
+        // "calibration is valid" as well as "frames are arriving".
+        board_sight::faulted() = true;
     }
     else
     {
         log_info("Detector initialized successfully");
+        board_sight::calibrated() = true;
     }
 }
 
@@ -114,9 +125,28 @@ void Scorer::sendResult(const DetectorResult &result)
 
 void Scorer::run()
 {
-    if (!detector->isInitialized())
+    // #895: the null check that was missing, and -- more to the point -- the thing that
+    // happens instead of a return.
+    //
+    // `detector` is null when the constructor's camera branch took its early return, and
+    // dereferencing it here is the SIGSEGV #892 measured (PROGRAM_RC=139) while trying to
+    // produce a blind board. The calibration branch leaves a detector that says it is not
+    // initialised, and that one did not crash -- it fell through this return, unwound
+    // main and exited quietly, which is the same information loss without the core file.
+    // Both are one condition and both get one answer.
+    //
+    // Adding `!detector` and keeping the return would have traded a crash for a silent
+    // do-nothing: the program would still stop, still stop beating, and the Station's
+    // screen would still degrade to `silent` after the server's own window -- telling a
+    // pub the board stopped answering when what happened is that a camera did not open.
+    // Those two want different remedies and #823 spent a slice making the screen say the
+    // right one.
+    //
+    // So the object is constructed and this thread stays. See runFaultVigil().
+    if (!detector || !detector->isInitialized())
     {
         log_error("Detector not initialized - cannot run");
+        runFaultVigil();
         return;
     }
 
@@ -217,6 +247,11 @@ void Scorer::run()
         }
         if (camera::validCount(frames) > 0)
         {
+            // #892: the one observation READY rests on, taken where it is made. A cycle
+            // that read no valid frame does not count, so a board whose cameras have
+            // stopped answering stops earning the word within one beat -- and it says
+            // ERROR rather than going silent, because it is still there to say it.
+            board_sight::framesSeen().fetch_add(1, std::memory_order_relaxed);
             // 2. Process frames by the detector
             DetectorResult result = detector->process(frames);
             // 3. Send result if something detected
@@ -230,6 +265,81 @@ void Scorer::run()
             }
         }
 
+    }
+
+    log_info("Scorer stopped");
+}
+
+/**
+ * #895: a board that is up and cannot see stays up and says so.
+ *
+ * WHY A LOOP AND NOT A RETURN, AND NOT A THROWING CONSTRUCTOR EITHER.
+ *
+ * The word for a camera that will not open is `ERROR` (board_sight.hpp's ladder), and
+ * `ERROR` is only reachable by a process that is still running to send it. A board that
+ * exits sends nothing, and the server's only remaining reading is the silence window --
+ * which is safe, because silence is always safe, and weaker than the truth, because it
+ * cannot distinguish a computer that is switched off from one that is watching nothing.
+ *
+ * The other shape considered was a constructor that refuses to build -- a factory
+ * returning nothing, or a throw -- and telling main. It was rejected because it puts the
+ * vigil in main: main would need its own loop observing the same shutdown flag, and its
+ * own ownership of the TurnausClient for the length of it. #822 put the client inside
+ * Scorer deliberately so that #825's unwinding of main -- ~Scorer -- is what stops and
+ * joins its threads. Splitting the fault case out would make the beat's owner depend on
+ * whether a camera opened. One owner is better than two, so the object is built in a
+ * state it can report honestly rather than not built at all.
+ *
+ * What this deliberately does NOT do:
+ *  - It does not start the 13520 WebSocket service. That listener is the pub's local
+ *    surface for scores and saved frames (#812), and a blind board serving an empty score
+ *    socket is ADR-0055's own worry one layer down: something that looks alive in front of
+ *    a board that sees nothing. Nothing started it on this path before, so nothing is lost.
+ *  - It does not retry the cameras. board_sight::faulted() is documented as the state a
+ *    retry does not improve, and a supervisor restarting the process is the remedy that
+ *    exists. Making the fault recoverable is a different issue from making it reportable.
+ *  - It does not call exit(). It leaves by the same `return` the scoring loop leaves by,
+ *    so #825's exit path -- main unwound, threads joined, destructors run -- is the exit
+ *    path here too, and `Scorer stopped` is logged on this route as well.
+ */
+void Scorer::runFaultVigil()
+{
+    // The beat is already running: main starts the client before the Scorer is built
+    // (#892), so the ladder has been answering INITIALISING since before the cameras
+    // were tried, and board_sight::faulted() -- set by whichever constructor branch
+    // failed -- turns the next beat into ERROR. Nothing has to be sent from here.
+    log_error("BOARD FAULTED: this board is running and cannot see. The cameras did not "
+              "come up, or the detector did not calibrate on the frames they gave. It "
+              "stays up and beats ERROR rather than exiting, so the Station's screen says "
+              "'go and look at the computer' instead of 'the board stopped answering'. "
+              "Check the cameras and restart the detector.");
+
+    running = true;
+    auto last_reminder = chrono::steady_clock::now();
+
+    while (running)
+    {
+        if (int sig = signals::shutdownRequested())
+        {
+            log_warning("Received signal " + to_string(sig) +
+                        ", shutting down a faulted board...");
+            running = false;
+            break;
+        }
+
+        // A log somebody tails should go on saying it, and once a minute is often enough
+        // that a reader knows the process is alive and rare enough to be free.
+        auto now = chrono::steady_clock::now();
+        if (chrono::duration_cast<chrono::seconds>(now - last_reminder).count() >= 60)
+        {
+            last_reminder = now;
+            log_error("BOARD FAULTED: still blind, still beating ERROR.");
+        }
+
+        // Nothing here is on a deadline; the beat has its own thread and its own
+        // interval. A fifth of a second is a shutdown latency nobody notices and a cost
+        // that does not appear in any per-cycle figure.
+        this_thread::sleep_for(chrono::milliseconds(200));
     }
 
     log_info("Scorer stopped");

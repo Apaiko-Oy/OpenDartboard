@@ -23,6 +23,7 @@
 // prefix, not its length.
 
 #include "score_queue.hpp"
+#include "../utils/board_sight.hpp"
 #include "http_transport.hpp"
 #include "../detector/detector_interface.hpp"
 #include <string>
@@ -89,15 +90,44 @@ public:
      */
     bool offer(const DetectorResult &result);
 
+    /**
+     * #892: the beat, and the reason it is a thread of its own rather than an item the
+     * push worker posts.
+     *
+     * A beat is not a Detection, and the three places that difference has to hold are
+     * the round in hand, the `reference` dedup and the fifteen-minute abandonment
+     * horizon -- all three of which are scoped to the round being thrown right now. A
+     * beat carries no `reference`, so it must not enter the dedup; it must never be
+     * appended to `owed.jsonl`, because a beat that is fifteen minutes old is not a
+     * retry, it is a dead board saying it is alive, which is worse than the dart the
+     * horizon exists to refuse. A FAILED BEAT IS DROPPED, NOT SPOOLED: the next one is
+     * due in an interval and carries the same claim, fresher.
+     *
+     * The worker cannot carry it even if the queue were bypassed. That thread spends up
+     * to thirty seconds asleep in a backoff after an unreachable server, and up to
+     * `read_timeout_s` inside a POST; a beat that queued behind either would arrive late
+     * for a reason that has nothing to do with whether this board can see. So the two
+     * share nothing but `running_`, and the beat's cadence is its own.
+     */
+    void beat();
+
     // Counters, for the run's own summary line. None of them is a secret.
     uint64_t queued() const { return queued_; }
     uint64_t delivered() const { return delivered_; }
     uint64_t dropped() const { return dropped_; }
     uint64_t attempts() const { return attempts_; }
+    uint64_t beats() const { return beats_; }
+    uint64_t beatsLost() const { return beats_lost_; }
     size_t backlog() const;
 
 private:
     void run();
+    /**
+     * One beat. Posts the word and reads the two numbers back. Returns false for every
+     * outcome that is not a `200`, which is the only answer that means the server has
+     * this board's condition written down.
+     */
+    bool postBeat(const char *condition_word, int &interval_s, int &silence_s);
     bool loadCredential();
     bool deliver(const OwedPush &item);
     void spool(const OwedPush &item);
@@ -118,6 +148,18 @@ private:
     std::deque<OwedPush> queue_;
     std::thread worker_;
 
+    // #892. Its own mutex and its own condition variable, deliberately: a beat waiting
+    // on `mutex_` would be waiting behind whatever the push worker is doing with the
+    // queue, and the whole point of the beat is that its lateness means something.
+    std::thread beater_;
+    mutable std::mutex beat_mutex_;
+    std::condition_variable beat_condition_;
+    // Both are the server's own answer and neither has a compiled-in value. Zero means
+    // "the server has not said yet", which is a state this board really is in for the
+    // length of its first beat and is not a number standing in for one.
+    std::atomic<int> interval_s_{0};
+    std::atomic<int> silence_s_{0};
+
     std::string spool_path_;
     std::string cursor_path_;
     // How many leading records of the spool are settled -- delivered, refused as
@@ -132,4 +174,6 @@ private:
     std::atomic<uint64_t> dropped_{0};
     std::atomic<uint64_t> attempts_{0};
     std::atomic<uint64_t> sequence_{0};
+    std::atomic<uint64_t> beats_{0};
+    std::atomic<uint64_t> beats_lost_{0};
 };
