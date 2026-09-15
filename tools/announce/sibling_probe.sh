@@ -45,9 +45,9 @@ record() { # what expected got detail
 start_board() { # extra flags
     docker run -d --rm --name "$PREFIX-board" --cpus=2 --network "$NET" \
         -v "$ROOT":/app -w /app -e OD_SHUTDOWN_FIX=1 -e OD_MAX_CYCLES=1000000 "$IMAGE" \
-        bash -c "$AVAHI && mkdir -p /runs/sib && cd /runs/sib && exec /app/build/opendartboard --debug \
+        bash -c "$AVAHI && mkdir -p /runs/sib && cd /runs/sib && { /app/build/opendartboard --debug \
             --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 --width 1280 --height 720 \
-            --label '$LABEL' $*" >/dev/null
+            --label '$LABEL' $* & echo \$! > /runs/sib/detector.pid; wait; echo DETECTOR_EXITED; sleep 600; }" >/dev/null
     for _ in $(seq 1 180); do
         if docker logs "$PREFIX-board" 2>&1 | grep -q 'listening on ws://'; then return 0; fi
         sleep 1
@@ -90,15 +90,24 @@ record "the board wrote its service file" present \
 sleep 3
 ask "listen" present "$TOKEN"
 
-echo "state 2: board --listen, stopped with SIGINT"
-docker kill -s INT "$PREFIX-board" >/dev/null
-sleep 2
+echo "state 2: board --listen, detector stopped with SIGINT, the board's Avahi still running"
+# The detector is signalled by its own pid and the container stays up, so Avahi on the
+# board keeps answering: an absence below is a withdrawal, not a host that went away.
+docker exec "$PREFIX-board" bash -c 'kill -INT "$(cat /runs/sib/detector.pid)"'
+for _ in $(seq 1 30); do
+    docker logs "$PREFIX-board" 2>&1 | grep -q DETECTOR_EXITED && break
+    sleep 1
+done
 LOG=$(docker logs "$PREFIX-board" 2>&1)
-echo "$LOG" | grep -E "announced as|signal" | sed 's/^/        /'
-docker rm -f "$PREFIX-board" >/dev/null 2>&1
+echo "$LOG" | grep -E "announced as|announcement|Received signal|DETECTOR_EXITED" | sed 's/^/        /'
+record "the board's Avahi is still running" yes \
+    "$(docker exec "$PREFIX-board" avahi-daemon --check && echo yes || echo no)"
+record "the board's service file is gone" absent \
+    "$(docker exec "$PREFIX-board" test -f /etc/avahi/services/opendartboard.service && echo present || echo absent)"
 if [ -n "$TOKEN" ] && echo "$LOG" | grep -qF "$TOKEN"; then found=present; else found=absent; fi
 record "the token is in no line of the board's log" absent "$found"
 ask "stopped" absent "$TOKEN"
+docker rm -f "$PREFIX-board" >/dev/null 2>&1
 
 echo "state 3: board loopback, running"
 start_board || { record "the board's socket opens" open closed; exit 1; }
@@ -107,7 +116,7 @@ record "the board wrote no service file" absent \
     "$(docker exec "$PREFIX-board" test -f /etc/avahi/services/opendartboard.service && echo present || echo absent)"
 sleep 3
 ask "loopback" absent "$TOKEN"
-docker kill -s INT "$PREFIX-board" >/dev/null 2>&1
+docker exec "$PREFIX-board" bash -c 'kill -INT "$(cat /runs/sib/detector.pid)"' >/dev/null 2>&1
 
 echo "failed $FAILED"
 if [ "$FAILED" -eq 0 ]; then echo PASS; else echo "FAIL: $FAILED check(s) did not hold"; fi
