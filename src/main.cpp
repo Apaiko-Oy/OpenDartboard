@@ -148,6 +148,24 @@ int main(int argc, char **argv)
     return client.pair(pairing_code) ? 0 : 1;
   }
 
+  // #891: the same exchange at the third door. --pair-contest binds this board to one
+  // Casual Contest -- somebody's knockabout, in a pub or in a garage -- and to nothing
+  // else: no Station and no Organisation (ADR-0069). Two flags rather than one that
+  // guesses, because the two codes are six digits apiece at two doors that do not read
+  // each other's table, so nothing in the digits says which evening they are for. The
+  // person holding the code knows, and this is where they say it.
+  //
+  // An Organisation pairing already on this board is kept. A club board is Station 3 on
+  // Tuesday and a knockabout on Wednesday, and the machine bolted to it does not stop
+  // working; the Contest binding wins while it lasts and the club's is still underneath
+  // it when the evening ends.
+  string contest_code = getArg(argc, argv, "--pair-contest", string(""));
+  if (!contest_code.empty())
+  {
+    TurnausClient client(turnaus_config);
+    return client.pairContest(contest_code) ? 0 : 1;
+  }
+
   // setup cams
   vector<string> cams;
   if (useAuto)

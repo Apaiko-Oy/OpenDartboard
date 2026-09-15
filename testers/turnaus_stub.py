@@ -47,6 +47,26 @@ TRANSCRIPT = os.environ.get("STUB_TRANSCRIPT", "/run822/transcript.jsonl")
 PIN = "483920"
 TOKEN = "17|" + "z" * 40
 
+# #891: the third door. A different six-digit code, a different table, a different
+# credential, and a binding to one Casual Contest rather than to an Organisation (#887,
+# ADR-0069). The two doors do not read each other's codes and the two credentials are
+# disjoint, which is modelled here rather than assumed: a token presented at the wrong
+# door is a 401.
+CASUAL_PIN = "571643"
+CASUAL_TOKEN = "31|" + "y" * 40
+CASUAL_CONTEST_ID = 12
+CASUAL_BOARD_ID = 4
+# After this many casual detections the Contest is Given Up. #887's release() DELETES the
+# token, so what a board meets is the guard refusing it -- not a special answer saying the
+# evening ended, which would be exactly the oracle #887 collapses its refusals to deny.
+# 0 means the evening never ends.
+GIVE_UP_AFTER = int(os.environ.get("STUB_GIVE_UP_AFTER", "0"))
+# The same ending reached without a dart, because the beat is what usually meets it first:
+# it goes every interval and a dart goes only when somebody throws.
+GIVE_UP_AFTER_BEATS = int(os.environ.get("STUB_GIVE_UP_AFTER_BEATS", "0"))
+# Whether this deployment serves a heartbeat address for a Casual board at all.
+CASUAL_BEAT = os.environ.get("STUB_CASUAL_BEAT", "1") == "1"
+
 lock = threading.Lock()
 
 state = {
@@ -62,6 +82,16 @@ state = {
     "counted": [],          # references already counted into it
     "detections_seen": 0,
     "visits": 0,
+    # #891: the Casual Contest's own half. A separate round in hand, because a board's
+    # darts land in the evening it is bound to and in nothing else, and a separate
+    # given_up flag, because the evening ends.
+    "casual_pin_spent": False,
+    "casual_round": [],
+    "casual_counted": [],
+    "casual_detections_seen": 0,
+    "casual_given_up": False,
+    "casual_checked_at": None,
+    "casual_condition": None,
 }
 
 
@@ -125,6 +155,114 @@ class Handler(BaseHTTPRequestHandler):
         auth = self.headers.get("Authorization", "")
         presented = auth[7:] if auth.startswith("Bearer ") else ""
         auth_digest = hashlib.sha256(presented.encode()).hexdigest()[:16] if presented else None
+
+        # ------------------------------------------------------------------
+        # #891: the Casual half. Everything under /api/v1/casual/ is bound to one Contest
+        # and is refused outright once that Contest has been given up, because #887
+        # deletes the token at that moment and there is nothing left for the guard to
+        # admit. A board meets a 401 and not an explanation.
+        # ------------------------------------------------------------------
+        if self.path == "/api/v1/casual/boards":
+            if body.get("pin") != CASUAL_PIN or state["casual_pin_spent"] or state["casual_given_up"]:
+                # One refusal, four causes: never minted, already spent, expired, and the
+                # evening ended. Telling them apart hands a guesser an oracle.
+                record({"event": "casual_pairing_refused", "pin_len": len(str(body.get("pin", "")))})
+                return self.reply(422, {"message": "The given data was invalid.",
+                                        "errors": {"pin": ["casual_board.error.code_not_redeemable"]}})
+            state["casual_pin_spent"] = True
+            record({"event": "casual_paired", "label": body.get("label"),
+                    "token_sha256_16": hashlib.sha256(CASUAL_TOKEN.encode()).hexdigest()[:16]})
+            return self.reply(201, {"data": {
+                "token": CASUAL_TOKEN,
+                "casualContestId": CASUAL_CONTEST_ID,
+                "board": {"id": CASUAL_BOARD_ID, "label": body.get("label"),
+                          "pairedAt": "2026-09-06T19:31:00+00:00"}}})
+
+        if self.path.startswith("/api/v1/casual/"):
+            # The guard, and it is the whole of the give-up story. A deleted token cannot
+            # be admitted, and a board holding the club's credential is not this board.
+            if presented != CASUAL_TOKEN or state["casual_given_up"]:
+                record({"event": "casual_refused", "path": self.path,
+                        "auth_sha256_16": auth_digest,
+                        "given_up": state["casual_given_up"]})
+                return self.reply(401, {"message": "Unauthenticated."})
+
+            if self.path == "/api/v1/casual/detections":
+                state["casual_detections_seen"] += 1
+                reference = body.get("reference", "")
+                sector = body.get("sector", "")
+                if reference in state["casual_counted"]:
+                    record({"event": "casual_absorbed", "reference": reference, "sector": sector,
+                            "auth_sha256_16": auth_digest, "round": list(state["casual_round"])})
+                    return self.reply(202, {"data": {"outcome": "ABSORBED",
+                                                     "casualContestId": CASUAL_CONTEST_ID,
+                                                     "round": list(state["casual_round"])}})
+                state["casual_round"].append(sector)
+                state["casual_counted"].append(reference)
+                state["casual_checked_at"] = time.time()
+                record({"event": "casual_counted", "reference": reference, "sector": sector,
+                        "auth_sha256_16": auth_digest, "round": list(state["casual_round"])})
+                if GIVE_UP_AFTER and state["casual_detections_seen"] >= GIVE_UP_AFTER:
+                    # The person at the screen gave the evening up. #887 releases every
+                    # board still on it: the token is deleted and the round in hand goes
+                    # with it, because a round that never reached a takeout is a record of
+                    # nothing (ADR-0069).
+                    state["casual_given_up"] = True
+                    state["casual_round"] = []
+                    state["casual_counted"] = []
+                    record({"event": "casual_given_up",
+                            "after_detections": state["casual_detections_seen"]})
+                return self.reply(202, {"data": {"outcome": "COUNTED",
+                                                 "casualContestId": CASUAL_CONTEST_ID,
+                                                 "round": list(state["casual_round"])}})
+
+            if self.path == "/api/v1/casual/takeouts":
+                had = list(state["casual_round"])
+                state["casual_round"] = []
+                state["casual_counted"] = []
+                state["casual_checked_at"] = time.time()
+                # NOTHING IS WRITTEN HERE, and that is #888's whole point: the board
+                # reports and the browser writes. No visitId comes back because no Visit
+                # was appended by this push.
+                record({"event": "casual_takeout", "closed": had, "auth_sha256_16": auth_digest})
+                return self.reply(202, {"data": {"casualContestId": CASUAL_CONTEST_ID,
+                                                 "round": []}})
+
+            if self.path == "/api/v1/casual/heartbeats":
+                if not CASUAL_BEAT:
+                    record({"event": "casual_beat_unserved", "condition": body.get("condition", "")})
+                    return self.reply(404, {"message": "Not Found"})
+                condition = body.get("condition", "")
+                if condition not in SELF_REPORTABLE:
+                    record({"event": "casual_beat_refused", "condition": condition})
+                    return self.reply(422, {"message": "The given data was invalid.",
+                                            "errors": {"condition": ["The selected condition is invalid."]}})
+                with lock:
+                    state["casual_condition"] = condition
+                    state["casual_checked_at"] = time.time()
+                    state["casual_beats"] = state.get("casual_beats", 0) + 1
+                    beats_now = state["casual_beats"]
+                record({"event": "casual_beat", "condition": condition, "auth_sha256_16": auth_digest,
+                        "round": list(state["casual_round"])})
+                if GIVE_UP_AFTER_BEATS and beats_now >= GIVE_UP_AFTER_BEATS:
+                    state["casual_given_up"] = True
+                    state["casual_round"] = []
+                    state["casual_counted"] = []
+                    record({"event": "casual_given_up", "after_beats": beats_now})
+                return self.reply(200, {"data": {"condition": condition,
+                                                 "intervalSeconds": INTERVAL_SECONDS,
+                                                 "silenceSeconds": SILENCE_SECONDS}})
+
+            record({"event": "unknown_casual_path", "path": self.path})
+            return self.reply(404, {"message": "Not Found"})
+
+        # A club credential is the only thing the club's doors admit, and a Casual board's
+        # is refused there. Disjoint tokenables, modelled: RequireAutoscorerDevice will not
+        # have a CasualContestBoard at any price (#887).
+        if self.path.startswith("/api/v1/autoscorer/") and self.path != "/api/v1/autoscorer/devices":
+            if presented != TOKEN:
+                record({"event": "autoscorer_refused", "path": self.path, "auth_sha256_16": auth_digest})
+                return self.reply(401, {"message": "Unauthenticated."})
 
         if self.path == "/api/v1/autoscorer/devices":
             if body.get("pin") != PIN or state["pin_spent"]:
