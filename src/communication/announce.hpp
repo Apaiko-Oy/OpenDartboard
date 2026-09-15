@@ -108,6 +108,7 @@ namespace announce
     {
         return {false, "nothing to withdraw on Windows"};
     }
+    inline void withdrawPath(const std::string &) {}
 #else
     // Writes the service file. Only ever called while the socket is on the network.
     inline Outcome publish(const std::string &dir, const std::string &label, int port, const std::string &version)
@@ -131,6 +132,14 @@ namespace announce
         if (std::remove(path.c_str()) == 0)
             return {true, path};
         return {false, path + ": " + std::strerror(errno)};
+    }
+
+    // The same removal from a signal handler: unlink(2) only, nothing that allocates.
+    // A process killed with SIGKILL or aborted leaves the file behind; the next start
+    // overwrites it (--listen) or removes it (loopback), and the unit restarts always.
+    inline void withdrawPath(const std::string &path)
+    {
+        ::unlink(path.c_str());
     }
 #endif
 }

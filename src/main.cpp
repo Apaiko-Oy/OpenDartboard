@@ -120,8 +120,16 @@ int main(int argc, char **argv)
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
 
   // Register signal handlers with a lambda to stop the scorer
-  signals::setupSignalHandlers([&scorer]()
-                               { scorer.stop(); });
+  // #1189: the handler exit()s after this callback, so the withdrawal after run()
+  // below is never reached on SIGINT or SIGTERM - which is how systemd stops the
+  // unit. The announcement is withdrawn here, first, before the socket's stop can
+  // hang (#816). The path is a string built before any signal can arrive.
+  const string announce_file = announce::filePath(announce_dir);
+  signals::setupSignalHandlers([&scorer, listen, &announce_file]()
+                               {
+                                 if (listen)
+                                   announce::withdrawPath(announce_file);
+                                 scorer.stop(); });
 
   // Start the scorer processing in background thread
   scorer.run();

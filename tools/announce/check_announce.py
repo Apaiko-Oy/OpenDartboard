@@ -48,6 +48,24 @@ from check_board_position import read_token  # noqa: E402
 from check_score_socket import Run, second_address  # noqa: E402
 
 SERVICE_TYPE = "_opendartboard._tcp"
+
+
+class AnnounceRun(Run):
+    """The socket harness's Run, with the announce flags on the detector's argv. Run
+    builds its argv inside __init__, so the flags are added by wrapping Popen for the
+    one call rather than by editing the sibling harness."""
+
+    def __init__(self, extra, *args, **kwargs):
+        real = subprocess.Popen
+
+        def with_extra(argv, **popen_kwargs):
+            return real(list(argv) + list(extra), **popen_kwargs)
+
+        subprocess.Popen = with_extra
+        try:
+            super().__init__(*args, **kwargs)
+        finally:
+            subprocess.Popen = real
 UPPER, LOWER, BOTH = "▀", "▄", "█"
 
 
@@ -155,7 +173,7 @@ def main():
 
     # ---- run 1: no --listen
     print("run 1: no --listen")
-    run = Run(binary, cams, args.width, args.height, workdir, args.cycles, listen=False)
+    run = AnnounceRun(extra, binary, cams, args.width, args.height, workdir, args.cycles, listen=False)
     token = read_token(token_path, time.time() + args.connect_timeout)
     if token is None:
         record("the token file is written before the socket opens", "file", "missing", token_path)
@@ -181,7 +199,7 @@ def main():
 
     # ---- run 2: --listen
     print("run 2: --listen")
-    run = Run(binary, cams, args.width, args.height, workdir, args.cycles, listen=True)
+    run = AnnounceRun(extra, binary, cams, args.width, args.height, workdir, args.cycles, listen=True)
     if not run.wait_listening(args.port, token, args.connect_timeout):
         record("the socket opens on the network", "open", "closed")
         run.stop()
