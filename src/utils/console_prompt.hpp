@@ -81,24 +81,15 @@ namespace console_prompt
     class StdConsole : public Console
     {
     public:
-        StdConsole()
-        {
-#ifdef _WIN32
-            // The Finnish lines carry ä and ö and the sources are UTF-8 (/utf-8). A console
-            // left on its OEM code page prints them as two characters apiece. Output only:
-            // the answers asked for are digits, and UTF-8 console INPUT is unreliable
-            // on Windows 10.
-            ::SetConsoleOutputCP(CP_UTF8);
-#endif
-        }
-
         void say(const Text &text) override
         {
+            beforeSaying();
             std::cout << text.fi << "\n" << text.en << std::endl;
         }
 
         void sayVerbatim(const std::string &line) override
         {
+            beforeSaying();
             std::cout << line << std::endl;
         }
 
@@ -114,6 +105,29 @@ namespace console_prompt
             }
             return true;
         }
+
+    private:
+        /**
+         * The Finnish lines carry ä and ö and the sources are UTF-8 (/utf-8); a console left
+         * on its OEM code page prints each as two characters. Set on the first line actually
+         * said, not on construction: the code page belongs to the console the board was
+         * started from and outlives this process, so a start that says nothing -- input
+         * redirected, or all three cameras open -- must leave it as it found it. Output only:
+         * the answers asked for are digits, and UTF-8 console INPUT is unreliable on Windows 10.
+         */
+        void beforeSaying()
+        {
+            if (code_page_set_)
+            {
+                return;
+            }
+            code_page_set_ = true;
+#ifdef _WIN32
+            ::SetConsoleOutputCP(CP_UTF8);
+#endif
+        }
+
+        bool code_page_set_ = false;
     };
 
     /** What a judge says about one answer: accepted, or refused with the reason to say. */
