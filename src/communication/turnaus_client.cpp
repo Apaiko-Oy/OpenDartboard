@@ -168,64 +168,105 @@ bool TurnausClient::loadCredential()
     return true;
 }
 
-bool TurnausClient::pair(const std::string &code)
+TurnausClient::PairingBlock TurnausClient::pairingBlock() const
 {
     if (!url_.valid)
     {
-        log_error("TURNAUS: --turnaus is not a URL this build can parse");
-        return false;
+        return PairingBlock::BadAddress;
     }
     if (url_.tls && !odhttp::tlsAvailable())
     {
-        log_error("TURNAUS: this build has no TLS transport (" + std::string(odhttp::transportName()) +
-                  ") and will not downgrade an https:// address to plaintext");
-        return false;
+        return PairingBlock::NoTls;
     }
     if (!url_.tls && !config_.allow_plaintext)
     {
-        log_error("TURNAUS: refusing to send a pairing code over http://. Pass --allow-plaintext "
-                  "if this really is a loopback or a lab.");
-        return false;
+        return PairingBlock::Plaintext;
     }
     if (config_.credentials_path.empty())
     {
-        log_error("TURNAUS: no writable configuration directory, so a credential could not be kept");
-        return false;
+        return PairingBlock::NoConfigDir;
     }
+    return PairingBlock::None;
+}
+
+std::string TurnausClient::pairingLabel() const
+{
+    // #1259: the computer's name, as the board already announces itself, rather than the
+    // literal every board used to send -- so a club's list of boards says which machine is
+    // which. Both doors validate `max:80` (characters); 80 bytes is never more than that,
+    // and a cut is moved back off a UTF-8 continuation byte so it never splits a character.
+    std::string label = config_.label.empty() ? std::string("OpenDartboard") : config_.label;
+    if (label.size() > 80)
+    {
+        size_t cut = 80;
+        while (cut > 0 && (static_cast<unsigned char>(label[cut]) & 0xC0) == 0x80)
+        {
+            cut--;
+        }
+        label.resize(cut);
+    }
+    return label;
+}
+
+TurnausClient::Redemption TurnausClient::redeem(Door door, const std::string &code)
+{
+    Redemption out;
+    if (pairingBlock() != PairingBlock::None)
+    {
+        out.kind = Redemption::Kind::Blocked;
+        return out;
+    }
+    const bool contest_door = door == Door::Contest;
 
     json body;
     body["pin"] = code;
-    body["label"] = "OpenDartboard";
+    body["label"] = pairingLabel();
 
-    odhttp::Response res = odhttp::postJson(url_, "/api/v1/autoscorer/devices", body.dump(), {},
+    // Accept names JSON so a refusal is the door's 422 and not a redirect meant for a
+    // browser. The body carries a label from gethostname, which is not promised to be
+    // UTF-8 on Windows; replace rather than throw.
+    std::map<std::string, std::string> headers;
+    headers["Accept"] = "application/json";
+    odhttp::Response res = odhttp::postJson(url_, contest_door ? "/api/v1/casual/boards" : "/api/v1/autoscorer/devices",
+                                            body.dump(-1, ' ', false, json::error_handler_t::replace), headers,
                                             config_.connect_timeout_s, config_.read_timeout_s);
     if (!res.reached_a_server())
     {
-        log_error("TURNAUS: pairing could not reach " + url_.host + ": " + res.transport_error);
-        return false;
+        out.kind = Redemption::Kind::Unreachable;
+        out.detail = res.transport_error;
+        return out;
+    }
+    out.status = res.status;
+    if (res.status == 422)
+    {
+        out.kind = Redemption::Kind::Refused;
+        return out;
+    }
+    if (res.status == 429)
+    {
+        out.kind = Redemption::Kind::RateLimited;
+        out.retry_after_s = res.retry_after_s;
+        return out;
     }
     if (res.status != 201)
     {
-        // The body is not echoed. A 201 body carries the token, and a habit of echoing
-        // the body is how a token reaches a log line on the one status that matters.
-        log_error("TURNAUS: pairing refused with HTTP " + std::to_string(res.status) +
-                  " (a code is six digits, single use, and expires in ten minutes)");
-        return false;
+        out.kind = Redemption::Kind::Unexpected;
+        return out;
     }
 
+    out.kind = Redemption::Kind::NotKept;
+    const std::string what = contest_door ? "Contest pairing" : "pairing";
     try
     {
         json j = json::parse(res.body);
         std::string token = j["data"].value("token", "");
         if (token.empty())
         {
-            log_error("TURNAUS: pairing answered 201 with no credential in it");
-            return false;
+            log_error("TURNAUS: " + what + " answered 201 with no credential in it");
+            return out;
         }
-        // #891: whatever is already in the file is kept and the Organisation half is
-        // written over it. A board that took an evening's code an hour ago and is being
-        // re-paired to its club must not lose the evening, and the reverse is the case
-        // this slice is actually about.
+        // #891: whatever is already in the file is kept. The club half is written over a
+        // club half and a Contest half beside it; neither pairing costs the other.
         json stored = json::object();
         std::string existing;
         if (od_paths::readFile(config_.credentials_path, existing))
@@ -244,154 +285,155 @@ bool TurnausClient::pair(const std::string &code)
                 // could be trusted to name a binding.
             }
         }
-        stored["token"] = token;
-        stored["organisation_id"] = j["data"].value("organisationId", 0);
-        stored["device_id"] = j["data"]["device"].value("id", 0);
-        stored["label"] = j["data"]["device"].value("label", "");
-        stored["base_url"] = config_.base_url;
 
+        json contest;
+        if (contest_door)
+        {
+            // THE DECISION, in four lines: the Organisation binding already in this file is
+            // left exactly where it is, and the Contest binding is written beside it.
+            contest["token"] = token;
+            contest["casual_contest_id"] = j["data"].value("casualContestId", 0);
+            contest["board_id"] = j["data"].contains("board") ? j["data"]["board"].value("id", 0) : 0;
+            contest["label"] = j["data"].contains("board") ? j["data"]["board"].value("label", "") : "";
+            stored["contest"] = contest;
+            if (!stored.contains("base_url"))
+            {
+                stored["base_url"] = config_.base_url;
+            }
+        }
+        else
+        {
+            stored["token"] = token;
+            stored["organisation_id"] = j["data"].value("organisationId", 0);
+            stored["device_id"] = j["data"]["device"].value("id", 0);
+            stored["label"] = j["data"]["device"].value("label", "");
+            stored["base_url"] = config_.base_url;
+        }
+
+        // The directory the credential is really in, which is configDir() unless
+        // --credentials named another; creating configDir() for a file kept elsewhere was
+        // #822's shape and is kept, so a default start is byte-for-byte what it was.
         if (!od_paths::ensureDir(od_paths::configDir()))
         {
             log_error("TURNAUS: could not create the configuration directory");
-            return false;
+            return out;
         }
         if (!od_paths::writeSecret(config_.credentials_path, stored.dump(2)))
         {
             log_error("TURNAUS: could not write the credential file");
-            return false;
+            return out;
         }
-        credential_ = token;
-        device_id_ = std::to_string(stored.value("device_id", 0));
+        if (contest_door)
+        {
+            contest_credential_ = token;
+            contest_id_ = contest.value("casual_contest_id", (long long)0);
+            contest_board_id_ = std::to_string(contest.value("board_id", 0));
+            contest_bound_ = true;
+        }
+        else
+        {
+            credential_ = token;
+            device_id_ = std::to_string(stored.value("device_id", 0));
+        }
         paired_ = true;
     }
     catch (const std::exception &e)
     {
-        log_error("TURNAUS: pairing response could not be read: " + std::string(e.what()));
-        return false;
+        log_error("TURNAUS: " + what + " response could not be read: " + std::string(e.what()));
+        return out;
     }
 
-    // Device id and label are not secrets; the token is, and it is not here.
-    log_info("TURNAUS: paired as device " + device_id_ + ", credential kept at " + config_.credentials_path);
-    return true;
+    out.kind = Redemption::Kind::Paired;
+    if (contest_door)
+    {
+        log_info("TURNAUS: paired to Casual Contest " + std::to_string(contest_id_) + " as board " +
+                 contest_board_id_ + ", credential kept at " + config_.credentials_path);
+    }
+    else
+    {
+        // Device id and label are not secrets; the token is, and it is not here.
+        log_info("TURNAUS: paired as device " + device_id_ + ", credential kept at " + config_.credentials_path);
+    }
+    return out;
+}
+
+bool TurnausClient::pair(const std::string &code)
+{
+    // #1259: the exchange itself is redeem()'s; what --pair prints is unchanged, line for line.
+    switch (pairingBlock())
+    {
+    case PairingBlock::BadAddress:
+        log_error("TURNAUS: --turnaus is not a URL this build can parse");
+        return false;
+    case PairingBlock::NoTls:
+        log_error("TURNAUS: this build has no TLS transport (" + std::string(odhttp::transportName()) +
+                  ") and will not downgrade an https:// address to plaintext");
+        return false;
+    case PairingBlock::Plaintext:
+        log_error("TURNAUS: refusing to send a pairing code over http://. Pass --allow-plaintext "
+                  "if this really is a loopback or a lab.");
+        return false;
+    case PairingBlock::NoConfigDir:
+        log_error("TURNAUS: no writable configuration directory, so a credential could not be kept");
+        return false;
+    case PairingBlock::None:
+        break;
+    }
+
+    Redemption r = redeem(Door::Organisation, code);
+    if (r.kind == Redemption::Kind::Unreachable)
+    {
+        log_error("TURNAUS: pairing could not reach " + url_.host + ": " + r.detail);
+    }
+    else if (r.kind == Redemption::Kind::Refused || r.kind == Redemption::Kind::RateLimited ||
+             r.kind == Redemption::Kind::Unexpected)
+    {
+        // The body is not echoed. A 201 body carries the token, and a habit of echoing
+        // the body is how a token reaches a log line on the one status that matters.
+        log_error("TURNAUS: pairing refused with HTTP " + std::to_string(r.status) +
+                  " (a code is six digits, single use, and expires in ten minutes)");
+    }
+    return r.kind == Redemption::Kind::Paired;
 }
 
 bool TurnausClient::pairContest(const std::string &code)
 {
-    // The same four refusals `pair()` makes before it dials, for the same reasons. They
-    // are repeated rather than shared because the message a person reads has to name the
-    // flag they typed, and because a Contest code is presented at a different door.
-    if (!url_.valid)
+    // The same four refusals `pair()` makes before it dials, in the words --pair-contest
+    // has always printed.
+    switch (pairingBlock())
     {
+    case PairingBlock::BadAddress:
         log_error("TURNAUS: --turnaus is not a URL this build can parse");
         return false;
-    }
-    if (url_.tls && !odhttp::tlsAvailable())
-    {
+    case PairingBlock::NoTls:
         log_error("TURNAUS: this build has no TLS transport (" + std::string(odhttp::transportName()) +
                   ") and will not downgrade an https:// address to plaintext");
         return false;
-    }
-    if (!url_.tls && !config_.allow_plaintext)
-    {
+    case PairingBlock::Plaintext:
         log_error("TURNAUS: refusing to send a Contest pairing code over http://. Pass "
                   "--allow-plaintext if this really is a loopback or a lab.");
         return false;
-    }
-    if (config_.credentials_path.empty())
-    {
+    case PairingBlock::NoConfigDir:
         log_error("TURNAUS: no writable configuration directory, so a credential could not be kept");
         return false;
+    case PairingBlock::None:
+        break;
     }
 
-    json body;
-    body["pin"] = code;
-    body["label"] = "OpenDartboard";
-
-    odhttp::Response res = odhttp::postJson(url_, "/api/v1/casual/boards", body.dump(), {},
-                                            config_.connect_timeout_s, config_.read_timeout_s);
-    if (!res.reached_a_server())
+    Redemption r = redeem(Door::Contest, code);
+    if (r.kind == Redemption::Kind::Unreachable)
     {
-        log_error("TURNAUS: Contest pairing could not reach " + url_.host + ": " + res.transport_error);
-        return false;
+        log_error("TURNAUS: Contest pairing could not reach " + url_.host + ": " + r.detail);
     }
-    if (res.status != 201)
+    else if (r.kind == Redemption::Kind::Refused || r.kind == Redemption::Kind::RateLimited ||
+             r.kind == Redemption::Kind::Unexpected)
     {
-        // Not echoed, for `pair()`'s reason: a 201 body carries the token. And there is
-        // nothing useful to echo anyway -- #887 answers every refusal in the same words,
-        // on purpose, so that a guessing loop learns nothing per attempt. Never minted,
-        // already spent, expired, and *the evening ended* are one refusal at this door.
-        log_error("TURNAUS: Contest pairing refused with HTTP " + std::to_string(res.status) +
+        // Not echoed, for `pair()`'s reason: a 201 body carries the token. #887 answers
+        // every refusal in the same words, on purpose, so a guessing loop learns nothing.
+        log_error("TURNAUS: Contest pairing refused with HTTP " + std::to_string(r.status) +
                   " (a code is six digits, single use, expires in ten minutes, and dies with the Contest)");
-        return false;
     }
-
-    try
-    {
-        json j = json::parse(res.body);
-        std::string token = j["data"].value("token", "");
-        if (token.empty())
-        {
-            log_error("TURNAUS: Contest pairing answered 201 with no credential in it");
-            return false;
-        }
-
-        json stored = json::object();
-        std::string existing;
-        if (od_paths::readFile(config_.credentials_path, existing))
-        {
-            try
-            {
-                json previous = json::parse(existing);
-                if (previous.is_object())
-                {
-                    stored = previous;
-                }
-            }
-            catch (const std::exception &)
-            {
-            }
-        }
-
-        // THE DECISION, in four lines: the Organisation binding already in this file is
-        // left exactly where it is, and the Contest binding is written beside it. Taking
-        // an evening's code does not cost a club its board, and giving the evening up
-        // does not cost it one either.
-        json contest;
-        contest["token"] = token;
-        contest["casual_contest_id"] = j["data"].value("casualContestId", 0);
-        contest["board_id"] = j["data"].contains("board") ? j["data"]["board"].value("id", 0) : 0;
-        contest["label"] = j["data"].contains("board") ? j["data"]["board"].value("label", "") : "";
-        stored["contest"] = contest;
-        if (!stored.contains("base_url"))
-        {
-            stored["base_url"] = config_.base_url;
-        }
-
-        if (!od_paths::ensureDir(od_paths::configDir()))
-        {
-            log_error("TURNAUS: could not create the configuration directory");
-            return false;
-        }
-        if (!od_paths::writeSecret(config_.credentials_path, stored.dump(2)))
-        {
-            log_error("TURNAUS: could not write the credential file");
-            return false;
-        }
-        contest_credential_ = token;
-        contest_id_ = contest.value("casual_contest_id", (long long)0);
-        contest_board_id_ = std::to_string(contest.value("board_id", 0));
-        contest_bound_ = true;
-        paired_ = true;
-    }
-    catch (const std::exception &e)
-    {
-        log_error("TURNAUS: Contest pairing response could not be read: " + std::string(e.what()));
-        return false;
-    }
-
-    log_info("TURNAUS: paired to Casual Contest " + std::to_string(contest_id_) + " as board " +
-             contest_board_id_ + ", credential kept at " + config_.credentials_path);
-    return true;
+    return r.kind == Redemption::Kind::Paired;
 }
 
 bool TurnausClient::forgetContestInFile()
@@ -486,6 +528,7 @@ void TurnausClient::releaseContestBinding(const char *why)
     // A board in somebody's garage holds nothing else. It stops, rather than retrying an
     // evening that is over for as long as the machine is switched on.
     paired_ = false;
+    unpaired_while_running_ = true; // #1259: a garage board's evening ended; ask, if anybody is there
     log_info("TURNAUS: this board holds no other binding, so nothing further will be pushed. "
              "Pair to a new Contest with --pair-contest <code>.");
 }
@@ -795,6 +838,7 @@ bool TurnausClient::deliver(const OwedPush &item)
         log_error("TURNAUS: this board's credential was refused (HTTP " + std::to_string(res.status) +
                   "). Re-pair with --pair <code>. Nothing further will be pushed.");
         paired_ = false;
+        unpaired_while_running_ = true; // #1259: an interactive board asks for a new code
         return false;
     }
     if (res.status == 404 && item.binding == Binding::Contest)
@@ -830,8 +874,15 @@ void TurnausClient::start()
     // #892: idempotent, because the beat now starts in main -- before the cameras are
     // opened, so that INITIALISING and CALIBRATING are beaten rather than passed in
     // silence -- and `Scorer::run()` goes on calling this the way #822 wrote it.
+    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
     if (running_.load())
     {
+        return;
+    }
+    if (quiesced_.load())
+    {
+        // #1259: stopped for a new code at the console. resume() restarts the threads over
+        // the queue exactly as it stands; loading the spool again here would owe it twice.
         return;
     }
     if (!paired_)
@@ -857,12 +908,8 @@ void TurnausClient::start()
              (url_.tls ? " (TLS)" : " (plaintext, --allow-plaintext)"));
 }
 
-void TurnausClient::stop()
+void TurnausClient::haltThreads()
 {
-    if (!running_.exchange(false))
-    {
-        return;
-    }
     condition_.notify_all();
     beat_condition_.notify_all();
     if (worker_.joinable())
@@ -873,22 +920,67 @@ void TurnausClient::stop()
     {
         beater_.join();
     }
+}
 
-    // Whatever the worker never reached is written down on the way out, so that leaving
-    // early costs no dart. The worker is joined, so this is the only thread there is.
-    size_t written_on_exit = 0;
+size_t TurnausClient::spoolUnwritten()
+{
+    // Whatever the worker never reached is written down, so that leaving early costs no
+    // dart. The worker is joined, so this is the only thread there is.
+    size_t written = 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (OwedPush &item : queue_)
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (OwedPush &item : queue_)
+        if (!item.spooled)
         {
-            if (!item.spooled)
-            {
-                spool(item);
-                item.spooled = true;
-                written_on_exit++;
-            }
+            spool(item);
+            item.spooled = true;
+            written++;
         }
     }
+    return written;
+}
+
+void TurnausClient::quiesce()
+{
+    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+    if (!running_.exchange(false))
+    {
+        return;
+    }
+    haltThreads();
+    spoolUnwritten();
+    quiesced_ = true;
+}
+
+bool TurnausClient::resume()
+{
+    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+    if (!quiesced_.load() || !paired_.load() || running_.load())
+    {
+        return false;
+    }
+    quiesced_ = false;
+    // The queue is left as it stands: everything in it is already in the spool (quiesce()
+    // wrote what the worker had not), and it is owed to whoever this board is paired to now.
+    running_ = true;
+    worker_ = std::thread(&TurnausClient::run, this);
+    beater_ = std::thread(&TurnausClient::beat, this);
+    log_info("TURNAUS: pushing to " + url_.host + " over " + std::string(odhttp::transportName()) +
+             (url_.tls ? " (TLS)" : " (plaintext, --allow-plaintext)") + " again, after a new pairing");
+    return true;
+}
+
+void TurnausClient::stop()
+{
+    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+    // #1259: a client quiesced for a new code and never resumed still owes its summary.
+    if (!running_.exchange(false) && !quiesced_.exchange(false))
+    {
+        return;
+    }
+    haltThreads();
+
+    size_t written_on_exit = spoolUnwritten();
     if (written_on_exit)
     {
         log_info("TURNAUS: wrote " + std::to_string(written_on_exit) +
@@ -1066,6 +1158,7 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
         log_error("TURNAUS: this board's credential was refused on a heartbeat (HTTP " +
                   std::to_string(res.status) + "). Re-pair with --pair <code>.");
         paired_ = false;
+        unpaired_while_running_ = true; // #1259
         return false;
     }
     if (res.status == 404 && binding == Binding::Contest)

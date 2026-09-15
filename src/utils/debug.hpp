@@ -104,6 +104,10 @@ namespace debug
         std::cout << "                       credential file, then the default: " << turnaus_address::kDefault << "\n";
         std::cout << "  --credentials <path> Where the Turnaus credential is kept (default: credentials.json in the config directory)\n";
         std::cout << "  --allow-plaintext    Permit an http:// Turnaus address (a loopback or a lab only)\n";
+        std::cout << "                       (OD_ALLOW_PLAINTEXT=1 is the same, for a start with no command line)\n";
+        std::cout << "  (no flag)            Started in an interactive console with no credential, asks for a\n";
+        std::cout << "                       six-digit pairing code, tries the club's door then a Casual Contest's,\n";
+        std::cout << "                       and goes straight on to scoring; asks again if the credential is refused\n";
         std::cout << "  --version            Show version information\n";
         std::cout << "  --help               Show this help message\n";
         exit(0);

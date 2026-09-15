@@ -40,6 +40,10 @@ struct TurnausConfig
     std::string base_url;         // "https://turnaus.example/api"
     std::string credentials_path; // resolved, never empty when pairing is possible
     bool allow_plaintext = false; // http:// is refused without this
+    // #1259: what a pairing request calls this board -- --label, or the computer's name
+    // (announce::defaultLabel), the same label the board already announces. Empty only for
+    // a caller that never set it, which is sent as the old literal.
+    std::string label;
     size_t queue_capacity = 512;  // detections held in memory before the policy bites
     int connect_timeout_s = 3;
     int read_timeout_s = 5;
@@ -118,6 +122,75 @@ public:
 
     /** True when a credential was loaded and the address is usable. */
     bool isPaired() const { return paired_; }
+
+    // ---- #1259: one code, either door, asked for at the console. ----
+
+    /** Which door a six-digit code is presented at. */
+    enum class Door
+    {
+        Organisation, // POST /api/v1/autoscorer/devices (#820)
+        Contest,      // POST /api/v1/casual/boards (#887)
+    };
+
+    /** Why this build may not send a code to this address at all, before anything is sent. */
+    enum class PairingBlock
+    {
+        None,
+        BadAddress, // the address does not parse
+        NoTls,      // https:// on a build with no TLS transport
+        Plaintext,  // http:// without --allow-plaintext or OD_ALLOW_PLAINTEXT=1
+        NoConfigDir // nowhere to keep a credential
+    };
+    PairingBlock pairingBlock() const;
+
+    /** What one presentation of a code came to. Nothing in it came from the response body. */
+    struct Redemption
+    {
+        enum class Kind
+        {
+            Paired,      // 201, and the credential is written
+            Refused,     // 422: the door's one refusal (never minted, spent, expired, ended)
+            Unreachable, // no server answered
+            RateLimited, // 429
+            Unexpected,  // any other status
+            Blocked,     // pairingBlock() said no; nothing was sent
+            NotKept,     // 201, but the credential could not be read or written; logged
+        };
+        Kind kind = Kind::Blocked;
+        int status = 0;
+        int retry_after_s = -1;   // what a 429 named, or -1
+        std::string detail;       // a transport error; never a token, never the code
+    };
+
+    /**
+     * Present `code` at one door and, on a 201, write the credential exactly where and
+     * exactly how pair() and pairContest() always have -- those two are now this plus the
+     * log lines they always printed. Logs the credential's keeping, never the code.
+     */
+    Redemption redeem(Door door, const std::string &code);
+
+    /** The Casual Contest a Contest pairing bound this board to, or 0. Not a secret. */
+    long long contestId() const { return contest_id_; }
+    /** The Organisation device this board is, or "0". Not a secret. */
+    const std::string &deviceId() const { return device_id_; }
+
+    /**
+     * True once per refusal: a credential this RUNNING board held was refused (#822's 401
+     * on a push or a beat) or its Contest binding ended with nothing underneath (#891),
+     * so it now holds nothing it can push with. The console watcher asks; nothing else
+     * reads it, so a board with no console behaves exactly as before.
+     */
+    bool takeUnpairing() { return unpaired_while_running_.exchange(false); }
+
+    /**
+     * Stop and join the two threads without the shutdown summary, and write down whatever
+     * they never reached, so a new credential is never written while a thread may still
+     * be reading the old one. resume() starts them again; stop() still ends everything.
+     */
+    void quiesce();
+
+    /** After quiesce() and a successful redeem(): the two threads again, the queue as it was. */
+    bool resume();
 
     /** Start the worker. Safe to call when unpaired: it starts nothing and says so. */
     void start();
@@ -202,6 +275,12 @@ private:
      */
     bool postBeat(const char *condition_word, int &interval_s, int &silence_s);
     bool loadCredential();
+    /** #1259: the label a pairing request sends, never longer than the doors accept. */
+    std::string pairingLabel() const;
+    /** #1259: notify and join the worker and the beat. The caller has already dropped running_. */
+    void haltThreads();
+    /** #1259: write every queued push the worker never reached to the spool. */
+    size_t spoolUnwritten();
     bool deliver(const OwedPush &item);
     void spool(const OwedPush &item);
     void loadSpool();
@@ -229,6 +308,13 @@ private:
     std::atomic<bool> beat_unsupported_{false};
     std::atomic<bool> paired_{false};
     std::atomic<bool> running_{false};
+    // #1259. Set where a running board loses the last thing it could push with.
+    std::atomic<bool> unpaired_while_running_{false};
+    // #1259. Threads stopped by quiesce() and not yet resumed; start() leaves them to resume().
+    std::atomic<bool> quiesced_{false};
+    // #1259. start, stop, quiesce and resume from two threads (Scorer::run and the console
+    // watcher) must not both assign worker_.
+    std::mutex lifecycle_mutex_;
 
     mutable std::mutex mutex_;
     std::condition_variable condition_;

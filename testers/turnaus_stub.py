@@ -22,6 +22,17 @@ Modes, by environment variable:
   STUB_SILENCE_SECONDS    what it names as silenceSeconds, and the window the model
                           applies (default 60)
   STUB_SAMPLE_SECONDS     how often to sample the model (default 1; 0 turns it off)
+
+#1259 adds what a board asking for a code at the console meets:
+  STUB_CLUB_CODES         comma-separated club codes, each single use (default 483920). Every
+                          redemption issues a NEW club token and only the newest unrevoked one is
+                          admitted, so a re-paired board is provably using its second credential.
+  STUB_CASUAL_CODES       the same for the Casual door (default 571643); a redemption also
+                          un-ends the evening, because it is a new binding.
+  STUB_REVOKE_CLUB_AFTER_BEATS  revoke the current club token after this many club beats made
+                          with it (0: never) -- #1246's revocation, met as #822's 401.
+  STUB_RATE_LIMIT_FIRST   answer the first n pairing requests, at either door, with 429 and
+                          `Retry-After: STUB_RETRY_AFTER` (default 37), as `api-pairing` does.
 """
 import hashlib
 import json
@@ -46,6 +57,20 @@ TRANSCRIPT = os.environ.get("STUB_TRANSCRIPT", "/run822/transcript.jsonl")
 
 PIN = "483920"
 TOKEN = "17|" + "z" * 40
+# #1259: codes and tokens by generation. The first club token is TOKEN, unchanged, so every
+# earlier harness reads the same transcript it always did.
+CLUB_CODES = [c for c in os.environ.get("STUB_CLUB_CODES", PIN).split(",") if c]
+REVOKE_CLUB_AFTER_BEATS = int(os.environ.get("STUB_REVOKE_CLUB_AFTER_BEATS", "0"))
+RATE_LIMIT_FIRST = int(os.environ.get("STUB_RATE_LIMIT_FIRST", "0"))
+RETRY_AFTER = os.environ.get("STUB_RETRY_AFTER", "37")
+
+
+def club_token(generation):
+    return TOKEN if generation == 1 else "%d|" % (16 + generation) + "z" * 40
+
+
+def digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
 
 # #891: the third door. A different six-digit code, a different table, a different
 # credential, and a binding to one Casual Contest rather than to an Organisation (#887,
@@ -54,6 +79,7 @@ TOKEN = "17|" + "z" * 40
 # door is a 401.
 CASUAL_PIN = "571643"
 CASUAL_TOKEN = "31|" + "y" * 40
+CASUAL_CODES = [c for c in os.environ.get("STUB_CASUAL_CODES", CASUAL_PIN).split(",") if c]
 CASUAL_CONTEST_ID = 12
 CASUAL_BOARD_ID = 4
 # After this many casual detections the Contest is Given Up. #887's release() DELETES the
@@ -71,6 +97,13 @@ lock = threading.Lock()
 
 state = {
     "pin_spent": False,
+    # #1259
+    "club_spent": [],
+    "club_generation": 0,
+    "club_token": None,       # the one club token admitted now; None before pairing or once revoked
+    "club_token_beats": 0,
+    "casual_spent": [],
+    "pairing_requests": 0,
     # The two columns this slice is about. `checked_at` is what a beat writes and
     # `heard_at` is what a dart writes, and the whole point is that a beat does not
     # touch the second one.
@@ -162,14 +195,30 @@ class Handler(BaseHTTPRequestHandler):
         # deletes the token at that moment and there is nothing left for the guard to
         # admit. A board meets a 401 and not an explanation.
         # ------------------------------------------------------------------
+        if self.path in ("/api/v1/casual/boards", "/api/v1/autoscorer/devices"):
+            state["pairing_requests"] += 1
+            if state["pairing_requests"] <= RATE_LIMIT_FIRST:
+                record({"event": "pairing_rate_limited", "path": self.path, "retry_after": RETRY_AFTER})
+                body_bytes = json.dumps({"message": "Too Many Attempts."}).encode()
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Retry-After", RETRY_AFTER)
+                self.send_header("Content-Length", str(len(body_bytes)))
+                self.end_headers()
+                self.wfile.write(body_bytes)
+                return
+
         if self.path == "/api/v1/casual/boards":
-            if body.get("pin") != CASUAL_PIN or state["casual_pin_spent"] or state["casual_given_up"]:
+            pin = body.get("pin")
+            if pin not in CASUAL_CODES or pin in state["casual_spent"]:
                 # One refusal, four causes: never minted, already spent, expired, and the
                 # evening ended. Telling them apart hands a guesser an oracle.
                 record({"event": "casual_pairing_refused", "pin_len": len(str(body.get("pin", "")))})
                 return self.reply(422, {"message": "The given data was invalid.",
                                         "errors": {"pin": ["casual_board.error.code_not_redeemable"]}})
             state["casual_pin_spent"] = True
+            state["casual_spent"].append(pin)
+            state["casual_given_up"] = False
             record({"event": "casual_paired", "label": body.get("label"),
                     "token_sha256_16": hashlib.sha256(CASUAL_TOKEN.encode()).hexdigest()[:16]})
             return self.reply(201, {"data": {
@@ -260,22 +309,28 @@ class Handler(BaseHTTPRequestHandler):
         # is refused there. Disjoint tokenables, modelled: RequireAutoscorerDevice will not
         # have a CasualContestBoard at any price (#887).
         if self.path.startswith("/api/v1/autoscorer/") and self.path != "/api/v1/autoscorer/devices":
-            if presented != TOKEN:
+            if presented != state["club_token"]:
                 record({"event": "autoscorer_refused", "path": self.path, "auth_sha256_16": auth_digest})
                 return self.reply(401, {"message": "Unauthenticated."})
 
         if self.path == "/api/v1/autoscorer/devices":
-            if body.get("pin") != PIN or state["pin_spent"]:
+            pin = body.get("pin")
+            if pin not in CLUB_CODES or pin in state["club_spent"]:
                 record({"event": "pairing_refused", "pin_len": len(str(body.get("pin", "")))})
                 return self.reply(422, {"message": "The given data was invalid.",
                                         "errors": {"pin": ["pin_not_redeemable"]}})
             state["pin_spent"] = True
-            record({"event": "paired", "label": body.get("label"),
-                    "token_sha256_16": hashlib.sha256(TOKEN.encode()).hexdigest()[:16]})
+            state["club_spent"].append(pin)
+            state["club_generation"] += 1
+            state["club_token"] = club_token(state["club_generation"])
+            state["club_token_beats"] = 0
+            record({"event": "paired", "label": body.get("label"), "device_id": state["club_generation"],
+                    "accept": self.headers.get("Accept"),
+                    "token_sha256_16": digest(state["club_token"])})
             return self.reply(201, {"data": {
-                "token": TOKEN,
+                "token": state["club_token"],
                 "organisationId": 3,
-                "device": {"id": 1, "label": body.get("label"),
+                "device": {"id": state["club_generation"], "label": body.get("label"),
                            "pairedAt": "2026-09-05T19:31:00+00:00"}}})
 
         if self.path == "/api/v1/autoscorer/detections":
@@ -318,6 +373,8 @@ class Handler(BaseHTTPRequestHandler):
                                         "errors": {"condition": ["The selected condition is invalid."]}})
             with lock:
                 state["beats"] += 1
+                state["club_token_beats"] += 1
+                token_beats = state["club_token_beats"]
                 state["condition"] = condition
                 # `checked_at` and ONLY `checked_at`. `heard_at` means darts have been
                 # arriving; a beat moving it would collapse two columns into one.
@@ -325,6 +382,11 @@ class Handler(BaseHTTPRequestHandler):
             record({"event": "beat", "condition": condition, "auth_sha256_16": auth_digest,
                     "round": list(state["round"]), "counted": list(state["counted"]),
                     "heard_at": state["heard_at"]})
+            if REVOKE_CLUB_AFTER_BEATS and token_beats >= REVOKE_CLUB_AFTER_BEATS:
+                # #1246's revocation: the token row is gone, and the next request meets 401.
+                record({"event": "club_revoked", "generation": state["club_generation"],
+                        "after_beats": token_beats, "token_sha256_16": digest(state["club_token"])})
+                state["club_token"] = None
             return self.reply(200, {"data": {"condition": condition,
                                              "intervalSeconds": INTERVAL_SECONDS,
                                              "silenceSeconds": SILENCE_SECONDS}})

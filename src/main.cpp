@@ -10,6 +10,8 @@
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
 #include "communication/turnaus_address.hpp"
+#include "communication/pairing_prompt.hpp"
+#include "utils/console_prompt.hpp"
 #ifdef _WIN32
 // #1258: the question at start, Windows only. Linux compiles none of it.
 #include "utils/camera_setup.hpp"
@@ -19,6 +21,8 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <memory>
 
 using namespace std;
 
@@ -36,7 +40,21 @@ int main(int argc, char **argv)
   // #1187: the score socket's credential, resolved before anything else opens. The
   // token is created on the first run and printed only by --show-token; the
   // detector refuses to start rather than serve a socket with no credential.
-  string token_path = getArg(argc, argv, "--token-file", score_token::kDefaultPath);
+  //
+  // #1259: on Windows the default is beside the pairing credential rather than in the
+  // working directory, so a board started from a shortcut, a console in another folder or
+  // a double-click finds the same token every time instead of minting a new one wherever
+  // it happened to start. It is a secret, so it goes where #822 put the other one and for
+  // #822's reason, not beside the .exe. Linux is unchanged.
+#ifdef _WIN32
+  string token_default = od_paths::configDir().empty() ? string(score_token::kDefaultPath)
+                                                       : od_paths::join(od_paths::configDir(), "score_token");
+  if (!od_paths::configDir().empty() && !hasFlag(argc, argv, "--token-file"))
+    od_paths::ensureDir(od_paths::configDir());
+#else
+  string token_default = score_token::kDefaultPath;
+#endif
+  string token_path = getArg(argc, argv, "--token-file", token_default);
   if (hasFlag(argc, argv, "--show-token"))
     debug::printTokenAndExit(token_path);
 
@@ -50,7 +68,10 @@ int main(int argc, char **argv)
 
   // Parse command line arguments with defaults
 #ifdef _WIN32
-  string model_path = getArg(argc, argv, "--model", "models/dart.param");
+  // #1259: beside the .exe, not in whatever directory the program was started from.
+  string model_path = getArg(argc, argv, "--model",
+                             od_paths::exeDir().empty() ? string("models\\dart.param")
+                                                        : od_paths::join(od_paths::exeDir(), "models\\dart.param"));
 #else
   string model_path = getArg(argc, argv, "--model", "/usr/local/share/opendartboard/models/dart.param");
 #endif
@@ -104,7 +125,12 @@ int main(int argc, char **argv)
   TurnausConfig turnaus_config;
   turnaus_config.credentials_path =
       getArg(argc, argv, "--credentials", od_paths::join(od_paths::configDir(), "credentials.json"));
-  turnaus_config.allow_plaintext = hasFlag(argc, argv, "--allow-plaintext");
+  // #1259: OD_ALLOW_PLAINTEXT=1 is --allow-plaintext for a start that has no command line --
+  // a double-click -- exactly as OD_TURNAUS_URL is --turnaus. Only the exact value 1.
+  turnaus_config.allow_plaintext =
+      hasFlag(argc, argv, "--allow-plaintext") || od_paths::env("OD_ALLOW_PLAINTEXT") == "1";
+  // #1259: the pairing request says the board's label, not the literal it always sent.
+  turnaus_config.label = label;
 
   string configured_url = getArg(argc, argv, "--turnaus", string(""));
   string address_source = "--turnaus";
@@ -168,6 +194,18 @@ int main(int argc, char **argv)
   {
     TurnausClient client(turnaus_config);
     return client.pairContest(contest_code) ? 0 : 1;
+  }
+
+  // #1259: the client is built here, before a camera opens, so an interactive start with no
+  // credential can be paired from the console and go straight on. It is still STARTED where
+  // #892 and #1247 put it, below; building it early starts nothing. pairing_prompt.hpp says
+  // when it asks and why the question comes before the cameras.
+  std::unique_ptr<TurnausClient> turnaus(new TurnausClient(turnaus_config));
+  const bool interactive = console_prompt::isInteractiveConsole();
+  if (interactive && !turnaus->isPaired())
+  {
+    console_prompt::StdConsole console;
+    pairing_prompt::pairAtStart(console, *turnaus, turnaus_config.base_url);
   }
 
   // setup cams
@@ -240,8 +278,8 @@ int main(int argc, char **argv)
   // #1247: started after #1187's token and #1189's announcement rather than before them,
   // because the token's failure returns from main(), and a client started above that
   // return would leave its thread running into the process's exit.
-  std::unique_ptr<TurnausClient> turnaus(new TurnausClient(turnaus_config));
   turnaus->start();
+  TurnausClient *turnaus_view = turnaus.get(); // owned by the Scorer from here to the end of main
 
   // Initialise the scorer with debug mode if requested
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
@@ -259,8 +297,24 @@ int main(int argc, char **argv)
   // and leaves the file behind, as a SIGKILL always did.
   signals::setupSignalHandlers();
 
+  // #1259: an interactive board whose credential is refused while it runs says so and asks
+  // for a new code on this thread's neighbour; a board with no console never starts it.
+  // Joined before ~Scorer destroys the client it watches.
+  std::atomic<bool> leaving{false};
+  std::thread pairing_watcher;
+  if (interactive)
+  {
+    const string address = turnaus_config.base_url;
+    pairing_watcher = std::thread([turnaus_view, address, &leaving]
+                                  { pairing_prompt::watchForUnpairing(*turnaus_view, address, leaving); });
+  }
+
   // Run the scorer on this thread. It returns when the loop sees the shutdown flag.
   scorer.run();
+
+  leaving = true;
+  if (pairing_watcher.joinable())
+    pairing_watcher.join();
 
   // #1189: the announcement does not outlive the socket. Reached on the cycle budget
   // and, since #825, on SIGINT and SIGTERM too.

@@ -28,6 +28,8 @@
 
 #ifdef _WIN32
 #include <direct.h>
+// windows.h arrives through od_platform_first.hpp, force-included on MSVC.
+#include "od_platform_first.hpp"
 #else
 #include <unistd.h>
 #endif
@@ -69,6 +71,30 @@ namespace od_paths
         return base + "/opendartboard";
 #endif
     }
+
+#ifdef _WIN32
+    /**
+     * #1259: the directory the running .exe is in, or "" if Windows will not say.
+     *
+     * A double-clicked program starts in its own folder, but a shortcut's "Start in", a
+     * console opened elsewhere or a scheduled task each start it somewhere else, and a
+     * relative default then names a file in whatever directory that was. What ships beside
+     * the .exe is therefore looked for beside the .exe. Windows only: the Linux build
+     * installs to fixed absolute paths and never had the problem.
+     */
+    inline std::string exeDir()
+    {
+        char buffer[MAX_PATH] = {0};
+        DWORD length = ::GetModuleFileNameA(NULL, buffer, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+        {
+            return "";
+        }
+        std::string path(buffer, length);
+        size_t slash = path.find_last_of("\\/");
+        return slash == std::string::npos ? std::string() : path.substr(0, slash);
+    }
+#endif
 
     inline char sep()
     {

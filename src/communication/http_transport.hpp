@@ -38,6 +38,13 @@ namespace odhttp
         std::string body;
         /** Why status is 0. Never carries a request header, so never carries a token. */
         std::string transport_error;
+        /**
+         * #1259: the seconds a 429 names in `Retry-After`, or -1 when the answer named none.
+         * Read because a person typing a pairing code is told how long to wait, and the
+         * `api-pairing` limiter says it there and nowhere else. A response header, never a
+         * request one, so still never a token.
+         */
+        int retry_after_s = -1;
 
         bool reached_a_server() const { return status != 0; }
     };
@@ -200,6 +207,12 @@ namespace odhttp
         WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                             WINHTTP_HEADER_NAME_BY_INDEX, &code, &code_size, WINHTTP_NO_HEADER_INDEX);
         r.status = (int)code;
+        DWORD retry_after = 0, retry_after_size = sizeof(retry_after);
+        if (WinHttpQueryHeaders(request, WINHTTP_QUERY_RETRY_AFTER | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &retry_after, &retry_after_size, WINHTTP_NO_HEADER_INDEX))
+        {
+            r.retry_after_s = (int)retry_after;
+        }
         for (;;)
         {
             DWORD available = 0;
@@ -239,6 +252,10 @@ namespace odhttp
         }
         r.status = res->status;
         r.body = res->body;
+        if (res->has_header("Retry-After"))
+        {
+            r.retry_after_s = atoi(res->get_header_value("Retry-After").c_str());
+        }
         return r;
 #endif
     }
