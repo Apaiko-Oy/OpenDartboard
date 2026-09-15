@@ -9,6 +9,7 @@
 #include "utils/setup_view.hpp"
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
+#include "communication/turnaus_address.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -102,13 +103,16 @@ int main(int argc, char **argv)
   turnaus_config.allow_plaintext = hasFlag(argc, argv, "--allow-plaintext");
 
   string configured_url = getArg(argc, argv, "--turnaus", string(""));
+  string address_source = "--turnaus";
   if (configured_url.empty())
   {
     configured_url = od_paths::env("OD_TURNAUS_URL");
+    address_source = "OD_TURNAUS_URL";
   }
   if (configured_url.empty())
   {
     // What the last pairing was made against, if there was one.
+    address_source = "the credential file";
     string raw;
     if (od_paths::readFile(turnaus_config.credentials_path, raw))
     {
@@ -126,9 +130,13 @@ int main(int argc, char **argv)
   }
   if (configured_url.empty())
   {
-    configured_url = "https://turnaus.fi";
+    // #1257: production, never a domain somebody else can buy.
+    configured_url = turnaus_address::kDefault;
+    address_source = "the default";
   }
   turnaus_config.base_url = configured_url;
+  // #1257: one line, the address and which rule chose it; the credential is never logged.
+  log_info("TURNAUS: address " + configured_url + " (from " + address_source + ")");
 
   // --pair exchanges a code for a credential and stops. It opens no camera and starts
   // no detector: a board being paired is a board somebody is standing in front of with

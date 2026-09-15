@@ -6,6 +6,7 @@
 #include <opencv2/opencv.hpp>
 #include "logging.hpp"
 #include "communication/score_token.hpp"
+#include "communication/turnaus_address.hpp"
 
 namespace debug
 {
@@ -97,6 +98,12 @@ namespace debug
         std::cout << "  --setup              Print the setup view - a QR code a phone scans to subscribe, encoding\n";
         std::cout << "                       ws://<address>:13520/scores?token=<token> - and exit; the token is inside the QR only\n";
         std::cout << "  --setup-address <a>  The address the QR names (default: this board's first non-loopback IPv4 address)\n";
+        std::cout << "  --pair <code>        Exchange a Turnaus pairing code for a credential, keep it, and exit\n";
+        std::cout << "  --turnaus <url>      The Turnaus this board pairs with and posts to. Resolved in order: --turnaus,\n";
+        std::cout << "                       then OD_TURNAUS_URL, then the base_url the last pairing stored in the\n";
+        std::cout << "                       credential file, then the default: " << turnaus_address::kDefault << "\n";
+        std::cout << "  --credentials <path> Where the Turnaus credential is kept (default: credentials.json in the config directory)\n";
+        std::cout << "  --allow-plaintext    Permit an http:// Turnaus address (a loopback or a lab only)\n";
         std::cout << "  --version            Show version information\n";
         std::cout << "  --help               Show this help message\n";
         exit(0);
