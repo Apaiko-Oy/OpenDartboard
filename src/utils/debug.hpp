@@ -87,6 +87,7 @@ namespace debug
         std::cout << "  --detector <type>    Detector type: geometry, ai, custom (default: geometry)\n";
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
+        std::cout << "  --log-file <path>    Also append the log to a file (off unless asked for; --debug implies debug_frames/opendartboard.log)\n";
         std::cout << "  --listen             Open the score socket on the network (0.0.0.0:13520); loopback only without it\n";
         std::cout << "  --show-token         Print the token a subscriber presents as ws://.../scores?token=..., creating it if absent, and exit\n";
         std::cout << "  --token-file <path>  Where the token is kept (default: score_token in the working directory, mode 0600)\n";

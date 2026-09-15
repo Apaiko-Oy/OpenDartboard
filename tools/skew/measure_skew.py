@@ -133,7 +133,13 @@ def reduce_cycles(cycles, fps):
         if record.valid < record.cameras:
             short_cycles += 1
             for index in range(record.cameras):
-                if record.ret_us[index] is None or record.ret_us[index] < 0:
+                # A slot that produced no frame is the one whose pos_ms is -1. It is
+                # NOT the one whose ret_us is missing: the seam records a return
+                # instant for every slot it looked at, empty or not, so the older test
+                # here never fired and Figure 3 printed 400 short cycles attributed to
+                # nobody. Found by the first run that actually had short cycles.
+                pos = record.pos_ms[index]
+                if pos is None or pos < 0:
                     if index < len(per_camera_short):
                         per_camera_short[index] += 1
 

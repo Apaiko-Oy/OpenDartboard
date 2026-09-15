@@ -1,4 +1,4 @@
-// streamer.hpp — MJPEG streamer (Linux) with once‑per‑second stats
+// streamer.hpp — MJPEG streamer with once‑per‑second stats
 // ------------------------------------------------------------------
 // * Streams the most recent frame at up to `fps` (default 30).
 // * Disables Nagle (TCP_NODELAY) for low latency.
@@ -7,20 +7,21 @@
 //
 #pragma once
 
+// Before OpenCV, because on Windows this is where <winsock2.h> comes from and it
+// cannot follow <windows.h> into a translation unit.
+#include "od_socket.hpp"
+
 #include <opencv2/opencv.hpp>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <algorithm>
 #include <mutex>
 #include <numeric>
+#include <sstream>
 #include <thread>
 #include <vector>
-
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 class streamer
 {
@@ -29,6 +30,7 @@ public:
         : port_(port), periodUs_(1'000'000 / std::max(1, fps)),
           lastReport_(std::chrono::steady_clock::now())
     {
+        odnet::startup();
         std::cout << "[streamer] start on port " << port_ << ", fps " << fps << '\n';
         srvThread_ = std::thread([this]
                                  { serve(); });
@@ -76,28 +78,42 @@ public:
     }
 
 private:
-    static bool sendAll(int fd, const void *buf, size_t len)
+    static bool sendAll(odnet::socket_t fd, const void *buf, size_t len)
     {
         const char *p = static_cast<const char *>(buf);
         while (len)
         {
-            ssize_t n = send(fd, p, len, MSG_NOSIGNAL);
+            int n = odnet::sendSome(fd, p, len);
             if (n <= 0)
                 return false;
             p += n;
-            len -= n;
+            len -= static_cast<size_t>(n);
         }
         return true;
     }
 
     void serve()
     {
-        int srv = socket(AF_INET, SOCK_STREAM, 0);
+        odnet::socket_t srv = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (!odnet::valid(srv))
+        {
+            std::cout << "[streamer] socket() failed on port " << port_ << '\n';
+            return;
+        }
         int one = 1;
-        setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-        sockaddr_in addr{AF_INET, htons(port_), {INADDR_ANY}};
-        bind(srv, reinterpret_cast<sockaddr *>(&addr), sizeof addr);
-        listen(srv, 10);
+        ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&one), sizeof(one));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = ::htons(port_);
+        addr.sin_addr.s_addr = ::htonl(INADDR_ANY);
+        if (::bind(srv, reinterpret_cast<sockaddr *>(&addr), sizeof addr) != 0)
+        {
+            std::cout << "[streamer] bind() failed on port " << port_ << '\n';
+            odnet::closeSocket(srv);
+            return;
+        }
+        ::listen(srv, 10);
 
         while (!stop_)
         {
@@ -105,24 +121,24 @@ private:
             FD_ZERO(&rfds);
             FD_SET(srv, &rfds);
             timeval tv{0, 100'000};
-            if (select(srv + 1, &rfds, nullptr, nullptr, &tv) > 0)
+            if (::select(static_cast<int>(srv) + 1, &rfds, nullptr, nullptr, &tv) > 0)
             {
-                int cli = accept(srv, nullptr, nullptr);
-                if (cli >= 0)
+                odnet::socket_t cli = ::accept(srv, nullptr, nullptr);
+                if (odnet::valid(cli))
                     std::thread(&streamer::client, this, cli).detach();
             }
         }
-        close(srv);
+        odnet::closeSocket(srv);
     }
 
     // ------------------------------------------------------------------ per‑client loop
-    void client(int sock)
+    void client(odnet::socket_t sock)
     {
         int one = 1;
-        setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+        ::setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&one), sizeof(one));
 
         char req[1024];
-        read(sock, req, sizeof req); // discard HTTP request
+        odnet::recvSome(sock, req, sizeof req); // discard HTTP request
         static constexpr char hdr[] =
             "HTTP/1.0 200 OK\r\n"
             "Cache-Control: no-cache\r\n"
@@ -130,7 +146,7 @@ private:
             "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
         if (!sendAll(sock, hdr, sizeof(hdr) - 1))
         {
-            close(sock);
+            odnet::closeSocket(sock);
             return;
         }
 
@@ -168,7 +184,7 @@ private:
             }
             std::this_thread::sleep_for(std::chrono::microseconds(1000));
         }
-        close(sock);
+        odnet::closeSocket(sock);
     }
 
     // ------------------------------------------------------------------ data members
