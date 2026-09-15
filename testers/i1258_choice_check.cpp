@@ -268,6 +268,25 @@ int main()
         check(console.questions == 5 && console.reads == 5, "flow: five answers, five questions, nothing read twice");
     }
     {
+        // Windows lists only three sources and one of them is a file, so default index 2
+        // names nothing at all. It is said as an index with nothing attached, it is not
+        // tried, and it is not called a failure of "camera 2" -- which, on a 1-based list,
+        // would be a different camera.
+        const Source D = src("Mock file", "file:C:\\mocks\\cam_3.mp4", "C:\\mocks\\cam_3.mp4");
+        ScriptedConsole console;
+        ScriptedHardware hw;
+        hw.looks = {{A, B, D}};
+        console.typed = {"1 2 3"};
+        auto hardware = hw.bind();
+        auto out = camera_choice::choose(true, kDefaults, false, {}, console, hardware);
+        check(console.heard("Nothing is attached at camera index 2.") && console.heard("Kameraindeksissä 2 ei ole kameraa."),
+              "flow: a default index with no source is said as an index with nothing attached");
+        check(!console.heard("A camera did not open: 2") && hw.opens == 2 + 3,
+              "flow: and is not tried, nor called a camera that did not open");
+        check(out.chosen && out.cams == std::vector<std::string>({"0", "1", "C:\\mocks\\cam_3.mp4"}),
+              "flow: then asked, and a listed file source can be chosen");
+    }
+    {
         // Remembered, all present under other indices, all open: no question.
         ScriptedConsole console;
         ScriptedHardware hw;

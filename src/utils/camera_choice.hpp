@@ -208,6 +208,15 @@ namespace camera_choice
         return {"Kamera ei auennut: " + what, "A camera did not open: " + what};
     }
 
+    /**
+     * A default the machine lists no source for. Said as the index it is, and not as "did
+     * not open: 1", which on Windows reads as the list's number 1 -- a different camera.
+     */
+    inline console_prompt::Text notAttachedText(const std::string &open)
+    {
+        return {"Kameraindeksissä " + open + " ei ole kameraa.", "Nothing is attached at camera index " + open + "."};
+    }
+
     inline console_prompt::Text missingText(const Remembered &camera)
     {
         return {"Muistettu kamera \"" + camera.name + "\" ei ole kytkettynä.",
@@ -461,6 +470,7 @@ namespace camera_choice
 
         std::vector<Source> sources = hardware.list();
         std::vector<Source> candidates;
+        std::vector<bool> listed; // per candidate: the machine lists a source for it
         bool remembered_complete = false;
         if (have_remembered)
         {
@@ -471,6 +481,7 @@ namespace camera_choice
                 for (long position : resolution.found)
                 {
                     candidates.push_back(sources[static_cast<size_t>(position)]);
+                    listed.push_back(true);
                 }
             }
             else if (interactive)
@@ -485,7 +496,13 @@ namespace camera_choice
         {
             for (const std::string &open : defaults)
             {
+                bool is_listed = false;
+                for (const Source &s : sources)
+                {
+                    is_listed = is_listed || s.open == open;
+                }
                 candidates.push_back(detail::sourceFor(open, sources));
+                listed.push_back(is_listed);
             }
         }
 
@@ -511,8 +528,16 @@ namespace camera_choice
         if (!candidates.empty())
         {
             bool all_open = true;
-            for (const Source &s : candidates)
+            for (size_t i = 0; i < candidates.size(); i++)
             {
+                const Source &s = candidates[i];
+                if (!listed[i])
+                {
+                    // Nothing to open: not tried, and not called a camera that failed.
+                    all_open = false;
+                    console.say(notAttachedText(s.open));
+                    continue;
+                }
                 if (!hardware.open(s).ok)
                 {
                     all_open = false;

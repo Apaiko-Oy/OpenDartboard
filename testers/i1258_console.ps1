@@ -12,13 +12,15 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File i1258_console.ps1 `
 #     -Exe C:\od-build\<sha>\build-win-static\opendartboard.exe -WorkDir C:\od-run\i1258\p1 `
 #     -Label p1 -ArgLine "--turnaus http://127.0.0.1:9 --allow-plaintext" `
-#     -Answers "x","1 1 2","1 2 3" -Final "CAMERAS:" -AppData C:\od-run\i1258\appdata
+#     -Answers "x|1 1 2|1 2 3" -Final "CAMERAS:" -AppData C:\od-run\i1258\appdata
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [Parameter(Mandatory = $true)][string]$WorkDir,
     [Parameter(Mandatory = $true)][string]$Label,
     [string]$ArgLine = "",
-    [string[]]$Answers = @(),
+    # One string, answers separated by "|": an array does not survive powershell -File from WSL,
+    # which joined four answers into one typed line on the first attempt.
+    [string]$Answers = "",
     [string]$Question = "press Enter:",
     [string]$Final = "CAMERAS:",
     [int]$SettleSec = 8,
@@ -114,8 +116,10 @@ $size = New-Object OdCon+COORD; $size.X = 160; $size.Y = 9999
 function Count($text, $needle) { ([regex]::Matches($text, [regex]::Escape($needle))).Count }
 function Deadline() { ((Get-Date) - $started).TotalSeconds -gt $TimeoutSec }
 
+$answerList = @()
+if ($Answers -ne "") { $answerList = $Answers -split '\|' }
 $n = 0
-foreach ($answer in $Answers) {
+foreach ($answer in $answerList) {
     $n++
     while ((Count ([OdCon]::Screen($out)) $Question) -lt $n) {
         if ($p.HasExited) { Note "EXITED before question $n"; break }
@@ -128,12 +132,15 @@ foreach ($answer in $Answers) {
 }
 
 if ($Final -ne "") {
-    while ((Count ([OdCon]::Screen($out)) $Final) -lt 1) {
+    $seen = $false
+    while (-not $seen) {
+        $seen = (Count ([OdCon]::Screen($out)) $Final) -ge 1
+        if ($seen) { break }
         if ($p.HasExited) { Note "EXITED before final"; break }
         if (Deadline) { Note "TIMEOUT waiting for final [$Final]"; break }
         Start-Sleep -Milliseconds 200
     }
-    Note "FINAL seen [$Final]"
+    if ($seen) { Note "FINAL seen [$Final]" }
 }
 Start-Sleep -Seconds $SettleSec
 
