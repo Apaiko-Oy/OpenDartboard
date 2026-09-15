@@ -79,7 +79,8 @@ namespace announce
         std::string name = xmlEscaped(label);
         return "<?xml version=\"1.0\" standalone='no'?>\n"
                "<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">\n"
-               "<!-- written by opendartboard while --listen is on; removed when it stops -->\n"
+               "<!-- written by opendartboard while the score socket is on the network; removed when it stops."
+               " XML forbids a double hyphen inside a comment, and Avahi drops a file that has one. -->\n"
                "<service-group>\n"
                "  <name>" + name + "</name>\n"
                "  <service>\n"
