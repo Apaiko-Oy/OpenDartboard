@@ -14,6 +14,60 @@
 
 namespace camera
 {
+    // Which OpenCV backend opens a *device* on this platform, and what the instant it
+    // then answers CAP_PROP_POS_MSEC with actually is. Both halves are backend
+    // knowledge and this is the only place in the program that holds either.
+    //
+    //   V4L2  — the dequeued buffer's timestamp: the host's own clock, so the three
+    //           cameras' instants are directly comparable and their spread IS the skew.
+    //   MSMF  — the Media Foundation sample time: the SOURCE's clock, which starts near
+    //           zero per stream. Three of them are three unrelated clocks. Subtracting
+    //           them from each other yields a number near zero that looks like an
+    //           excellent skew and is not a skew at all. Frame::anchor_ns is what makes
+    //           them comparable, and it is filled in below for every backend so that it
+    //           cannot be the thing a port forgets.
+#ifdef _WIN32
+    inline int deviceBackend() { return cv::CAP_MSMF; }
+    inline const char *deviceBackendName() { return "MSMF"; }
+    inline CaptureClock deviceClock() { return CaptureClock::SourceRelative; }
+#else
+    inline int deviceBackend() { return cv::CAP_V4L2; }
+    inline const char *deviceBackendName() { return "V4L2"; }
+    inline CaptureClock deviceClock() { return CaptureClock::HostMonotonic; }
+#endif
+
+    // What the skew instrument calls this clock in its report.
+    inline const char *clockKindName(CaptureClock c)
+    {
+        switch (c)
+        {
+        case CaptureClock::HostMonotonic:
+            return "host";
+        case CaptureClock::StreamPosition:
+            return "stream";
+        case CaptureClock::SourceRelative:
+            return "source";
+        default:
+            return "unknown";
+        }
+    }
+
+    // A device source is a V4L2 path on Linux and a device index on Windows, because
+    // Media Foundation has no filesystem name for a camera. "0", "/dev/video0" and
+    // "video=Iriun Webcam" all arrive here as the string the user typed.
+    inline bool deviceIndexOf(const std::string &source, int &index)
+    {
+        if (source.empty())
+            return false;
+        for (char c : source)
+        {
+            if (c < '0' || c > '9')
+                return false;
+        }
+        index = std::atoi(source.c_str());
+        return true;
+    }
+
     inline int odEnvInt(const char *name, int fallback)
     {
         const char *v = std::getenv(name);
@@ -30,10 +84,16 @@ namespace camera
         bool open(const std::vector<std::string> &sources, int width, int height, int fps) override
         {
             // Instrument (#813): what CAP_PROP_POS_MSEC will mean for these sources.
-            skew::clockKind() = (!sources.empty() && isVideoFile(sources[0])) ? "stream" : "host";
+            // Taken from the backend that is about to be opened rather than guessed
+            // from the path, because on Windows a device is neither "stream" nor
+            // "host" and a report that says "host" over Media Foundation instants is
+            // the exact mistake §5.2 of the Windows study predicts.
+            skew::clockKind() = clockKindName(
+                (!sources.empty() && isVideoFile(sources[0])) ? CaptureClock::StreamPosition : deviceClock());
             captures_.clear();
             clocks_.clear();
             anchors_.clear();
+            anchored_.clear();
             descriptions_.clear();
             nominal_fps_ = static_cast<double>(fps);
 
@@ -84,20 +144,28 @@ namespace camera
                 }
                 else
                 {
-                    cap.open(sources[i], cv::CAP_V4L2);
+                    int device_index = 0;
+                    if (deviceIndexOf(sources[i], device_index))
+                        cap.open(device_index, deviceBackend());
+                    else
+                        cap.open(sources[i], deviceBackend());
+
+                    // On Media Foundation the negotiation and the open are the same act —
+                    // there is no out-of-band VIDIOC_S_FMT — so MJPG is asked for here and
+                    // what was actually granted is read back below and logged. Three
+                    // 1280x720 cameras do not fit on one bus uncompressed, so a silent
+                    // fall back to YUY2 is the bandwidth failure arriving disguised as a
+                    // timing one.
+                    int fourcc = cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
+                    cap.set(cv::CAP_PROP_FOURCC, fourcc);
                     cap.set(cv::CAP_PROP_FRAME_WIDTH, width);
                     cap.set(cv::CAP_PROP_FRAME_HEIGHT, height);
                     cap.set(cv::CAP_PROP_FPS, fps);
-                    // Set MJPEG codec for better performance
-                    int fourcc = cv::VideoWriter::fourcc('M', 'J', 'P', 'G'); // MJPEG codec
-                    cap.set(cv::CAP_PROP_FOURCC, fourcc);                     // Set MJPEG codec
 
-                    // V4L2 hands back the dequeued buffer's timestamp, which is the host's own
-                    // clock and is therefore shared by every device on this machine.
-                    clock = CaptureClock::HostMonotonic;
+                    clock = deviceClock();
 
                     log_debug("Opened camera " + log_string(i + 1) + " at " + log_string(width) + "x" + log_string(height) + " @ " + log_string(fps) + " FPS" +
-                              " (FOURCC: " + log_string_src(decodeFourCC(fourcc)) + ")");
+                              " (requested FOURCC: " + log_string_src(decodeFourCC(fourcc)) + ", backend: " + log_string_src((std::string)deviceBackendName()) + ")");
                 }
 
                 if (!cap.isOpened())
@@ -118,7 +186,15 @@ namespace camera
                     log_debug("  Resolution: " + log_string((int)actual_width) + "x" + log_string((int)actual_height) + " (expected: " + log_string(width) + "x" + log_string(height) + ")");
                     log_debug("  FPS: " + log_string((int)actual_fps) + " (expected: " + log_string(fps) + ")");
                     log_debug("  FOURCC: " + log_string_src(decodeFourCC(fourcc)) + " (expected: " + log_string_src(decodeFourCC(cv::VideoWriter::fourcc('M', 'J', 'P', 'G'))) + ")");
-                    log_debug("  Backend: " + log_string_src(cap.getBackendName()) + " (expected: " + log_string_src((std::string) "V4L2") + ")");
+                    log_debug("  Backend: " + log_string_src(cap.getBackendName()) + " (expected: " + log_string_src((std::string)deviceBackendName()) + ")");
+
+                    // Said at INFO, not DEBUG: a camera that did not get MJPG is the one
+                    // fact a person debugging three cameras on one USB bus has to see.
+                    const std::string got = decodeFourCC((int)fourcc);
+                    if (got != "MJPG")
+                        log_warning("Camera " + log_string(i + 1) + " negotiated " + log_string_src(got) + ", not MJPG — three cameras at this resolution may not fit on one bus");
+                    else
+                        log_info("Camera " + log_string(i + 1) + " negotiated MJPG at " + log_string((int)actual_width) + "x" + log_string((int)actual_height) + " @ " + log_string((int)actual_fps) + " fps");
 
                     if (actual_fps > 0)
                         nominal_fps_ = actual_fps;
@@ -132,6 +208,7 @@ namespace camera
                 captures_.push_back(cap);
                 clocks_.push_back(clock);
                 anchors_.push_back(0);
+                anchored_.push_back(false);
                 log_info("Camera/video " + log_string(i + 1) + " initialized successfully");
             }
 
@@ -186,10 +263,37 @@ namespace camera
 
                 if (success && !image.empty())
                 {
-                    // The first frame anchors a per-source clock against the host's, which is
-                    // what a source-relative backend needs and a host-monotonic one does not.
-                    if (anchors_[i] == 0)
-                        anchors_[i] = now_ns;
+                    // ---- the per-stream clock anchor (Windows study §5.2) ----
+                    // The anchor is the host instant at which THIS camera's clock reads
+                    // zero, so that pos_ms + anchor is a host instant for every backend
+                    // and the three are comparable. It is NOT simply the host instant of
+                    // the first frame: that is only the same number when the source's
+                    // clock happens to read zero on the frame you first got, and Media
+                    // Foundation promises no such thing — a reader that has been running
+                    // hands you a sample time already some way into the stream.
+                    //
+                    // Getting this wrong on MSMF does not produce an error. It produces
+                    // three streams that agree because they all start near zero, i.e. a
+                    // skew near zero, which reads as an excellent result.
+                    //
+                    // What it costs, said out loud: now_ns is taken after read() returns,
+                    // so the anchor carries that camera's first-frame transfer and decode
+                    // latency as a constant per-camera bias for the rest of the run. That
+                    // bias is the residual error in the anchored figure and OpenCV offers
+                    // no way to remove it.
+                    if (!anchored_[i])
+                    {
+                        int64_t origin_ns = now_ns;
+                        if (pos_ms >= 0.0)
+                            origin_ns -= static_cast<int64_t>(pos_ms * 1e6);
+                        anchors_[i] = origin_ns;
+                        anchored_[i] = true;
+                        log_info("CAPANCHOR cam=" + std::to_string(i + 1) +
+                                 " clock=" + std::string(clockKindName(clocks_[i])) +
+                                 " first_pos_ms=" + std::to_string((long long)pos_ms) +
+                                 " host_return_us=" + std::to_string((long long)(now_ns / 1000)) +
+                                 " anchor_us=" + std::to_string((long long)(anchors_[i] / 1000)));
+                    }
 
                     frames[i].image = image;
                     frames[i].valid = true;
@@ -393,6 +497,7 @@ namespace camera
         std::vector<cv::VideoCapture> captures_;
         std::vector<CaptureClock> clocks_;
         std::vector<int64_t> anchors_;
+        std::vector<bool> anchored_;
         std::vector<std::string> descriptions_;
         double nominal_fps_ = 0.0;
     };

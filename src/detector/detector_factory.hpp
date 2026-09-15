@@ -4,7 +4,40 @@
 #include "utils.hpp"
 #include <memory>
 #include <string>
-#include <dlfcn.h> // For dynamic loading on Linux/Mac
+
+// The third-party plugin path. POSIX loads a .so with dlopen; Windows loads a
+// .dll with LoadLibrary. The names differ, the three probe paths do not.
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+namespace odplugin
+{
+    using handle_t = HMODULE;
+    inline handle_t open(const std::string &path) { return ::LoadLibraryA(path.c_str()); }
+    inline void *symbol(handle_t h, const char *name) { return reinterpret_cast<void *>(::GetProcAddress(h, name)); }
+    inline void close(handle_t h) { ::FreeLibrary(h); }
+    inline std::string lastError() { return "LoadLibrary failed, GetLastError=" + std::to_string((unsigned long)::GetLastError()); }
+    inline const char *suffix() { return ".dll"; }
+    inline const char *prefix() { return ""; }
+}
+#else
+#include <dlfcn.h>
+namespace odplugin
+{
+    using handle_t = void *;
+    inline handle_t open(const std::string &path) { return ::dlopen(path.c_str(), RTLD_LAZY); }
+    inline void *symbol(handle_t h, const char *name) { return ::dlsym(h, name); }
+    inline void close(handle_t h) { ::dlclose(h); }
+    inline std::string lastError() { const char *e = ::dlerror(); return e ? std::string(e) : std::string("(none)"); }
+    inline const char *suffix() { return ".so"; }
+    inline const char *prefix() { return "lib"; }
+}
+#endif
 
 /**
  * Custom detector factory to create instances of dart detectors.
@@ -38,25 +71,28 @@ private:
     {
         log_info("Attempting to load custom detector: " + name);
 
+        const std::string pre = odplugin::prefix();
+        const std::string suf = odplugin::suffix();
+
         // Try folder structure first: detectors/PluginName/libPluginName.so
-        std::string folderLibPath = "detectors/" + name + "/lib" + name + ".so";
-        void *handle = dlopen(folderLibPath.c_str(), RTLD_LAZY);
+        std::string folderLibPath = "detectors/" + name + "/" + pre + name + suf;
+        odplugin::handle_t handle = odplugin::open(folderLibPath);
 
         if (!handle)
         {
             // Fallback to flat structure: detectors/libPluginName.so
-            std::string flatLibPath = "detectors/lib" + name + ".so";
-            handle = dlopen(flatLibPath.c_str(), RTLD_LAZY);
+            std::string flatLibPath = "detectors/" + pre + name + suf;
+            handle = odplugin::open(flatLibPath);
 
             if (!handle)
             {
                 // Try simple name: detectors/PluginName.so
-                std::string simpleLibPath = "detectors/" + name + ".so";
-                handle = dlopen(simpleLibPath.c_str(), RTLD_LAZY);
+                std::string simpleLibPath = "detectors/" + name + suf;
+                handle = odplugin::open(simpleLibPath);
 
                 if (!handle)
                 {
-                    std::string error = dlerror();
+                    std::string error = odplugin::lastError();
                     log_error("Cannot load detector library. Tried:");
                     log_error("  1. " + folderLibPath);
                     log_error("  2. " + flatLibPath);
@@ -70,13 +106,13 @@ private:
 
         // Look for the factory function
         typedef DetectorInterface *(*create_detector_t)(bool, int, int, int);
-        create_detector_t create_detector = (create_detector_t)dlsym(handle, "create_detector");
+        create_detector_t create_detector = (create_detector_t)odplugin::symbol(handle, "create_detector");
 
         if (!create_detector)
         {
             log_error("Cannot find 'create_detector' function in plugin");
             log_warning("Falling back to geometry detector");
-            dlclose(handle);
+            odplugin::close(handle);
             return std::make_unique<GeometryDetector>(debug_mode, target_width, target_height, target_fps);
         }
 

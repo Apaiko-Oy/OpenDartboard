@@ -55,6 +55,7 @@ namespace debug
         std::cout << "  --detector <type>    Detector type: geometry, ai, custom (default: geometry)\n";
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
+        std::cout << "  --log-file <path>    Also append the log to a file (off unless asked for; --debug implies debug_frames/opendartboard.log)\n";
         std::cout << "  --version            Show version information\n";
         std::cout << "  --help               Show this help message\n";
         exit(0);

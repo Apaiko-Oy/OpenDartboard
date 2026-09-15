@@ -163,7 +163,18 @@ namespace score_processing
         if (!initialized)
         {
             log_debug("SCORE: Initializing score processing");
-            point_on_screen_streamer = make_unique<streamer>(8088, 1);
+#ifdef DEBUG_VIA_VIDEO_INPUT
+            // #812: this listener is an unauthenticated MJPEG view of the board on
+            // 0.0.0.0:8088. It used to be opened here on the first scored cycle of
+            // every run — behind no define and no debug test — while the only push
+            // to it is already behind debug_mode. It is now behind both, which is
+            // the same gate the raw camera feed on 8081 has always had, so a
+            // release build (make build, OD_DEFS empty) opens neither.
+            if (debug_mode)
+            {
+                point_on_screen_streamer = make_unique<streamer>(8088, 1);
+            }
+#endif
             initialized = true;
         }
 
@@ -231,7 +242,7 @@ namespace score_processing
                 }
             }
 
-            if (debug_mode)
+            if (debug_mode && point_on_screen_streamer)
             {
                 try
                 {
