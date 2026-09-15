@@ -70,7 +70,11 @@ REFERENCE = [
     ("S20", 408, 411), ("S20", 491, 446), ("D20", 376, 447), ("END", -1, -1),
     ("S20", 559, 280), ("S20", 522, 458),
 ]
-REFERENCE_ENSURE_CALLS = {1100: 3411, 900: 2790}
+# 1100 cycles read 3411 until #817 (54ef303112d7d3f80072a636fda826948fafe78f), whose
+# commit says: "ensure_calls moves 3411 -> 3412: setFileLogging's one directory call,
+# which nothing used to make." The ten messages are unchanged; the figure is the
+# control's on any tree with #817 beneath it.
+REFERENCE_ENSURE_CALLS = {1100: 3412, 900: 2790}
 
 # The bounds the board states (websocket_service.cpp): a ping every 30 s, a pong
 # within 10 s of it. A subscriber that stops reading is gone within their sum.
