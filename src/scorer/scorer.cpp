@@ -4,12 +4,14 @@
 #include "detector/detector_factory.hpp"
 #include "communication/websocket_service.hpp"
 #include "communication/score_queue.hpp"
+#include "communication/turnaus_client.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
 #include <cstdlib>
 #include "utils/od_clock.hpp"
 #include "utils/od_fix.hpp"
+#include "utils/signals.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
 #include <random>
 #include <opencv2/opencv.hpp>
@@ -24,7 +26,9 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
 {
     // Initialize score queue and WebSocket service
     score_queue_ = std::make_shared<ScoreQueue>();
-    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520);
+    // #812: debug_display is --debug. It decides whether this listener serves the
+    // saved camera frames as well as the scores.
+    websocket_service_ = std::make_unique<WebSocketService>(score_queue_, 13520, debug_display);
 
     // Initialize cameras
     capture = camera::makeCaptureSource();
@@ -63,10 +67,24 @@ void Scorer::stop()
     running = false;
 }
 
+void Scorer::attachTurnaus(std::unique_ptr<TurnausClient> client)
+{
+    turnaus_ = std::move(client);
+}
+
 void Scorer::sendResult(const DetectorResult &result)
 {
     // Push to queue for WebSocket broadcasting
     score_queue_->push(result);
+
+    // #822: and hand the same result to the outbound client. offer() takes a mutex,
+    // pushes onto a deque and returns -- no socket, no file, no allocation the network
+    // can stall. A board whose Turnaus is unreachable spends the same time here as one
+    // whose Turnaus answers, and a board that was never paired spends less.
+    if (turnaus_)
+    {
+        turnaus_->offer(result);
+    }
 
     // Keep logging for debug
     if (result.dart_detected && getenv("OD_CAPSEAM"))
@@ -102,6 +120,13 @@ void Scorer::run()
 
     // Start WebSocket service
     websocket_service_->start();
+
+    // #822: and the outbound client, if there is one. It starts its own worker thread;
+    // an unpaired board starts nothing and says so once.
+    if (turnaus_)
+    {
+        turnaus_->start();
+    }
 
     running = true;
     // #815: the stream's own period, if camera.hpp already took one, wins over --fps.
@@ -145,6 +170,18 @@ void Scorer::run()
 
     while (running)
     {
+        // #825: the flag the signal handler set, observed here. This is the exit path
+        // the program did not have: the loop leaves, run() returns, main returns, and
+        // every destructor in the program runs with the threads already joined.
+        // Granularity is one cycle -- a signal arriving while capture->read() is
+        // blocked on a device is seen when that read returns.
+        if (int sig = signals::shutdownRequested())
+        {
+            log_warning("Received signal " + to_string(sig) +
+                        ", finishing the cycle in flight and shutting down...");
+            running = false;
+            break;
+        }
         if (max_cycles > 0 && cycles >= max_cycles)
         {
             auto loop_ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - loop_started).count();

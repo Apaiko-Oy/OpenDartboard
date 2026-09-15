@@ -61,12 +61,20 @@ namespace od_fix
 
     // #816: the shutdown race in WebSocketService, behind its own variable because it
     // is not a motion fix and must be selectable on a run that changes nothing else.
+    //
+    // #825: on by default now, and the reason is #825 itself. #816 measured the double
+    // stop on a path production never took -- the only way an unpatched build ever left
+    // Scorer::run() was the cycle budget this harness added. Giving the program a real
+    // exit path makes ~Scorer, and therefore both stop() call sites, run on every
+    // ordinary shutdown, so the assertion #816 measured at 2-in-8 under load moves from
+    // a harness curiosity to something an operator meets. The two are one change here.
+    // OD_SHUTDOWN_FIX=0 is the hatch, so #816's 26 runs can still be reproduced.
     inline bool shutdownFix()
     {
         static bool v = []
         {
             const char *e = std::getenv("OD_SHUTDOWN_FIX");
-            return e && std::string(e) == "1";
+            return !(e && std::string(e) == "0");
         }();
         return v;
     }

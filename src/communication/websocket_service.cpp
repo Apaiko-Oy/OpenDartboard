@@ -254,8 +254,8 @@ struct ActiveConnection
 static vector<shared_ptr<ActiveConnection>> active_connections;
 static mutex connections_mutex;
 
-WebSocketService::WebSocketService(shared_ptr<ScoreQueue> queue, int port)
-    : score_queue_(queue), port_(port) {}
+WebSocketService::WebSocketService(shared_ptr<ScoreQueue> queue, int port, bool debug_mode)
+    : score_queue_(queue), port_(port), debug_mode_(debug_mode) {}
 
 WebSocketService::~WebSocketService()
 {
@@ -463,6 +463,18 @@ void WebSocketService::run()
             status["todo"] = "yes";
             res.set_content(status.dump(), "application/json"); });
 
+        // #812: the three routes below are the saved camera frames and the log tail.
+        // They were registered unconditionally, so a release build served the images
+        // of somebody's room on 0.0.0.0:13520 with no credential and no flag asked
+        // for -- the same exposure 8081 and 8088 were closed for, reached through a
+        // listener no build configuration closes because the score API is the
+        // product. They are now behind exactly the gate the MJPEG listeners are:
+        // the debug build define AND --debug. A release build serves no camera
+        // image on any port, whatever flags it is given. The score API above is
+        // the documented interface and is untouched.
+#ifdef DEBUG_VIA_VIDEO_INPUT
+        if (debug_mode_)
+        {
         server_->Get("/debug/list", [](const httplib::Request &req, httplib::Response &res)
                      {
             json files = json::array();
@@ -512,16 +524,30 @@ void WebSocketService::run()
 
         server_->Get(R"(/debug/(.+))", [](const httplib::Request &req, httplib::Response &res)
                      {
-            string path = "debug_frames/" + req.matches[1].str();
-            
-            ifstream file(path, ios::binary);
+            // #812: the caller names the path and it was concatenated onto the
+            // directory unnormalised, so what the handler opened was not bounded by
+            // the directory it is about. Normalise, then refuse anything that does
+            // not stay under it.
+            const filesystem::path root("debug_frames");
+            const filesystem::path want = (root / req.matches[1].str()).lexically_normal();
+            const filesystem::path rel = want.lexically_relative(root);
+            if (want.is_absolute() || rel.empty() || *rel.begin() == "..") {
+                res.status = 404;
+                return;
+            }
+
+            ifstream file(want, ios::binary);
             if (!file) {
                 res.status = 404;
                 return;
             }
-            
+
             string content((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
             res.set_content(content, "image/jpeg"); });
+        }
+#else
+        (void)debug_mode_;
+#endif
 
         server_->Get("/info", [](const httplib::Request &req, httplib::Response &res)
                      {
