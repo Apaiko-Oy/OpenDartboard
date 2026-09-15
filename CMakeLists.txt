@@ -51,6 +51,8 @@ add_executable(opendartboard
     # Communication components
     src/communication/score_queue.cpp
     src/communication/websocket_service.cpp
+    # #1189: the QR code the setup view prints; vendored, MIT, src/third_party/qrcodegen/LICENSE
+    src/third_party/qrcodegen/qrcodegen.cpp
     # src/detector/ai/yolo_detector.cpp // Uncomment when AI detector is ready
     src/detector/geometry/geometry_detector.cpp
     # calibration files
