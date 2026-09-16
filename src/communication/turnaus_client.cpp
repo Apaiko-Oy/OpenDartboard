@@ -476,8 +476,18 @@ void TurnausClient::releaseContestBinding(const char *why)
     // document argues the asymmetry. Nobody re-pairs to a Contest that has been Given Up.
     size_t abandoned = 0;
     size_t already_written = 0;
+    bool round_abandoned = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        // #1276: the round in hand goes with the evening it was begun on. Remembered as
+        // abandoned rather than forgotten, so the takeout that ends it can say which
+        // Contest it belonged to -- and so the next dart begins a fresh round at the
+        // club's door instead of joining one the club never saw the beginning of.
+        if (round_ == RoundInHand::Open && round_binding_ == Binding::Contest)
+        {
+            round_ = RoundInHand::AbandonedWithContest;
+            round_abandoned = true;
+        }
         for (std::deque<OwedPush>::iterator it = queue_.begin(); it != queue_.end();)
         {
             if (it->binding == Binding::Contest)
@@ -515,6 +525,13 @@ void TurnausClient::releaseContestBinding(const char *why)
                 " push(es) owed to it were dropped rather than kept: a Contest that has been given "
                 "up cannot be re-paired to, so a dart still owed to it could only ever land in "
                 "somebody else's evening.");
+    if (round_abandoned)
+    {
+        // #1276. Said here as well as at the takeout, because a run that ends before the
+        // next END would otherwise never mention the round that went with the evening.
+        log_info("TURNAUS: the round in hand was begun on that Contest, so it ends with it. Its "
+                 "takeout will not be sent anywhere, and the next dart begins a new round.");
+    }
     forgetContestInFile();
     beat_unsupported_ = false;
     binding_changed_ = true;
@@ -558,6 +575,50 @@ bool TurnausClient::offer(const DetectorResult &result)
         // dart. A takeout carries no reference and needs none -- a repeated takeout finds
         // no round in hand and answers with a null visitId, so it is idempotent by the
         // server's own construction.
+        //
+        // #1276: AND IT BELONGS TO THE ROUND, NOT TO THE CLOCK. `destination()` is where a
+        // dart thrown *now* would go; a takeout ends a round begun some seconds ago, and
+        // after an evening is given up mid-round those are two different doors. Sent at
+        // the live one it closes a round that door never saw. Turnaus writes nothing for
+        // it -- an empty takeout is a null Visit and no row -- so no data is harmed; what
+        // is wrong is that the board has reported something that did not happen, and a
+        // board that reports what did not happen is the thing this client exists not to
+        // be. So it is dropped, which is #891's rule for a dart owed to an ended Contest
+        // applied to the takeout of the round that dart belonged to.
+        std::string dropped_because;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (round_ == RoundInHand::AbandonedWithContest)
+            {
+                dropped_because = "the round it ends was begun on Casual Contest " +
+                                  std::to_string(round_contest_id_) + ", which has ended";
+            }
+            else if (round_ == RoundInHand::None)
+            {
+                dropped_because = "this board began no round at any door since the last takeout";
+            }
+            else if (round_binding_ == Binding::Contest &&
+                     (!contest_bound_.load() || round_contest_id_ != contest_id_))
+            {
+                // The same verdict reached without releaseContestBinding() having run --
+                // a board re-paired to another evening while a round was in hand.
+                dropped_because = "the round it ends was begun on Casual Contest " +
+                                  std::to_string(round_contest_id_) + ", which this board is no longer on";
+            }
+            else
+            {
+                item.binding = round_binding_;
+                item.contest_id = round_contest_id_;
+            }
+            round_ = RoundInHand::None;
+        }
+        if (!dropped_because.empty())
+        {
+            dropped_++;
+            log_warning("TURNAUS: a takeout was dropped rather than sent: " + dropped_because +
+                        ". Sending it anyway would close a round at a door that never saw one.");
+            return false;
+        }
         item.path = takeoutsPath(item.binding);
         item.body = "{}";
         item.idempotency_key = "";
@@ -602,6 +663,17 @@ bool TurnausClient::offer(const DetectorResult &result)
         }
         queue_.push_back(item);
         queued_++;
+        // #1276: a round is begun by the first dart that really entered the queue, and it
+        // remembers the door that dart is going out of. A dart dropped by the policy above
+        // opens nothing -- a takeout ending a round nothing was ever sent for would close
+        // an empty round at a door that saw none of it, which is the same failure one line
+        // further back.
+        if (result.score != "END" && round_ != RoundInHand::Open)
+        {
+            round_ = RoundInHand::Open;
+            round_binding_ = item.binding;
+            round_contest_id_ = item.contest_id;
+        }
     }
     condition_.notify_one();
     return true;
