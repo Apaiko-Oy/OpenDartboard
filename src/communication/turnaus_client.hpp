@@ -73,6 +73,27 @@ enum class Binding
     Contest,
 };
 
+/**
+ * #1276: the round in hand, which is the thing a takeout ends.
+ *
+ * A dart names its own door and a takeout does not: its body is `{}`, and everything about
+ * where it belongs comes from the round it closes. So the round remembers which door its
+ * FIRST dart went out of, and the takeout follows the round rather than the clock. The two
+ * answers differ across exactly one event -- a Casual Contest given up in the middle of a
+ * round -- and that is the whole of this enum's reason for existing.
+ *
+ * `AbandonedWithContest` is that middle state, kept rather than collapsed into `None` so
+ * that the line the board prints can name the evening the round was begun on. The next dart
+ * begins a new round whatever state this is in, so a board whose evening has ended is
+ * scoring at its club's door again from the very next throw.
+ */
+enum class RoundInHand
+{
+    None,                 // nothing has been pushed since the last takeout
+    Open,                 // being thrown; round_binding_ says at which door it was begun
+    AbandonedWithContest, // begun on a Contest that has since ended: its takeout is owed nowhere
+};
+
 /** One thing owed to the server: a detection or a takeout, already serialised. */
 struct OwedPush
 {
@@ -320,6 +341,14 @@ private:
     std::condition_variable condition_;
     std::deque<OwedPush> queue_;
     std::thread worker_;
+
+    // #1276. The round in hand and the door its first dart went out of, under `mutex_`
+    // because the scoring thread opens it and the push worker or the beat thread can end
+    // it. Neither spooled nor persisted: a restart has no round in hand, and the takeouts
+    // a previous run still owed carry their own binding in the spool record.
+    RoundInHand round_ = RoundInHand::None;
+    Binding round_binding_ = Binding::Organisation;
+    long long round_contest_id_ = 0;
 
     // #892. Its own mutex and its own condition variable, deliberately: a beat waiting
     // on `mutex_` would be waiting behind whatever the push worker is doing with the
