@@ -99,6 +99,11 @@ namespace debug
         std::cout << "                       ws://<address>:13520/scores?token=<token> - and exit; the token is inside the QR only\n";
         std::cout << "  --setup-address <a>  The address the QR names (default: this board's first non-loopback IPv4 address)\n";
         std::cout << "  --pair <code>        Exchange a Turnaus pairing code for a credential, keep it, and exit\n";
+        std::cout << "  --pair-contest <code>\n";
+        std::cout << "                       Exchange a Casual Contest pairing code, keep it, and exit. Binds this\n";
+        std::cout << "                       board to one Casual Contest for that evening and to nothing else: no\n";
+        std::cout << "                       Station and no Organisation. A club pairing already on the board is\n";
+        std::cout << "                       kept, and the Contest binding wins while it lasts\n";
         std::cout << "  --turnaus <url>      The Turnaus this board pairs with and posts to. Resolved in order: --turnaus,\n";
         std::cout << "                       then OD_TURNAUS_URL, then the base_url the last pairing stored in the\n";
         std::cout << "                       credential file, then the default: " << turnaus_address::kDefault << "\n";
