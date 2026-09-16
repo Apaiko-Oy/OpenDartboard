@@ -17,13 +17,24 @@
 > `LICENSE`, and the commit its source was built from, which is what makes handing somebody the
 > binary lawful: the source offer is this repository at that commit.
 >
-> **Which Turnaus a board talks to.** `--pair <code>` and the score push resolve the address in
+> **Which Turnaus a board talks to.** The two pairing flags — `--pair <code>` and
+> `--pair-contest <code>` — and the score push resolve the address in
 > this order, and the first one set wins: `--turnaus <url>`, then the `OD_TURNAUS_URL`
 > environment variable, then the `base_url` the last successful pairing stored in the credential
 > file, then the default, **`https://turnaus.apaiko.fi`** — Turnaus' production. The board logs
 > one line at startup naming the address and which of the four chose it. The default is written
 > once, in `src/communication/turnaus_address.hpp`, and `testers/check_default_address.sh` fails
 > the tree if a second copy appears or if the parked domain an earlier default named comes back.
+>
+> **Two doors, two flags.** `--pair <code>` exchanges a club's six-digit code for the credential
+> that makes this board a Station of an Organisation. `--pair-contest <code>` binds it to one
+> Casual Contest for that evening instead — somebody's knockabout, in a pub or in a garage — and
+> to nothing else: no Station and no Organisation. A club pairing already on the board is kept,
+> so a board that is Station 3 on Tuesday still is on Thursday: the Contest binding wins while it
+> lasts, and the club's is underneath it again when the evening ends. Either flag pairs and exits,
+> opening no camera. Started in an interactive console with no credential and neither flag, the
+> board simply asks for a six-digit code and tries the club's door then a Casual Contest's, which
+> is the ordinary way to pair; the flags are for a board set up without somebody standing at it.
 
 <div align="center">
 
