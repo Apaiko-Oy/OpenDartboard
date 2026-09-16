@@ -246,11 +246,50 @@ int main(int argc, char **argv)
   debug::printSocketConfig(socket.bind_address, socket.port, token_path, token.created,
                            score_token::isReadableByOthers(token_path));
 
+  // #1189: where the announcement would be written, read here because this is where the
+  // rest of the command line is read. Whether anything is written is decided below the
+  // Scorer, once this board is known to have a socket to announce (#1274).
+  string announce_dir = getArg(argc, argv, "--announce-dir", announce::kDefaultDir);
+
+  // #892: the client is built and STARTED before the Scorer, so the beat covers the
+  // startup it used to pass over in silence. Opening three cameras and calibrating on
+  // thirty averaged frames is seconds of a board being up and not yet able to see, and
+  // INITIALISING and CALIBRATING are two of the five words a board may say precisely so
+  // that interval is not indistinguishable from a machine nobody switched on. start()
+  // is idempotent, so Scorer::run()'s own call is unchanged and harmless.
+  //
+  // #1247: started after #1187's token rather than before it, because the token's failure
+  // returns from main(), and a client started above that return would leave its thread
+  // running into the process's exit.
+  //
+  // #1274: it used to be started after #1189's announcement as well, and is no longer,
+  // because the announcement moved below the Scorer. Nothing is lost: the reason above is
+  // the token's `return 1`, and publishing a service file returns from nothing.
+  turnaus->start();
+  TurnausClient *turnaus_view = turnaus.get(); // owned by the Scorer from here to the end of main
+
+  // Initialise the scorer with debug mode if requested
+  Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
+  scorer.attachTurnaus(std::move(turnaus));
+
   // #1189: announced through the host's responder while - and only while - the
   // socket is on the network. A loopback-only start withdraws what an earlier
   // --listen run may have left, so the two states cannot disagree.
-  string announce_dir = getArg(argc, argv, "--announce-dir", announce::kDefaultDir);
-  if (listen)
+  //
+  // #1274: and only when there is going to be a socket at all. This block ran above the
+  // Scorer until #1274, where nothing yet knew whether the cameras would open; a board
+  // whose cameras do not open takes #895's fault vigil, which deliberately never starts
+  // the score socket, so a dark board started with --listen announced a socket that was
+  // never opened and a phone that found it by the announcement connected to nothing.
+  // scorer.canSee() is the same question run() asks before it starts the socket, so the
+  // announcement cannot say something the listener contradicts, and a stale file from an
+  // earlier --listen run is withdrawn on this path as it is on the loopback one.
+  //
+  // Asking it here rather than above also shortens the interval in which a board is
+  // announced and not yet listening: opening three cameras and calibrating happen in the
+  // Scorer's constructor, above this line, and the socket opens inside run(), below it.
+  const bool announcing = listen && scorer.canSee();
+  if (announcing)
   {
     announce::Outcome published = announce::publish(announce_dir, label, socket.port, version);
     if (published.done)
@@ -258,6 +297,15 @@ int main(int argc, char **argv)
                ") via " + published.detail);
     else
       log_warning("not announced: " + published.detail + " (--announce-dir names another directory)");
+  }
+  else if (listen)
+  {
+    announce::Outcome withdrawn = announce::withdraw(announce_dir);
+    if (withdrawn.done)
+      log_warning("not announced: this board cannot see, so the score socket is never opened; removed " +
+                  withdrawn.detail + " left by an earlier run");
+    else
+      log_warning("not announced: this board cannot see, so the score socket is never opened");
   }
   else
   {
@@ -267,23 +315,6 @@ int main(int argc, char **argv)
     else
       log_info("not announced: loopback only");
   }
-
-  // #892: the client is built and STARTED before the Scorer, so the beat covers the
-  // startup it used to pass over in silence. Opening three cameras and calibrating on
-  // thirty averaged frames is seconds of a board being up and not yet able to see, and
-  // INITIALISING and CALIBRATING are two of the five words a board may say precisely so
-  // that interval is not indistinguishable from a machine nobody switched on. start()
-  // is idempotent, so Scorer::run()'s own call is unchanged and harmless.
-  //
-  // #1247: started after #1187's token and #1189's announcement rather than before them,
-  // because the token's failure returns from main(), and a client started above that
-  // return would leave its thread running into the process's exit.
-  turnaus->start();
-  TurnausClient *turnaus_view = turnaus.get(); // owned by the Scorer from here to the end of main
-
-  // Initialise the scorer with debug mode if requested
-  Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
-  scorer.attachTurnaus(std::move(turnaus));
 
   // #825: the handler records the signal and returns; Scorer::run()'s loop is what
   // observes it. There is no callback here any more, because a callback called from a
@@ -318,7 +349,11 @@ int main(int argc, char **argv)
 
   // #1189: the announcement does not outlive the socket. Reached on the cycle budget
   // and, since #825, on SIGINT and SIGTERM too.
-  if (listen)
+  //
+  // #1274: `announcing` rather than `listen`, because a start that refused to announce has
+  // nothing to withdraw here - it withdrew above, before the vigil began - and asking
+  // again would log a failure about a file this run was right not to write.
+  if (announcing)
   {
     announce::Outcome withdrawn = announce::withdraw(announce_dir);
     log_info(withdrawn.done ? "announcement withdrawn: removed " + withdrawn.detail

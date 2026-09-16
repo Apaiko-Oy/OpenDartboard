@@ -136,6 +136,12 @@ A board whose socket is open on the network - started with `--listen` - **announ
 over mDNS** so an app can list the boards on the wifi and offer them by name. A board on
 loopback only announces nothing, and a board that stops withdraws its announcement.
 
+**An announcement means a socket.** A board that cannot see - its cameras did not open, or
+it did not calibrate on the frames they gave - stays up and reports `ERROR`, and it never
+opens the score socket. Such a board is **not announced even with `--listen`**, and it
+removes any announcement an earlier run left, so nothing on the wifi ever names a score
+socket that was not opened.
+
 | What | Value |
 | --- | --- |
 | Service type | `_opendartboard._tcp` (browse `_opendartboard._tcp.local.`) |
