@@ -123,6 +123,14 @@ void Scorer::sendResult(const DetectorResult &result)
     }
 }
 
+// #1274: the question run() asks below, asked out loud so main can ask it too. A board
+// that cannot see takes the fault vigil, and the vigil does not start the score socket --
+// so this is also the answer to "will this board have a socket to announce".
+bool Scorer::canSee() const
+{
+    return detector && detector->isInitialized();
+}
+
 void Scorer::run()
 {
     // #895: the null check that was missing, and -- more to the point -- the thing that
@@ -143,7 +151,11 @@ void Scorer::run()
     // right one.
     //
     // So the object is constructed and this thread stays. See runFaultVigil().
-    if (!detector || !detector->isInitialized())
+    //
+    // #1274: the condition is canSee(), because main asks the same question before it
+    // announces the board. Two spellings of it could drift apart, and the failure that
+    // drift makes is a board announced on the network with nothing listening.
+    if (!canSee())
     {
         log_error("Detector not initialized - cannot run");
         runFaultVigil();
@@ -295,6 +307,11 @@ void Scorer::run()
  *    surface for scores and saved frames (#812), and a blind board serving an empty score
  *    socket is ADR-0055's own worry one layer down: something that looks alive in front of
  *    a board that sees nothing. Nothing started it on this path before, so nothing is lost.
+ *    #1274: and because it does not, a board on this path is not announced on the network
+ *    either. main asks canSee() before it publishes #1189's service file, and withdraws
+ *    any file an earlier run left. Until #1274 the announcement was published above the
+ *    Scorer, so a dark board taken to this vigil advertised a score socket that this
+ *    function never opens, and a phone that found the board by it connected to nothing.
  *  - It does not retry the cameras. board_sight::faulted() is documented as the state a
  *    retry does not improve, and a supervisor restarting the process is the remedy that
  *    exists. Making the fault recoverable is a different issue from making it reportable.

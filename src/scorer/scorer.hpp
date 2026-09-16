@@ -24,6 +24,13 @@ public:
   void run();
   void stop();
 
+  // #1274: whether this object has a detector it can score with -- and so whether run()
+  // will open the score socket at all, or take #895's fault vigil, which deliberately
+  // does not. main asks it before announcing the board on the network, so an announcement
+  // and the listener it names cannot disagree about whether there is a socket. run()
+  // branches on the same call: one condition, two readers.
+  bool canSee() const;
+
   // #822: the outbound client, handed in rather than built here, because pairing must
   // be possible without opening a camera. Scorer owns it so that #825's exit path --
   // main unwound, ~Scorer run -- is what stops and joins it.
