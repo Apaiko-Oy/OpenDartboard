@@ -149,6 +149,145 @@ int main()
             "a camera outside the figure is named as being outside it");
     }
 
+    std::printf("=== 7. the rate is the lever, so the DEVICE is asked for a different rate ===\n");
+    {
+        // MSMF picks a camera's mode by nearest resolution, then largest, then NEAREST
+        // FRAME RATE, and never looks at the subtype at all (cap_msmf.cpp
+        // VideoIsBetterThan, 4.14.0 line 318). Both of the rig's modes are 1280x720, so
+        // the rate alone decides which one the camera is put in. This is that ranking,
+        // and it is the whole of the arithmetic this issue turned on.
+        const double modes[] = {30.0, 10.0}; // mjpeg @30, yuyv422 @10
+        auto rigPicks = [&](double want) -> double
+        {
+            double best = modes[0];
+            for (double mode : modes)
+            {
+                const double a = mode > want ? mode - want : want - mode;
+                const double b = best > want ? best - want : want - best;
+                if (a < b)
+                    best = mode;
+            }
+            return best;
+        };
+
+        say(rigPicks(15) == 10.0, "the defect, as arithmetic: asking for 15 picks the 10 fps uncompressed mode");
+        say(rigPicks(30) == 30.0, "and asking for 30 picks the 30 fps compressed one");
+
+        // The fix is entirely in what the device is ASKED for, before it is asked.
+        // There is no read-back, no second ask and no state: the rig hung the board on
+        // camera 3 when this was a re-ask, and a function of two numbers cannot hang.
+        const double msmf = 30.0; // captureRateFloorDefault() on _WIN32
+        const double v4l2 = 0.0;  // ...and everywhere else
+
+        say(captureRateRequest(15, msmf) == 30.0, "--fps 15 on MSMF asks the camera for 30");
+        say(rigPicks(captureRateRequest(15, msmf)) == 30.0, "which is the mode that carries three cameras");
+        say(captureRateRequest(30, msmf) == 30.0, "--fps 30 asks for 30: the path the rig already proved works");
+        say(captureRateRequest(60, msmf) == 60.0, "a request ABOVE the floor is not lowered to it");
+        say(captureRateRequest(10, msmf) == 30.0,
+            "and one below it is raised, because 10 is the uncompressed mode and a board cannot run on it");
+
+        // The floor is backend knowledge, not a platform preference. V4L2 has no floor
+        // because CAP_PROP_FOURCC really is the negotiation there and has always worked;
+        // raising the request would move a platform that never had this bug.
+        say(captureRateRequest(15, v4l2) == 15.0, "with no floor the operator's number goes through untouched");
+        say(captureRateRequest(10, v4l2) == 10.0, "at any value");
+
+        const Finding raised = rateFloorFinding(1, 15, captureRateRequest(15, msmf), "MSMF");
+        std::printf("     %s\n", raised.text.c_str());
+        say(raised.said && raised.severity == Severity::Info, "a raised request is said, at INFO");
+        say(contains(raised.text, "30 fps") && contains(raised.text, "15"),
+            "both numbers are in the line: what the camera is asked, and what --fps says");
+        say(contains(raised.text, "MSMF"), "the backend whose chooser makes this necessary is named");
+        say(!rateFloorFinding(1, 15, 15, "V4L2").said,
+            "a request that was not raised says nothing, because there is nothing to explain");
+        say(!rateFloorFinding(1, 60, captureRateRequest(60, msmf), "MSMF").said,
+            "and neither does one above the floor");
+
+        // #1319: a device is now held to the rate it was really ASKED for. Asked 30 and
+        // given 30 is silence; asked 30 and given 10 is the failure this issue is about
+        // and is a warning naming both figures.
+        say(!rateFinding(1, 30, captureRateRequest(15, msmf), true).said,
+            "a camera that grants the raised request says nothing");
+        const Finding refusedRate = rateFinding(3, 10, captureRateRequest(15, msmf), true);
+        std::printf("     %s\n", refusedRate.text.c_str());
+        say(refusedRate.said && refusedRate.severity == Severity::Warning,
+            "a camera still stuck on 10 after being asked for 30 is a warning");
+        say(contains(refusedRate.text, "slower mode"), "and it is named as the slower mode it is");
+
+        // The same sentence must not be printed about a camera doing BETTER than asked.
+        const Finding faster = rateFinding(2, 30, 15, true);
+        std::printf("     %s\n", faster.text.c_str());
+        say(faster.said && faster.severity == Severity::Info, "faster than asked is INFO, not a warning");
+        say(contains(faster.text, "faster mode") && !contains(faster.text, "slower mode"),
+            "and the line says faster rather than slower");
+    }
+
+    std::printf("=== 8. a refused MJPG request is said by name ===\n");
+    {
+        // MSMF answers false to set(CAP_PROP_FOURCC, MJPG) -- configureVideoOutput's
+        // conversion switch accepts BGR3/RGB3/GREY/YUYV and returns false to everything
+        // else (4.14.0 line 1153). The refusal is the first acceptance criterion of this
+        // issue: the reason MJPG could not be asked for is reported by name.
+        const Finding refused = fourccRequestFinding(1, false, "MSMF");
+        std::printf("     %s\n", refused.text.c_str());
+        say(refused.said && refused.severity == Severity::Warning, "a refusal is a warning");
+        say(contains(refused.text, "MSMF"), "the backend that refused is named");
+        say(contains(refused.text, "refused CAP_PROP_FOURCC"), "the property that was refused is named");
+        say(!fourccRequestFinding(1, true, "V4L2").said,
+            "a backend that took the request says nothing, because there it IS the negotiation");
+    }
+
+    std::printf("=== 9. a rate one camera cannot reach uncompressed IS the format evidence ===\n");
+    {
+        // Measured on the rig on the build that fixed the negotiation: three cameras at
+        // 1280x720 @ 30, all delivering, and the bandwidth claim printed "For scale ...
+        // 165.9 MB/s for 3, against roughly 35.0" -- a warning about the problem the fix
+        // had just removed. It was self-refuting as well as unhelpful, and that is what
+        // this branch is: 55.3 MB/s is ONE camera against a bus carrying about 35, so a
+        // camera running at that rate and handing over frames is not uncompressed.
+        std::vector<OpenedCamera> fast;
+        for (int i = 0; i < 3; i++)
+            fast.push_back(OpenedCamera{0, 1280, 720, 30});
+        const Finding settled = busFinding(fast);
+        std::printf("     %s\n", settled.text.c_str());
+        say(settled.said && settled.severity == Severity::Info, "it is still said, and still at INFO");
+        say(contains(settled.text, "the rate is evidence enough"), "the rate is read as evidence");
+        say(contains(settled.text, "55.3 MB/s for a SINGLE camera"),
+            "1280*720*2*30 = 55.3 MB/s, and it is one camera's figure, not three");
+        say(contains(settled.text, "is compressing them"), "the conclusion is stated");
+        say(!contains(settled.text, "165.9"),
+            "the three-camera total is gone: it describes a mode no camera here can be in");
+        say(!contains(settled.text, "no bandwidth figure can be measured"),
+            "and it is no longer the sentence that says nothing could be told");
+
+        // The pre-fix case is UNCHANGED, and that is the half that makes this a
+        // distinction rather than a mute button: at 10 fps one camera really could be
+        // uncompressed -- 18.4 MB/s fits -- so the scale paragraph still describes
+        // something these cameras might really be doing, and still prints.
+        std::vector<OpenedCamera> slow;
+        for (int i = 0; i < 3; i++)
+            slow.push_back(OpenedCamera{0, 1280, 720, 10});
+        const Finding scale = busFinding(slow);
+        std::printf("     %s\n", scale.text.c_str());
+        say(contains(scale.text, "no bandwidth figure can be measured"),
+            "at 10 fps the scale paragraph is what is printed");
+        say(contains(scale.text, "18.4 MB/s per camera") && contains(scale.text, "55.3 MB/s for 3"),
+            "with the arithmetic this issue was filed on");
+        say(!contains(scale.text, "the rate is evidence enough"),
+            "and it does NOT claim the rate settles anything, because at 10 fps it does not");
+
+        // The threshold is one camera against the bus, not three, and nothing about the
+        // floor, the backend or what anybody requested is consulted.
+        std::vector<OpenedCamera> one{OpenedCamera{0, 1280, 720, 30}};
+        say(contains(busFinding(one).text, "the rate is evidence enough"),
+            "one camera at 30 is read the same way as three");
+        std::vector<OpenedCamera> small;
+        for (int i = 0; i < 3; i++)
+            small.push_back(OpenedCamera{0, 640, 480, 30});
+        say(contains(busFinding(small).text, "no bandwidth figure can be measured"),
+            "and 640x480 at 30 -- 18.4 MB/s, which one camera CAN do -- is not settled by its rate");
+    }
+
     std::printf("\n%s (%d failed)\n", failures ? "FAILED" : "PASSED", failures);
     return failures ? 1 : 0;
 }

@@ -29,14 +29,35 @@ namespace camera
     //           excellent skew and is not a skew at all. Frame::anchor_ns is what makes
     //           them comparable, and it is filled in below for every backend so that it
     //           cannot be the thing a port forgets.
+
+    // The third half of that backend knowledge, and #1319 is what it cost. How a
+    // backend is asked for a COMPRESSED stream differs between the two, and neither
+    // way works on the other:
+    //
+    //   V4L2  — CAP_PROP_FOURCC is the negotiation. It becomes a VIDIOC_S_FMT with
+    //           V4L2_PIX_FMT_MJPEG, the driver honours it, and the rate that is then
+    //           asked for is just a rate. No floor: the operator's --fps goes through
+    //           untouched, as it always has, on the platform that never had this bug.
+    //   MSMF  — CAP_PROP_FOURCC names the format OpenCV converts INTO and is refused
+    //           for MJPG outright. The camera's mode is chosen by nearest frame rate
+    //           and the format is never scored, so the RATE is the compression request
+    //           and 30 is the floor that reaches a compressed mode on a UVC module
+    //           whose uncompressed mode is slow because it is uncompressed.
+    //
+    // OD_CAPTURE_FPS overrides the floor, including to 0 to turn it off. It is here so
+    // that the rig this issue was measured on can be asked a different question without
+    // a rebuild, which is the only reason anything in this repository reads an
+    // environment variable.
 #ifdef _WIN32
     inline int deviceBackend() { return cv::CAP_MSMF; }
     inline const char *deviceBackendName() { return "MSMF"; }
     inline CaptureClock deviceClock() { return CaptureClock::SourceRelative; }
+    inline double captureRateFloorDefault() { return 30.0; }
 #else
     inline int deviceBackend() { return cv::CAP_V4L2; }
     inline const char *deviceBackendName() { return "V4L2"; }
     inline CaptureClock deviceClock() { return CaptureClock::HostMonotonic; }
+    inline double captureRateFloorDefault() { return 0.0; }
 #endif
 
     // What the skew instrument calls this clock in its report.
@@ -103,6 +124,13 @@ namespace camera
         return out;
     }
 
+    // #1319: the floor this deployment uses, read once. A value of 0 turns it off.
+    inline double captureRateFloor()
+    {
+        const int floor_rate = odEnvInt("OD_CAPTURE_FPS", (int)captureRateFloorDefault());
+        return floor_rate > 0 ? (double)floor_rate : 0.0;
+    }
+
     // #1319: a Finding carries its own severity, because which of these is a warning
     // IS the finding. One place turns one into a line.
     inline void sayFinding(const Finding &finding)
@@ -151,6 +179,11 @@ namespace camera
                 log_debug("Opening camera " + log_string(i + 1) + ": " + sources[i]);
 
                 CaptureClock clock = CaptureClock::Unknown;
+                // #1319: the rate the DEVICE was asked for, which the verification
+                // below compares what it got against. A file is never asked for one, so
+                // it keeps the operator's number and the file branch reads --fps as it
+                // always has.
+                double asked_fps = (double)fps;
 
                 if (isVideoFile(sources[i]))
                 {
@@ -202,15 +235,57 @@ namespace camera
                     // 1280x720 cameras do not fit on one bus uncompressed, so a silent
                     // fall back to YUY2 is the bandwidth failure arriving disguised as a
                     // timing one.
+                    //
+                    // #1319: the FOURCC request is KEPT, and it is kept because of V4L2
+                    // rather than because of MSMF. On V4L2 this really is the negotiation
+                    // — it becomes a VIDIOC_S_FMT with V4L2_PIX_FMT_MJPEG and it already
+                    // works, which is why the Linux board has never had this bug. On MSMF
+                    // it is refused (the property means the conversion target there; the
+                    // reading of OpenCV's own source is in capture.hpp), so the return
+                    // value is kept and the refusal is said by name below.
                     int fourcc = cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
-                    cap.set(cv::CAP_PROP_FOURCC, fourcc);
+                    const bool fourcc_accepted = cap.set(cv::CAP_PROP_FOURCC, fourcc);
                     cap.set(cv::CAP_PROP_FRAME_WIDTH, width);
                     cap.set(cv::CAP_PROP_FRAME_HEIGHT, height);
-                    cap.set(cv::CAP_PROP_FPS, fps);
+
+                    // #1319: the rate the DEVICE is asked for is not the operator's
+                    // --fps, because on MSMF the rate IS the format request — its mode
+                    // chooser scores nearest-frame-rate and never looks at the subtype,
+                    // so asking for 15 on a module whose modes are `mjpeg @30` and
+                    // `yuyv422 @10` picks the uncompressed one by five frames a second.
+                    //
+                    // ONE set(), before the camera has ever been in the slow mode. An
+                    // earlier shape of this fix asked for --fps, read back the
+                    // shortfall and re-asked for 30; it negotiated correctly on cameras
+                    // 1 and 2 and hung the board on camera 3, twice, never reaching
+                    // calibration, while `--fps 30` — one set at open — works on all
+                    // three. Each set(CAP_PROP_FPS) is two SetCurrentMediaType calls on
+                    // a source reader already bound to the device, which for a UVC
+                    // camera renegotiates its isochronous reservation on a bus two
+                    // other cameras are already holding. capture.hpp carries the
+                    // reading; the rule it leaves is that a device is configured once.
+                    //
+                    // CAP_PROP_CONVERT_RGB is deliberately NOT touched. Turning it off
+                    // does make CAP_PROP_FOURCC settable on MSMF, but it also stops
+                    // OpenCV decoding at all: read() would hand back the raw MJPEG
+                    // bitstream as a 1-D Mat and every caller above this seam expects
+                    // BGR. That is a different change and a much larger one.
+                    asked_fps = captureRateRequest((double)fps, captureRateFloor());
+                    cap.set(cv::CAP_PROP_FPS, asked_fps);
 
                     clock = deviceClock();
 
-                    log_debug("Opened camera " + log_string(i + 1) + " at " + log_string(width) + "x" + log_string(height) + " @ " + log_string(fps) + " FPS" +
+                    // Only about a camera that is actually there. A device that never
+                    // opened refuses every property it is handed, and a warning that
+                    // its backend would not take MJPG is a true sentence about the
+                    // wrong thing sitting directly above "Failed to open camera".
+                    if (cap.isOpened())
+                    {
+                        sayFinding(fourccRequestFinding((int)(i + 1), fourcc_accepted, deviceBackendName()));
+                        sayFinding(rateFloorFinding((int)(i + 1), (double)fps, asked_fps, deviceBackendName()));
+                    }
+
+                    log_debug("Opened camera " + log_string(i + 1) + " at " + log_string(width) + "x" + log_string(height) + " @ " + log_string((int)asked_fps) + " FPS" +
                               " (requested FOURCC: " + log_string_src(decodeFourCC(fourcc)) + ", backend: " + log_string_src((std::string)deviceBackendName()) + ")");
                 }
 
@@ -232,7 +307,7 @@ namespace camera
 
                     log_debug("Camera " + log_string(i + 1) + " verification:");
                     log_debug("  Resolution: " + log_string((int)actual_width) + "x" + log_string((int)actual_height) + " (expected: " + log_string(width) + "x" + log_string(height) + ")");
-                    log_debug("  FPS: " + log_string((int)actual_fps) + " (expected: " + log_string(fps) + ")");
+                    log_debug("  FPS: " + log_string((int)actual_fps) + " (asked for: " + log_string((int)asked_fps) + ", --fps: " + log_string(fps) + ")");
                     log_debug("  FOURCC: " + log_string_src(negotiated.name) + " (expected: " + log_string_src(decodeFourCC(cv::VideoWriter::fourcc('M', 'J', 'P', 'G'))) + ")");
                     log_debug("  Backend: " + log_string_src(cap.getBackendName()) + " (expected: " + log_string_src((std::string)deviceBackendName()) + ")");
 
@@ -242,7 +317,11 @@ namespace camera
                     // to see. #1319: "the backend said nothing" is its own outcome and
                     // no longer renders as a hole in the middle of the sentence.
                     sayFinding(formatFinding((int)(i + 1), (int)fourcc, (int)actual_width, (int)actual_height, actual_fps));
-                    sayFinding(rateFinding((int)(i + 1), actual_fps, (double)fps, /*is_device*/ true));
+                    // #1319: compared against the rate the device was really ASKED for,
+                    // not against --fps. Those are the same number everywhere there is
+                    // no floor, and where there is one, holding a camera to a request
+                    // nobody made of it is how a working board grows a standing warning.
+                    sayFinding(rateFinding((int)(i + 1), actual_fps, asked_fps, /*is_device*/ true));
 
                     OpenedCamera device;
                     device.code = (int)fourcc;

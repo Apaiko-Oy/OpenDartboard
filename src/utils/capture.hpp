@@ -222,10 +222,19 @@ namespace camera
         finding.said = true;
         if (is_device)
         {
-            finding.severity = Severity::Warning;
+            // #1319: `requested` here is the rate the DEVICE was asked for, which
+            // captureRateRequest() below may have raised above the operator's --fps, so
+            // a camera can now answer on either side of it. The sentence that used to
+            // be printed here -- "granted a slower mode than the one asked for" -- was
+            // true of every device mismatch that could happen before today and would be
+            // a false statement about a camera doing better than asked, which is
+            // exactly the kind of line this issue exists to stop printing.
+            const bool slower = granted < requested;
+            finding.severity = slower ? Severity::Warning : Severity::Info;
             finding.text = "Camera " + std::to_string(number) + " is running at " + wholeNumber(granted) +
-                           " fps where " + wholeNumber(requested) +
-                           " were requested — the backend granted a slower mode than the one asked for";
+                           " fps where " + wholeNumber(requested) + " were requested — the backend granted a " +
+                           (slower ? std::string("slower") : std::string("faster")) +
+                           " mode than the one asked for";
         }
         else
         {
@@ -234,6 +243,126 @@ namespace camera
                            " fps where --fps says " + wholeNumber(requested) +
                            " — a file has the rate it was recorded at, so the request paces nothing here";
         }
+        return finding;
+    }
+
+    // ---- #1319: the frame rate is the only lever MSMF gives over the wire format ----
+    //
+    // Read out of OpenCV 4.14.0's own source, which is the version .github/workflows/
+    // release.yml builds this binary against (modules/videoio/src/cap_msmf.cpp; line
+    // numbers are that tag's):
+    //
+    //   * `setProperty(CAP_PROP_FOURCC, v)` is one line -- `return
+    //     configureVideoOutput(newFormat, (int)cvRound(value))` (2332) -- and
+    //     configureVideoOutput's conversion switch (1153) accepts BGR3, RGB3, GREY and
+    //     YUYV and answers `default: return false` to everything else. MJPG is
+    //     everything else. So `cap.set(CAP_PROP_FOURCC, MJPG)` on MSMF is a no-op that
+    //     returns false: it cannot ever have asked a camera for a compressed mode, in
+    //     any order, before or after width and height.
+    //
+    //   * `getProperty(CAP_PROP_FOURCC)` is `captureVideoFormat.subType.Data1` (2172),
+    //     and `captureVideoFormat` is assigned in initStream() (943) from the format
+    //     the source reader was last set to -- which, with CAP_PROP_CONVERT_RGB on, is
+    //     OpenCV's own RGB32/RGB24 conversion target rather than anything the camera
+    //     transmits. MFVideoFormat_RGB32's Data1 is 22, which is the `0x00000016` the
+    //     rig's log prints. The read-back is structurally incapable of naming the wire
+    //     format, so no amount of reporting can verify this negotiation.
+    //
+    //   * What actually decides the camera's mode is findBestVideoFormat() (652),
+    //     ranking every native mode with VideoIsBetterThan() (318): nearest resolution,
+    //     then largest, then NEAREST FRAME RATE. The subtype is never scored at all.
+    //
+    // That last line is the whole of this issue. On a module offering
+    // `mjpeg 1280x720@30` and `yuyv422 1280x720@10`, a request for 15 fps picks YUY2,
+    // because |10-15| is 5 and |30-15| is 15 -- and `--fps` defaults to 15. The
+    // detector asked for a rate nearer the uncompressed mode's and was given it,
+    // faithfully.
+    //
+    // So the rate is the lever, and it is pulled ONCE, at open, before the camera has
+    // ever been in the slow mode.
+    //
+    // ---- why once, and not by re-asking: measured on the rig, 2026-09-18 ----
+    //
+    // The first shape of this fix asked for --fps, read back the shortfall, and then
+    // re-asked for a faster rate on the already-opened capture. It negotiated 30 fps
+    // correctly on cameras 1 and 2 and then HUNG the board on camera 3, twice, killed
+    // at 140s and at 300s, never reaching calibration. The same build given `--fps 30`
+    // -- one set() of 30 at open and no re-ask -- works on all three.
+    //
+    // Why the re-ask is the half that hangs, from the same source: every
+    // set(CAP_PROP_FPS) runs configureVideoOutput, which re-reads the whole native
+    // format list off the live source and then calls initStream TWICE -- once for the
+    // native type and once for the conversion type -- and each initStream is a
+    // SetStreamSelection plus a SetCurrentMediaType (951) on a source reader already
+    // bound to the device. For a UVC camera that is a renegotiation of the isochronous
+    // bandwidth reservation on the USB bus. The re-ask did four of those on camera 3 --
+    // eight SetCurrentMediaType calls -- while cameras 1 and 2 already held MJPG
+    // reservations on the same controller, and the FIRST of them put camera 3
+    // transiently into 1280x720 uncompressed, an 18.4 MB/s claim against a bus that has
+    // about 35 and had already given most of it away.
+    //
+    // Whether it blocks in the driver's bandwidth arbitration is a hypothesis, and not
+    // one this box can settle. What is measured is narrower and is enough: asking once
+    // at open works on this hardware and re-asking after open does not. So the rate the
+    // DEVICE is asked for is decided before the open, and the camera is never put into
+    // the mode this issue is about, not even for an instant.
+
+    // The rate a DEVICE is asked for, which is deliberately NOT the rate the operator
+    // asked for. `--fps` says how fast the detector should see; on MSMF the same number
+    // also, accidentally, chooses whether the camera compresses -- and those are two
+    // different questions that had been answered with one number. The floor separates
+    // them: it is what the mode chooser is handed, and it is high enough to score a
+    // compressed mode nearer than an uncompressed one on every UVC module of this
+    // class, because an uncompressed mode is slow precisely because it is uncompressed.
+    //
+    // A floor of 0 means no floor, and the operator's number goes through untouched.
+    // That is the V4L2 case, where CAP_PROP_FOURCC really is the negotiation and has
+    // always worked, and where raising the request would move a platform that has never
+    // had this bug.
+    inline double captureRateRequest(double operator_fps, double floor_rate)
+    {
+        return (floor_rate > operator_fps) ? floor_rate : operator_fps;
+    }
+
+    // Said once per camera, at INFO, when a device is being asked for a rate the
+    // operator did not type. A number in a log that nobody typed and nothing explains
+    // is the shape of defect this issue was filed about, so it explains itself.
+    inline Finding rateFloorFinding(int number, double operator_fps, double asked, const std::string &backend)
+    {
+        Finding finding;
+        if (asked <= operator_fps)
+            return finding; // said == false: the operator's number went through untouched
+
+        finding.said = true;
+        finding.severity = Severity::Info;
+        finding.text = "Camera " + std::to_string(number) + " is being asked for " + wholeNumber(asked) +
+                       " fps rather than the " + wholeNumber(operator_fps) + " that --fps says, because on " +
+                       backend + " the frame rate is the only thing the mode chooser scores: it takes the mode "
+                       "whose rate is nearest the one requested and never looks at the format, so asking for " +
+                       wholeNumber(operator_fps) +
+                       " selects an uncompressed mode on a camera that has a faster compressed one. This is the "
+                       "camera's mode, not the rate the detector runs its clock at";
+        return finding;
+    }
+
+    // What the backend did with the MJPG request itself. cv::VideoCapture::set() answers
+    // false when the backend refused it, and on MSMF it always does, for the reason in
+    // the block above. Said so that a reader of the log is told the request failed BY
+    // NAME -- the first acceptance criterion of #1319 -- rather than left to infer it
+    // from a format read-back that cannot name a wire format either.
+    inline Finding fourccRequestFinding(int number, bool accepted, const std::string &backend)
+    {
+        Finding finding;
+        if (accepted)
+            return finding; // said == false: V4L2 takes it, and there it is the negotiation
+
+        finding.said = true;
+        finding.severity = Severity::Warning;
+        finding.text = "Camera " + std::to_string(number) + ": the " + backend +
+                       " backend refused CAP_PROP_FOURCC outright, so MJPG cannot be asked for by name here. "
+                       "On this backend that property names the format OpenCV converts INTO, not the one the "
+                       "camera transmits, and the frame rate is the only thing its mode chooser scores — so the "
+                       "rate is what asks for a compressed mode";
         return finding;
     }
 
@@ -306,6 +435,46 @@ namespace camera
                 return finding;
 
             const double each = (double)first.width * first.height * 2.0 * first.fps / 1000000.0;
+
+            // #1319, second pass: the rate a camera negotiated is itself evidence about
+            // its format, and once ONE camera's uncompressed demand does not fit the bus
+            // the evidence is conclusive.
+            //
+            // Measured on the rig, 2026-09-18, on the build that fixed the negotiation:
+            // three cameras at 1280x720 @ 30, all delivering, and this branch printed
+            // "For scale: ... 55.3 MB/s per camera and 165.9 MB/s for 3, against roughly
+            // 35.0 MB/s practical on one USB 2.0 bus" -- on a board that was working. It
+            // reads as a warning about the problem this issue removed, which is the
+            // defect this issue is about, one turn later.
+            //
+            // The sentence was not merely unhelpful, it was self-refuting: 55.3 MB/s is
+            // ONE camera against a bus that carries about 35, so a camera running at that
+            // rate and handing over frames cannot be uncompressed, whatever it declined to
+            // say about its format. Before the fix the same arithmetic ran at 10 fps and
+            // gave 18.4 MB/s each -- which one camera CAN do -- so the scale paragraph
+            // described something the cameras really might have been doing, and it stays
+            // for exactly that case.
+            //
+            // Note what this does NOT read: it asks nothing about whether a floor was
+            // applied, or on which backend, or what anybody requested. It is an inference
+            // from the rate the camera came back with, so a camera that reaches 30 fps by
+            // some other route is read the same way.
+            if (each > usbTwoBusMegabytesPerSecond())
+            {
+                finding.said = true;
+                finding.severity = Severity::Info;
+                finding.text = std::to_string(unknown) +
+                               (unknown == 1 ? " camera reported" : " cameras reported") +
+                               " no negotiated format, but the rate is evidence enough: " +
+                               std::to_string(first.width) + "x" + std::to_string(first.height) +
+                               " uncompressed at " + wholeNumber(first.fps) + " fps would be " +
+                               oneDecimal(each) + " MB/s for a SINGLE camera, against roughly " +
+                               oneDecimal(usbTwoBusMegabytesPerSecond()) +
+                               " MB/s practical on one USB 2.0 bus — so a camera delivering frames at "
+                               "this rate is compressing them, and there is no bandwidth problem to report";
+                return finding;
+            }
+
             finding.said = true;
             finding.severity = Severity::Info;
             finding.text = std::to_string(unknown) +
