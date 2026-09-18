@@ -110,7 +110,15 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             target_width,
             target_height);
 
-        calibrated = !calibrations.empty();
+        // #1318: a calibration exists for every camera, including the ones that turned
+        // out not to be looking at a dartboard -- their slot is kept so that no camera
+        // is scored through its neighbour's perspective. So "did we calibrate" is no
+        // longer "is the vector non-empty": it is whether any camera saw the board.
+        int seeing = 0;
+        for (const auto &calibration : calibrations)
+            if (calibration.sees_board)
+                seeing++;
+        calibrated = seeing > 0;
 
         if (calibrated)
         {
@@ -119,7 +127,8 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             for (const auto &frame : initial_frames)
                 background_frames.push_back(frame.clone());
 
-            log_info("Initial calibration completed successfully");
+            log_info("Initial calibration completed successfully on " + to_string(seeing) +
+                     " of " + to_string((int)calibrations.size()) + " cameras");
 
             // Save calibration for future use
             if (cache::geometry::save(calibrations))
@@ -138,7 +147,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         }
         else
         {
-            log_error("Initial calibration failed");
+            // #1318: not "the calibration failed" any more -- every camera was
+            // calibrated and every one of them was refused, each on its own line above.
+            log_error("Initial calibration failed: none of the " + to_string((int)calibrations.size()) +
+                      " cameras is looking at a dartboard");
             initialized = false;
             calibrated = false;
         }

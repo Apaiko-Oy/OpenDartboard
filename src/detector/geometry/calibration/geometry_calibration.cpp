@@ -30,7 +30,9 @@ namespace geometry_calibration
         if (frame.empty())
         {
             log_error("Empty frame from camera " + log_string(cameraIdx + 1));
-            return DartboardCalibration(); // Return empty calibration
+            DartboardCalibration blank; // Return empty calibration
+            blank.camera_index = cameraIdx;
+            return blank;
         }
 
         DartboardCalibration calibration;
@@ -71,6 +73,36 @@ namespace geometry_calibration
         ellipse_processing::EllipseBoundaryData ellipseData = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
         calibration.ellipses = ellipseData;
 
+        // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step
+        // that looks at the picture on its own terms and before the three that assume a
+        // dartboard is in it. Steps 8, 8.5 and 9 fit wires, a perspective and an
+        // orientation to whatever they are handed; run on a picture of a room they
+        // produce numbers, not errors, and the numbers become a calibration the board
+        // scores with. board_look.hpp holds the measurement and the argument.
+        calibration.look.frame_pixels = masks.doublesMask.empty()
+                                            ? 0
+                                            : (int)masks.doublesMask.total();
+        calibration.look.red_green_pixels = masks.doublesMask.empty()
+                                                ? 0
+                                                : countNonZero(masks.doublesMask);
+        calibration.look.traced_doubles = ellipseData.hasValidDoubles;
+        calibration.look.outer_points = ellipseData.validOuterPoints;
+        calibration.look.inner_points = ellipseData.validInnerPoints;
+
+        log_info("CAMERA " + log_string(cameraIdx + 1) + " sight: " + log_string_src(board_look::measured(calibration.look)));
+
+        const string refused = board_look::refusal(calibration.look);
+        if (!refused.empty())
+        {
+            // Said once, by index, with the measurement above it. The camera is refused;
+            // the board is not. calibrateMultipleCameras keeps its slot and the cameras
+            // that did see the board carry on.
+            log_error("CAMERA " + log_string(cameraIdx + 1) + " refused: " + log_string_src(refused));
+            calibration.sees_board = false;
+            return calibration;
+        }
+        calibration.sees_board = true;
+
         // [===STEP 8:===] Extract actual wire positions for segment alignment
         wire_processing::WireDetectionConfig wireConfig;
         // When useHoughLinesDetection = false, it will use ensemble method
@@ -110,6 +142,13 @@ namespace geometry_calibration
             if (frames[cam_idx].empty())
             {
                 log_warning("Empty frame from camera " + log_string(cam_idx + 1));
+                // #1318: the slot is kept. score_processing reads calibrations[i] by the
+                // camera's position in this vector, so a `continue` that shortened it
+                // handed every camera after this one the calibration of its neighbour --
+                // a board scored through the wrong perspective, with nothing said.
+                DartboardCalibration blank;
+                blank.camera_index = (int)cam_idx;
+                calibrations.push_back(blank);
                 continue;
             }
 
@@ -124,6 +163,41 @@ namespace geometry_calibration
                 odfs::ensureDirectory("debug_frames/geometry_calibration");
                 imwrite("debug_frames/geometry_calibration/calibration_camera_" + to_string(cam_idx) + ".jpg", visFrame);
             }
+        }
+
+        // #1318: which cameras are looking at the dartboard, said once, as a sentence.
+        // A board with two good cameras and a webcam in the middle of the list used to
+        // report `BOARD FAULTED: this board is running and cannot see`, which was true of
+        // nothing anybody could act on. Now the count is here and the reason is on the
+        // refused camera's own line above.
+        {
+            string seeing, blind;
+            int count = 0;
+            for (const auto &calibration : calibrations)
+            {
+                const string index = to_string(calibration.camera_index + 1);
+                if (calibration.sees_board)
+                {
+                    count++;
+                    seeing += (seeing.empty() ? "" : ",") + index;
+                }
+                else
+                {
+                    blind += (blind.empty() ? "" : ",") + index;
+                }
+            }
+            string line = "CAMERAS: " + to_string(count) + " of " + to_string((int)calibrations.size()) +
+                          " are looking at the dartboard";
+            if (count > 0)
+                line += " (" + seeing + ")";
+            if (!blind.empty())
+                line += "; refused: " + blind;
+            if (count == 0)
+                log_error(line);
+            else if (!blind.empty())
+                log_warning(line);
+            else
+                log_info(line);
         }
 
         // once all cameras are calibrated, we need to find the star camera
