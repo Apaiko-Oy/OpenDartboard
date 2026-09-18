@@ -8,10 +8,18 @@ REM   - WITH_MSMF=ON              one backend for cameras and for the mock files
 REM   - WITH_DSHOW=OFF            the study's rejected alternative (capture 2.1)
 REM BUILD_LIST is what the program's includes need: opencv.hpp + imgproc, plus
 REM solvePnP (calib3d), whose own module deps are features2d and flann.
+REM #1299: the toolchain paths are overridable for the same reason as in
+REM build-windows.bat -- CI's Visual Studio is not at a developer box's path. SRC, BLD
+REM and INST are deliberately NOT overridable: the release workflow puts the OpenCV
+REM sources where this script already looks for them, so CI walks the maintainer's path
+REM rather than a second one that could drift away from it.
 setlocal
-set VS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
-set CMAKE=C:\Program Files\CMake\bin\cmake.exe
-set NINJA=%VS%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe
+set "VS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+set "CMAKE=C:\Program Files\CMake\bin\cmake.exe"
+if defined OD_VS set "VS=%OD_VS%"
+if defined OD_CMAKE set "CMAKE=%OD_CMAKE%"
+set "NINJA=%VS%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
+if defined OD_NINJA set "NINJA=%OD_NINJA%"
 set SRC=C:\opencv-dl\opencv\sources
 set BLD=C:\od\opencv-static-build
 set INST=C:\opencv-static

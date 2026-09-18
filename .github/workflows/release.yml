@@ -9,6 +9,12 @@ on:
       - "v*" # e.g. vX.X.X
   workflow_dispatch: # allows manual rebuilds
 
+# #1299: two jobs, and they are deliberately independent of each other. Neither names
+# the other in `needs`, they share no `strategy`, and each attaches its own file to the
+# release itself -- so an arm64 build that fails does not stop the Windows artefact from
+# reaching the release, and a Windows build that fails does not stop the .deb. There is
+# no third "publish" job that both feed, because that job would be exactly the thing
+# that makes one failure hide the other's result.
 jobs:
   build-deb:
     runs-on: ubuntu-24.04-arm
@@ -30,8 +36,16 @@ jobs:
           xargs apt-get install -y < apt-packages.txt
 
       # 3. Derive version from tag (refs/tags/v0.0.1 -> 0.0.1)
+      #    #1299: a manual run has no tag, and this used to hand `make deb` the string
+      #    "refs/heads/main" as a version. A run with nothing to name is 0.0.0-dev, the
+      #    same word the Makefile already uses for a version nobody passed.
       - id: vars
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
 
       # 4. Build binary and .deb
       - name: Build + Package
@@ -40,11 +54,224 @@ jobs:
           make deb VERSION=${{ steps.vars.outputs.VERSION }}
 
       # 5. Upload .deb to the release
+      #    #1299: only a tag publishes. A manual run builds and proves the build, and
+      #    a Release on this fork is outward-facing enough that it should take a tag.
       - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.deb
           # GitHub auto‑creates notes
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    # windows-2022 is pinned rather than windows-latest, and the reason is in
+    # scripts/build-windows.bat: the static OpenCV tree is read from
+    # C:\opencv-static\x64\vc17\staticlib, and "vc17" is the Visual Studio 2022
+    # toolset. windows-latest is Windows Server 2025 with Visual Studio 2026, which
+    # would install OpenCV under a different toolset directory and quietly stop
+    # matching the path the hand-built maintainer build uses.
+    runs-on: windows-2022
+
+    env:
+      # Nothing in this tree named the OpenCV version, because the hand-built path
+      # downloaded it by hand -- which is the whole of what this issue is about.
+      # 4.14.0 is what scripts/build-windows.bat means by opencv_world4140.dll.
+      # This number is the only input to the cache key that anybody edits on purpose.
+      OPENCV_VERSION: "4.14.0"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The tag is the only source of the version. Nothing here types one.
+      - name: Derive version from tag
+        id: vars
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The two .bat scripts default to a developer box's toolchain paths. The runner
+      # has Visual Studio Enterprise where they say BuildTools, so the paths are looked
+      # up here -- with the installer's own vswhere -- and handed to the scripts.
+      - name: Locate the Visual Studio toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe is not at $vswhere" }
+          $vs = & $vswhere -latest -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath | Select-Object -First 1
+          if (-not $vs) { throw "vswhere found no Visual Studio with the x64 C++ toolset" }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          if (-not (Test-Path $vcvars)) { throw "no vcvars64.bat under $vs" }
+
+          $cmake = (Get-Command cmake -ErrorAction SilentlyContinue).Source
+          if (-not $cmake) { $cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' }
+          if (-not (Test-Path $cmake)) { throw "no cmake.exe on PATH or in $vs" }
+
+          $ninja = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
+          if (-not (Test-Path $ninja)) { $ninja = (Get-Command ninja -ErrorAction SilentlyContinue).Source }
+          if (-not $ninja -or -not (Test-Path $ninja)) { throw "no ninja.exe in $vs or on PATH" }
+
+          "OD_VS=$vs"       | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "OD_CMAKE=$cmake" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "OD_NINJA=$ninja" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "vs=$vs"
+          Write-Host "cmake=$cmake"
+          Write-Host "ninja=$ninja"
+
+      # The static OpenCV tree is about eight and a half minutes of compiling and it
+      # changes only when the OpenCV version does, so it is restored rather than built.
+      # The key carries the version and the recipe that turns a version into a tree:
+      # an edit to the flags in build-opencv-windows-static.bat must not be served a
+      # tree built before the edit. There is deliberately no `restore-keys`: a prefix
+      # match would happily hand this job an OpenCV built from another version.
+      - name: Restore the static OpenCV tree
+        id: opencv-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\opencv-static
+          key: opencv-static-windows-2022-${{ env.OPENCV_VERSION }}-${{ hashFiles('scripts/build-opencv-windows-static.bat') }}
+
+      # A miss is slow, not fatal: the sources are fetched and the same script the
+      # maintainer runs by hand builds the same tree into the same prefix.
+      - name: Fetch the OpenCV sources
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'opencv.zip'
+          $work = Join-Path $env:RUNNER_TEMP 'opencv-src'
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/archive/refs/tags/$env:OPENCV_VERSION.zip" -OutFile $zip
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          tar.exe -x -f $zip -C $work
+          $unpacked = Join-Path $work "opencv-$env:OPENCV_VERSION"
+          if (-not (Test-Path (Join-Path $unpacked 'CMakeLists.txt'))) { throw "no OpenCV sources at $unpacked" }
+          # build-opencv-windows-static.bat reads C:\opencv-dl\opencv\sources, the path a
+          # hand build already uses. CI puts the sources there rather than teaching the
+          # script a second path that could drift away from the first.
+          New-Item -ItemType Directory -Force -Path 'C:\opencv-dl\opencv' | Out-Null
+          if (Test-Path 'C:\opencv-dl\opencv\sources') { Remove-Item -Recurse -Force 'C:\opencv-dl\opencv\sources' }
+          Move-Item $unpacked 'C:\opencv-dl\opencv\sources'
+
+      - name: Build static OpenCV (cache miss only, about 8.5 minutes)
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: scripts\build-opencv-windows-static.bat
+
+      - name: The static OpenCV tree is where the build script looks for it
+        shell: pwsh
+        run: |
+          $dir = 'C:\opencv-static\x64\vc17\staticlib'
+          if (-not (Test-Path (Join-Path $dir 'OpenCVConfig.cmake'))) {
+            throw "no OpenCVConfig.cmake in $dir -- a restored cache is not the tree build-windows.bat expects"
+          }
+
+      - name: Build the standalone Windows detector
+        shell: cmd
+        run: scripts\build-windows.bat static ${{ steps.vars.outputs.VERSION }}
+
+      # The tag reaches the compiled string through -DAPP_VERSION, and this is the only
+      # place that can say it arrived. It runs the artefact: --version is answered before
+      # main() opens anything, so there is nothing for a headless runner to fail on.
+      - name: The artefact prints the tag it was built from
+        shell: pwsh
+        run: |
+          $exe = 'build-win-static\opendartboard.exe'
+          if (-not (Test-Path $exe)) { throw "no $exe" }
+          $printed = (& $exe --version | Out-String).Trim()
+          Write-Host $printed
+          $expected = "OpenDartboard runtime version: ${{ steps.vars.outputs.VERSION }}"
+          if ($printed -ne $expected) { throw "--version printed '$printed', expected '$expected'" }
+
+      - name: Ask the artefact what it depends on
+        shell: cmd
+        run: |
+          call "%OD_VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          dumpbin /dependents build-win-static\opendartboard.exe > dependents.txt || exit /b 1
+          type dependents.txt
+
+      # The one-file property was established by hand once. This is CI keeping it.
+      # Two questions, because either alone passes something it should not: every DLL
+      # the .exe imports must really be in %WINDIR%\System32, AND none of them may be a
+      # redistributable -- vcruntime140 and msvcp140 are in System32 on this runner
+      # precisely because Visual Studio is installed on it, so "in System32" alone would
+      # wave an /MD build through. A parse that finds no dependency at all is a failure
+      # rather than a clean sweep: an empty census proves nothing.
+      - name: The artefact is one file, and names only in-box Windows DLLs
+        shell: pwsh
+        run: |
+          $named = Select-String -Path dependents.txt -Pattern '^\s+(\S+\.dll)\s*$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } |
+            Sort-Object -Unique
+          if (-not $named) { throw "dumpbin named no dependency at all -- this check did not look at anything" }
+          Write-Host "imports: $($named -join ', ')"
+
+          $redistributable = '^(opencv|vcruntime|msvcp|msvcr|concrt|vcomp|ucrtbase|api-ms-win-crt)'
+          $system32 = Join-Path $env:WINDIR 'System32'
+          $faults = @()
+          foreach ($dll in $named) {
+            if ($dll -match $redistributable) { $faults += "$dll is a redistributable, not an in-box Windows DLL"; continue }
+            if (-not (Test-Path (Join-Path $system32 $dll))) { $faults += "$dll is not in $system32" }
+          }
+          $beside = Get-ChildItem 'build-win-static' -File -Filter *.dll
+          foreach ($f in $beside) { $faults += "$($f.Name) sits beside the .exe; the artefact is meant to be one file" }
+          if ($faults) { throw ("the standalone property is broken:`n" + ($faults -join "`n")) }
+
+      # A binary reaching somebody else is conveying (#808), so what leaves here carries
+      # the licence and says which commit of which repository it came from.
+      - name: Package the release zip
+        id: package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.vars.outputs.VERSION }}"
+          $stage = 'dist\windows'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'build-win-static\opendartboard.exe' $stage
+          Copy-Item 'LICENSE' $stage
+          $info = @(
+            "OpenDartboard (Apaiko-Oy fork) - Windows x64, standalone",
+            "",
+            "version:    $version",
+            "ref:        $env:GITHUB_REF_NAME ($env:GITHUB_REF_TYPE)",
+            "commit:     $env:GITHUB_SHA",
+            "source:     https://github.com/$env:GITHUB_REPOSITORY/tree/$env:GITHUB_SHA",
+            "opencv:     $env:OPENCV_VERSION, static, /MT",
+            "built by:   https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            "",
+            "This program is free software under the GPL-3.0; LICENSE is beside this file.",
+            "The corresponding source is the repository named above at that commit.",
+            "",
+            "dumpbin /dependents said:"
+          ) + (Get-Content 'dependents.txt')
+          $info | Set-Content (Join-Path $stage 'BUILD-INFO.txt')
+          $zip = "dist\opendartboard-$version-windows-x64.zip"
+          Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
+          "ZIP=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # Every run leaves the artefact somewhere it can be fetched and looked at, tag or
+      # not. That is what makes a manual run useful without it publishing anything.
+      - name: Keep the artefact on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendartboard-windows-x64
+          path: ${{ steps.package.outputs.ZIP }}
+          if-no-files-found: error
+
+      # generate_release_notes is deliberately not set here: the .deb job writes the
+      # notes, and two jobs writing the same body would have one of them overwrite the
+      # other. This job only attaches its file.
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.ZIP }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

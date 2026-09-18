@@ -20,9 +20,17 @@ REM OpenCV against an /MD program is a duplicate-symbol link or two heaps at
 REM runtime, and nothing warns you at configure time.
 
 setlocal enabledelayedexpansion
-set VS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools
-set CMAKE=C:\Program Files\CMake\bin\cmake.exe
-set NINJA=%VS%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe
+REM #1299: these three paths are one developer box's, and a GitHub Windows runner is
+REM not one -- it has Visual Studio Enterprise where this says BuildTools. The defaults
+REM are unchanged, so a hand build is exactly what it always was; a caller that has
+REM looked the toolchain up says where it really is in OD_VS, OD_CMAKE and OD_NINJA.
+REM NINJA is derived from VS, so the VS override has to land before it.
+set "VS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+set "CMAKE=C:\Program Files\CMake\bin\cmake.exe"
+if defined OD_VS set "VS=%OD_VS%"
+if defined OD_CMAKE set "CMAKE=%OD_CMAKE%"
+set "NINJA=%VS%\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
+if defined OD_NINJA set "NINJA=%OD_NINJA%"
 
 set OD_DEFS=
 set OD_DEV=
@@ -37,6 +45,11 @@ set OD_VERSION=%~1
 shift
 goto parse
 :parsed
+
+REM #1299: a version nobody passed compiled in as an empty string, so --version on a
+REM hand-built .exe printed the label and nothing after it. The Makefile answers the
+REM same omission with 0.0.0-dev; this is that answer, in the same words.
+if not defined OD_VERSION set "OD_VERSION=0.0.0-dev"
 
 if defined OD_DEV set OD_DEFS=/DDEBUG_SEEK_VIDEO /DDEBUG_VIA_VIDEO_INPUT
 
