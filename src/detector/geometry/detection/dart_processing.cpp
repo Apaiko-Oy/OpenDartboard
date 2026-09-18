@@ -32,23 +32,7 @@ namespace dart_processing
     static unique_ptr<streamer> dart_thresh_diff_streamer;
     static unique_ptr<streamer> dart_tip_streamer;
 
-    // get name of ENUM
-    string getDartBoardStateName(DartBoardState state)
-    {
-        switch (state)
-        {
-        case DartBoardState::CLEAN:
-            return "CLEAN";
-        case DartBoardState::DART_1:
-            return "DART_1";
-        case DartBoardState::DART_2:
-            return "DART_2";
-        case DartBoardState::DART_3:
-            return "DART_3";
-        default:
-            return "UNKNOWN";
-        }
-    }
+    // getDartBoardStateName lives inline in the header since #1350.
 
     pair<Point2f, Point2f> detectTipAndCenter(const Mat &binary_thresh, bool debug_mode, int camera_id, vector<Mat> &dart_tips)
     {
@@ -400,7 +384,7 @@ namespace dart_processing
 
             // Determine candidate state based on change ratio and previous state
             auto candidate_state = DartBoardState::CLEAN;
-            if (change_ratio >= 0.22) // Threshold for detecting a dart
+            if (change_ratio >= params.change_percent_threshold) // Threshold for detecting a dart; #1350 hoisted the 0.22 into DartParams, value unchanged
             {
 
                 // CHECK FROM CLEAN AND OR UNKNOW STATES TOO (MAYBE NOT DEFINED YET)
@@ -580,7 +564,22 @@ namespace dart_processing
         result.previous_state = best_previous_state;
         best_previous_state = final_state;
 
-        log_info(""); // empty line for readability
+        // #1350: a window whose vote changed nothing used to leave one empty INFO line
+        // here, so tonight's failure -- one camera voting a dart and the vote refusing it
+        // (#1345) -- was invisible at normal level. The refusal now accounts for itself
+        // where the blank line was. A window that scored keeps the blank line instead,
+        // byte for byte, because the research chain's controls were extracted from that
+        // output and this issue promises not to move it.
+        const string refusal = refusedWindowAccount(result.camera_results, result.previous_state,
+                                                    result.current_state, moves_up, goes_clean, params);
+        if (!refusal.empty())
+        {
+            log_info(refusal);
+        }
+        else
+        {
+            log_info(""); // empty line for readability
+        }
 
         return result;
     }
