@@ -93,10 +93,24 @@ namespace color_processing
         // this frame to be off the middle of: the rule says so and falls back to the
         // middle of the frame, which is what shipped before #1323.
         //
-        // This is NOT a new number. It is bull_processing's minBoardAreaPercent, the
-        // same 4% of the frame asked of the same quantity -- the area enclosed by the
-        // largest outermost contour -- one stage earlier, so that the two stages cannot
-        // disagree about whether there is a board in the picture. Both rigs, measured:
+        // It WAS bull_processing's minBoardAreaPercent: the same 4% of the frame asked
+        // of the same quantity -- the area enclosed by the largest outermost contour --
+        // one stage earlier, so that the two stages could not disagree about whether
+        // there is a board in the picture. #1340 took that floor out of bull_processing,
+        // because the area enclosed by that boundary collapses when the doubles ring
+        // breaks into arcs, so what it measured was how well the ring closed rather than
+        // how big the board is. The evidence is two numbers already in this comment: the
+        // 2.45% and the 7.61% below are one board, one mounting, one distance.
+        //
+        // It is deliberately left standing HERE and the two stages now part company on
+        // purpose. What this floor decides is which point the centrality windows are
+        // drawn around, and its failure is a fallback to the middle of the frame -- the
+        // behaviour that shipped before #1323, on a camera whose bull is 60 px from that
+        // middle and well inside a 128 px window. What it also decides is which blobs
+        // reach bull_processing at all, and #1323 measured that a different rule here
+        // drops the bull on three of the six cameras that calibrate today. So it is not
+        // a number to move without the rig in front of you, and moving it is its own
+        // issue rather than a line in #1340's. Both rigs, measured:
         // the board encloses 20.23%, 19.42% and 20.59% of the frame on mocks/cam_*.mp4,
         // and 2.45%, 7.61% and 7.41% on mocks/rig-20260918, whose board sits smaller in
         // frame. So this floor is under five of the six by a factor of 1.9 to 5.1, and
@@ -108,7 +122,8 @@ namespace color_processing
         // about -- and the honest way to read that is #1320's lesson again: the rig with
         // the smaller board is where a constant runs out first, and here it already has.
         //
-        // If it is ever changed, it is changed in both places or the stages part company.
+        // If it is ever changed, it is changed against the rig and not against this
+        // comment. bull_processing no longer holds a twin of it to keep in step.
         double minBoardAreaPercent = 0.04; // Area enclosed by the board, as a share of the frame
 
         // Specific text filtering (targeting known problem areas)
