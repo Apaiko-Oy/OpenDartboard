@@ -110,7 +110,21 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             target_width,
             target_height);
 
-        calibrated = !calibrations.empty();
+        // `calibrateMultipleCameras` returns one object per non-empty frame, even
+        // when a camera could not find the double ring or enough wire endpoints.
+        // Treating a non-empty vector as success used to save unusable backgrounds
+        // and start scoring after a failed calibration.
+        const size_t expected_calibrations = camera::validCount(calibration_frames);
+        const bool every_camera_is_calibrated =
+            calibrations.size() == expected_calibrations &&
+            !calibrations.empty() &&
+            all_of(calibrations.begin(), calibrations.end(), [](const DartboardCalibration &calibration)
+                   {
+                       return calibration.ellipses.hasValidDoubles &&
+                              calibration.wires.wireEndpoints.size() >= 16;
+                   });
+
+        calibrated = every_camera_is_calibrated;
 
         if (calibrated)
         {
