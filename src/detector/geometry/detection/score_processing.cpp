@@ -180,10 +180,21 @@ namespace score_processing
     {
         PointScore out;
 
-        // Validation check
-        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < 20)
+        // Validation check. #1317: the second half of this could not fire -- it asked
+        // std::array<Point2f, 20>::size(), which is 20 on every calibration ever made,
+        // including a blank one. It is the guard on the SCORING path, and it is the last
+        // thing between a partial detection and a dart being given a number: findWedgeSlot
+        // below walks `(start + i) % wires` around the ring, so with nineteen wires every
+        // wedge past the gap is the wrong segment, and with none it divides by zero.
+        // A camera with no frame is exactly that case -- calibrateMultipleCameras keeps a
+        // blank slot for it on purpose (#1318) and scoreDarts reads calibrations[i] for
+        // every camera -- so this now refuses on a real calibration in a real run.
+        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < (size_t)wire_processing::kWiresRequired)
         {
-            log_debug("SCORE: Invalid calibration data");
+            log_debug("SCORE: Invalid calibration data: camera " + log_string(calib.camera_index + 1) +
+                      " has " + log_string(calib.wires.wireEndpoints.size()) + " of the " +
+                      log_string(wire_processing::kWiresRequired) + " wire boundaries scoring needs" +
+                      string(calib.ellipses.hasValidDoubles ? "" : ", and no fitted doubles ring"));
             return out;
         }
 

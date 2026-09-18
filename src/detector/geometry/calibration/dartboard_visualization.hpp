@@ -72,7 +72,10 @@ namespace dartboard_visualization
             }
 
             // Draw dartboard segment numbers using orientation data
-            if (calib.orientation.wedge20WireIndex >= 0 && calib.wires.wireEndpoints.size() >= 20)
+            // #1317: the same one number the three guards read. `.size()` is what the
+            // wire stage found now, so the `%` below can no longer wrap a twenty-slot
+            // ring around a count that was never twenty.
+            if (calib.orientation.wedge20WireIndex >= 0 && calib.wires.wireEndpoints.size() >= (size_t)wire_processing::kWiresRequired)
             {
                 // Standard dartboard sequence starting from 20
                 std::vector<int> dartboardSequence = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
@@ -96,7 +99,7 @@ namespace dartboard_visualization
                 cv::fillPoly(overlay, wedge20Points, cv::Scalar(0, 0, 255)); // Red fill
                 cv::addWeighted(visFrame, 0.7, overlay, 0.3, 0, visFrame);   // 30% transparency
 
-                for (int i = 0; i < 20 && i < calib.wires.wireEndpoints.size(); i++)
+                for (int i = 0; i < wire_processing::kWiresRequired && (size_t)i < calib.wires.wireEndpoints.size(); i++)
                 {
                     // Calculate which wire index corresponds to this dartboard segment
                     int wireIndex = (calib.orientation.wedge20WireIndex + i) % calib.wires.wireEndpoints.size();
@@ -165,7 +168,8 @@ namespace dartboard_visualization
                         cv::Point(20, 100), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
 
             // Wire detection info
-            std::string wireInfo = "Wires: " + std::to_string(calib.wires.wireEndpoints.size()) + "/??";
+            std::string wireInfo = "Wires: " + std::to_string(calib.wires.wireEndpoints.size()) + "/" +
+                                   std::to_string(wire_processing::kWiresRequired);
             cv::Scalar wireColor = calib.wires.isValid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
             cv::putText(visFrame, wireInfo, cv::Point(20, 130),
                         cv::FONT_HERSHEY_SIMPLEX, 0.6, wireColor, 2);
