@@ -264,18 +264,18 @@ namespace score_processing
 
         // 2. WEDGE DETECTION using angles
         //
-        // #1346: the gate on isStarCamera is a DECISION now, where it used to read as an
-        // accident (#797: the header even glossed isStarCamera as "whether the
-        // orientation was successfully detected", which is not what it means). A TOP or
-        // BOTTOM camera does compute a wedge20WireIndex of its own -- orientation's
-        // clip-wire side analysis -- and #797 measured it agreeing with the star camera
-        // on four wedges of seven, the disagreements one wedge wide either way. That is
-        // real but unproven at the vote, and #797 also measured that widening the voter
-        // set makes the published score WORSE while disagreements fall back to the
-        // lowest index. So until that vote question is settled, only the star camera's
-        // wedge counts as measured, and a non-star camera's reading is an assertion the
-        // vote keeps aside (chooseScore) rather than a second voter.
-        out.wedge_measured = calib.orientation.isStarCamera && calib.orientation.wedge20WireIndex >= 0;
+        // #1346 made this gate a DECISION where it read as an accident, and #1363 gave
+        // the decision its own word: `anchored` is true for the star camera's
+        // MEASUREMENT and for an operator-CONFIGURED anchor (OD_CAMERA_WEDGES, the
+        // fixed-rig statement a Blade 6 over a black surround needs, because its clip
+        // finder sees one clip where the heuristic demands four). It stays false for
+        // the TOP/BOTTOM clip-wire guesses: #797 measured them agreeing with the star
+        // camera on four wedges of seven, one wedge loose either way, and measured that
+        // widening the voter set makes the published score WORSE while disagreements
+        // fall back to the lowest index. Until that vote question is settled, an
+        // unanchored camera's wedge is an assertion the vote keeps aside (chooseScore),
+        // never a second voter.
+        out.wedge_measured = calib.orientation.anchored && calib.orientation.wedge20WireIndex >= 0;
         if (!out.wedge_measured && !on_bull)
         {
             log_debug("SCORE: No orientation data, defaulting to 20");

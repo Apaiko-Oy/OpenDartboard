@@ -278,6 +278,10 @@ namespace orientation_processing
             result.wedge20WireIndex = result.southWireIndex - 5;
             if (result.wedge20WireIndex < 0)
                 result.wedge20WireIndex += calib.wires.wireEndpoints.size();
+            // #1363: the star measurement is a trustworthy anchor; the TOP/BOTTOM
+            // branches below compute an index too and deliberately do NOT set this --
+            // #797 measured them one wedge loose, and #1346 recorded the caution.
+            result.anchored = true;
         }
         else
         {

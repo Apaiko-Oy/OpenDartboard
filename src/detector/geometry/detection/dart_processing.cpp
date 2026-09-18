@@ -21,6 +21,15 @@ namespace dart_processing
         int pixels = 0;
         Size frame;
         RotatedRect edge;
+        // #1364: the mask the TIP is searched in -- the board's PHYSICAL extent, the
+        // fitted double-edge ellipse scaled by 225.5/170 (a board is 225.5mm to its rim
+        // where the double's outer wire is at 170mm). The deciding shares above stay
+        // fractions of the scoring area; this wider one exists because clipping the tip
+        // search at the double ring cost the mocks' near-edge S7 its tip -- the shaft
+        // crossed the edge and the on-board remnant fell under the contour floor --
+        // while the search must still exclude the thrower at the frame's edge, which is
+        // what #1364 measured the old whole-frame search finding instead of the dart.
+        Mat tip_mask;
     };
     static vector<Region> regions;
 
@@ -53,6 +62,13 @@ namespace dart_processing
         r.mask = Mat::zeros(frame, CV_8UC1);
         ellipse(r.mask, r.edge, Scalar(255), FILLED);
         r.pixels = countNonZero(r.mask);
+        // #1364: the physical board, for the tip search. 225.5/170 is the board's own
+        // rim-to-double ratio, not a tuned constant.
+        RotatedRect physical = r.edge;
+        physical.size.width *= 225.5f / 170.0f;
+        physical.size.height *= 225.5f / 170.0f;
+        r.tip_mask = Mat::zeros(frame, CV_8UC1);
+        ellipse(r.tip_mask, physical, Scalar(255), FILLED);
         if (r.pixels <= 0)
         {
             r.known = false;
@@ -519,7 +535,17 @@ namespace dart_processing
                     single_thresh = thresh.clone();
                 }
 
-                // #1354: what of that is NEW, and on the board where there is one
+                // #1354: what of that is NEW, and on the board where there is one.
+                // #1364: the masked image is then also what the TIP is found in --
+                // measured on the rig's own footage, camera 1's MISS marker sat at the
+                // top edge of the frame, on the thrower's follow-through, nowhere near
+                // either end of the dart: fresh change OFF the board (an arm, a shadow,
+                // the shoes) was in the point cloud, and the furthest-hull-point "tip"
+                // followed it out of the picture. A tip is on the board by definition,
+                // so the hull the tip is picked from is the on-board diff; off-board
+                // clutter can no longer be a tip, and the part of a dart's silhouette
+                // that projects past the rim (its flight, from a side-on camera) is
+                // clipped, which biases the hull toward the end that scored.
                 double fresh_share;
                 if (decides_on_board)
                 {
@@ -528,6 +554,12 @@ namespace dart_processing
                     const int fresh_pixels = countNonZero(fresh_inside);
                     result.camera_results[i].fresh_board_pixels = fresh_pixels;
                     fresh_share = 100.0 * (double)fresh_pixels / (double)board_pixels;
+                    // The tip is searched inside the PHYSICAL board -- wider than the
+                    // deciding share's scoring area, see Region::tip_mask -- so a
+                    // near-edge dart keeps its shaft and the thrower stays outside.
+                    Mat tip_image;
+                    bitwise_and(single_thresh, region.tip_mask, tip_image);
+                    single_thresh = tip_image;
                 }
                 else
                 {
