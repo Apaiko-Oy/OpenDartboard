@@ -3,15 +3,44 @@
 #include "color_processing.hpp"
 #include "utils.hpp"
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 
 using namespace cv;
 using namespace std;
 
 namespace bull_processing
 {
-    Point processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
+    namespace
+    {
+        /** A number a reader can compare, rather than to_string's six decimals. */
+        string decimals(double value, int places)
+        {
+            ostringstream out;
+            out << fixed << setprecision(places) << value;
+            return out.str();
+        }
+
+        /** The radius a filled region of this area would have if it were a disc. */
+        double discRadius(double area)
+        {
+            return sqrt(max(0.0, area) / CV_PI);
+        }
+
+        /** Why a candidate is not the bull. Empty means it is still in the running. */
+        struct Refusal
+        {
+            string reason;
+            bool refused() const { return !reason.empty(); }
+        };
+    }
+
+    BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
     {
         log_debug("Bull detection camera " + log_string(camera_idx) + " starting...");
+
+        BullSighting sighting;
+        sighting.center = frameCenter; // where a debug overlay draws until something is found
 
         // Step 1: Create blur mask
         Mat blurredFrame;
@@ -40,68 +69,197 @@ namespace bull_processing
 
         if (contours.empty())
         {
-            log_warning("No contours found");
-            return frameCenter;
+            // The count is in the sentence for #1321's reason: a line that carries no
+            // number is a line nothing can contradict.
+            sighting.failure = "the red/green frame yields 0 contours, and at least 1 region is "
+                               "needed before there is a board to measure or a candidate to "
+                               "measure against it";
+            return sighting;
         }
 
-        // Step 4: Analyze all contours with detailed info
-        Point bestBullCenter = frameCenter;
+        // ---- #1320 Step 3.5: measure the board, before scoring anything against it ----
+        //
+        // The largest outermost region in the red/green mask is the dartboard: its
+        // boundary is the outside of the doubles ring, because that is the last coloured
+        // thing on a board. Its area gives a radius the same way a disc's does, and the
+        // centroid of that boundary gives the middle of the board the rings describe.
+        // Both are measurements of this frame. Nothing here is a pixel constant except
+        // how much of the frame a board has to fill to be measurable at all.
+        int boardIndex = -1;
+        double boardArea = 0.0;
+        for (size_t i = 0; i < contours.size(); i++)
+        {
+            if (hierarchy[i][3] != -1) // not an outermost contour
+                continue;
+            const double area = contourArea(contours[i]);
+            if (area > boardArea)
+            {
+                boardArea = area;
+                boardIndex = static_cast<int>(i);
+            }
+        }
+
+        const double frameArea = static_cast<double>(redGreenFrame.cols) * redGreenFrame.rows;
+        const double minBoardArea = frameArea * params.minBoardAreaPercent;
+        if (boardIndex < 0 || boardArea < minBoardArea)
+        {
+            sighting.failure = "the board cannot be measured: the largest red/green region encloses " +
+                               to_string(static_cast<long>(boardArea)) + " pixels and a board this stage can " +
+                               "size a bull against has to enclose at least " + to_string(static_cast<long>(minBoardArea)) +
+                               " (" + decimals(params.minBoardAreaPercent * 100.0, 1) + "% of the frame)";
+            return sighting;
+        }
+
+        sighting.boardRadius = discRadius(boardArea);
+        const Moments boardMoments = moments(contours[boardIndex]);
+        sighting.boardCenter = (boardMoments.m00 > 0)
+                                   ? Point(static_cast<int>(boardMoments.m10 / boardMoments.m00),
+                                           static_cast<int>(boardMoments.m01 / boardMoments.m00))
+                                   : frameCenter;
+
+        const double idealRadius = sighting.boardRadius * params.bullRadiusOfBoardRadius;
+        const double minRadius = idealRadius * params.minBullRadiusFactor;
+        const double maxRadius = idealRadius * params.maxBullRadiusFactor;
+        const double maxOffset = sighting.boardRadius * params.maxOffsetOfBoardRadius;
+
+        log_debug("Board measured from the red/green mask: radius " + log_string((int)sighting.boardRadius) +
+                  " px, centre (" + log_string(sighting.boardCenter.x) + "," + log_string(sighting.boardCenter.y) +
+                  "); a bull here is " + log_string_src(decimals(minRadius, 1)) + " to " +
+                  log_string_src(decimals(maxRadius, 1)) + " px in radius and within " +
+                  log_string_src(decimals(maxOffset, 1)) + " px of that centre");
+
+        // Step 4: score every candidate against the board, and refuse the ones that
+        // cannot be a bull on it however round they are.
         double bestScore = 0;
         int bestContourIndex = -1;
+        double bestCircularity = 0, bestRadius = 0, bestOffset = 0;
+        int refusedOnSize = 0, refusedOnPosition = 0, refusedOnShape = 0;
+        vector<Refusal> refusals(contours.size());
+
+        // The roundest thing that was refused, so a camera that finds nothing can say
+        // what came closest and on what it lost -- which is the line #1320 was filed
+        // over: a 205-pixel speck at C=0.71 winning because nothing asked anything else.
+        double roundestRefusedCircularity = -1.0;
+        string roundestRefusal;
 
         for (size_t i = 0; i < contours.size(); i++)
         {
             const auto &contour = contours[i];
-            double area = contourArea(contour);
-
-            // Skip tiny contours - increased threshold
-            if (area < 200)
+            const double area = contourArea(contour);
+            const double perimeter = arcLength(contour, true);
+            if (perimeter <= 0 || area <= 0)
                 continue;
 
-            // Calculate circularity
-            double perimeter = arcLength(contour, true);
-            if (perimeter == 0)
-                continue;
+            const double circularity = (4 * CV_PI * area) / (perimeter * perimeter);
 
-            double circularity = (4 * CV_PI * area) / (perimeter * perimeter);
-
-            // Get contour center
             Point2f center2f;
-            float radius;
-            minEnclosingCircle(contour, center2f, radius);
-            Point center(center2f);
+            float enclosingRadius;
+            minEnclosingCircle(contour, center2f, enclosingRadius);
+            const Point center(center2f);
 
-            // Check if this is inner or outer contour
-            bool isInner = (hierarchy[i][2] != -1); // Has children (inner contour)
-            bool isOuter = (hierarchy[i][3] == -1); // No parent (outer contour)
+            // The radius is taken from the area rather than from the enclosing circle:
+            // a bull is a filled blob, and an enclosing circle is decided by whichever
+            // pixel is furthest out.
+            const double radius = discRadius(area);
+            const double offset = norm(Point2f(center) - Point2f(sighting.boardCenter));
 
-            // Simple scoring for bull detection
-            double score = circularity * 0.8 + (1.0 / (1.0 + area / 200.0)) * 0.2;
+            Refusal refusal;
+            if (radius < minRadius || radius > maxRadius)
+            {
+                refusal.reason = "size: it is " + decimals(radius, 1) + " px across the radius, " +
+                                 decimals(radius / sighting.boardRadius, 4) + " of the board radius " +
+                                 decimals(sighting.boardRadius, 1) + " px, and a bull on this board is " +
+                                 decimals(minRadius, 1) + " to " + decimals(maxRadius, 1) + " px";
+                refusedOnSize++;
+            }
+            else if (offset > maxOffset)
+            {
+                refusal.reason = "position: it sits " + decimals(offset, 1) + " px from the middle of the board at (" +
+                                 to_string(sighting.boardCenter.x) + "," + to_string(sighting.boardCenter.y) +
+                                 "), and a bull on this board is within " + decimals(maxOffset, 1) + " px";
+                refusedOnPosition++;
+            }
+            else if (circularity < params.minCircularity)
+            {
+                refusal.reason = "shape: circularity " + decimals(circularity, 2) + " and a bull is at least " +
+                                 decimals(params.minCircularity, 2);
+                refusedOnShape++;
+            }
+            refusals[i] = refusal;
 
-            log_debug("Contour " + log_string(i) +
-                      ": area=" + log_string((int)area) +
-                      ", circ=" + log_string(circularity).substr(0, 4) +
-                      ", center=(" + log_string(center.x) + "," + log_string(center.y) + ")" +
-                      ", inner=" + log_string(isInner) +
-                      ", outer=" + log_string(isOuter) +
-                      ", score=" + log_string(score).substr(0, 4));
+            // How well the radius matches a bull's, on a log scale so that half and
+            // double the ideal radius score the same, and nothing.
+            const double sizeFit = 1.0 - min(1.0, fabs(log(radius / idealRadius)) / log(2.0));
+            const double centrality = 1.0 - min(1.0, offset / maxOffset);
+            const double score = circularity * params.circularityWeight +
+                                 sizeFit * params.sizeWeight +
+                                 centrality * params.centralityWeight;
 
-            if (score > bestScore && circularity > 0.3)
+            if (area >= params.debugAreaFloor)
+            {
+                log_debug("Contour " + log_string(i) +
+                          ": area=" + log_string((int)area) +
+                          ", radius=" + log_string_src(decimals(radius, 1)) +
+                          ", circ=" + log_string_src(decimals(circularity, 2)) +
+                          ", centre=(" + log_string(center.x) + "," + log_string(center.y) + ")" +
+                          ", offset=" + log_string_src(decimals(offset, 1)) +
+                          (refusal.refused()
+                               ? ", REFUSED on " + log_string_src(refusal.reason)
+                               : ", score=" + log_string_src(decimals(score, 3))));
+            }
+
+            if (refusal.refused())
+            {
+                if (circularity > roundestRefusedCircularity)
+                {
+                    roundestRefusedCircularity = circularity;
+                    roundestRefusal = "the roundest thing refused was " + to_string((long)area) +
+                                      " pixels at (" + to_string(center.x) + "," + to_string(center.y) +
+                                      ") with circularity " + decimals(circularity, 2) +
+                                      ", refused on " + refusal.reason;
+                }
+                continue;
+            }
+
+            if (score > bestScore)
             {
                 bestScore = score;
-                bestBullCenter = center;
-                bestContourIndex = i;
+                bestContourIndex = static_cast<int>(i);
+                bestCircularity = circularity;
+                bestRadius = radius;
+                bestOffset = offset;
+                sighting.center = center;
             }
         }
 
+        const int refused = refusedOnSize + refusedOnPosition + refusedOnShape;
+
         if (bestContourIndex == -1)
         {
-            log_warning("No good contours found, using frame center");
-            bestBullCenter = frameCenter;
+            sighting.center = frameCenter;
+            const string scored = to_string(contours.size()) +
+                                  (contours.size() == 1 ? string(" region was") : string(" regions were"));
+            const string turnedDown = to_string(refused) +
+                                      (refused == 1 ? string(" was refused") : string(" were refused"));
+            sighting.failure = "no candidate on this board can be a bull: " + scored +
+                               " scored against a board of radius " + decimals(sighting.boardRadius, 1) +
+                               " px and " + turnedDown + " (" + to_string(refusedOnSize) + " on size, " +
+                               to_string(refusedOnPosition) + " on position, " + to_string(refusedOnShape) +
+                               " on shape)" +
+                               (roundestRefusal.empty() ? string() : string("; ") + roundestRefusal);
+            return sighting;
         }
 
-        log_debug("Bull detection complete - center=(" + log_string(bestBullCenter.x) +
-                  "," + log_string(bestBullCenter.y) + "), score=" + log_string(bestScore));
+        sighting.found = true;
+        sighting.score = bestScore;
+        sighting.radius = bestRadius;
+        sighting.basis = "circularity " + decimals(bestCircularity, 2) + ", radius " + decimals(bestRadius, 1) +
+                         " px (" + decimals(bestRadius / sighting.boardRadius, 3) + " of the board radius " +
+                         decimals(sighting.boardRadius, 1) + " px, a bull is " +
+                         decimals(params.bullRadiusOfBoardRadius, 3) + ") and " + decimals(bestOffset, 1) +
+                         " px off the middle of the board; " + to_string(refused) + " of " +
+                         to_string(contours.size()) + " refused (" + to_string(refusedOnSize) + " on size, " +
+                         to_string(refusedOnPosition) + " on position, " + to_string(refusedOnShape) + " on shape)";
 
         // Enhanced debug visualization
         if (debug_mode)
@@ -120,7 +278,7 @@ namespace bull_processing
             for (size_t i = 0; i < contours.size(); i++)
             {
                 double area = contourArea(contours[i]);
-                if (area < 200)
+                if (area < params.debugAreaFloor)
                     continue; // Skip tiny ones in visualization
 
                 double perimeter = arcLength(contours[i], true);
@@ -129,33 +287,26 @@ namespace bull_processing
                 Point2f center2f;
                 float radius;
                 minEnclosingCircle(contours[i], center2f, radius);
-                Point center(center2f);
 
-                bool isInner = (hierarchy[i][2] != -1);
-                bool isOuter = (hierarchy[i][3] == -1);
-
-                // New color scheme - avoiding green/red
+                // #1320: the picture says what the decision says. It used to label a
+                // contour INNER or OUTER, which is a fact about the hierarchy and had
+                // nothing to do with why the thing won.
                 Scalar color;
                 string status;
-                if (i == bestContourIndex)
+                if (static_cast<int>(i) == bestContourIndex)
                 {
                     color = Scalar(255, 255, 0); // Bright CYAN for best
                     status = "BEST";
                 }
-                else if (isInner)
+                else if (refusals[i].refused())
                 {
-                    color = Scalar(0, 255, 255); // YELLOW for inner
-                    status = "INNER";
-                }
-                else if (isOuter)
-                {
-                    color = Scalar(255, 0, 255); // MAGENTA for outer
-                    status = "OUTER";
+                    color = Scalar(255, 255, 255); // WHITE for refused
+                    status = "REFUSED " + refusals[i].reason.substr(0, refusals[i].reason.find(':'));
                 }
                 else
                 {
-                    color = Scalar(255, 255, 255); // WHITE for poor
-                    status = "POOR";
+                    color = Scalar(255, 0, 255); // MAGENTA for a candidate that lost on score
+                    status = "PASSED";
                 }
 
                 drawContours(bullDebug, contours, i, color, 3);
@@ -181,15 +332,18 @@ namespace bull_processing
 
                 // Collect info for top display with color
                 string info = "Contour " + to_string(validContourCount) + ": A=" + to_string(int(area)) +
-                              " C=" + to_string(circularity).substr(0, 4) + " (" + status + ")";
+                              " R=" + decimals(discRadius(area), 1) +
+                              " C=" + decimals(circularity, 2) + " (" + status + ")";
                 contourInfo.push_back(info);
                 contourColors.push_back(color);
 
                 validContourCount++;
             }
 
-            // Draw final bull center with bright white
-            circle(bullDebug, bestBullCenter, 4, Scalar(255, 255, 255), -1);
+            // Draw the board this was all measured against, and the bull on it
+            circle(bullDebug, sighting.boardCenter, static_cast<int>(sighting.boardRadius), Scalar(0, 200, 200), 1);
+            circle(bullDebug, sighting.boardCenter, static_cast<int>(maxOffset), Scalar(0, 120, 200), 1);
+            circle(bullDebug, sighting.center, 4, Scalar(255, 255, 255), -1);
 
             // Display contour info at top with colored backgrounds
             int yPos = 30;
@@ -215,7 +369,7 @@ namespace bull_processing
             imwrite("debug_frames/bull_processing/bull_detection_" + to_string(camera_idx) + ".jpg", bullDebug);
         }
 
-        return bestBullCenter;
+        return sighting;
     }
 
 } // namespace bull_processing
