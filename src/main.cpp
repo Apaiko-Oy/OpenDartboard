@@ -15,6 +15,10 @@
 #include "communication/turnaus_address.hpp"
 #include "communication/pairing_prompt.hpp"
 #include "utils/console_prompt.hpp"
+// #1305: --check-update. Reads the manifest this board's channel publishes, verifies it,
+// compares the version it names against this build's own, and stops there.
+#include "update/update_check.hpp"
+#include "update/update_keys.hpp"
 #ifdef _WIN32
 // #1258: the question at start, Windows only. Linux compiles none of it.
 #include "utils/camera_setup.hpp"
@@ -170,6 +174,49 @@ int main(int argc, char **argv)
   turnaus_config.base_url = configured_url;
   // #1257: one line, the address and which rule chose it; the credential is never logged.
   log_info("TURNAUS: address " + configured_url + " (from " + address_source + ")");
+
+  // #1305: which releases this install is offered, and the one-shot check that says what
+  // is published for it. The channel lives beside the credential (update_channel.hpp);
+  // --channel is the ONLY thing on this path that writes a file, and it writes only when
+  // somebody is setting it.
+  const string channel_path = update_channel::fileBeside(turnaus_config.credentials_path);
+  string channel = update_channel::load(channel_path);
+  {
+    const string asked_channel = getArg(argc, argv, "--channel", string(""));
+    if (!asked_channel.empty())
+    {
+      console_prompt::StdConsole console;
+      if (!update_channel::isKnown(asked_channel))
+      {
+        console.say({"Tuntematon päivityskanava '" + asked_channel + "'. Kanavat ovat: " + update_channel::known() + ".",
+                     "Unknown update channel '" + asked_channel + "'. The channels are: " + update_channel::known() +
+                         "."});
+        return 1;
+      }
+      if (!update_channel::save(channel_path, asked_channel))
+      {
+        console.say({"Päivityskanavaa ei voitu tallentaa tiedostoon " + channel_path + ".",
+                     "The update channel could not be written to " + channel_path + "."});
+        return 1;
+      }
+      channel = asked_channel;
+      console.say({"Päivityskanava on nyt " + channel + " (" + channel_path + ").",
+                   "The update channel is now " + channel + " (" + channel_path + ")."});
+    }
+  }
+
+  // --check-update asks, verifies and prints. It opens no camera, starts no detector,
+  // downloads no release and replaces no file (ADR-0077; #1305).
+  if (hasFlag(argc, argv, "--check-update"))
+  {
+    update_check::Answer answer = update_check::ask(turnaus_config.base_url, channel, version,
+                                                    update_keys::anchors(), update_check::fetchOverHttp);
+    console_prompt::StdConsole console;
+    const vector<console_prompt::Text> said = update_check::lines(answer);
+    for (size_t i = 0; i < said.size(); i++)
+      console.say(said[i]);
+    return update_check::exitCode(answer);
+  }
 
   // --pair exchanges a code for a credential and stops. It opens no camera and starts
   // no detector: a board being paired is a board somebody is standing in front of with
