@@ -126,16 +126,21 @@ namespace odhttp
     }
 
     /**
-     * One POST of a JSON body. Blocks for at most connect_timeout_s + read_timeout_s
-     * and never longer; it is called only from the client's own worker thread and never
+     * One request. Blocks for at most connect_timeout_s + read_timeout_s and never
+     * longer; it is called only from a worker thread or from a one-shot command, never
      * from the scoring loop.
      *
      * `headers` may carry Authorization. Nothing in this function logs, and nothing in
      * it copies a header into Response.
+     *
+     * #1305 gave it a verb. It was `postJson` and had "POST" written into it in two
+     * places; the update check reads a manifest, which is a GET of nobody's business at
+     * an open address, and a second copy of this function to say so would have been a
+     * second copy of the TLS refusal above it.
      */
-    inline Response postJson(const Url &u, const std::string &path, const std::string &body,
-                             const std::map<std::string, std::string> &headers,
-                             int connect_timeout_s, int read_timeout_s)
+    inline Response perform(const Url &u, const char *method, const std::string &path, const std::string &body,
+                            const std::map<std::string, std::string> &headers,
+                            int connect_timeout_s, int read_timeout_s)
     {
         Response r;
         if (!u.valid)
@@ -172,7 +177,8 @@ namespace odhttp
             return r;
         }
         std::wstring wpath = widen(u.path_prefix + path);
-        HINTERNET request = WinHttpOpenRequest(connection, L"POST", wpath.c_str(), nullptr,
+        std::wstring wmethod = widen(std::string(method));
+        HINTERNET request = WinHttpOpenRequest(connection, wmethod.c_str(), wpath.c_str(), nullptr,
                                                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                                u.tls ? WINHTTP_FLAG_SECURE : 0);
         if (!request)
@@ -182,13 +188,14 @@ namespace odhttp
             r.transport_error = "WinHttpOpenRequest failed";
             return r;
         }
-        std::string header_block = "Content-Type: application/json\r\n";
+        std::string header_block = body.empty() ? std::string() : std::string("Content-Type: application/json\r\n");
         for (const auto &kv : headers)
         {
             header_block += kv.first + ": " + kv.second + "\r\n";
         }
         std::wstring wheaders = widen(header_block);
-        BOOL sent = WinHttpSendRequest(request, wheaders.c_str(), (DWORD)-1,
+        BOOL sent = WinHttpSendRequest(request, header_block.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : wheaders.c_str(),
+                                       header_block.empty() ? 0 : (DWORD)-1,
                                        (LPVOID)body.data(), (DWORD)body.size(),
                                        (DWORD)body.size(), 0);
         if (sent)
@@ -244,7 +251,8 @@ namespace odhttp
         {
             h.emplace(kv.first, kv.second);
         }
-        auto res = client.Post((u.path_prefix + path).c_str(), h, body, "application/json");
+        auto res = std::string(method) == "GET" ? client.Get((u.path_prefix + path).c_str(), h)
+                                                : client.Post((u.path_prefix + path).c_str(), h, body, "application/json");
         if (!res)
         {
             r.transport_error = httplib::to_string(res.error());
@@ -258,5 +266,20 @@ namespace odhttp
         }
         return r;
 #endif
+    }
+
+    /** One POST of a JSON body. */
+    inline Response postJson(const Url &u, const std::string &path, const std::string &body,
+                             const std::map<std::string, std::string> &headers,
+                             int connect_timeout_s, int read_timeout_s)
+    {
+        return perform(u, "POST", path, body, headers, connect_timeout_s, read_timeout_s);
+    }
+
+    /** One GET. #1305 reads a signed manifest with it and sends no credential. */
+    inline Response get(const Url &u, const std::string &path, int connect_timeout_s, int read_timeout_s)
+    {
+        return perform(u, "GET", path, std::string(), std::map<std::string, std::string>(), connect_timeout_s,
+                       read_timeout_s);
     }
 }
