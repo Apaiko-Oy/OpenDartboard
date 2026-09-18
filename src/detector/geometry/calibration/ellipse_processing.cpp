@@ -231,7 +231,14 @@ namespace ellipse_processing
         EllipseBoundaryData result;
 
         // SECTION 1: RAY TRACING for DOUBLES (most accurate method)
-        if (!masks.doublesMask.empty())
+        if (masks.doublesMask.empty())
+        {
+            // #1321: the silent branch. Nothing was logged here at any level, and every
+            // stage below refuses on the flag this leaves false.
+            result.doublesFailure = "no doubles mask was produced from the red/green frame";
+            log_debug("No doubles mask to ray trace");
+        }
+        else
         {
             log_debug("Processing doubles ring with ray tracing...");
 
@@ -243,7 +250,16 @@ namespace ellipse_processing
             vector<bool> rayValidFlags;
             vector<Point> finalBoundaryPoints;
 
-            if (whitePixels >= params.minWhitePixelsThreshold)
+            if (whitePixels < params.minWhitePixelsThreshold)
+            {
+                // #1321: also silent until now. A dark or washed-out frame lands here,
+                // and the count that decided it is the first thing a tester wants.
+                result.doublesFailure = "the doubles mask holds " + to_string(whitePixels) +
+                                        " white pixels and this stage needs at least " +
+                                        to_string(params.minWhitePixelsThreshold);
+                log_debug("Not enough white pixels for doubles: " + log_string(whitePixels));
+            }
+            else
             {
                 // Perform ray tracing on clean doubles mask
                 finalBoundaryPoints = performDoubleRayTrace(masks.doublesMask, bullCenter, params,
@@ -296,12 +312,21 @@ namespace ellipse_processing
                     catch (const cv::Exception &e)
                     {
                         log_debug("Double ellipse fitting failed: " + string(e.what()));
+                        result.doublesFailure = "fitting the doubles ellipse from " +
+                                                to_string(finalBoundaryPoints.size()) +
+                                                " boundary points threw: " + string(e.what());
                         result.hasValidDoubles = false;
                     }
                 }
                 else
                 {
                     log_debug("Not enough boundary points for doubles: " + log_string(finalBoundaryPoints.size()));
+                    result.doublesFailure = to_string(allOuterPoints.size()) + " rays traced, " +
+                                            to_string(finalBoundaryPoints.size()) +
+                                            " gave a boundary point, and at least " +
+                                            to_string(params.minValidRays) +
+                                            " are needed to fit the doubles ellipse (doubles mask " +
+                                            to_string(whitePixels) + " white pixels)";
                     result.hasValidDoubles = false;
                 }
             }

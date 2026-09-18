@@ -37,6 +37,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <string>
 
 namespace board_sight
 {
@@ -94,6 +95,34 @@ namespace board_sight
     {
         static std::atomic<bool> v{false};
         return v;
+    }
+
+    /**
+     * #1321: the sentence `BOARD FAULTED` says instead of offering two alternatives and
+     * committing to neither. It is written where the fault is observed -- the camera
+     * branch of Scorer's constructor names the sources it tried, the calibration path
+     * names the camera and the count that fell short -- and read once, from the vigil,
+     * on the same thread. First fault wins, because the first thing that could not come
+     * up is the thing to go and look at; everything after it is a consequence.
+     *
+     * The string is a function-local static that is deliberately never destroyed, for
+     * #817's reason in `logging::logFilePath()`: this process logs from threads that are
+     * still running when exit() runs destructors, and a destroyed string read as a
+     * message is a freed pointer.
+     */
+    inline std::string &faultDetail()
+    {
+        static std::string *detail = new std::string(); // owned for the life of the process
+        return *detail;
+    }
+
+    /** Record what could not come up, if nothing has been recorded yet. */
+    inline void recordFault(const std::string &detail)
+    {
+        if (faultDetail().empty())
+        {
+            faultDetail() = detail;
+        }
     }
 
     /**

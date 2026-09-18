@@ -41,6 +41,14 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
         // #892: a camera that will not open is a board that cannot see, and it is the
         // one thing a beat can say that silence cannot -- a machine that is running and
         // blind is a different errand from a machine that is off.
+        // #1321: and the vigil should say which of the two it was, so it is recorded
+        // here, where it is known, rather than guessed at four hundred lines away.
+        string tried;
+        for (const string &source : camera_sources)
+        {
+            tried += (tried.empty() ? "" : ", ") + source;
+        }
+        board_sight::recordFault("the cameras did not open (tried: " + tried + ")");
         board_sight::faulted() = true;
         return;
     }
@@ -61,6 +69,11 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
         // #892: calibration is the second half of being able to see. A detector that
         // did not calibrate is as blind as a camera that did not open, and READY says
         // "calibration is valid" as well as "frames are arriving".
+        // #1321: geometry_calibration records the camera and the count that fell short
+        // as it meets them, so the usual case is that this is already written. The
+        // fallback is for a detector that failed with nothing to say -- no frame to
+        // calibrate on at all.
+        board_sight::recordFault("the detector did not calibrate on the frames the cameras gave");
         board_sight::faulted() = true;
     }
     else
@@ -325,11 +338,19 @@ void Scorer::runFaultVigil()
     // (#892), so the ladder has been answering INITIALISING since before the cameras
     // were tried, and board_sight::faulted() -- set by whichever constructor branch
     // failed -- turns the next beat into ERROR. Nothing has to be sent from here.
-    log_error("BOARD FAULTED: this board is running and cannot see. The cameras did not "
-              "come up, or the detector did not calibrate on the frames they gave. It "
-              "stays up and beats ERROR rather than exiting, so the Station's screen says "
-              "'go and look at the computer' instead of 'the board stopped answering'. "
-              "Check the cameras and restart the detector.");
+    //
+    // #1321: what it says is the sentence recorded where the fault was observed, not a
+    // choice of two offered to the reader. A message that names both halves of the
+    // ladder and commits to neither is the same as no message: whoever is standing at
+    // the machine still has to find out which.
+    const string detail = board_sight::faultDetail().empty()
+                              ? string("this board cannot see, and nothing said why")
+                              : board_sight::faultDetail();
+
+    log_error("BOARD FAULTED: " + detail + ". It stays up and beats ERROR rather than "
+                                           "exiting, so the Station's screen says 'go and look at the computer' "
+                                           "instead of 'the board stopped answering'. Check the cameras and "
+                                           "restart the detector.");
 
     running = true;
     auto last_reminder = chrono::steady_clock::now();
@@ -350,7 +371,7 @@ void Scorer::runFaultVigil()
         if (chrono::duration_cast<chrono::seconds>(now - last_reminder).count() >= 60)
         {
             last_reminder = now;
-            log_error("BOARD FAULTED: still blind, still beating ERROR.");
+            log_error("BOARD FAULTED: still blind, still beating ERROR -- " + detail + ".");
         }
 
         // Nothing here is on a deadline; the beat has its own thread and its own

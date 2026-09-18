@@ -6,6 +6,7 @@
 #include "detection/dart_processing.hpp"
 #include "detection/score_processing.hpp"
 #include "utils.hpp"
+#include "utils/board_sight.hpp"
 
 using namespace cv;
 using namespace std;
@@ -172,6 +173,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // calibrated and every one of them was refused, each on its own line above.
             log_error("Initial calibration failed: none of the " + to_string((int)calibrations.size()) +
                       " cameras is looking at a dartboard");
+            // #1321's sentence, in case the per-camera refusals above recorded nothing
+            // -- they will have, unless every camera produced no frame at all.
+            board_sight::recordFault("none of the " + to_string((int)calibrations.size()) +
+                                     " cameras is looking at a dartboard");
             initialized = false;
             calibrated = false;
         }
@@ -179,6 +184,7 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     else
     {
         log_error("No initial frames captured for calibration");
+        board_sight::recordFault("no camera produced a frame to calibrate on");
         initialized = false;
         calibrated = false;
     }

@@ -5,6 +5,7 @@
 #include <numeric>
 
 #include "utils.hpp"
+#include "board_sight.hpp"
 #include "geometry_calibration.hpp"
 #include "color_processing.hpp"
 #include "roi_processing.hpp"
@@ -73,6 +74,23 @@ namespace geometry_calibration
         ellipse_processing::EllipseBoundaryData ellipseData = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
         calibration.ellipses = ellipseData;
 
+        // #1321: the one place a failed calibration is reported, and the only one that
+        // knows which camera this is. Everything below refuses on the same flag, so a
+        // reader who is told three times learns nothing the first telling did not say;
+        // those refusals are DEBUG now and this line carries the count they never did.
+        if (!ellipseData.hasValidDoubles)
+        {
+            const string reason = ellipseData.doublesFailure.empty()
+                                      ? string("the stage did not say why")
+                                      : ellipseData.doublesFailure;
+            log_error("Camera " + log_string(cameraIdx + 1) +
+                      " did not calibrate: the doubles ring could not be fitted, so wire "
+                      "detection and perspective correction cannot run -- " +
+                      reason + ".");
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+                                     " did not calibrate: the doubles ring could not be fitted -- " + reason);
+        }
+
         // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step
         // that looks at the picture on its own terms and before the three that assume a
         // dartboard is in it. Steps 8, 8.5 and 9 fit wires, a perspective and an
@@ -88,17 +106,28 @@ namespace geometry_calibration
         calibration.look.traced_doubles = ellipseData.hasValidDoubles;
         calibration.look.outer_points = ellipseData.validOuterPoints;
         calibration.look.inner_points = ellipseData.validInnerPoints;
+        log_debug("Camera " + log_string(cameraIdx + 1) + " sight: " + log_string_src(board_look::measured(calibration.look)));
 
-        log_info("CAMERA " + log_string(cameraIdx + 1) + " sight: " + log_string_src(board_look::measured(calibration.look)));
-
-        const string refused = board_look::refusal(calibration.look);
-        if (!refused.empty())
+        const board_look::Refused refused = board_look::verdict(calibration.look);
+        if (refused != board_look::Refused::None)
         {
-            // Said once, by index, with the measurement above it. The camera is refused;
-            // the board is not. calibrateMultipleCameras keeps its slot and the cameras
-            // that did see the board carry on.
-            log_error("CAMERA " + log_string(cameraIdx + 1) + " refused: " + log_string_src(refused));
             calibration.sees_board = false;
+
+            // ONE error per refused camera, in #1321's shape: the index, and the count
+            // said against the threshold that refused it. The ring-not-traced case is
+            // deliberately silent here, because the branch above has already said it
+            // with more detail than this one has -- being told twice teaches nobody the
+            // name of a second camera.
+            if (refused != board_look::Refused::RingNotTraced)
+            {
+                const string why = board_look::refusal(calibration.look);
+                log_error("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(why) + ".");
+                board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " " + why);
+            }
+
+            // The camera is refused; the board is not. calibrateMultipleCameras keeps
+            // its slot so no other camera is scored through its perspective, and the
+            // cameras that did see the board carry on without it.
             return calibration;
         }
         calibration.sees_board = true;

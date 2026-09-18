@@ -621,9 +621,25 @@ namespace wire_processing
         WireData result;
         result.camera_index = calib.camera_index;
 
-        if (!calib.ellipses.hasValidDoubles || frame.empty() || colorMask.empty())
+        if (frame.empty() || colorMask.empty())
         {
-            log_error("Invalid input data");
+            // #1321: a fact nothing else has reported, so it stays at ERROR -- and it
+            // now says which camera and which of the two inputs was missing.
+            log_error("Camera " + log_string(calib.camera_index + 1) +
+                      " wire detection has nothing to read: " +
+                      string(frame.empty() ? "the frame is empty" : "the colour mask is empty") + ".");
+            return result;
+        }
+
+        if (!calib.ellipses.hasValidDoubles)
+        {
+            // #1321: an echo, not a second fault. calibrateSingleCamera has already said
+            // which camera failed and what count fell short; this stage is declining to
+            // run on a result that was never produced, which is correct behaviour and
+            // not news. It was one of the three ERROR lines a tester got instead of a
+            // reason.
+            log_debug("Declining to detect wires for camera " + log_string(calib.camera_index + 1) +
+                      ": no valid doubles ellipse (already reported)");
             return result;
         }
 

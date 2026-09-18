@@ -75,41 +75,77 @@ namespace board_look
         return e.frame_pixels > 0 ? (double)e.red_green_pixels / (double)e.frame_pixels : 0.0;
     }
 
-    /** Why this camera is refused, or an empty string when it is not. */
-    inline std::string refusal(const Evidence &e, const Limits &limits = Limits())
+    /** Which of the tests refused this camera, or `None`. */
+    enum class Refused
+    {
+        None,
+        NoFrame,
+        TooMuchRedGreen,
+        RingNotTraced,
+        TooFewPoints
+    };
+
+    inline Refused verdict(const Evidence &e, const Limits &limits = Limits())
     {
         if (e.frame_pixels <= 0)
         {
-            return "no frame to look at";
+            return Refused::NoFrame;
         }
-
-        const double fraction = redGreenFraction(e);
-        const int percent = (int)(fraction * 100.0 + 0.5);
-
-        // Asked first, because it is the one that explains the other: a flooded mask is
-        // why the rays found no ring, and "too much of this picture is dartboard red and
-        // green" is the sentence that sends somebody to look at where the camera points.
-        if (fraction > limits.max_red_green_fraction)
+        // Asked before the ring, because it is the one that explains the ring: a flooded
+        // mask is why the rays found nothing, and "too much of this picture is dartboard
+        // red and green" is the sentence that sends somebody to look at where the camera
+        // is pointed rather than at the ellipse fitter.
+        if (redGreenFraction(e) > limits.max_red_green_fraction)
         {
-            return "no dartboard in view - " + std::to_string(percent) +
-                   "% of the frame keys as dartboard red or green (a board is a few per cent; "
-                   "skin and warm room light are most of the picture)";
+            return Refused::TooMuchRedGreen;
         }
         if (!e.traced_doubles)
         {
-            return "no dartboard in view - the doubles ring could not be traced around the bull";
+            return Refused::RingNotTraced;
         }
         if (e.outer_points < limits.min_outer_points)
         {
-            return "no dartboard in view - only " + std::to_string(e.outer_points) +
-                   " of 120 rays found the edge of a doubles ring";
+            return Refused::TooFewPoints;
         }
-        return "";
+        return Refused::None;
+    }
+
+    /**
+     * Why this camera is refused, or an empty string when it is not.
+     *
+     * #1321's rule, which this obeys: the count is asserted against the threshold that
+     * refused it in the same sentence, so a line reporting the wrong number can be seen
+     * to be wrong without knowing anything about the pipeline.
+     */
+    inline std::string refusal(const Evidence &e, const Limits &limits = Limits())
+    {
+        const int percent = (int)(redGreenFraction(e) * 100.0 + 0.5);
+        const int allowed = (int)(limits.max_red_green_fraction * 100.0 + 0.5);
+
+        switch (verdict(e, limits))
+        {
+        case Refused::NoFrame:
+            return "no frame to look at";
+        case Refused::TooMuchRedGreen:
+            return "is not looking at the dartboard: " + std::to_string(percent) +
+                   "% of its frame keys as dartboard red or green and this check allows at most " +
+                   std::to_string(allowed) +
+                   "% -- a board's doubles and trebles are a few per cent of a frame, and skin in warm "
+                   "room light is most of one";
+        case Refused::RingNotTraced:
+            return "is not looking at the dartboard: no doubles ring could be traced around the bull";
+        case Refused::TooFewPoints:
+            return "is not looking at the dartboard: " + std::to_string(e.outer_points) +
+                   " of 120 rays found the outer edge of a doubles ring and this check needs at least " +
+                   std::to_string(limits.min_outer_points);
+        default:
+            return "";
+        }
     }
 
     inline bool seesBoard(const Evidence &e, const Limits &limits = Limits())
     {
-        return refusal(e, limits).empty();
+        return verdict(e, limits) == Refused::None;
     }
 
     /** The numbers themselves, for the log, so a refusal can be argued with. */
