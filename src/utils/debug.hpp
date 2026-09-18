@@ -89,6 +89,9 @@ namespace debug
         std::cout << "  --height <height>    Frame height (default: 720)\n";
         std::cout << "  --fps <fps>          Frames per second (default: 15)\n";
         std::cout << "  --detector <type>    Detector type: geometry, ai, custom (default: geometry)\n";
+        std::cout << "  --reuse-calibration  Score on the calibration cache/ holds from a previous start instead of\n";
+        std::cout << "                       calibrating, saving about eight and a half seconds. Only say this if the\n";
+        std::cout << "                       cameras have not been touched since; nothing can check that for you\n";
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
         std::cout << "  --log-file <path>    Also append the log to a file (off unless asked for; --debug implies debug_frames/opendartboard.log)\n";

@@ -218,7 +218,7 @@ namespace ellipse_processing
     }
 
     // Main function uses MaskBundle and proper terminology
-    EllipseBoundaryData processEllipse(
+    EllipseReport processEllipse(
         const Mat &originalFrame,
         const mask_processing::MaskBundle &masks,
         const Point &bullCenter,
@@ -230,12 +230,17 @@ namespace ellipse_processing
         log_debug("Ellipse processing camera " + log_string(camera_idx) + " starting...");
         EllipseBoundaryData result;
 
+        // #1321's reason, in #1330's place: a local, returned beside the geometry rather
+        // than stored inside it, because the geometry is fwritten to the cache and a
+        // std::string in there is a heap pointer on its way to a file.
+        string doublesFailure;
+
         // SECTION 1: RAY TRACING for DOUBLES (most accurate method)
         if (masks.doublesMask.empty())
         {
             // #1321: the silent branch. Nothing was logged here at any level, and every
             // stage below refuses on the flag this leaves false.
-            result.doublesFailure = "no doubles mask was produced from the red/green frame";
+            doublesFailure = "no doubles mask was produced from the red/green frame";
             log_debug("No doubles mask to ray trace");
         }
         else
@@ -254,9 +259,9 @@ namespace ellipse_processing
             {
                 // #1321: also silent until now. A dark or washed-out frame lands here,
                 // and the count that decided it is the first thing a tester wants.
-                result.doublesFailure = "the doubles mask holds " + to_string(whitePixels) +
-                                        " white pixels and this stage needs at least " +
-                                        to_string(params.minWhitePixelsThreshold);
+                doublesFailure = "the doubles mask holds " + to_string(whitePixels) +
+                                 " white pixels and this stage needs at least " +
+                                 to_string(params.minWhitePixelsThreshold);
                 log_debug("Not enough white pixels for doubles: " + log_string(whitePixels));
             }
             else
@@ -312,21 +317,21 @@ namespace ellipse_processing
                     catch (const cv::Exception &e)
                     {
                         log_debug("Double ellipse fitting failed: " + string(e.what()));
-                        result.doublesFailure = "fitting the doubles ellipse from " +
-                                                to_string(finalBoundaryPoints.size()) +
-                                                " boundary points threw: " + string(e.what());
+                        doublesFailure = "fitting the doubles ellipse from " +
+                                         to_string(finalBoundaryPoints.size()) +
+                                         " boundary points threw: " + string(e.what());
                         result.hasValidDoubles = false;
                     }
                 }
                 else
                 {
                     log_debug("Not enough boundary points for doubles: " + log_string(finalBoundaryPoints.size()));
-                    result.doublesFailure = to_string(allOuterPoints.size()) + " rays traced, " +
-                                            to_string(finalBoundaryPoints.size()) +
-                                            " gave a boundary point, and at least " +
-                                            to_string(params.minValidRays) +
-                                            " are needed to fit the doubles ellipse (doubles mask " +
-                                            to_string(whitePixels) + " white pixels)";
+                    doublesFailure = to_string(allOuterPoints.size()) + " rays traced, " +
+                                     to_string(finalBoundaryPoints.size()) +
+                                     " gave a boundary point, and at least " +
+                                     to_string(params.minValidRays) +
+                                     " are needed to fit the doubles ellipse (doubles mask " +
+                                     to_string(whitePixels) + " white pixels)";
                     result.hasValidDoubles = false;
                 }
             }
@@ -515,7 +520,7 @@ namespace ellipse_processing
             log_debug("Saved ellipse visualization with all ring types");
         }
 
-        return result;
+        return EllipseReport{result, doublesFailure};
     }
 
 } // namespace ellipse_processing

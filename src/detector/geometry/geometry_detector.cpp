@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <ctime>
 
 #include "geometry_detector.hpp"
 #include "calibration/geometry_calibration.hpp"
@@ -83,12 +84,38 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     cv::putText(startup_img_raw, "Raw Cameras", {50, 100}, cv::FONT_HERSHEY_SIMPLEX, 1.2, {0, 255, 0}, 2);
 #endif
 
-    // Try to load cached calibration first
-    // calibrations = cache::geometry::load();
+    vector<Mat> initial_frames = camera::images(calibration_frames);
+
+    // #1330: the call is here rather than commented out, and what it does is decided by
+    // --reuse-calibration. The line above it had been a comment since before #1317, so the
+    // board wrote a file on every successful calibration and read it never: it paid the
+    // eight and a half seconds on every start and got nothing for the file, and the latent
+    // std::string in the file was latent only because of a comment character.
+    //
+    // It can be read now because utils/cache.hpp's header and the two static_asserts under
+    // DartboardCalibration are between it and the pointer that used to be in it. It is not
+    // read by DEFAULT because the file cannot say whose geometry it is -- measured in
+    // cache.hpp, five starts of testers/i1318_run.sh in one directory, four of them
+    // scoring through the first one's board. A camera nudged since the file was written is
+    // a calibration that is wrong and looks right, which is the class of fault ADR-0055
+    // says must not be able to look trustworthy, and nothing here can see it. So when an
+    // operator does ask, the board says on that start that it did not look at the picture
+    // and how old the geometry it is scoring with is.
+    calibrations = cache::geometry::load(initial_frames);
     if (!calibrations.empty())
     {
-        // Already calibrated, just set initialized
-        log_info("Loaded cached calibration with " + to_string(calibrations.size()) + " cameras");
+        uint64_t written = 0;
+        for (const auto &calibration : calibrations)
+            written = max(written, calibration.timestamp);
+        const uint64_t now = (uint64_t)time(nullptr);
+        const long long age_minutes = written > 0 && now > written ? (long long)((now - written) / 60) : -1;
+
+        log_info("Using the cached calibration for " + to_string(calibrations.size()) +
+                 " cameras: this start did not look at the board" +
+                 (age_minutes >= 0 ? ", and the geometry it is scoring with was measured " +
+                                         to_string(age_minutes) + " minutes ago"
+                                   : "") +
+                 ". Delete cache/ to calibrate again.");
 
         // Load background frames
         background_frames = cache::geometry::loadBackgroundFrames();
@@ -98,8 +125,6 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         calibrated = true;
         return true;
     }
-
-    vector<Mat> initial_frames = camera::images(calibration_frames);
 
     if (camera::validCount(calibration_frames) > 0)
     {

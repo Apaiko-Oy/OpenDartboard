@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <type_traits>
 
 #include "ellipse_processing.hpp"
 #include "wire_processing.hpp"        // Include full definition for WireData
@@ -40,6 +41,54 @@ struct DartboardCalibration
     bool sees_board = false;
     board_look::Evidence look;
 };
+
+/**
+ * #1330: THE WHOLE STRUCT, HELD TO OWNING NOTHING.
+ *
+ * utils/cache.hpp writes a DartboardCalibration to disk with a raw fwrite of
+ * sizeof(DartboardCalibration) bytes and reads one back the same way. That is sound only
+ * while every byte of it means the same thing in the process that reads it as in the one
+ * that wrote it -- so nothing in here, at any depth, may own memory. A member that owns
+ * memory holds a pointer into the heap of the process that made it; written raw, the file
+ * gets the pointer, and the next process gets an address that names nothing.
+ *
+ * Three members' own headers already said so in prose -- WireEndpoints, board_look and
+ * this struct's comment above -- and #1321 put a std::string into ellipses anyway, one
+ * level down, where no prose was looking. Prose is not a guard. This is:
+ *
+ *   is_trivially_destructible is the ownership question, asked of the whole struct.
+ *   Owning memory means releasing it, releasing it means a destructor, and a member with
+ *   a non-trivial destructor makes its container non-trivially destructible all the way
+ *   up. So std::string, std::vector, cv::Mat, any smart pointer and anything holding one
+ *   of them fail this, at any depth, without anybody remembering to write an assert for
+ *   the new member. Measured on this tree: with #1321's std::string in place this reads
+ *   false and with it gone it reads true, and every other member reads true on its own.
+ *
+ *   is_trivially_copyable is deliberately NOT asked, and that is #1317's measurement
+ *   rather than a preference: cv::Point_ declares its own copy constructor on the OpenCV
+ *   this builds against, so the struct fails that trait today for a reason that has
+ *   nothing to do with ownership. An assert nobody can satisfy teaches nothing.
+ *
+ *   is_standard_layout is asked because the bytes have to be laid out where the reader
+ *   expects them. It is not sufficient on its own and is not doing the ownership work:
+ *   std::string is itself standard layout, so this trait was TRUE for the whole of the
+ *   time the bug existed.
+ *
+ * The gap, said out loud: a raw `T *` member owns nothing as far as the language is
+ * concerned and passes both of these. utils/cache.hpp's second half covers that from the
+ * other side -- the file records how many bytes a record is, so a struct whose size moved
+ * for any reason is refused by the reader rather than misread. Between them, the shape
+ * that gets through is a pointer-sized member that replaced something else pointer-sized,
+ * and that is a smaller hole than the one #1321 fell into.
+ */
+static_assert(std::is_trivially_destructible<DartboardCalibration>::value,
+              "DartboardCalibration is written to the calibration cache as raw bytes, so "
+              "nothing in it may own memory: a member with a destructor (std::string, "
+              "std::vector, cv::Mat, a smart pointer) would put a heap pointer in the file. "
+              "Keep the words somewhere else -- see ellipse_processing::EllipseReport.");
+static_assert(std::is_standard_layout<DartboardCalibration>::value,
+              "DartboardCalibration is written to the calibration cache as raw bytes, so "
+              "its members must be laid out where the reader expects to find them.");
 
 // NAMESPACE WITH UTILITY FUNCTIONS
 namespace geometry_calibration

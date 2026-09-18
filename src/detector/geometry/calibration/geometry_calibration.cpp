@@ -115,7 +115,11 @@ namespace geometry_calibration
 
         // [===STEP 6:===] ELLIPSE DETECTION for dartboard shape
         ellipse_processing::EllipseParams ellipseParams;
-        ellipse_processing::EllipseBoundaryData ellipseData = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
+        // #1330: the stage hands back its geometry and, if it failed, the words for it.
+        // Only the geometry is kept on the calibration, because the calibration is what
+        // is fwritten to the cache; the reason is read four statements below and printed.
+        const ellipse_processing::EllipseReport ellipseReport = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
+        const ellipse_processing::EllipseBoundaryData &ellipseData = ellipseReport.ellipses;
         calibration.ellipses = ellipseData;
 
         // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step
@@ -150,9 +154,9 @@ namespace geometry_calibration
         // things done about them.
         if (!ellipseData.hasValidDoubles)
         {
-            const string reason = ellipseData.doublesFailure.empty()
+            const string reason = ellipseReport.doublesFailure.empty()
                                       ? string("the stage did not say why")
-                                      : ellipseData.doublesFailure;
+                                      : ellipseReport.doublesFailure;
             const string look = refused == board_look::Refused::RingNotTraced
                                     ? string("")
                                     : " This camera " + board_look::refusal(calibration.look) + ".";
