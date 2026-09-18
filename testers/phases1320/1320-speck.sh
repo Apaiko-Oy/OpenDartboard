@@ -56,8 +56,15 @@ echo "RIG_RC=$?"
 echo "--- the speck, on a camera aimed right and low ---"
 # A board that cannot calibrate goes to #895's fault vigil and stays there, so this one
 # is run in the background and ended by its own recorded pid, never by pattern.
+# The same clip three times, because a board is three cameras. #1338 refuses a
+# board whose slot count is not 3 -- `detectMotion` never initialises on any
+# other count and reports 0.0 motion for ever -- so a single-camera run now
+# faults before the bull it is about is ever asserted. The subject here is
+# where the bull lands on an off-aimed camera, not how many cameras a board
+# has, so the clip is presented three times rather than the refusal weakened.
 cd /run1320/off && /app/build/opendartboard --debug \
-  --cams /run1320/speck_off.avi --width 1280 --height 720 > /run1320/off.out 2>&1 &
+  --cams /run1320/speck_off.avi,/run1320/speck_off.avi,/run1320/speck_off.avi \
+  --width 1280 --height 720 > /run1320/off.out 2>&1 &
 OFF=$!
 sleep 25
 kill -TERM $OFF 2>/dev/null
