@@ -33,6 +33,7 @@
 #include <thread>
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <set>
 
 /** What a board was told at startup about who to talk to and how. */
@@ -226,6 +227,52 @@ public:
 
     /** True when a credential was loaded and the address is usable. */
     bool isPaired() const { return paired_; }
+
+    /**
+     * #1347: the one seam where the detector's score vocabulary becomes #821's sector
+     * grammar, and it exists because the two spell the bulls differently: the socket
+     * publishes BULL and OUTER (docs/api.md, #1186's vocabulary), and the door
+     * validates Sector::PATTERN, which spells them Bull and 25 -- so until this seam
+     * every bull the detector will ever score was dropped in offer() as an unpostable
+     * sector, counted and warned about and never spooled. MISS was already translated
+     * here (to None, measured in #822's 1100-cycle run); the bulls are translated at
+     * the same place, and everything the grammar cannot express still answers empty,
+     * which offer() drops and counts exactly as before.
+     *
+     * Static and pure, so a tester can hold every non-empty answer to the server's own
+     * pattern without building the client.
+     */
+    static std::string postableSector(const std::string &score)
+    {
+        if (score == "MISS")
+        {
+            return "None";
+        }
+        if (score == "BULL")
+        {
+            return "Bull";
+        }
+        if (score == "OUTER")
+        {
+            return "25";
+        }
+        // #821's grammar, verbatim: what is already spelled the door's way passes through.
+        if (score == "25" || score == "Bull" || score == "None")
+        {
+            return score;
+        }
+        if (score.size() < 2 || score.size() > 3)
+        {
+            return std::string();
+        }
+        char ring = score[0];
+        if (ring != 'S' && ring != 's' && ring != 'D' && ring != 'T')
+        {
+            return std::string();
+        }
+        int n = std::atoi(score.c_str() + 1);
+        return (n >= 1 && n <= 20 && score.substr(1) == std::to_string(n)) ? score : std::string();
+    }
 
     // ---- #1259: one code, either door, asked for at the console. ----
 

@@ -447,10 +447,16 @@ namespace dart_processing
                     previous_states[i] == DartBoardState::CLEAN)
                 {
                     candidate_state = DartBoardState::CLEAN;
-                    // Reset working background when going to CLEAN (safety reset)
-                    working_backgrounds[0] = Mat();
-                    working_backgrounds[1] = Mat();
-                    working_backgrounds[2] = Mat();
+
+                    // #1349: the "safety reset" that lived here wiped working_backgrounds
+                    // [0], [1] AND [2] -- every camera, by hard-coded index, from ONE
+                    // camera's CLEAN candidate, before the vote had even been counted. A
+                    // single camera flickering CLEAN mid-round -- which #1345's log shows
+                    // on every throw -- cost the OTHER cameras the reference that isolates
+                    // the newest dart, so their next tip was found on the union of every
+                    // dart on the board. The reset a clean board really needs is made
+                    // after the vote, from the reconciled final state, where the decision
+                    // that can make it lives.
 
                     // clone the diff to working diff
                     // we know the latest is good!
@@ -557,6 +563,21 @@ namespace dart_processing
         for (size_t i = 0; i < previous_states.size(); i++)
         {
             previous_states[i] = final_state;
+        }
+
+        // #1349: the reset the mid-loop wipe was reaching for, made from the decision
+        // that can make it: the board is CLEAN when the VOTE says so, and only then is
+        // every camera's working background stale. Sized by the vector rather than
+        // written as [0] [1] [2], which was out of bounds the day this ran with fewer
+        // than three cameras. A camera whose own candidate flickered CLEAN while the
+        // board held its darts now KEEPS its working background, so its next dart is
+        // still read against the board as it was at the last dart.
+        if (final_state == DartBoardState::CLEAN)
+        {
+            for (size_t i = 0; i < working_backgrounds.size(); i++)
+            {
+                working_backgrounds[i] = Mat();
+            }
         }
 
         // set new best previous state

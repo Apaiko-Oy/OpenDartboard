@@ -263,6 +263,18 @@ namespace score_processing
         }
 
         // 2. WEDGE DETECTION using angles
+        //
+        // #1346: the gate on isStarCamera is a DECISION now, where it used to read as an
+        // accident (#797: the header even glossed isStarCamera as "whether the
+        // orientation was successfully detected", which is not what it means). A TOP or
+        // BOTTOM camera does compute a wedge20WireIndex of its own -- orientation's
+        // clip-wire side analysis -- and #797 measured it agreeing with the star camera
+        // on four wedges of seven, the disagreements one wedge wide either way. That is
+        // real but unproven at the vote, and #797 also measured that widening the voter
+        // set makes the published score WORSE while disagreements fall back to the
+        // lowest index. So until that vote question is settled, only the star camera's
+        // wedge counts as measured, and a non-star camera's reading is an assertion the
+        // vote keeps aside (chooseScore) rather than a second voter.
         out.wedge_measured = calib.orientation.isStarCamera && calib.orientation.wedge20WireIndex >= 0;
         if (!out.wedge_measured && !on_bull)
         {
@@ -290,6 +302,7 @@ namespace score_processing
             {
                 // Upstream asserted the 20 without looking at a wire; so does this, and
                 // with no wedge to place the tip in there is no angle to state.
+                out.wedge_asserted = true; // #1346: marked at the site of the assertion
                 out.segment = 20;
                 out.score = ring_prefix + "20";
                 return out;
@@ -302,6 +315,9 @@ namespace score_processing
 
         // With no orientation the wedge the tip is in is asserted to be the 20 - slot 0 of
         // the sequence - and the fraction says where across that wedge the tip is.
+        // #1346: a bull cannot reach this as an assertion -- on_bull without a measured
+        // wedge returned above -- so the flag marks exactly the asserted 20s.
+        out.wedge_asserted = !out.wedge_measured;
         int sequence_slot = out.wedge_measured ? slot : 0;
         float angle = 18.0f * sequence_slot - 9.0f + 18.0f * fraction;
         while (angle < 0.0f)
@@ -365,9 +381,9 @@ namespace score_processing
         case dart_processing::DartBoardState::DART_2:
         case dart_processing::DartBoardState::DART_3:
             // Collect scores from all cameras with detected tips
-            vector<pair<string, int>> camera_scores; // (score, camera_index)
-            vector<Mat> points_on_screen;            // For debug images
+            vector<Mat> points_on_screen;                                       // For debug images
             vector<PointScore> point_scores(dart_result.camera_results.size()); // #1186: each camera's decision, as fields
+            vector<bool> may_vote(dart_result.camera_results.size(), false);    // #1346: a tip and not a MISS, as it always was
 
             for (size_t i = 0; i < dart_result.camera_results.size(); i++)
             {
@@ -415,10 +431,9 @@ namespace score_processing
                     points_on_screen.push_back(some_mat);
                 }
 
-                if (dart_result.camera_results[i].tip_found && score_test != "MISS")
-                {
-                    camera_scores.push_back({score_test, static_cast<int>(i)});
-                }
+                // #1346: whether this camera may vote is unchanged -- a found tip and
+                // not a MISS. How its vote COUNTS is chooseScore's decision now.
+                may_vote[i] = dart_result.camera_results[i].tip_found && score_test != "MISS";
             }
 
             if (debug_mode && point_on_screen_streamer)
@@ -433,51 +448,38 @@ namespace score_processing
                 }
             }
 
-            if (!camera_scores.empty())
+            // #1346: the vote itself is chooseScore, pure and in the header, where a
+            // tester can hold it. A camera whose wedge was asserted -- the default-to-20
+            // -- no longer counts toward a consensus and no longer earns the 0.9 by
+            // agreeing with another assertion; it is published only when nothing
+            // measured, at 0.5. #796 measured the failure this removes: S20 S20 S20
+            // published over a hand-verified 36, two constants outvoting the camera
+            // that measured.
+            const ScoreChoice choice = chooseScore(point_scores, may_vote);
+            if (choice.camera >= 0)
             {
-                // Consensus scoring logic
-                string final_score;
-                int best_camera = -1;
+                const int best_camera = choice.camera;
+                const string final_score = point_scores[best_camera].score;
 
-                // Count occurrences of each score
-                map<string, vector<int>> score_cameras;
-                for (const auto &[score, camera_idx] : camera_scores)
+                if (choice.agreeing >= 2)
                 {
-                    score_cameras[score].push_back(camera_idx);
+                    log_info("Consensus score: " + final_score + " from " + to_string(choice.agreeing) + " cameras");
                 }
-
-                // Look for consensus (2+ cameras agreeing)
-                string consensus_score;
-                int max_consensus = 0;
-                for (const auto &[score, cameras] : score_cameras)
+                else if (!choice.by_default)
                 {
-                    if (cameras.size() >= 2 && cameras.size() > max_consensus)
-                    {
-                        consensus_score = score;
-                        max_consensus = cameras.size();
-                    }
-                }
-
-                if (!consensus_score.empty())
-                {
-                    // Use consensus score, pick first camera from the group
-                    final_score = consensus_score;
-                    best_camera = score_cameras[consensus_score][0];
-                    log_info("Consensus score: " + final_score + " from " + to_string(max_consensus) + " cameras");
+                    log_info("No consensus, using single camera score: " + final_score + " from camera " + to_string(best_camera));
                 }
                 else
                 {
-                    // No consensus, use first available score
-                    final_score = camera_scores[0].first;
-                    best_camera = camera_scores[0].second;
-                    log_info("No consensus, using single camera score: " + final_score + " from camera " + to_string(best_camera));
+                    log_info("No measured wedge: publishing camera " + to_string(best_camera) +
+                             "'s wedge-by-default " + final_score + " at low confidence");
                 }
 
                 result.score = final_score;
                 result.pixel_position = dart_result.camera_results[best_camera].tip_position;
                 result.center_position = dart_result.camera_results[best_camera].center_position;
                 result.dartboard_position = dart_result.camera_results[best_camera].tip_position; // TODO: Convert to dartboard coordinates
-                result.confidence = consensus_score.empty() ? 0.7f : 0.9f;
+                result.confidence = choice.confidence;
                 result.camera_index = best_camera;
                 result.valid = true;
                 // #1186: the board-frame fields come from the same camera and the same
