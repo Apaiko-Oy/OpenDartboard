@@ -111,5 +111,26 @@ grep -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer' \
   /run1317/asan_base_partial.out /run1317/asan_base_partial.err /run1317/baserep.* 2>/dev/null || echo "(none)"
 sed 's/\x1b\[[0-9;]*m//g' /run1317/asan_base_partial.out | grep -E 'Found [0-9]+ wire boundaries|Initial calibration' | sort -u || true
 
+echo "--- and WHY the base build is clean on this input too ---"
+# The answer to "was anything hiding behind this one", and to why #845's sanitizer run
+# completed a calibration without reporting this. ASan sees an allocation's end, not an
+# object's, and finalWires is push_back'ed from empty so its capacity is the next power of
+# two: 16 for 9..16 wires and 32 for 17..32. The old copy reads index 19 either way, and
+# only in the first case is that outside the allocation. i1317_capacity_probe carries the
+# old copy verbatim so this can be measured rather than argued.
+g++ -std=c++17 -O1 -g -fsanitize=address -fno-omit-frame-pointer \
+  -o /run1317/cap /app/testers/i1317_capacity_probe.cpp $(pkg-config --cflags --libs opencv4) || exit 1
+for n in 9 15 19; do
+  ASAN_OPTIONS=detect_leaks=0:abort_on_error=0:halt_on_error=1 \
+    /run1317/cap $n > /run1317/cap_$n.txt 2>&1 || true
+  head -1 /run1317/cap_$n.txt
+done
+SEEN9=$(grep -c 'heap-buffer-overflow' /run1317/cap_9.txt || true)
+SEEN15=$(grep -c 'heap-buffer-overflow' /run1317/cap_15.txt || true)
+SEEN19=$(grep -c 'heap-buffer-overflow' /run1317/cap_19.txt || true)
+if [ "$SEEN9" != "0" ] && [ "$SEEN15" != "0" ] && [ "$SEEN19" = "0" ]; then
+  say "OK   the old copy is a reported overflow at 9 and 15 wires and an unreported one at 19" ok
+else say "FAIL the capacity probe reports $SEEN9 / $SEEN15 / $SEEN19 at 9 / 15 / 19 wires" no; fi
+
 echo "CHECK_RC=$FAILED"
 exit $FAILED
