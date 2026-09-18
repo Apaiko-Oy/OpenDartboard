@@ -80,8 +80,11 @@ namespace debug
         std::cout << "Usage: opendartboard [options]\n";
         std::cout << "Options:\n";
         std::cout << "  --model <path>       Path to the AI model file (default: /usr/local/share/opendartboard/models/dart.param)\n";
-        std::cout << "  --cams <cameras>     Comma-separated list of camera devices (default: /dev/video0,/dev/video1,/dev/video2)\n";
-        std::cout << "  --autocams           Automatically detect and lock up to 3 cameras\n";
+        std::cout << "  --cams <cameras>     Comma-separated list of camera devices. Given here they are opened in this\n";
+        std::cout << "                       order and nothing is probed or asked. Without it, every video device on the\n";
+        std::cout << "                       machine is looked through and the first 3 that can see the dartboard are used\n";
+        std::cout << "  --autocams           Automatically detect and lock up to 3 cameras that negotiate MJPG. This asks\n";
+        std::cout << "                       what a camera can do, not where it points; the default start asks both\n";
         std::cout << "  --width <width>      Frame width (default: 1280)\n";
         std::cout << "  --height <height>    Frame height (default: 720)\n";
         std::cout << "  --fps <fps>          Frames per second (default: 15)\n";

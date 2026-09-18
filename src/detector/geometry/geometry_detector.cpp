@@ -6,6 +6,7 @@
 #include "detection/dart_processing.hpp"
 #include "detection/score_processing.hpp"
 #include "utils.hpp"
+#include "utils/board_sight.hpp"
 
 using namespace cv;
 using namespace std;
@@ -110,21 +111,36 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             target_width,
             target_height);
 
-        // `calibrateMultipleCameras` returns one object per non-empty frame, even
-        // when a camera could not find the double ring or enough wire endpoints.
-        // Treating a non-empty vector as success used to save unusable backgrounds
-        // and start scoring after a failed calibration.
-        const size_t expected_calibrations = camera::validCount(calibration_frames);
-        const bool every_camera_is_calibrated =
-            calibrations.size() == expected_calibrations &&
-            !calibrations.empty() &&
-            all_of(calibrations.begin(), calibrations.end(), [](const DartboardCalibration &calibration)
-                   {
-                       return calibration.ellipses.hasValidDoubles &&
-                              calibration.wires.wireEndpoints.size() >= 16;
-                   });
-
-        calibrated = every_camera_is_calibrated;
+        // #1318, standing on 74be46f rather than reverting it. That commit replaced
+        // `calibrated = !calibrations.empty()` -- one object per non-empty frame counted
+        // as success -- with "one calibration per camera that produced a frame, and
+        // `hasValidDoubles` on every one". The half of it that matters is kept whole and
+        // moved to where the evidence is: `hasValidDoubles` is now one of the things
+        // board_look asks of each camera, a camera that fails it is refused BY NAME at
+        // the moment it is looked at, and a refused camera abstains from scoring for the
+        // life of the run. So a board can no longer calibrate on nothing usable.
+        //
+        // What is deliberately different is the quantifier. `all_of` over every camera
+        // is what made the rig in #1318 report `BOARD FAULTED: this board is running and
+        // cannot see` while two of its three cameras were pointed at the dartboard and
+        // had calibrated cleanly at 68 and 103 boundary points -- true, and about the
+        // webcam, and unsayable from the message. One camera that cannot see is now one
+        // camera that is named and set aside.
+        //
+        // Two smaller notes on what is not carried over. `calibrations.size() ==
+        // validCount(...)` cannot be asked any more and does not need to be: a slot is
+        // kept for every camera including the ones that produced no frame, precisely so
+        // that score_processing's calibrations[i] stays the camera at position i, and a
+        // slot with no frame is a camera that sees nothing and is counted as such.
+        // And `wires.wireEndpoints.size() >= 16` is dropped rather than moved: it is
+        // `std::array<Point2f, 20>`, so that is the constant 20 and the condition is
+        // always true -- 74be46f says so itself and files it as #1317.
+        const int cameras_that_must_see = 1;
+        int seeing = 0;
+        for (const auto &calibration : calibrations)
+            if (calibration.sees_board)
+                seeing++;
+        calibrated = seeing >= cameras_that_must_see;
 
         if (calibrated)
         {
@@ -133,7 +149,8 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             for (const auto &frame : initial_frames)
                 background_frames.push_back(frame.clone());
 
-            log_info("Initial calibration completed successfully");
+            log_info("Initial calibration completed successfully on " + to_string(seeing) +
+                     " of " + to_string((int)calibrations.size()) + " cameras");
 
             // Save calibration for future use
             if (cache::geometry::save(calibrations))
@@ -152,7 +169,14 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         }
         else
         {
-            log_error("Initial calibration failed");
+            // #1318: not "the calibration failed" any more -- every camera was
+            // calibrated and every one of them was refused, each on its own line above.
+            log_error("Initial calibration failed: none of the " + to_string((int)calibrations.size()) +
+                      " cameras is looking at a dartboard");
+            // #1321's sentence, in case the per-camera refusals above recorded nothing
+            // -- they will have, unless every camera produced no frame at all.
+            board_sight::recordFault("none of the " + to_string((int)calibrations.size()) +
+                                     " cameras is looking at a dartboard");
             initialized = false;
             calibrated = false;
         }
@@ -160,6 +184,7 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     else
     {
         log_error("No initial frames captured for calibration");
+        board_sight::recordFault("no camera produced a frame to calibrate on");
         initialized = false;
         calibrated = false;
     }

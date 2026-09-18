@@ -4,6 +4,9 @@
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
 #include "utils/autocam.hpp"
+// #1318: which cameras a start with no --cams opens, decided by looking through them.
+#include "utils/board_cameras.hpp"
+#include "utils/camera_choice.hpp"
 #include "communication/score_token.hpp"
 #include "communication/announce.hpp"
 #include "utils/setup_view.hpp"
@@ -210,25 +213,66 @@ int main(int argc, char **argv)
 
   // setup cams
   vector<string> cams;
+  const bool cams_given = hasFlag(argc, argv, "--cams");
   if (useAuto)
   {
     cams = autocam::detectAndLock(/*max*/ 3, width, height, fps);
   }
-  else
+  else if (cams_given)
   {
+    // #1258: --cams on the command line is taken as given and never asked about. #1318
+    // keeps that whole: what is typed here is opened, in this order, and nothing below
+    // runs. It is the maintainer's --cams 1,2,3 and it is the answer to any disagreement
+    // with the probe. Media Foundation has no filesystem name for a camera, so on
+    // Windows a device is an index.
 #ifdef _WIN32
-    // Media Foundation has no filesystem name for a camera, so a device is an index.
-    //
-    // #1258: --cams on the command line is taken as given and never asked about. Without
-    // it, the remembered choice or 0,1,2 -- and, in an interactive console only, the
-    // question when one of them does not open. camera_setup.hpp says the rest.
-    if (hasFlag(argc, argv, "--cams"))
-      cams = getArgVector(argc, argv, "--cams", "0,1,2");
-    else
-      cams = camera_setup::camerasAtStart(turnaus_config.credentials_path, width, height, fps);
+    cams = getArgVector(argc, argv, "--cams", "0,1,2");
 #else
     cams = getArgVector(argc, argv, "--cams", "/dev/video0,/dev/video1,/dev/video2");
 #endif
+  }
+  else
+  {
+    // #1318: nothing was typed, which on a laptop used to mean 0,1,2 -- the built-in
+    // webcam and two of the three board cameras. The three of them OPEN, so #1258's
+    // question was never asked and the operator's face was calibrated as camera 1.
+    //
+    // So the cameras are found by looking through them. board_cameras.hpp holds the
+    // mechanism and what it costs.
+#ifdef _WIN32
+    // A choice somebody already made at the console outranks the probe, the way --cams
+    // does: it is the same human answering the same question, once, and #1258 saved it
+    // precisely so it would not be asked again.
+    std::vector<camera_choice::Remembered> remembered;
+    const bool have_remembered =
+        camera_choice::load(camera_choice::fileBeside(turnaus_config.credentials_path), remembered);
+#else
+    const bool have_remembered = false;
+#endif
+    if (!have_remembered)
+      cams = board_cameras::choose(/*want*/ 3, width, height, fps);
+
+    if (cams.empty())
+    {
+      // Nothing seen, or a remembered choice to honour. Fall back to what this platform
+      // did before: on Windows the remembered choice, or the defaults and #1258's
+      // question when one of them does not open; on Linux, the three defaults. A board
+      // whose cameras are all covered or in a dark room lands here and then fails at
+      // calibration by name, which is where the sentence a person can act on is.
+#ifdef _WIN32
+      cams = camera_setup::camerasAtStart(turnaus_config.credentials_path, width, height, fps);
+#else
+      cams = getArgVector(argc, argv, "--cams", "/dev/video0,/dev/video1,/dev/video2");
+      log_warning("CAMERAS: no video device on this machine could see a dartboard; falling back to the defaults");
+#endif
+    }
+    else
+    {
+      string list;
+      for (size_t i = 0; i < cams.size(); i++)
+        list += (i ? "," : "") + cams[i];
+      log_info("CAMERAS: " + list + " (looked through; these are the ones that can see the dartboard)");
+    }
   }
 
   debug::printConfig(width, height, fps, model_path, cams);

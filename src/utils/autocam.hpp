@@ -150,6 +150,19 @@ namespace autocam
         return mode;
     }
 
+    // #1318: every video device on this machine, in the order OpenCV's MSMF backend
+    // indexes them, with nothing filtered out. detectAndLock() below keeps the MJPG
+    // requirement and is right to; this list is for the caller that is about to decide
+    // by LOOKING at each candidate, and a laptop webcam usually negotiates MJPG happily,
+    // so a list filtered on it would still have the webcam at the top of it.
+    inline std::vector<std::string> listCandidates()
+    {
+        std::vector<std::string> sources;
+        for (const auto &device : enumerateDevices())
+            sources.push_back(std::to_string(device.index));
+        return sources;
+    }
+
     inline std::vector<std::string>
     detectAndLock(int maxCams, int width, int height, int fps, bool verbose = true)
     {
@@ -344,6 +357,37 @@ namespace autocam
 
         ::close(fd);
         return {fmt.fmt.pix.width, fmt.fmt.pix.height, actualFps};
+    }
+
+    // #1318: every /dev/video* that is a streaming capture device, in numeric order,
+    // with nothing filtered out. See the Windows half of this file for why the MJPG
+    // requirement detectAndLock() applies is deliberately not applied here.
+    inline std::vector<std::string> listCandidates()
+    {
+        std::vector<std::pair<int, std::string>> found;
+        DIR *d = ::opendir("/dev");
+        if (!d)
+            return {};
+
+        struct dirent *e;
+        while ((e = ::readdir(d)))
+        {
+            if (std::strncmp(e->d_name, "video", 5) != 0)
+                continue;
+            const std::string dev = "/dev/" + std::string(e->d_name);
+            if (!isVideoCapture(dev))
+                continue;
+            // /dev/video10 sorts before /dev/video2 as a string, and the order these are
+            // probed in is the order a tester reads the report in.
+            found.emplace_back(std::atoi(e->d_name + 5), dev);
+        }
+        ::closedir(d);
+        std::sort(found.begin(), found.end());
+
+        std::vector<std::string> sources;
+        for (const auto &entry : found)
+            sources.push_back(entry.second);
+        return sources;
     }
 
     inline std::vector<std::string>

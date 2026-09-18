@@ -35,6 +35,18 @@
 > opening no camera. Started in an interactive console with no credential and neither flag, the
 > board simply asks for a six-digit code and tries the club's door then a Casual Contest's, which
 > is the ordinary way to pair; the flags are for a board set up without somebody standing at it.
+>
+> **Which cameras a start opens.** `--cams` wins where it is given: those devices, in that order,
+> with nothing probed and nothing asked. Without it the board no longer assumes `0,1,2` — on a
+> laptop index 0 is the built-in webcam, so the three board cameras are 1, 2 and 3, all three
+> defaults open, and until #1318 the detector calibrated the operator's face as camera 1 and never
+> opened the third board camera at all. Instead every video device on the machine is looked
+> through, one at a time, and the first three that can see a dartboard are the ones that are
+> opened. A device that cannot is named and left alone. `--autocams` is unchanged and is a
+> different question: it asks what a camera's electronics can do — whether it will negotiate MJPG,
+> which matters because three 1280x720 cameras do not fit uncompressed on one USB bus — and most
+> laptop webcams answer yes, so it cannot tell where a camera points. `src/utils/board_look.hpp`
+> holds what "can see a dartboard" means and the measurements it was set from.
 
 <div align="center">
 
