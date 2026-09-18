@@ -585,6 +585,15 @@ bool TurnausClient::offer(const DetectorResult &result)
         // board that reports what did not happen is the thing this client exists not to
         // be. So it is dropped, which is #891's rule for a dart owed to an ended Contest
         // applied to the takeout of the round that dart belonged to.
+        //
+        // DELIBERATELY NARROW, and #1276 says why. Only a round begun on an evening that
+        // has ended is dropped. A takeout arriving when THIS PROCESS opened no round --
+        // a restart in the middle of a round, whose darts were resumed from the spool
+        // rather than offered here -- still goes out at the live binding exactly as it
+        // always did. Dropping that one would leave those darts sitting in the server's
+        // round in hand until some later takeout closed them into the wrong turn, which
+        // is a worse failure than the one this slice is about and is not what it was
+        // asked to change.
         std::string dropped_because;
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -593,11 +602,7 @@ bool TurnausClient::offer(const DetectorResult &result)
                 dropped_because = "the round it ends was begun on Casual Contest " +
                                   std::to_string(round_contest_id_) + ", which has ended";
             }
-            else if (round_ == RoundInHand::None)
-            {
-                dropped_because = "this board began no round at any door since the last takeout";
-            }
-            else if (round_binding_ == Binding::Contest &&
+            else if (round_ == RoundInHand::Open && round_binding_ == Binding::Contest &&
                      (!contest_bound_.load() || round_contest_id_ != contest_id_))
             {
                 // The same verdict reached without releaseContestBinding() having run --
@@ -605,11 +610,14 @@ bool TurnausClient::offer(const DetectorResult &result)
                 dropped_because = "the round it ends was begun on Casual Contest " +
                                   std::to_string(round_contest_id_) + ", which this board is no longer on";
             }
-            else
+            else if (round_ == RoundInHand::Open)
             {
                 item.binding = round_binding_;
                 item.contest_id = round_contest_id_;
             }
+            // else: RoundInHand::None, and the item keeps `destination()` -- which is
+            // exactly where this takeout went before #1276. `round_binding_` still holds
+            // the last round's door and must not be read here: nothing was begun.
             round_ = RoundInHand::None;
         }
         if (!dropped_because.empty())
