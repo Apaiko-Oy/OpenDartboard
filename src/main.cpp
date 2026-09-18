@@ -1,5 +1,6 @@
 #include "scorer/scorer.hpp"
 #include "utils/args.hpp"
+#include "utils/cache.hpp"
 #include "utils/debug.hpp"
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
@@ -83,6 +84,13 @@ int main(int argc, char **argv)
   string model_path = getArg(argc, argv, "--model", "/usr/local/share/opendartboard/models/dart.param");
 #endif
   bool useAuto = hasFlag(argc, argv, "--autocams");
+
+  // #1330: score on the calibration the last start measured instead of looking at the
+  // board. Off unless asked for: the cache file is named by the working directory and by
+  // nothing else, so it cannot say whose geometry it is, and a board whose camera has been
+  // nudged since it was written would score through a perspective that is wrong and looks
+  // right. utils/cache.hpp holds the measurement.
+  cache::geometry::allowReuse(hasFlag(argc, argv, "--reuse-calibration"));
   int width = getArg(argc, argv, "--width", 1280);
   int height = getArg(argc, argv, "--height", 720);
   int fps = getArg(argc, argv, "--fps", 15);
