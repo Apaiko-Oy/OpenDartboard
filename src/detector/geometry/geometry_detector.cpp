@@ -132,9 +132,15 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         // kept for every camera including the ones that produced no frame, precisely so
         // that score_processing's calibrations[i] stays the camera at position i, and a
         // slot with no frame is a camera that sees nothing and is counted as such.
-        // And `wires.wireEndpoints.size() >= 16` is dropped rather than moved: it is
-        // `std::array<Point2f, 20>`, so that is the constant 20 and the condition is
-        // always true -- 74be46f says so itself and files it as #1317.
+        // And `wires.wireEndpoints.size() >= 16` was dropped rather than moved, because
+        // it was `std::array<Point2f, 20>` and therefore the constant 20 and always true.
+        // #1317 has since given that count a real value and put the question where the
+        // evidence is, the way #1318 did with hasValidDoubles: calibrateSingleCamera
+        // refuses a camera whose wire stage found fewer than
+        // wire_processing::kWiresRequired boundaries, by name and with the count, and a
+        // refused camera does not set sees_board. So it is asked here too now, through
+        // the same `seeing` count as everything else, and there is still nothing in this
+        // function that needs to know what a wire is.
         const int cameras_that_must_see = 1;
         int seeing = 0;
         for (const auto &calibration : calibrations)

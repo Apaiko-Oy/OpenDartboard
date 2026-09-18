@@ -191,6 +191,30 @@ namespace geometry_calibration
         wire_processing::WireData wireData = wire_processing::processWires(orginalFrame, redGreenFrame, calibration, debugMode, wireConfig);
         calibration.wires = wireData;
 
+        // #1317: a partial detection does not calibrate. This is the second place a camera
+        // is refused and it is deliberately the same shape as the first one above --
+        // #1321's convention, one ERROR naming the camera, the stage and the count against
+        // the threshold that refused it, plus the fault the vigil reads -- because a
+        // reader should not have to know which stage failed to recognise the sentence.
+        //
+        // Before this, nine wires reported twenty, the three guards downstream were
+        // tautologies, and the run said `PnP calibration successful` over eleven slots of
+        // whatever was in memory. A board in that state scores darts against a geometry
+        // it invented, which is worse than one that will not start.
+        if (!wireData.isValid)
+        {
+            log_error("Camera " + log_string(cameraIdx + 1) +
+                      " did not calibrate: the wire stage found " + log_string(wireData.wiresDetected) +
+                      " wire boundaries and all " + log_string(wire_processing::kWiresRequired) +
+                      " are needed to tell one wedge from the next, so this camera cannot be scored with.");
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+                                     " did not calibrate: the wire stage found " + to_string(wireData.wiresDetected) +
+                                     " of the " + to_string(wire_processing::kWiresRequired) +
+                                     " wire boundaries a board has");
+            calibration.sees_board = false;
+            return calibration;
+        }
+
         //[===STEP 8.5:===] PERSPECTIVE CORRECTION - Apply perspective correction to the mask
         perspective_processing::DartboardSpec perspectiveSpec;
         Mat rectifiedImage = perspective_processing::processPerspective(orginalFrame, calibration, debugMode, perspectiveSpec);

@@ -652,15 +652,44 @@ namespace wire_processing
         log_debug("Using ENSEMBLE detection method (Contour + Hough + Scoring)");
         colorWires = findWiresByEnsemble(frame, colorMask, calib, enableDebug, config);
 
-        // Set up result, take only the first 20 wires
-        for (int i = 0; i < 20; i++)
+        // #1317: a push, not an indexed copy. This loop used to run i over 0..19 and read
+        // colorWires[i] with nothing looking at colorWires.size(), so a nine-wire board
+        // read eleven Point2f past the end of the vector and the result carried them.
+        // WireEndpoints::add stops at its own capacity, and the source is walked by the
+        // source's own length, so neither side can be overrun by any count at all.
+        result.wiresDetected = (int)colorWires.size();
+        for (const Point2f &wire : colorWires)
         {
-            result.wireEndpoints[i] = colorWires[i];
+            if (!result.wireEndpoints.add(wire))
+            {
+                break;
+            }
         }
-        result.isValid = (result.wireEndpoints.size() == 20); // Allow some tolerance
 
-        log_debug("Found " + log_string(result.wireEndpoints.size()) + " wire boundaries using ensemble");
-        log_debug("Wire detection completed successfully");
+        // The one threshold, read from the one place it is stated. This is the guard whose
+        // old spelling -- `result.wireEndpoints.size() == 20` over a std::array<Point2f,20>
+        // -- was a tautology with `// Allow some tolerance` written beside it.
+        result.isValid = (result.wireEndpoints.size() == (size_t)kWiresRequired);
+
+        // #1317: what was found, not what the array can hold. On the rig this issue was
+        // filed from, the line above this one said "Selected 9 averaged wires" and this
+        // one said twenty.
+        log_debug("Found " + log_string(result.wiresDetected) + " wire boundaries using ensemble" +
+                  (result.wiresDetected > kWiresRequired
+                       ? ", keeping the first " + log_string(kWiresRequired)
+                       : ""));
+        if (result.isValid)
+        {
+            log_debug("Wire detection completed successfully");
+        }
+        else
+        {
+            // Not an ERROR here: calibrateSingleCamera is the one place that reports a
+            // camera's failure, and it names the camera and this count. #1321's rule --
+            // a reader told three times learns nothing the first telling did not say.
+            log_debug("Wire detection did not complete: " + log_string(result.wiresDetected) +
+                      " of the " + log_string(kWiresRequired) + " wire boundaries a board has");
+        }
 
         // Handle debug output internally
         if (enableDebug)

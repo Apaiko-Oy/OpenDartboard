@@ -34,17 +34,23 @@ namespace perspective_processing
             return result;
         }
 
-        if (calib.wires.wireEndpoints.size() < 16)
+        if (calib.wires.wireEndpoints.size() < (size_t)wire_processing::kWiresRequired)
         {
-            // A fact of its own, so it says the count. It cannot fire today --
-            // WireData::wireEndpoints is a std::array<Point2f, 20> and its size() is the
-            // template argument rather than anything that was detected, which is #1317's
-            // subject -- but the test this branch wants to make is the one written here,
-            // and it is written so that fixing the count makes this line true rather
-            // than making it appear.
+            // A fact of its own, so it says the count. #1317 made it true: `.size()` is
+            // now what the wire stage found rather than the capacity it was stored in, so
+            // this branch is reachable -- the sentence is the one #1321 wrote, with the
+            // number it is measured against read from the one place that states it
+            // instead of being spelled `16` here and `20` in two other files.
+            //
+            // It stays ERROR rather than becoming one of #1321's DEBUG echoes because it
+            // is not an echo: calibrateSingleCamera refuses a camera on this same count
+            // before step 8.5 is reached, so a calibration arriving here with too few
+            // wires got in some other way -- from the cache, or from a caller of
+            // findAllRingWireIntersections that is not the calibration -- and that is news.
             log_error("Camera " + log_string(calib.camera_index + 1) +
                       " has a fitted doubles ring but only " + log_string(calib.wires.wireEndpoints.size()) +
-                      " wire endpoints, and at least 16 are needed for the perspective fit.");
+                      " wire endpoints, and at least " + log_string(wire_processing::kWiresRequired) +
+                      " are needed for the perspective fit.");
             return result;
         }
 
