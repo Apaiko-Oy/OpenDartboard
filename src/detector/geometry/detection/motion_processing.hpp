@@ -97,9 +97,27 @@ namespace motion_processing
         // the mocks and 0.000410 on the rig, both an order of magnitude under
         // low_threshold; over the frame the rig's quiet p90 was 0.001937, ABOVE it, so
         // an event on that rig could not settle and finish at all.
-        double spike_threshold = 0.08;     // Fraction of the board that changed: a dart hit
+        // #1353 moved this constant and the two lines below say against what. The trace
+        // census on mocks/rig-20260918 (25 excursions, debian-12/OpenCV 4.6, cameras 1
+        // and 3 measured): a THROW is a 1-4 cycle splash whose STRONGEST camera peaks at
+        // 0.0135-0.089 of its board, the retrievals run 0.13-0.41, the noise micro-blips
+        // top out at 0.0088 and the quiet p90 is 0.0004 (#1339's census; the shipped
+        // mocks' throws run 0.33-0.57 with quiet p90 0.0001). At 0.08 no throw has ever
+        // entered an event on the rig -- the six events #1345 measured were the six
+        // retrievals. 0.011 is 22% under the weakest splash, 25% over the biggest
+        // micro-blip and 27x the quiet p90; the plateau sweep is in issue #1353.
+        double spike_threshold = 0.011;    // Fraction of ONE camera's board that changed: a dart hit (per-camera peak, not the average -- see processMotion)
         double low_threshold = 0.001;      // Fraction of the board that changed: settled
-        int min_cameras_for_event = 2;     // Minimum cameras that must participate in dart event
+        // #1353: 1, was 2, and the same census is why. A splash is a ONE-camera motion
+        // fact: the weak-side camera of the same throw measures 0.0002-0.008, under any
+        // threshold that clears noise, and which camera is the strong side varies per
+        // throw. What every camera shares is the dart's PERSISTENT change, and that is
+        // the dart-state vote's own quorum (dart_processing, two cameras) -- so the
+        // event quorum stops pretending to be it. A spurious event is cheap since
+        // #1350: an empty window is one refused STATE VOTE line. This also closes half
+        // of #1348: with 1 here, whyNoEventIsPossible's answering-count gate and the
+        // spiking ceiling can no longer disagree by one abstaining camera.
+        int min_cameras_for_event = 1;     // Cameras whose own board must spike for a dart event
         int spike_window_frames = 10;      // Frames to wait for other cameras to join spike
         int stability_frames = 15;         // Consecutive low-motion frames needed for stability
         int max_event_duration_ms = 10000; // Maximum time for dart event (safety timeout)

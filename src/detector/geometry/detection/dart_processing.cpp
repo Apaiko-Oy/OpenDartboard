@@ -364,6 +364,19 @@ namespace dart_processing
         vector<Mat> dart_thresh_diffs;
         vector<Mat> dart_tips;
 
+        // #1354: whether ANY camera brings a fitted board to this window. Where one
+        // does, a camera without one abstains from the vote rather than answering from
+        // the frame; where none does, the frame is all there is and every camera
+        // decides on it exactly as this stage always did.
+        bool any_board_fitted = false;
+        for (const motion_processing::BoardExtent &extent : boards)
+        {
+            if (extent.known)
+            {
+                any_board_fitted = true;
+            }
+        }
+
         for (size_t i = 0; i < current_frames.size(); i++)
         {
             // #798: a camera that contributed nothing to this window has no average to
@@ -430,27 +443,21 @@ namespace dart_processing
                 dart_threshs.push_back(thresh);
             }
 
-            // #1345: the same count again, inside this camera's own board. It decides
-            // nothing -- the branch below is the frame figure and the constant it always
-            // was -- and it exists because without it the figure cannot be read. On
-            // mocks/rig-20260918 camera 1 clears the threshold in six windows out of six
-            // with 12,109 to 13,372 changed pixels and NONE of them inside its board: it
-            // is answering for the thrower's shoes at the top of its frame, which the
-            // other two cameras do not have in shot. Cameras 2 and 3 measure 0 px, in
-            // the frame and on the board alike. The shipped mocks measure 1,114 to
-            // 29,282 px on the board in the same windows, so the instrument is sound and
-            // the rig's zero is real.
+            // #1345 counted the changed pixels again inside this camera's own board as
+            // observation -- it measured camera 1 clearing the frame threshold six
+            // windows out of six with 12,109 to 13,372 changed pixels and NONE of them
+            // on its board, the thrower's shoes at the top of its frame. #1354 makes
+            // that count the DECIDING figure where the board is fitted, which is
+            // exactly what that measurement was collected to justify.
+            const Region &region = regionFor(i, boards, thresh.size());
             int board_changed_pixels = 0;
             int board_pixels = 0;
+            if (region.known)
             {
-                const Region &region = regionFor(i, boards, thresh.size());
-                if (region.known)
-                {
-                    Mat inside;
-                    bitwise_and(thresh, region.mask, inside);
-                    board_changed_pixels = countNonZero(inside);
-                    board_pixels = region.pixels;
-                }
+                Mat inside;
+                bitwise_and(thresh, region.mask, inside);
+                board_changed_pixels = countNonZero(inside);
+                board_pixels = region.pixels;
             }
 
             // set camera result
@@ -463,29 +470,35 @@ namespace dart_processing
             // Crate a working background for this camera
             Mat single_thresh;
 
-            // Determine candidate state based on change ratio and previous state
+            // Determine candidate state. #1354: where this camera's board is fitted,
+            // both figures are shares of THAT BOARD -- the cumulative diff against the
+            // calibration background says whether the board is occupied at all, and the
+            // fresh diff against the working background says whether something NEW
+            // arrived since the last dart. Cumulative alone advanced the state on the
+            // whole history: with one dart on the board, every later window's
+            // cumulative figure still cleared the threshold and voted another dart.
+            // Where no camera has a board, the frame figure decides as it always did.
             auto candidate_state = DartBoardState::CLEAN;
-            if (change_ratio >= params.change_percent_threshold) // Threshold for detecting a dart; #1350 hoisted the 0.22 into DartParams, value unchanged
+            const bool decides_on_board = region.known;
+            const double cumulative_share = decides_on_board
+                                                ? 100.0 * (double)board_changed_pixels / (double)board_pixels
+                                                : change_ratio;
+            const double decide_threshold = decides_on_board
+                                                ? params.board_change_percent_threshold
+                                                : params.change_percent_threshold;
+
+            if (any_board_fitted && !decides_on_board)
             {
-
-                // CHECK FROM CLEAN AND OR UNKNOW STATES TOO (MAYBE NOT DEFINED YET)
-                if (previous_states[i] == DartBoardState::CLEAN)
-                {
-                    candidate_state = DartBoardState::DART_1;
-                }
-                else if (previous_states[i] == DartBoardState::DART_1)
-                {
-                    candidate_state = DartBoardState::DART_2;
-                }
-                else if (previous_states[i] == DartBoardState::DART_2)
-                {
-                    candidate_state = DartBoardState::DART_3;
-                }
-                else if (previous_states[i] == DartBoardState::DART_3)
-                {
-                    candidate_state = DartBoardState::DART_3; // Stay in DART_3
-                }
-
+                // #1354: another camera brought a board and this one did not, so it has
+                // no denominator to decide with. It abstains -- the frame figure it
+                // would otherwise answer with is how the rig's camera 1 voted DART_1 on
+                // the thrower's shoes, six windows of six (#1345).
+                result.camera_results[i].abstained_no_board = true;
+                candidate_state = previous_states[i];
+                single_thresh = thresh.clone();
+            }
+            else if (cumulative_share >= decide_threshold) // the board is occupied
+            {
                 if (!working_backgrounds[i].empty())
                 {
                     Mat diff_working;
@@ -501,23 +514,70 @@ namespace dart_processing
                 }
                 else
                 {
-                    // clone the one above
+                    // clone the one above: nothing has been on this board since it was
+                    // last clean, so the cumulative diff IS the fresh diff
                     single_thresh = thresh.clone();
                 }
 
-                working_backgrounds[i] = averaged_frame.clone();
-
-                // Use smart tip detection
-                auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips);
-                Point2f tip_pos = tip_and_center.first;
-                Point2f center_pos = tip_and_center.second;
-
-                // If tip position is valid, update the camera result
-                if (norm(tip_pos) > 0)
+                // #1354: what of that is NEW, and on the board where there is one
+                double fresh_share;
+                if (decides_on_board)
                 {
-                    result.camera_results[i].tip_position = tip_pos;
-                    result.camera_results[i].center_position = tip_and_center.second;
-                    result.camera_results[i].tip_found = true;
+                    Mat fresh_inside;
+                    bitwise_and(single_thresh, region.mask, fresh_inside);
+                    const int fresh_pixels = countNonZero(fresh_inside);
+                    result.camera_results[i].fresh_board_pixels = fresh_pixels;
+                    fresh_share = 100.0 * (double)fresh_pixels / (double)board_pixels;
+                }
+                else
+                {
+                    fresh_share = 100.0 * (double)countNonZero(single_thresh) / (double)total_pixels;
+                }
+
+                if (fresh_share >= decide_threshold) // and something new arrived on it
+                {
+                    // CHECK FROM CLEAN AND OR UNKNOW STATES TOO (MAYBE NOT DEFINED YET)
+                    if (previous_states[i] == DartBoardState::CLEAN)
+                    {
+                        candidate_state = DartBoardState::DART_1;
+                    }
+                    else if (previous_states[i] == DartBoardState::DART_1)
+                    {
+                        candidate_state = DartBoardState::DART_2;
+                    }
+                    else if (previous_states[i] == DartBoardState::DART_2)
+                    {
+                        candidate_state = DartBoardState::DART_3;
+                    }
+                    else if (previous_states[i] == DartBoardState::DART_3)
+                    {
+                        candidate_state = DartBoardState::DART_3; // Stay in DART_3
+                    }
+
+                    // The reference moves to this dart exactly when a dart was called;
+                    // an occupied-but-still window keeps the reference where it was.
+                    working_backgrounds[i] = averaged_frame.clone();
+
+                    // Use smart tip detection
+                    auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips);
+                    Point2f tip_pos = tip_and_center.first;
+                    Point2f center_pos = tip_and_center.second;
+
+                    // If tip position is valid, update the camera result
+                    if (norm(tip_pos) > 0)
+                    {
+                        result.camera_results[i].tip_position = tip_pos;
+                        result.camera_results[i].center_position = tip_and_center.second;
+                        result.camera_results[i].tip_found = true;
+                    }
+                }
+                else
+                {
+                    // #1354: occupied, and nothing new on it -- the darts already
+                    // called are still there and no dart arrived. The board stays what
+                    // it was; before this branch existed, this window voted an
+                    // advance on the history alone.
+                    candidate_state = previous_states[i];
                 }
             }
             else // Threshold for no dart
@@ -605,6 +665,8 @@ namespace dart_processing
         {
             if (!result.camera_results[i].frame_available)
                 continue; // #798: an abstaining camera is not a vote for anything
+            if (result.camera_results[i].abstained_no_board)
+                continue; // #1354: nor is one with no board to have measured against
 
             if (result.camera_results[i].detected_state == DartBoardState::CLEAN)
             {
