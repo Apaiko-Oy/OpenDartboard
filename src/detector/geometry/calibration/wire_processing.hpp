@@ -27,8 +27,8 @@ namespace wire_processing
      *
      * Twenty rather than sixteen, and that is a deliberate narrowing of the `< 16` that
      * perspective_processing carried. The wedge is the unit scoring works in:
-     * score_processing::findWedgeSlot walks `(start + i) % wires` around the ring and
-     * findDartboardNumber indexes a twenty-long sequence with the slot it lands on. With
+     * score_processing::findWedgeSlot walks `(start + i) % wires` around the ring and the
+     * slot it lands on indexes `dartboard_numbers`, a twenty-long sequence. With
      * nineteen wires every wedge past the gap is a different number than it should be, and
      * the answer is not "less accurate" but a plausible wrong score -- which is the class
      * ADR-0055 says must not be able to look trustworthy. Sixteen was never a threshold
@@ -37,6 +37,7 @@ namespace wire_processing
      * one edit here, and it should be argued for rather than inherited.
      */
     constexpr int kWiresRequired = 20;
+
     // Configuration for wire detection methods
     struct WireDetectionConfig
     {
@@ -63,8 +64,8 @@ namespace wire_processing
      * can. A plain `std::vector` would say the same thing more briefly and is not
      * available: DartboardCalibration is written to the calibration cache with a raw
      * fwrite of sizeof(DartboardCalibration) bytes (utils/cache.hpp), so nothing in it may
-     * own memory. Hence a fixed store plus a length, and the static_assert below, which is
-     * what would notice if that ever stopped being true.
+     * own memory. Hence a fixed store plus a length, and the two asserts below it, which
+     * are what would notice if that ever stopped being true.
      *
      * `add()` is the other half of the repair: filling the result is a push rather than an
      * indexed copy, so it cannot read past its source or write past its own end however
