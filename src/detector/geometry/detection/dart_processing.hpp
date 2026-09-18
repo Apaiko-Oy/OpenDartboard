@@ -39,11 +39,35 @@ namespace dart_processing
         int stability_frames = 6; // Frames needed to confirm state change / (3 cameras * 2 frames per camera)
 
         // #1350 hoisted the literal the state stage answers against, so the vote's
-        // account below can name the number the code really read. The VALUE is unchanged.
-        // Its DENOMINATOR is each camera's whole frame -- not the board -- which is
-        // #1345's open question one stage downstream of #1339: a threshold and its
-        // denominator move together, so whoever moves either states both.
-        double change_percent_threshold = 0.22; // % of a camera's own frame that must differ from the background to call a dart
+        // account below can name the number the code really read. #1354: this is the
+        // FALLBACK now, used only when no camera on the board has a fitted board to
+        // measure against -- the frame is then all there is, exactly as it always was.
+        // The value is unchanged and its denominator is each camera's whole frame.
+        double change_percent_threshold = 0.22; // % of a camera's own frame; the no-fitted-board fallback
+
+        // #1354: the deciding figure where a board IS fitted, as a share of that
+        // camera's own board -- #1339's move, one stage on, with #1345's instrumentation
+        // as the ruler. The same constant answers both questions the vote asks: a board
+        // whose CUMULATIVE change (vs the calibration background) is under it is CLEAN,
+        // and an occupied board advances only when the FRESH change (vs the working
+        // background -- what arrived since the last dart) is over it. Cumulative alone
+        // was the false-takeout and false-advance machine: with darts on the board,
+        // every window's cumulative figure re-argued the whole history.
+        //
+        // FITTED BY SWEEP over both fixtures (debian-12/OpenCV 4.6), scores per run:
+        //
+        //   value  rig darts scored            mocks round 1
+        //   0.10   9 (and the OUTER bull)      S12 S7 S17 -- #796's hand-verified 36
+        //   0.15   10                          S12 S20    -- the two small darts lost
+        //   0.20   10                          S12 S20
+        //   0.30   5                           S12 S20, and more lost after it
+        //
+        // The rig is flat across 0.10-0.20; the mocks' small darts demand 0.10, and
+        // 0.10 is the only value that reproduces the one hand-verified round this
+        // repository has. On the rig's ~197,000 px boards 0.10% is ~197 px; darts there
+        // measured 348-15,556 px on the board (shadows inflate the big end), and an
+        // empty window's residue measured 0 px on the rig, 13-271 px on the mocks.
+        double board_change_percent_threshold = 0.10; // % of a camera's own fitted board
     };
 
     // Per-camera detection result
@@ -62,10 +86,19 @@ namespace dart_processing
         // board was never fitted, which means unknown rather than none.
         int board_changed_pixels = 0;
         int board_pixels = 0;
+        // #1354: what arrived since the LAST dart, inside the board -- the working-diff's
+        // board share, which is what an advance is decided on where a board is fitted.
+        // -1 where it was not computed (a CLEAN board, or no fitted board).
+        int fresh_board_pixels = -1;
         Point2f tip_position = Point2f(-1, -1);    // Position of dart tip if found
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame
         bool frame_available = true;               // #798: did this camera contribute any frame to the window
+        // #1354: this camera has no fitted board while another camera does, so it has no
+        // denominator to decide with and it abstains from the vote -- answering from the
+        // frame instead is how the rig's camera 1 voted DART_1 on the thrower's shoes,
+        // six windows out of six (#1345).
+        bool abstained_no_board = false;
     };
 
     // Result of dart state detection
@@ -147,6 +180,13 @@ namespace dart_processing
             if (!camera_results[i].frame_available)
             {
                 cameras += " abstained (no frames this window)";
+                continue;
+            }
+            if (camera_results[i].abstained_no_board)
+            {
+                // #1354: named beside the voters, so a board quietly down to one fitted
+                // camera reads as what it is rather than as a camera that saw nothing.
+                cameras += " abstained (no fitted board to vote with)";
                 continue;
             }
             snprintf(figure, sizeof(figure), "%.3f", camera_results[i].change_ratio);
