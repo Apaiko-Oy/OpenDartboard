@@ -77,14 +77,21 @@ namespace bull_processing
             return sighting;
         }
 
-        // ---- #1320 Step 3.5: measure the board, before scoring anything against it ----
+        // ---- #1320/#1340 Step 3.5: measure the board, before scoring anything against it ----
         //
         // The largest outermost region in the red/green mask is the dartboard: its
         // boundary is the outside of the doubles ring, because that is the last coloured
-        // thing on a board. Its area gives a radius the same way a disc's does, and the
-        // centroid of that boundary gives the middle of the board the rings describe.
-        // Both are measurements of this frame. Nothing here is a pixel constant except
-        // how much of the frame a board has to fill to be measurable at all.
+        // thing on a board. WHICH region that is has not moved -- it is still the one
+        // enclosing the most area. What is measured of it has: #1340 takes the board's
+        // radius and its middle from the smallest circle enclosing that boundary rather
+        // than from the area the boundary encloses, because a doubles ring broken into
+        // arcs -- the ordinary case on a board lit from one side -- loses most of its
+        // enclosed area and none of its extent. BullParams carries the measurements.
+        //
+        // The area is still taken, because it is what the refusal used to be about and
+        // what every log line before this one quoted, and the two are logged side by
+        // side: on a ring that closed they agree, and where they part the difference is
+        // the arcs the mask lost.
         int boardIndex = -1;
         double boardArea = 0.0;
         for (size_t i = 0; i < contours.size(); i++)
@@ -99,32 +106,48 @@ namespace bull_processing
             }
         }
 
-        const double frameArea = static_cast<double>(redGreenFrame.cols) * redGreenFrame.rows;
-        const double minBoardArea = frameArea * params.minBoardAreaPercent;
-        if (boardIndex < 0 || boardArea < minBoardArea)
+        Point2f boardSpanCenter(static_cast<float>(frameCenter.x), static_cast<float>(frameCenter.y));
+        float boardSpan = 0.0f;
+        if (boardIndex >= 0)
         {
-            sighting.failure = "the board cannot be measured: the largest red/green region encloses " +
-                               to_string(static_cast<long>(boardArea)) + " pixels and a board this stage can " +
-                               "size a bull against has to enclose at least " + to_string(static_cast<long>(minBoardArea)) +
-                               " (" + decimals(params.minBoardAreaPercent * 100.0, 1) + "% of the frame)";
+            minEnclosingCircle(contours[boardIndex], boardSpanCenter, boardSpan);
+        }
+
+        const double minBoardRadius = params.minBoardRadius();
+        const double smallestBullOfBoard = params.bullRadiusOfBoardRadius * params.minBullRadiusFactor;
+        if (boardIndex < 0 || boardSpan < minBoardRadius)
+        {
+            sighting.failure = "the board cannot be measured: the largest red/green region spans " +
+                               decimals(boardSpan, 1) + " px of radius, enclosing " +
+                               to_string(static_cast<long>(boardArea)) + " pixels, and a board this stage can " +
+                               "size a bull against has to span at least " + decimals(minBoardRadius, 1) +
+                               " px -- the radius at which the smallest bull it would accept, " +
+                               decimals(smallestBullOfBoard, 3) + " of the board, is still " +
+                               decimals(params.smallestMeasurableBullRadius, 1) +
+                               " px and so survives this stage's own 7x7 blur";
             return sighting;
         }
 
-        sighting.boardRadius = discRadius(boardArea);
-        const Moments boardMoments = moments(contours[boardIndex]);
-        sighting.boardCenter = (boardMoments.m00 > 0)
-                                   ? Point(static_cast<int>(boardMoments.m10 / boardMoments.m00),
-                                           static_cast<int>(boardMoments.m01 / boardMoments.m00))
-                                   : frameCenter;
+        sighting.boardRadius = boardSpan;
+        sighting.boardCenter = Point(cvRound(boardSpanCenter.x), cvRound(boardSpanCenter.y));
 
         const double idealRadius = sighting.boardRadius * params.bullRadiusOfBoardRadius;
         const double minRadius = idealRadius * params.minBullRadiusFactor;
         const double maxRadius = idealRadius * params.maxBullRadiusFactor;
         const double maxOffset = sighting.boardRadius * params.maxOffsetOfBoardRadius;
 
+        // Both radii, on purpose. The span is what everything below is sized against;
+        // the disc radius is what #1320 sized against and what the old refusal was a
+        // floor on. A ring that closed makes them agree to within the eccentricity of
+        // the ellipse the board projects to; a gap between them is the arcs this mask
+        // lost, and is the difference between a camera that calibrates under #1340 and
+        // one that did not before it.
         log_debug("Board measured from the red/green mask: radius " + log_string((int)sighting.boardRadius) +
-                  " px, centre (" + log_string(sighting.boardCenter.x) + "," + log_string(sighting.boardCenter.y) +
-                  "); a bull here is " + log_string_src(decimals(minRadius, 1)) + " to " +
+                  " px across its widest, centre (" + log_string(sighting.boardCenter.x) + "," +
+                  log_string(sighting.boardCenter.y) + "); its boundary encloses " +
+                  log_string((int)boardArea) + " px, which a filled disc would carry at radius " +
+                  log_string_src(decimals(discRadius(boardArea), 1)) + " px; a bull here is " +
+                  log_string_src(decimals(minRadius, 1)) + " to " +
                   log_string_src(decimals(maxRadius, 1)) + " px in radius and within " +
                   log_string_src(decimals(maxOffset, 1)) + " px of that centre");
 
