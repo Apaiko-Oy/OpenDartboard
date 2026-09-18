@@ -36,6 +36,7 @@ import os
 import re
 import socket
 import subprocess
+import urllib.request
 import sys
 import time
 
@@ -349,8 +350,80 @@ def case_spool():
     stub.stop()
 
 
+def case_noround():
+    """#1276's narrow edge: a takeout ending a round THIS PROCESS never began.
+
+    A scripted run of the detector cannot reach it -- the scorer publishes a takeout only
+    after it has published darts -- but a board in a pub reaches it every time it restarts
+    in the middle of a round: the darts already owed are resumed from the spool, which
+    begins no round because nothing was offered, and then the live END of that same round
+    arrives. That takeout must still be sent at the live binding, exactly as it always was.
+    Dropping it would leave those darts in the server's round in hand until some later
+    takeout closed them into the wrong turn, which is a worse failure than the one #1276 is
+    about. So the client is driven directly here, by a harness compiled against it.
+    """
+    port = 18925
+    stub = Stub("noround", port)
+    board = Board("noround", port)
+    base = "http://127.0.0.1:%d" % port
+
+    # Paired through the door like any other board, because the stub admits a credential
+    # only after it has minted one -- and the harness is then handed that file's path.
+    check(board.pair("--pair", CLUB) == 0, "noround: the board pairs to its club")
+
+    # The dart the PREVIOUS process pushed, planted at the server under the same
+    # credential: the round in hand at the club is not empty when the takeout arrives.
+    seed = urllib.request.Request(
+        base + "/api/v1/autoscorer/detections",
+        data=json.dumps({"reference": "01M1GGGGGGGGGGGGGGGGGGGGGG", "sector": "S20",
+                         "bounced_out": False}).encode(),
+        headers={"Authorization": "Bearer " + CLUB_TOKEN, "Content-Type": "application/json",
+                 "Accept": "application/json"})
+    with urllib.request.urlopen(seed, timeout=10) as answer:
+        check(answer.status == 202, "noround: the previous process's dart is counted at the club")
+
+    binary = os.path.join(board.dir, "i1276_round_check")
+    compile_line = (
+        "g++ -std=c++17 -I {app}/src -I {app}/src/utils "
+        "-I {app}/build/_deps/nlohmann_json-src/include -I {app}/build/_deps/httplib-src "
+        "$(pkg-config --cflags opencv4 2>/dev/null) "
+        "{app}/testers/i1276_round_check.cpp {app}/src/communication/turnaus_client.cpp -o {bin} "
+        "$(pkg-config --libs opencv4 2>/dev/null) -lpthread"
+    ).format(app=APP, bin=binary)
+    built = subprocess.run(compile_line, shell=True, capture_output=True, text=True, timeout=900)
+    if not check(built.returncode == 0, "noround: the round harness compiles (%s)"
+                 % built.stderr.strip().splitlines()[-1:] or "no output"):
+        stub.stop()
+        return
+
+    env = dict(board.env)
+    ran = subprocess.run([binary, base, board.credentials], cwd=board.cwd, env=env,
+                         capture_output=True, text=True, timeout=300)
+    board.text = ANSI.sub("", ran.stdout + ran.stderr)
+    with open(os.path.join(board.dir, "harness.out"), "w") as fh:
+        fh.write(board.text)
+
+    check(ran.returncode == 0, "noround: the harness ran clean (rc=%s)" % ran.returncode)
+    check("NOROUND accepted=1" in board.text,
+          "noround: the client accepted a takeout with no round of its own to end")
+    check("NOROUND accepted=1 delivered=1 dropped=0" in board.text,
+          "noround: it was delivered and nothing was dropped (%s)"
+          % [l for l in board.text.splitlines() if l.startswith("NOROUND")])
+    check(DROP_LINE not in board.text, "noround: and nothing said a takeout was dropped")
+
+    takeouts = stub.events("takeout")
+    check(len(takeouts) == 2, "noround: two takeouts reached the club (%d)" % len(takeouts))
+    check(takeouts and takeouts[0].get("closed") == ["S20"] and takeouts[0].get("visitId"),
+          "noround: the first closed the round the previous process had begun (%s)"
+          % [(e.get("closed"), e.get("visitId")) for e in takeouts])
+    check(len(takeouts) > 1 and takeouts[1].get("closed") == ["S20"],
+          "noround: and the control -- a dart offered here and its takeout -- closed its own round")
+    check(not stub.events("casual_takeout"), "noround: nothing went to the Casual door")
+    stub.stop()
+
+
 CASES = {"givenup": case_givenup, "organisation": case_organisation,
-         "casual": case_casual, "spool": case_spool}
+         "casual": case_casual, "spool": case_spool, "noround": case_noround}
 
 if __name__ == "__main__":
     wanted = sys.argv[1:] or list(CASES)

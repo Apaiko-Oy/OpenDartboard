@@ -110,15 +110,36 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             target_width,
             target_height);
 
-        // #1318: a calibration exists for every camera, including the ones that turned
-        // out not to be looking at a dartboard -- their slot is kept so that no camera
-        // is scored through its neighbour's perspective. So "did we calibrate" is no
-        // longer "is the vector non-empty": it is whether any camera saw the board.
+        // #1318, standing on 74be46f rather than reverting it. That commit replaced
+        // `calibrated = !calibrations.empty()` -- one object per non-empty frame counted
+        // as success -- with "one calibration per camera that produced a frame, and
+        // `hasValidDoubles` on every one". The half of it that matters is kept whole and
+        // moved to where the evidence is: `hasValidDoubles` is now one of the things
+        // board_look asks of each camera, a camera that fails it is refused BY NAME at
+        // the moment it is looked at, and a refused camera abstains from scoring for the
+        // life of the run. So a board can no longer calibrate on nothing usable.
+        //
+        // What is deliberately different is the quantifier. `all_of` over every camera
+        // is what made the rig in #1318 report `BOARD FAULTED: this board is running and
+        // cannot see` while two of its three cameras were pointed at the dartboard and
+        // had calibrated cleanly at 68 and 103 boundary points -- true, and about the
+        // webcam, and unsayable from the message. One camera that cannot see is now one
+        // camera that is named and set aside.
+        //
+        // Two smaller notes on what is not carried over. `calibrations.size() ==
+        // validCount(...)` cannot be asked any more and does not need to be: a slot is
+        // kept for every camera including the ones that produced no frame, precisely so
+        // that score_processing's calibrations[i] stays the camera at position i, and a
+        // slot with no frame is a camera that sees nothing and is counted as such.
+        // And `wires.wireEndpoints.size() >= 16` is dropped rather than moved: it is
+        // `std::array<Point2f, 20>`, so that is the constant 20 and the condition is
+        // always true -- 74be46f says so itself and files it as #1317.
+        const int cameras_that_must_see = 1;
         int seeing = 0;
         for (const auto &calibration : calibrations)
             if (calibration.sees_board)
                 seeing++;
-        calibrated = seeing > 0;
+        calibrated = seeing >= cameras_that_must_see;
 
         if (calibrated)
         {
