@@ -111,6 +111,11 @@ namespace debug
         std::cout << "                       then OD_TURNAUS_URL, then the base_url the last pairing stored in the\n";
         std::cout << "                       credential file, then the default: " << turnaus_address::kDefault << "\n";
         std::cout << "  --credentials <path> Where the Turnaus credential is kept (default: credentials.json in the config directory)\n";
+        std::cout << "  --check-update       Ask this board's Turnaus what its channel publishes, verify the manifest's\n";
+        std::cout << "                       signature, print this build's version beside the published one, and exit.\n";
+        std::cout << "                       Downloads nothing and replaces nothing (ADR-0077)\n";
+        std::cout << "  --channel <name>     Which releases this board is offered: stable or beta (default: stable).\n";
+        std::cout << "                       Kept in channel.json beside the credential; the only file this writes\n";
         std::cout << "  --allow-plaintext    Permit an http:// Turnaus address (a loopback or a lab only)\n";
         std::cout << "                       (OD_ALLOW_PLAINTEXT=1 is the same, for a start with no command line)\n";
         std::cout << "  (no flag)            Started in an interactive console with no credential, asks for a\n";
