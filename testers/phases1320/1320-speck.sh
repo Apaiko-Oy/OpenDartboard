@@ -9,14 +9,30 @@ set -u
 #
 # What is committed is therefore the shape of the failure, painted onto the footage that
 # works. i1320_speck_footage puts a small very round disc on a camera aimed right and low
-# the way #1320's camera 3 is. Two things happen there and both are the point: the real
-# bull does not survive color_processing on an off-aimed camera -- its bull's-eye window
-# is centred on the FRAME, which on this one is 170 px off the board -- and the speck,
-# which is near the middle of the frame, does. So the only round thing left is the speck,
-# and the old rule would have taken it.
+# the way #1320's camera 3 is, and the old scoring -- circularity times 0.8 plus a term
+# that paid MORE the smaller a thing was -- would have taken it.
 #
-# The disc is 3 px in the source and reaches bull detection at 250 px of area: the 205 the
+# The disc is 3 px in the source and reaches bull detection at ~250 px of area: the 205 the
 # issue measured, through the same blur, dilation and closing the real one came through.
+#
+# #1323 CHANGED WHAT THIS CLIP DOES, and §4 below was rewritten with it. When #1320 was
+# written, two things happened on this footage and the harness asserted both: the speck
+# survived colour processing, AND the real bull did not -- colour processing kept a small
+# blob only within a frame-width/10 of the middle of the FRAME, which on a camera aimed
+# 180 px right and 90 px low is a window sitting 157 px from the bull it is supposed to be
+# around. So the only round thing left was the speck, the camera found no bull at all, and
+# this file asserted the camera did not calibrate, said BOARD FAULTED, and claimed nothing.
+#
+# That second half was never #1320's subject. It was #1323's defect, seen through #1320's
+# fixture: a board fully in shot, a camera a club could use, and a refusal. #1323 centres
+# that window on the board -- measured here the way bull_processing measures it, from the
+# largest outermost contour -- so this camera now finds its bull, at the control's bull
+# plus the shift the clip was built with, and calibrates.
+#
+# #1320's own subject is untouched and is still asserted below: the speck still reaches
+# bull detection, is still round enough to have won on circularity, and is still REFUSED
+# on size against the board it was measured against. What changed is that it now loses to
+# a bull rather than to nobody.
 
 echo "--- build the speck footage from the mocks ---"
 g++ -std=c++17 -O1 -o /run1320/i1320_speck_footage /app/testers/i1320_speck_footage.cpp \
@@ -93,7 +109,7 @@ SPREAD=$(grep -ohE '\(0\.[0-9]+ of the board radius' /run1320/mocks.txt /run1320
 if [ "$SPREAD" -ge 2 ]; then say "OK   the two rigs do not agree on the ratio, and the band holds both" ok
 else say "FAIL only one ratio was measured, so the band is fitted to one rig" no; fi
 
-echo "=== 4. the speck is refused by name, and nothing is calibrated from it ==="
+echo "=== 4. the speck is refused by name, and the bull beside it is not ==="
 # What is pinned here is where the disc was PAINTED -- 700,380 is an argument to
 # i1320_speck_footage twenty lines up, not a measurement -- and a window of ten pixels
 # around it, because a centroid of an antialiased disc is not an integer. Everything else
@@ -121,16 +137,51 @@ if [ -n "$SPECK" ] && echo "$SPECK" \
   | awk 'NF == 3 && $1 < $2 { found = 1 } END { exit found ? 0 : 1 }'; then
   say "OK   the radius it was refused on is below the band printed beside it" ok
 else say "FAIL the speck's radius is not below the band it was refused against" no; fi
-grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1320/off.txt | head -1 || true
-if grep -qE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera [0-9]+ did not calibrate: the bull could not be found.*[0-9]+ were refused' /run1320/off.txt; then
-  say "OK   one ERROR naming the camera, the stage and what it counted" ok
-else say "FAIL the camera did not say why it failed" no; fi
-if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: the bull could not be found' /run1320/off.txt; then
-  say "OK   the vigil says which camera and which stage" ok
-else say "FAIL BOARD FAULTED does not name the bull" no; fi
+
+# --- and the camera it is painted on finds its bull, which is #1323 ---------------------
+# These four read the other half of the clip. Until #1323 they asserted the opposite --
+# that this camera could not calibrate, faulted the board and claimed nothing -- and they
+# were right about the code at the time and wrong about what should happen: a board fully
+# in shot on a camera aimed a little off is a board that must come up.
+#
+# The position is NOT a new pin, and deliberately so: it is read out of control 1 in this
+# same run and shifted by the (180,90) this clip was built with twenty lines up. The clip
+# is the mocks and nothing else has been done to it, so the answer has to be the control's
+# answer moved by that much. If a future frame, codec or constant moves camera 1's bull,
+# both halves move together and this goes on measuring the thing it is about instead of
+# going red about something it is not.
+CTRL=$(grep -oE 'Camera 1 bull at \([0-9]+,[0-9]+\)' /run1320/mocks.txt | head -1 | grep -oE '[0-9]+,[0-9]+')
+WANT=$(echo "$CTRL" | awk -F, 'NF == 2 { printf "Camera 1 bull at (%d,%d)", $1 + 180, $2 + 90 }')
+BULL=$(grep -oE 'Camera 1 bull at \([0-9]+,[0-9]+\)' /run1320/off.txt | head -1)
+echo "control (${CTRL:-none}) + (180,90) => ${WANT:-nothing}; off-aimed says ${BULL:-nothing}"
+if [ -n "$WANT" ] && [ "$BULL" = "$WANT" ]; then
+  say "OK   the off-aimed camera's bull is the control's bull plus this clip's shift" ok
+else say "FAIL the off-aimed camera's bull is not the control's bull plus this clip's shift" no; fi
 if grep -q 'Initial calibration completed successfully' /run1320/off.txt; then
-  say "FAIL a centre nothing vouched for was calibrated from" no
-else say "OK   no calibration was claimed from a board with no bull on it" ok; fi
+  say "OK   a camera whose board is low and right in frame calibrates" ok
+else say "FAIL a board fully in shot did not calibrate" no; fi
+NOISE=$(grep -cE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera [0-9]+ did not calibrate' /run1320/off.txt || true)
+if [ "$NOISE" = "0" ]; then say "OK   no camera says it did not calibrate" ok
+else grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1320/off.txt | head -1
+     say "FAIL $NOISE cameras refused this clip" no; fi
+if grep -qE 'BOARD FAULTED' /run1320/off.txt; then
+  say "FAIL the board faulted on footage every camera can be scored from" no
+else say "OK   the board does not fault" ok; fi
+
+# The positive control for all four, and the one thing that keeps this section from
+# passing by measuring nothing. Both things have to be in this run and they have to be
+# different things: a speck reported where the disc was painted and refused there, and a
+# centre the board was calibrated from that is NOT where the disc was painted. Nothing
+# above asks that last question -- if the window that now follows the board ever swallowed
+# the speck and calibrated from it, every other line in this section could still read
+# green, and this is the line that would not.
+if [ -z "$BULL" ] || [ -z "$SPECK" ]; then
+  say "FAIL this run has no bull, no speck, or neither, so §4 measured nothing" no
+elif echo "$BULL" | grep -qE '\((69[0-9]|70[0-9]),(37[0-9]|38[0-9])\)'; then
+  say "FAIL the board was calibrated from where the disc was painted, not from the bull" no
+else
+  say "OK   the speck reached bull detection and lost there: what calibrated the board is 96 px away from it" ok
+fi
 
 echo "=== 4b. every count printed is one the sentence contradicts itself without ==="
 # A number nothing can falsify is not evidence. Every radius printed as refused on size

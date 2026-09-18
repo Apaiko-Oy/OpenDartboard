@@ -47,9 +47,9 @@ g++ -std=c++17 -O1 -o /run1323/offaim /app/testers/i1323_offaim_footage.cpp $CVF
 
 echo
 echo "=== 1. both rigs calibrate, and find the bulls they have always found ==="
-run_mocks /app/build-dev/opendartboard mocks
+run_mocks /app/build/opendartboard mocks
 mkdir -p /run1323/rig
-( cd /run1323/rig && OD_MAX_CYCLES=20 exec /app/build-dev/opendartboard \
+( cd /run1323/rig && OD_MAX_CYCLES=20 exec /app/build/opendartboard \
     --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
     --width 1280 --height 720 > /run1323/rig.out 2>&1 )
 sed 's/\x1b\[[0-9;]*m//g' /run1323/rig.out > /run1323/rig.txt
@@ -76,7 +76,7 @@ echo
 echo "=== 2. the camera this issue is about finds its bull ==="
 # Camera 1 of the mocks, aimed 180 right and 90 low. Its bull is the control's bull plus
 # that shift and nothing else, because the shift is the only thing done to the footage.
-run_one /app/build-dev/opendartboard plain /run1323/off_plain.avi
+run_one /app/build/opendartboard plain /run1323/off_plain.avi
 if grep -qF 'Camera 1 bull at (796,373)' /run1323/plain.txt; then
   say "OK   off-aimed: the bull is at (796,373), which is (616,283) plus the shift" ok
 else
@@ -98,7 +98,7 @@ fi
 
 echo
 echo "=== 4. #1320's speck is on it, and is still not a bull ==="
-run_one /app/build-dev/opendartboard speck /run1323/off_speck.avi
+run_one /app/build/opendartboard speck /run1323/off_speck.avi
 if grep -qF 'Camera 1 bull at (796,373)' /run1323/speck.txt; then
   say "OK   speck: the bull is still found, and still at (796,373)" ok
 else say "FAIL speck: the bull moved or was lost when a speck was painted on the frame" no; fi
@@ -114,9 +114,9 @@ echo "=== 5a. FALSIFY: put the windows back on the frame ==="
 rm -rf /run1323/mutant && mkdir -p /run1323/mutant
 cp /app/CMakeLists.txt /run1323/mutant/ && cp -r /app/src /run1323/mutant/src
 cmake -S /run1323/mutant -B /run1323/mutant/build -DCMAKE_PREFIX_PATH=/usr/local \
-  -DCMAKE_CXX_FLAGS="-DDEBUG_SEEK_VIDEO" -DAPP_VERSION=0.0.0-mutant \
-  -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=/app/build-dev/_deps/nlohmann_json-src \
-  -DFETCHCONTENT_SOURCE_DIR_HTTPLIB=/app/build-dev/_deps/httplib-src > /run1323/mcmake.log 2>&1 \
+  -DCMAKE_CXX_FLAGS="-DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT" -DAPP_VERSION=0.0.0-mutant \
+  -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=/app/build/_deps/nlohmann_json-src \
+  -DFETCHCONTENT_SOURCE_DIR_HTTPLIB=/app/build/_deps/httplib-src > /run1323/mcmake.log 2>&1 \
   || { tail -20 /run1323/mcmake.log; exit 1; }
 
 mutate() { # $1 python file describing the edit
