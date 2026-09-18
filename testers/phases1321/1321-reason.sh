@@ -38,6 +38,26 @@ set -u
 #
 # So there are two dimmed inputs and each one is here for a stage:
 #
+# #1331 NOTE, AND IT IS NOT FIXED HERE. ADR-0079 turned the first two stages of the
+# pipeline around -- the board is found on the full frame and the region is drawn around
+# what was found -- and the dimmed camera now gets FURTHER than it did: at 0.50 it traces
+# its doubles ring and falls out at the WIRE stage with 5 of 20 boundaries, where it used
+# to be refused at the doubles stage. That is the pipeline getting better at a dim board
+# and it is the thing #1324 built the stage names to make visible, so section 1 is left
+# asserting `doubles` and left RED rather than re-pointed at the neighbouring stage.
+#
+# What a re-pick has to start from, measured on this tree under ADR-0079's ordering, one
+# camera per run, 120 frames, no --debug:
+#
+#   cam_1  0.40 bull | 0.42 bull | 0.45 wires(2) | 0.47 wires(2) | 0.50 wires(5)
+#          0.52 wires(4) | 0.55 wires(13) | 0.60, 0.65, 0.70 calibrate
+#   cam_2  0.40 bull | 0.45 wires(2) | 0.55 wires(17) | 0.60, 0.65, 0.70 calibrate
+#   cam_3  0.45 wires(2) | 0.50 wires(3) | 0.55 wires(15)
+#
+# So the doubles stage is not reachable by dimming this footage any more: it goes from
+# bull at 0.42 straight to wires at 0.45 on every camera tried. A fixture for the doubles
+# stage will have to be made some other way, and that is an issue rather than a line here.
+#
 #   dim_1  at 0.50, ONE camera, for the DOUBLES stage, which is what #1321 is about.
 #          One camera because the table above is what a rig really does: at 0.50 camera 1
 #          and camera 2 are refused at the doubles stage and camera 3 traces its ring and
@@ -113,11 +133,17 @@ say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 # whole of #1324: an assertion that does not say which stage it is about is an assertion
 # a neighbouring stage can satisfy, and that is how this tester stayed green for a branch
 # it had stopped reaching.
-stage_of() { # <camera> <file> -> bull | doubles | wires | none | other
+stage_of() { # <camera> <file> -> board | bull | doubles | wires | none | other
   local line
   line=$(grep -E "^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera $1 did not calibrate: " "$2" | head -1)
   case "$line" in
     "")                                          echo none ;;
+    # #1331/ADR-0079: a stage above the bull, and it is new rather than renamed. The board
+    # is now measured on the FULL frame before any region is drawn, with the same function
+    # the bull stage calls, so an input with no measurable board in it is refused here and
+    # never reaches the bull. The sentence it is refused with is bull_processing's own --
+    # see the contour-count assertion in section 2, which still reads it.
+    *"there is no board in this frame to build a region around"*) echo board ;;
     *"the bull could not be found"*)             echo bull ;;
     *"the doubles ring could not be fitted"*)    echo doubles ;;
     *"the wire stage found"*)                    echo wires ;;
@@ -168,9 +194,14 @@ if grep -qE '\(doubles mask [0-9]+ white pixels\)' /run1321/dim.txt; then
   say "OK   the sentence also says how full the mask it traced was" ok
 else say "FAIL the ray count is printed without the mask it was traced on" no; fi
 
-echo "=== 2. the darker run is refused at the BULL stage, and says what it counted ==="
-grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1321/dark.txt || true
-refused_at /run1321/dark.txt bull "dark 0.18" 1 2 3
+echo "=== 2. the darker run is refused at the BOARD stage, and says what it counted ==="
+# It was the BULL stage until #1331 and the measurement did not change -- it moved. The
+# red/green frame at 0.18 yields 0 contours, which is the same sentence and the same
+# threshold it was refused on before; what is different is that the board is measured on
+# the full frame at STEP 1 now, so the refusal happens there instead of three stages down.
+# #1324's rule is obeyed rather than worked around: the stage this run is about is named,
+# and the day something moves it again this line goes red rather than passing next door.
+refused_at /run1321/dark.txt board "dark 0.18" 1 2 3
 SAID=$(grep -cE 'yields [0-9]+ contours, and at least [0-9]+ region' /run1321/dark.txt || true)
 WRONG=$(grep -ohE 'yields ([0-9]+) contours, and at least ([0-9]+) region' /run1321/dark.txt \
   | awk '$2 >= $7 { print }' | wc -l)
@@ -196,9 +227,9 @@ grep -E 'BOARD FAULTED' /run1321/dim.txt /run1321/dark.txt | head -2 || true
 if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: the doubles ring could not be fitted' /run1321/dim.txt; then
   say "OK   the vigil says which camera, and that it was the doubles ring" ok
 else say "FAIL BOARD FAULTED does not name the doubles stage on a run refused there" no; fi
-if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: the bull could not be found' /run1321/dark.txt; then
-  say "OK   the vigil says which camera, and that it was the bull" ok
-else say "FAIL BOARD FAULTED does not name the bull stage on a run refused there" no; fi
+if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: there is no board in this frame' /run1321/dark.txt; then
+  say "OK   the vigil says which camera, and that there was no board to measure" ok
+else say "FAIL BOARD FAULTED does not name the board stage on a run refused there" no; fi
 for run in dim dark; do
   if grep -qE 'BOARD FAULTED.*cameras did not come up, or' /run1321/$run.txt; then
     say "FAIL $run: BOARD FAULTED still offers both halves and commits to neither" no
