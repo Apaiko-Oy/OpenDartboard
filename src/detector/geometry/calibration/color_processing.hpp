@@ -72,7 +72,14 @@ namespace color_processing
         double textAspectRatioMax = 2.5; // Maximum aspect ratio for text detection
         int textMaxArea = 500;           // Maximum area for components classified as text
 
-        // Component geometric filtering
+        // Component geometric filtering.
+        //
+        // #1323: these three distances -- centrality, the bull's-eye window and the
+        // outer cutoff -- are measured from the middle of the BOARD wherever the board
+        // can be measured in this frame, and from the middle of the frame only where it
+        // cannot. The windows themselves are untouched: this issue MOVED them, it did
+        // not widen them, because a window widened until one case passes is exactly the
+        // repair it exists to avoid.
         double centralityThreshold = 0.25;    // Distance threshold for central components (25% of image)
         double bullsEyeThreshold = 0.1;       // Distance threshold for bull's eye area (10% of image)
         double connectivityThreshold = 0.075; // Distance threshold for connected components
@@ -80,6 +87,29 @@ namespace color_processing
         int minConnectedNeighborArea = 100;   // Minimum neighbor area for connectivity
         int largestAreaDivisor = 10;          // Divisor for largest area comparison (area > largest/10)
         int largestAreaRatio = 3;             // Ratio for large area comparison (area > largest/3)
+
+        // #1323: how much of the frame the largest coloured region has to enclose before
+        // its middle is taken for the middle of the board. Below it there is no board in
+        // this frame to be off the middle of: the rule says so and falls back to the
+        // middle of the frame, which is what shipped before #1323.
+        //
+        // This is NOT a new number. It is bull_processing's minBoardAreaPercent, the
+        // same 4% of the frame asked of the same quantity -- the area enclosed by the
+        // largest outermost contour -- one stage earlier, so that the two stages cannot
+        // disagree about whether there is a board in the picture. Both rigs, measured:
+        // the board encloses 20.23%, 19.42% and 20.59% of the frame on mocks/cam_*.mp4,
+        // and 2.45%, 7.61% and 7.41% on mocks/rig-20260918, whose board sits smaller in
+        // frame. So this floor is under five of the six by a factor of 1.9 to 5.1, and
+        // over the sixth: on that rig's camera 1 the mask this stage holds is broken
+        // into arcs rather than closed into one boundary, the board is NOT measured
+        // here, and the rule falls back to the frame and says so. That camera keeps the
+        // behaviour it had before #1323 -- its bull is 60 px from the middle of the
+        // frame, well inside the window, and it was never the camera this issue is
+        // about -- and the honest way to read that is #1320's lesson again: the rig with
+        // the smaller board is where a constant runs out first, and here it already has.
+        //
+        // If it is ever changed, it is changed in both places or the stages part company.
+        double minBoardAreaPercent = 0.04; // Area enclosed by the board, as a share of the frame
 
         // Specific text filtering (targeting known problem areas)
         double edgeTextThreshold = 0.1;   // Distance from edge to classify as edge text (10% of image)

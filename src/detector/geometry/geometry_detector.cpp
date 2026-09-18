@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <ctime>
 
 #include "geometry_detector.hpp"
 #include "calibration/geometry_calibration.hpp"
@@ -83,12 +84,38 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     cv::putText(startup_img_raw, "Raw Cameras", {50, 100}, cv::FONT_HERSHEY_SIMPLEX, 1.2, {0, 255, 0}, 2);
 #endif
 
-    // Try to load cached calibration first
-    // calibrations = cache::geometry::load();
+    vector<Mat> initial_frames = camera::images(calibration_frames);
+
+    // #1330: the call is here rather than commented out, and what it does is decided by
+    // --reuse-calibration. The line above it had been a comment since before #1317, so the
+    // board wrote a file on every successful calibration and read it never: it paid the
+    // eight and a half seconds on every start and got nothing for the file, and the latent
+    // std::string in the file was latent only because of a comment character.
+    //
+    // It can be read now because utils/cache.hpp's header and the two static_asserts under
+    // DartboardCalibration are between it and the pointer that used to be in it. It is not
+    // read by DEFAULT because the file cannot say whose geometry it is -- measured in
+    // cache.hpp, five starts of testers/i1318_run.sh in one directory, four of them
+    // scoring through the first one's board. A camera nudged since the file was written is
+    // a calibration that is wrong and looks right, which is the class of fault ADR-0055
+    // says must not be able to look trustworthy, and nothing here can see it. So when an
+    // operator does ask, the board says on that start that it did not look at the picture
+    // and how old the geometry it is scoring with is.
+    calibrations = cache::geometry::load(initial_frames);
     if (!calibrations.empty())
     {
-        // Already calibrated, just set initialized
-        log_info("Loaded cached calibration with " + to_string(calibrations.size()) + " cameras");
+        uint64_t written = 0;
+        for (const auto &calibration : calibrations)
+            written = max(written, calibration.timestamp);
+        const uint64_t now = (uint64_t)time(nullptr);
+        const long long age_minutes = written > 0 && now > written ? (long long)((now - written) / 60) : -1;
+
+        log_info("Using the cached calibration for " + to_string(calibrations.size()) +
+                 " cameras: this start did not look at the board" +
+                 (age_minutes >= 0 ? ", and the geometry it is scoring with was measured " +
+                                         to_string(age_minutes) + " minutes ago"
+                                   : "") +
+                 ". Delete cache/ to calibrate again.");
 
         // Load background frames
         background_frames = cache::geometry::loadBackgroundFrames();
@@ -98,8 +125,6 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         calibrated = true;
         return true;
     }
-
-    vector<Mat> initial_frames = camera::images(calibration_frames);
 
     if (camera::validCount(calibration_frames) > 0)
     {
@@ -141,12 +166,58 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         // refused camera does not set sees_board. So it is asked here too now, through
         // the same `seeing` count as everything else, and there is still nothing in this
         // function that needs to know what a wire is.
+        //
+        // #1338 STANDS ON BOTH AND CHANGES NEITHER QUANTIFIER. What it adds is the
+        // question neither commit asked: whether enough cameras ANSWERED. #1318 dropped
+        // `calibrations.size() == validCount(...)` for the right reason -- a slot is kept
+        // for every camera -- but the count of cameras that produced a frame went with
+        // it, and nothing else in the program was asking. On the maintainer's rig on
+        // 2026-09-18 two of three cameras delivered no frames (#1319), camera 1 calibrated
+        // cleanly, and this gate said yes: `1 of 3`, `Scorer running with 3 cameras`, and
+        // a READY beat to Turnaus from a board in which no dart could ever be scored.
+        //
+        // The two questions are about different things and are both asked, separately:
+        //
+        //   SEEING   how many cameras have geometry to score a tip against. One is
+        //            enough -- #1318's `cameras_that_must_see`, unchanged and deliberate.
+        //            A camera with no dartboard in its picture abstains for the life of
+        //            the run and the others carry on without it.
+        //
+        //   ANSWERING how many cameras produced a frame at all. This is not a count of
+        //            objects and not a second opinion about sight: it is the ceiling on
+        //            `cameras_that_spiked`, and the threshold it is asked against is
+        //            `min_cameras_for_event`, which lives in motion_processing.hpp and is
+        //            asked there. A silent camera's background is empty for the whole run,
+        //            so it can never spike, so a board with fewer answering cameras than
+        //            an event needs is not a board that scores rarely.
+        //
+        // Which means a partial calibration MAY still score, and that is the decision:
+        // three answering cameras of which one sees the board can form an event on the
+        // three and score it on the one, so it calibrates -- and says out loud which
+        // cameras abstain. What it may not do is claim health it has not got, and this is
+        // where that claim is made: `initialize` returning false is what sets
+        // `board_sight::faulted()` in Scorer's constructor, which is what makes the beat
+        // ERROR rather than READY.
         const int cameras_that_must_see = 1;
         int seeing = 0;
         for (const auto &calibration : calibrations)
             if (calibration.sees_board)
                 seeing++;
-        calibrated = seeing >= cameras_that_must_see;
+
+        const int camera_slots = (int)calibrations.size();
+        const int answering = (int)camera::validCount(calibration_frames);
+        const string no_event_possible = motion_processing::whyNoEventIsPossible(camera_slots, answering);
+
+        calibrated = seeing >= cameras_that_must_see && no_event_possible.empty();
+
+        // #1338: said once, by the thing that decided it, so that Scorer has a census to
+        // repeat rather than a camera count of its own to disagree with.
+        scoring_with = to_string(seeing) + " of " + to_string(camera_slots) + " cameras" +
+                       (answering < camera_slots
+                            ? " (" + to_string(camera_slots - answering) + " produced no frame)"
+                            : (seeing < camera_slots
+                                   ? " (" + to_string(camera_slots - seeing) + " not looking at the dartboard)"
+                                   : ""));
 
         if (calibrated)
         {
@@ -157,6 +228,19 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
 
             log_info("Initial calibration completed successfully on " + to_string(seeing) +
                      " of " + to_string((int)calibrations.size()) + " cameras");
+
+            // #1338: a board that is scoring with fewer cameras than it has says so once,
+            // here, where the number was decided. It is a WARN rather than an ERROR
+            // because this board really can score -- see the gate above -- and it is not
+            // silence because "two of your three cameras are not contributing" is the
+            // sentence that gets a cable looked at before the evening rather than after.
+            if (seeing < camera_slots || answering < camera_slots)
+            {
+                log_warning("Scoring on " + scoring_with + ", not on all " + to_string(camera_slots) +
+                            "; a dart event needs a spike seen by at least " +
+                            to_string(motion_processing::MotionParams().min_cameras_for_event) +
+                            " of the " + to_string(answering) + " that are answering");
+            }
 
             // Save calibration for future use
             if (cache::geometry::save(calibrations))
@@ -173,7 +257,7 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             initialized = true;
             calibrated = true;
         }
-        else
+        else if (seeing < cameras_that_must_see)
         {
             // #1318: not "the calibration failed" any more -- every camera was
             // calibrated and every one of them was refused, each on its own line above.
@@ -183,6 +267,20 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // -- they will have, unless every camera produced no frame at all.
             board_sight::recordFault("none of the " + to_string((int)calibrations.size()) +
                                      " cameras is looking at a dartboard");
+            initialized = false;
+            calibrated = false;
+        }
+        else
+        {
+            // #1338: the cameras that answered are looking at the dartboard and there are
+            // not enough of them for a dart event to be formed at all. This is the state
+            // the issue was filed about, and the difference from the branch above is the
+            // whole point of the two being separate branches: nothing is wrong with the
+            // aim or the lighting, and telling somebody to go and look at where a camera
+            // is pointed would send them to the wrong end of the room. The remedy is the
+            // cable, the hub or the bandwidth.
+            log_error("Initial calibration failed: " + no_event_possible);
+            board_sight::recordFault(no_event_possible);
             initialized = false;
             calibrated = false;
         }

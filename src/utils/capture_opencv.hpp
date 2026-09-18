@@ -10,6 +10,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <sstream>
+#include <algorithm>
+#include <string>
+#include <vector>
 #include <thread>
 
 namespace camera
@@ -93,6 +96,32 @@ namespace camera
     {
         const char *v = std::getenv(name);
         return (v && *v) ? std::atoi(v) : fallback;
+    }
+
+    /**
+     * #1338 instrumentation, and equally NOT a fix: the same variable, read as a list.
+     *
+     * OD_DROP_CAM has always named ONE slot to fail, which produces a camera that drops
+     * frames. The state #1338 was filed about is two cameras that deliver nothing at all
+     * on one bus (#1319), and it cannot be reached one slot at a time. `OD_DROP_CAM=1,2`
+     * fails both; `OD_DROP_CAM=1` is exactly what it always was, so no existing harness
+     * moves. The name is not doubled up because two environment variables differing by an
+     * `s` is a trap somebody sets for themselves at two in the morning.
+     */
+    inline std::vector<int> odEnvInts(const char *name)
+    {
+        std::vector<int> out;
+        const char *v = std::getenv(name);
+        if (!v || !*v)
+            return out;
+        std::string all(v), one;
+        std::istringstream in(all);
+        while (std::getline(in, one, ','))
+        {
+            if (!one.empty())
+                out.push_back(std::atoi(one.c_str()));
+        }
+        return out;
     }
 
     // #1319: the floor this deployment uses, read once. A value of 0 turns it off.
@@ -348,7 +377,7 @@ namespace camera
             // slot can be produced on footage that never drops one. It moved here with
             // the seam; it used to live in captureFrames.
             static long od_cycle = 0;
-            static const int od_drop_cam = odEnvInt("OD_DROP_CAM", -1);
+            static const std::vector<int> od_drop_cam = odEnvInts("OD_DROP_CAM");
             static const int od_drop_every = odEnvInt("OD_DROP_EVERY", 0);
             static const int od_report_every = odEnvInt("OD_REPORT_EVERY", 0);
             // ---- #895 instrumentation, the same shape and equally NOT a fix. ----
@@ -420,7 +449,9 @@ namespace camera
                 cv::Mat image;
                 bool success = captures_[i].read(image);
 
-                if (od_inject && static_cast<int>(i) == od_drop_cam)
+                const bool od_named = std::find(od_drop_cam.begin(), od_drop_cam.end(),
+                                                static_cast<int>(i)) != od_drop_cam.end();
+                if (od_inject && od_named)
                 {
                     success = false;
                     image.release();

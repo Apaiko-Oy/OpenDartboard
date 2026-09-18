@@ -54,13 +54,6 @@ namespace ellipse_processing
         int validOuterPoints;               // Number of validated outer boundary points
         int validInnerPoints;               // Number of validated inner boundary points
 
-        // #1321: why the doubles ring was not fitted, in the words the ERROR line says
-        // out loud. Empty when hasValidDoubles is true. Every count in it was measured
-        // here already and was only ever logged at DEBUG; carrying it out lets the one
-        // caller that knows which camera this is report the reason at the level a
-        // tester runs at, instead of three stages each announcing the flag.
-        std::string doublesFailure;
-
         // CONTOUR FITTING RESULTS (triples & bull rings - efficient)
         cv::RotatedRect outerTripleEllipse; // Triple ring outer edge (contour fitted)
         cv::RotatedRect innerTripleEllipse; // Triple ring inner edge (contour fitted)
@@ -78,14 +71,42 @@ namespace ellipse_processing
         // hasDetectedEllipses: Flag to indicate if all ellipses were detected
         bool hasDetectedEllipses;
 
-        // Default constructor for fallback cases
+        // Default constructor for fallback cases. #1330 added hasDetectedEllipses to it:
+        // this struct is written to the calibration cache as bytes, and the slot kept for
+        // a camera that produced no frame is a default-constructed one, so the flag was
+        // an indeterminate byte on its way to disk and to whoever read it back.
         EllipseBoundaryData() : hasValidDoubles(false), validOuterPoints(0), validInnerPoints(0),
                                 hasValidTriples(false), hasValidBulls(false),
-                                offsetX(0.0), offsetY(0.0), offsetMagnitude(0.0), offsetAngle(0.0) {}
+                                offsetX(0.0), offsetY(0.0), offsetMagnitude(0.0), offsetAngle(0.0),
+                                hasDetectedEllipses(false) {}
     };
 
-    // Takes MaskBundle instead of single mask
-    EllipseBoundaryData processEllipse(
+    /**
+     * What one run of the ellipse stage produced: the geometry, and -- when the doubles
+     * ring was not fitted -- why, in the words #1321 put on the ERROR line.
+     *
+     * #1330 separated the two, and the separation is the point. `EllipseBoundaryData` is
+     * kept: it is carried inside DartboardCalibration, which utils/cache.hpp writes to
+     * disk with a raw fwrite of sizeof(DartboardCalibration) bytes, so nothing in it may
+     * own memory. `doublesFailure` is a std::string, and a string past its small-string
+     * buffer is a pointer into this process's heap; written raw and read in another
+     * process it names nothing, while a short reason survives by accident through SSO.
+     *
+     * It does not belong in the cache on its own terms either. The reason exists to be
+     * PRINTED, once, to the operator standing in front of the board, by the one caller
+     * that knows which camera this is -- and it is consumed in calibrateSingleCamera four
+     * statements after it is produced. A cached calibration is geometry to score with;
+     * last week's explanation of a ring that was not fitted is not part of it.
+     */
+    struct EllipseReport
+    {
+        EllipseBoundaryData ellipses;
+        std::string doublesFailure; // empty when ellipses.hasValidDoubles
+    };
+
+    // Takes MaskBundle instead of single mask. Returns the geometry and the reason
+    // together (#1330); only the geometry is ever cached.
+    EllipseReport processEllipse(
         const cv::Mat &originalFrame,
         const mask_processing::MaskBundle &masks,
         const cv::Point &bullCenter,

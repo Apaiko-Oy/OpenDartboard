@@ -1,6 +1,8 @@
 #include "color_processing.hpp"
 #include "logging.hpp"
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 using namespace cv;
@@ -161,13 +163,110 @@ namespace color_processing
         Mat filteredMask = Mat::zeros(enhancedMask.size(), CV_8UC1);
         Point2f imageCenter(enhancedMask.cols / 2.0f, enhancedMask.rows / 2.0f);
 
+        // ===== SECTION 7.1 (#1323): WHERE THE BOARD IS =====
+        //
+        // The rules below ask how far a component sits from "the middle", and until
+        // #1323 that middle was the middle of the FRAME. On a camera aimed square at the
+        // board those are the same place and the rules do what they look like they do:
+        // a speck is dropped and the bull is kept. On a camera whose board sits low and
+        // right the frame-width/10 bull's-eye window sits OFF the board -- the real bull
+        // falls outside it and is dropped, and a speck that happens to fall inside it
+        // survives. That is #1323. On the fixture it was measured on -- the mocks aimed
+        // 180 px right and 90 px low -- the window is 128 px across and its middle is
+        // 157 px from the bull it is supposed to be around, so the bull is dropped and
+        // the camera fails with a board fully in shot.
+        //
+        // The board can be measured here, and it is measured the way #1320 measures it
+        // one stage later rather than in some second way: the largest OUTERMOST contour
+        // in the mask is the board, because its boundary is the outside of the doubles
+        // ring and that is the last coloured thing on a board; the centroid of that
+        // boundary polygon is the middle of the board the rings describe; and a board
+        // has to enclose 4% of the frame before anything is measured against it, which
+        // is #1320's own floor and its own sentence.
+        //
+        // The polygon centroid is what is used and the pixel centroid is not, and the
+        // difference is not a detail. connectedComponentsWithStats has already computed
+        // a centroid for every component, which is free and wrong: it is the middle of
+        // the coloured PIXELS, so a board whose top rings are broken -- which is the
+        // normal case, it is why SECTION 6.5 exists -- weighs low, and measured on the
+        // two rigs in this repository it sits 148 px below the bull on one camera and
+        // 174 px from it on another. The window it would centre is 128 px, so the free
+        // number was tried and it drops the bull on three of the six cameras that
+        // calibrate today: mocks camera 3 and rig-20260918 cameras 1 and 3 all stopped
+        // finding one. The boundary polygon does not care which rings inside it are
+        // missing: on the five cameras it can be measured on the bull is 21 to 68 px
+        // from it, and all six keep the centre they had.
+        //
+        // Where there is no such region -- a frame with nothing on it, a lens cap, a
+        // room -- there is no board to be off the middle of. The rule says so in the log
+        // and falls back to the middle of the frame, which is the behaviour that shipped
+        // before this issue.
+        //
+        // What is NOT moved: SECTION 5's bull's-eye enhancement is a frame-centred
+        // window too, and it runs before anything here has measured anything. It only
+        // ever ADDS pixels to the red mask, so it cannot drop a bull, and its dilation
+        // is part of what #1320's bull-to-board ratios were measured through -- moving
+        // it would move the ground those constants stand on for a gain no camera needs.
+        const double frameArea = static_cast<double>(enhancedMask.cols) * enhancedMask.rows;
+
+        vector<vector<Point>> boardContours;
+        findContours(enhancedMask, boardContours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+        double boardArea = 0.0;
+        int boardIndex = -1;
+        for (size_t c = 0; c < boardContours.size(); c++)
+        {
+            const double enclosed = contourArea(boardContours[c]);
+            if (enclosed > boardArea)
+            {
+                boardArea = enclosed;
+                boardIndex = static_cast<int>(c);
+            }
+        }
+
+        Point2f boardCenter = imageCenter;
+        bool boardMeasured = false;
+        if (boardIndex >= 0 && boardArea >= frameArea * params.minBoardAreaPercent)
+        {
+            const Moments boardMoments = moments(boardContours[boardIndex]);
+            if (boardMoments.m00 > 0)
+            {
+                boardCenter = Point2f(static_cast<float>(boardMoments.m10 / boardMoments.m00),
+                                      static_cast<float>(boardMoments.m01 / boardMoments.m00));
+                boardMeasured = true;
+            }
+        }
+
+        {
+            ostringstream share, least;
+            share << fixed << setprecision(2) << (frameArea > 0 ? (100.0 * boardArea / frameArea) : 0.0);
+            least << fixed << setprecision(2) << (params.minBoardAreaPercent * 100.0);
+            const string where = " the largest coloured region encloses " + to_string(static_cast<long>(boardArea)) +
+                                 " px, " + share.str() + "% of the frame, and a board encloses at least " + least.str() + "%";
+            if (boardMeasured)
+            {
+                log_debug("Camera " + log_string(camera_idx + 1) + " board measured from the coloured mask:" +
+                          log_string_src(where) + ". Its middle is (" + log_string((int)boardCenter.x) + "," +
+                          log_string((int)boardCenter.y) + "), and a small blob is kept or dropped on its distance from "
+                                                          "THAT rather than from the middle of the frame at (" +
+                          log_string((int)imageCenter.x) + "," + log_string((int)imageCenter.y) + ")");
+            }
+            else
+            {
+                log_debug("Camera " + log_string(camera_idx + 1) + " has no board to measure here:" +
+                          log_string_src(where) + ". There is nothing in this frame to be off the middle of, so the "
+                                                  "centrality rules fall back to the middle of the FRAME at (" +
+                          log_string((int)imageCenter.x) + "," + log_string((int)imageCenter.y) +
+                          ") -- which is the middle of a board only on a camera aimed square at one");
+            }
+        }
+
         for (int i = 1; i < nLabels; i++)
         {
             int area = stats.at<int>(i, CC_STAT_AREA);
             Point2f componentCenter(centroids.at<double>(i, 0), centroids.at<double>(i, 1));
 
             bool isSizeOK = (area > max(params.minLargeComponentSize, largestArea / params.largestAreaDivisor));
-            double distToCenter = norm(componentCenter - imageCenter);
+            double distToCenter = norm(componentCenter - boardCenter);
             bool isCentral = (distToCenter < enhancedMask.cols * params.centralityThreshold);
             bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);
 
