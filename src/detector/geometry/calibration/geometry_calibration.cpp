@@ -5,6 +5,7 @@
 #include <numeric>
 
 #include "utils.hpp"
+#include "board_sight.hpp"
 #include "geometry_calibration.hpp"
 #include "color_processing.hpp"
 #include "roi_processing.hpp"
@@ -70,6 +71,23 @@ namespace geometry_calibration
         ellipse_processing::EllipseParams ellipseParams;
         ellipse_processing::EllipseBoundaryData ellipseData = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
         calibration.ellipses = ellipseData;
+
+        // #1321: the one place a failed calibration is reported, and the only one that
+        // knows which camera this is. Everything below refuses on the same flag, so a
+        // reader who is told three times learns nothing the first telling did not say;
+        // those refusals are DEBUG now and this line carries the count they never did.
+        if (!ellipseData.hasValidDoubles)
+        {
+            const string reason = ellipseData.doublesFailure.empty()
+                                      ? string("the stage did not say why")
+                                      : ellipseData.doublesFailure;
+            log_error("Camera " + log_string(cameraIdx + 1) +
+                      " did not calibrate: the doubles ring could not be fitted, so wire "
+                      "detection and perspective correction cannot run -- " +
+                      reason + ".");
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+                                     " did not calibrate: the doubles ring could not be fitted -- " + reason);
+        }
 
         // [===STEP 8:===] Extract actual wire positions for segment alignment
         wire_processing::WireDetectionConfig wireConfig;
