@@ -12,4 +12,8 @@ docker run --rm --name "$(od_name "i1258-check")" --network none -v "$TREE":/app
       testers/i1258_choice_check.cpp -o /tmp/i1258_check || { echo COMPILE_FAILED; exit 2; }
   /tmp/i1258_check < /dev/null
 '
-echo "CHECK_RC=$?"
+RC=$?
+echo "CHECK_RC=$RC"
+# The harness must exit on what it measured: run_all.sh reads the exit code and
+# nothing else, and an echo returns 0 whatever it printed (#1335).
+exit $RC

@@ -25,4 +25,8 @@ OUT="$OD_RUNS_BASE/1305"
 mkdir -p "$OUT"
 docker run --rm --name "$(od_name "i1305-run")" --cpus=2 --network none -e HOME=/root \
   -v "$TREE":/app -v "$OUT":/out -w /app "$OD_IMAGE" bash /app/testers/i1305_inside.sh
-echo "RUN_RC=$?"
+RC=$?
+echo "RUN_RC=$RC"
+# The harness must exit on what it measured: run_all.sh reads the exit code and
+# nothing else, and an echo returns 0 whatever it printed (#1335).
+exit $RC

@@ -41,3 +41,6 @@ print('%.1f' % (100.0*(tot-i-w)/tot) if tot else 'n/a')")
 WALL=$(python3 -c "print('%.1f' % ($T1-$T0))")
 
 echo "RUN=$LABEL rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
+# The harness must exit on what it measured: run_all.sh reads the exit code and
+# nothing else, and an echo returns 0 whatever it printed (#1335).
+exit $RC
