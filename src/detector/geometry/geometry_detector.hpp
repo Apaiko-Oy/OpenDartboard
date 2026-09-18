@@ -47,6 +47,11 @@ protected:
     // were the number of cameras scoring, four lines under a line saying 1 of 3.
     string scoring_with;
 
+    // #1339: each camera's board, in that camera's slot, as the motion stage wants it.
+    // Derived from `calibrations` rather than stored beside it, so there is one answer
+    // to where a board is and the motion stage cannot drift from the scoring stage.
+    vector<motion_processing::BoardExtent> board_extents;
+
     // Debugging streamers for visual output
 #ifdef DEBUG_VIA_VIDEO_INPUT
     unique_ptr<streamer> raw_streamer; // Raw camera feeds

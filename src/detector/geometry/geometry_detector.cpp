@@ -41,8 +41,23 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         return result;
     }
 
-    // Process motion session - all motion logic is now handled in motion_processing
-    motion_processing::MotionResult motion_result = motion_processing::processMotion(images, background_frames, debug_mode);
+    // Process motion session - all motion logic is now handled in motion_processing.
+    // #1339: motion is a fraction of the board rather than of the frame, and this is
+    // where the board reaches it. Calibration fitted the outer edge of the double ring
+    // per camera already; it is read out of `calibrations` in the same slot the camera's
+    // image is in, so a camera that never fitted a board hands down `known` false and
+    // abstains from the figure rather than being measured against a frame it barely
+    // fills. Built once, because a calibration does not change under a running board.
+    if (board_extents.size() != calibrations.size())
+    {
+        board_extents.assign(calibrations.size(), motion_processing::BoardExtent());
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            board_extents[i].known = calibrations[i].sees_board && calibrations[i].ellipses.hasValidDoubles;
+            board_extents[i].edge = calibrations[i].ellipses.outerDoubleEllipse;
+        }
+    }
+    motion_processing::MotionResult motion_result = motion_processing::processMotion(images, background_frames, board_extents, debug_mode);
 
     // Process dart state detection
     dart_processing::DartStateResult dart_result = dart_processing::processDartState(images, background_frames, motion_result.motion_finished, debug_mode);
