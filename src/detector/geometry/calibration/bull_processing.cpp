@@ -35,6 +35,118 @@ namespace bull_processing
         };
     }
 
+    namespace
+    {
+        // ---- #1320/#1340 the board, measured: the one place it is done -------------------
+        //
+        // The largest outermost region in the red/green mask is the dartboard: its
+        // boundary is the outside of the doubles ring, because that is the last coloured
+        // thing on a board. WHICH region that is has not moved -- it is still the one
+        // enclosing the most area. What is measured of it is #1340's: the board's radius
+        // and its middle come from the smallest circle enclosing that boundary rather
+        // than from the area the boundary encloses, because a doubles ring broken into
+        // arcs -- the ordinary case on a board lit from one side -- loses most of its
+        // enclosed area and none of its extent. BullParams carries the measurements.
+        //
+        // The area is still taken, because it is what the refusal used to be about and
+        // what every log line before this one quoted, and the two are logged side by
+        // side: on a ring that closed they agree, and where they part the difference is
+        // the arcs the mask lost.
+        //
+        // #1331 took the contours as a parameter so that processBull, which has already
+        // found them to score candidates with, does not find them twice.
+        BoardSighting measureBoardFrom(const vector<vector<Point>> &contours,
+                                       const vector<Vec4i> &hierarchy,
+                                       Size frameSize,
+                                       const Point &frameCenter,
+                                       const BullParams &params)
+        {
+            BoardSighting board;
+            board.center = frameCenter;
+
+            if (contours.empty())
+            {
+                // The count is in the sentence for #1321's reason: a line that carries no
+                // number is a line nothing can contradict.
+                board.failure = "the red/green frame yields 0 contours, and at least 1 region is "
+                                "needed before there is a board to measure or a candidate to "
+                                "measure against it";
+                return board;
+            }
+
+            int boardIndex = -1;
+            double boardArea = 0.0;
+            for (size_t i = 0; i < contours.size(); i++)
+            {
+                if (hierarchy[i][3] != -1) // not an outermost contour
+                    continue;
+                const double area = contourArea(contours[i]);
+                if (area > boardArea)
+                {
+                    boardArea = area;
+                    boardIndex = static_cast<int>(i);
+                }
+            }
+
+            Point2f boardSpanCenter(static_cast<float>(frameCenter.x), static_cast<float>(frameCenter.y));
+            float boardSpan = 0.0f;
+            if (boardIndex >= 0)
+            {
+                minEnclosingCircle(contours[boardIndex], boardSpanCenter, boardSpan);
+            }
+
+            board.area = boardArea;
+            const double minBoardRadius = params.minBoardRadius();
+            const double smallestBullOfBoard = params.bullRadiusOfBoardRadius * params.minBullRadiusFactor;
+            if (boardIndex < 0 || boardSpan < minBoardRadius)
+            {
+                board.failure = "the board cannot be measured: the largest red/green region spans " +
+                                decimals(boardSpan, 1) + " px of radius, enclosing " +
+                                to_string(static_cast<long>(boardArea)) + " pixels, and a board this stage can " +
+                                "size a bull against has to span at least " + decimals(minBoardRadius, 1) +
+                                " px -- the radius at which the smallest bull it would accept, " +
+                                decimals(smallestBullOfBoard, 3) + " of the board, is still " +
+                                decimals(params.smallestMeasurableBullRadius, 1) +
+                                " px and so survives this stage's own 7x7 blur";
+                return board;
+            }
+
+            board.found = true;
+            board.radius = boardSpan;
+            board.center = Point(cvRound(boardSpanCenter.x), cvRound(boardSpanCenter.y));
+
+            // ADR-0079 §2: is the whole of it in shot? Asked of the region's own extremes
+            // against the four frame edges, in pixels, because a share of the frame is the
+            // kind of number a rig can sit just outside of for no reason anybody can see.
+            const Rect box = boundingRect(contours[boardIndex]);
+            board.edgeGap = min(min(box.x, box.y),
+                                min(frameSize.width - (box.x + box.width),
+                                    frameSize.height - (box.y + box.height)));
+            board.clipped = board.edgeGap <= 0;
+            return board;
+        }
+    }
+
+    BoardSighting measureBoard(const Mat &redGreenFrame, const Point &frameCenter, const BullParams &params)
+    {
+        // The same first three steps processBull takes, because the board has to be told
+        // from the same picture the bull is: the blur closes the pinholes in a printed
+        // ring, and the threshold is what turns a colour frame into regions at all.
+        Mat blurredFrame;
+        GaussianBlur(redGreenFrame, blurredFrame, Size(7, 7), 2.0);
+
+        Mat grayMask;
+        cvtColor(blurredFrame, grayMask, COLOR_BGR2GRAY);
+        Mat binaryMask;
+        threshold(grayMask, binaryMask, 1, 255, THRESH_BINARY);
+
+        vector<vector<Point>> contours;
+        vector<Vec4i> hierarchy;
+        findContours(binaryMask, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+
+        return measureBoardFrom(contours, hierarchy, redGreenFrame.size(), frameCenter, params);
+    }
+
     BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
     {
         log_debug("Bull detection camera " + log_string(camera_idx) + " starting...");
@@ -67,69 +179,24 @@ namespace bull_processing
 
         log_debug("Found " + log_string(contours.size()) + " contours total");
 
-        if (contours.empty())
+        // ---- Step 3.5: the board, before anything is scored against it ------------------
+        //
+        // #1331 moved the measurement itself into measureBoard() above, unchanged, so
+        // that calibration can make it one stage earlier -- on the FULL frame, where the
+        // ROI has not yet had a chance to cut a board's edge off. This call is the same
+        // measurement on the frame that came back out of that ROI, and the clipping it
+        // can report here is the ROI's rather than the frame's; calibration has already
+        // refused a board the FRAME cuts.
+        const BoardSighting board = measureBoardFrom(contours, hierarchy, redGreenFrame.size(), frameCenter, params);
+        const double boardArea = board.area;
+        if (!board.found)
         {
-            // The count is in the sentence for #1321's reason: a line that carries no
-            // number is a line nothing can contradict.
-            sighting.failure = "the red/green frame yields 0 contours, and at least 1 region is "
-                               "needed before there is a board to measure or a candidate to "
-                               "measure against it";
+            sighting.failure = board.failure;
             return sighting;
         }
 
-        // ---- #1320/#1340 Step 3.5: measure the board, before scoring anything against it ----
-        //
-        // The largest outermost region in the red/green mask is the dartboard: its
-        // boundary is the outside of the doubles ring, because that is the last coloured
-        // thing on a board. WHICH region that is has not moved -- it is still the one
-        // enclosing the most area. What is measured of it has: #1340 takes the board's
-        // radius and its middle from the smallest circle enclosing that boundary rather
-        // than from the area the boundary encloses, because a doubles ring broken into
-        // arcs -- the ordinary case on a board lit from one side -- loses most of its
-        // enclosed area and none of its extent. BullParams carries the measurements.
-        //
-        // The area is still taken, because it is what the refusal used to be about and
-        // what every log line before this one quoted, and the two are logged side by
-        // side: on a ring that closed they agree, and where they part the difference is
-        // the arcs the mask lost.
-        int boardIndex = -1;
-        double boardArea = 0.0;
-        for (size_t i = 0; i < contours.size(); i++)
-        {
-            if (hierarchy[i][3] != -1) // not an outermost contour
-                continue;
-            const double area = contourArea(contours[i]);
-            if (area > boardArea)
-            {
-                boardArea = area;
-                boardIndex = static_cast<int>(i);
-            }
-        }
-
-        Point2f boardSpanCenter(static_cast<float>(frameCenter.x), static_cast<float>(frameCenter.y));
-        float boardSpan = 0.0f;
-        if (boardIndex >= 0)
-        {
-            minEnclosingCircle(contours[boardIndex], boardSpanCenter, boardSpan);
-        }
-
-        const double minBoardRadius = params.minBoardRadius();
-        const double smallestBullOfBoard = params.bullRadiusOfBoardRadius * params.minBullRadiusFactor;
-        if (boardIndex < 0 || boardSpan < minBoardRadius)
-        {
-            sighting.failure = "the board cannot be measured: the largest red/green region spans " +
-                               decimals(boardSpan, 1) + " px of radius, enclosing " +
-                               to_string(static_cast<long>(boardArea)) + " pixels, and a board this stage can " +
-                               "size a bull against has to span at least " + decimals(minBoardRadius, 1) +
-                               " px -- the radius at which the smallest bull it would accept, " +
-                               decimals(smallestBullOfBoard, 3) + " of the board, is still " +
-                               decimals(params.smallestMeasurableBullRadius, 1) +
-                               " px and so survives this stage's own 7x7 blur";
-            return sighting;
-        }
-
-        sighting.boardRadius = boardSpan;
-        sighting.boardCenter = Point(cvRound(boardSpanCenter.x), cvRound(boardSpanCenter.y));
+        sighting.boardRadius = board.radius;
+        sighting.boardCenter = board.center;
 
         const double idealRadius = sighting.boardRadius * params.bullRadiusOfBoardRadius;
         const double minRadius = idealRadius * params.minBullRadiusFactor;

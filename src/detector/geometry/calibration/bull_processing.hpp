@@ -213,6 +213,44 @@ namespace bull_processing
         string failure;          // Why nothing was chosen; empty when found
     };
 
+    /**
+     * #1331: the board on its own, told from whatever red/green frame it is handed.
+     *
+     * This is the measurement `processBull` has always made at its Step 3.5 -- the
+     * largest outermost region in the mask, sized by the smallest circle enclosing its
+     * boundary (#1320 chose the region, #1340 chose the measure). It is lifted out here
+     * rather than written a second time, because ADR-0079 needs it one stage EARLIER
+     * than the bull: the ROI used to be a frame-centred ellipse of hand-fitted constants
+     * and the colour stage ran inside it, so the only thing in the pipeline that can say
+     * where the board is ran on a picture with the evidence already cut off. Now
+     * calibration finds the board on the full frame with this, builds the ROI around
+     * what it found, and `processBull` calls the same function again on the frame that
+     * comes back. One measurement, two callers; there is no second opinion about where a
+     * board is.
+     *
+     * `clipped` is ADR-0079 §2, and it is the one thing this adds to the measurement:
+     * whether the region runs off the FRAME's own edge. It is a gap in pixels rather
+     * than a share of anything, so there is no number for a rig to sit just outside.
+     * `edgeGap` is that gap -- the smallest distance from the region's bounding box to
+     * any of the four frame edges -- so a refusal can say by how much.
+     */
+    struct BoardSighting
+    {
+        bool found = false;      // A region big enough to size a bull against was there
+        Point center{0, 0};      // The middle of the smallest circle enclosing it
+        double radius = 0.0;     // That circle's radius, in pixels
+        double area = 0.0;       // What its boundary encloses, in pixels
+        int edgeGap = 0;         // Px from its bounding box to the nearest frame edge
+        bool clipped = false;    // That gap is gone: the board runs off the frame
+        string failure;          // Why there is no board here; empty when found
+    };
+
+    // Measure the board in a red/green frame, or say why there is not one.
+    BoardSighting measureBoard(
+        const Mat &redGreenFrame,
+        const Point &frameCenter,
+        const BullParams &params = BullParams());
+
     // Find the bull, or say why there is not one
     BullSighting processBull(
         const Mat &redGreenFrame,
