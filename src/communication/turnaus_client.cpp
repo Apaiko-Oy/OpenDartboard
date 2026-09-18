@@ -61,6 +61,17 @@ namespace
         return out;
     }
 
+    /**
+     * #1351: the identity one owed push is recognised by, wherever the queue has moved
+     * it. The worker copies the front out and releases the lock before the POST; by the
+     * time it locks again the queue may have been reshaped underneath it (a Contest
+     * ending erases from the middle), so "the front" is not a name and this is.
+     */
+    bool sameOwedPush(const OwedPush &a, const OwedPush &b)
+    {
+        return a.idempotency_key == b.idempotency_key && a.path == b.path && a.body == b.body;
+    }
+
     // #1347: the sector check lives in the header now -- TurnausClient::postableSector,
     // which also carries the BULL -> Bull and OUTER -> 25 translation the grammar
     // always needed -- so a tester can hold it to the server's own pattern.
@@ -457,7 +468,7 @@ void TurnausClient::releaseContestBinding(const char *why)
     // opposite of what a refused Organisation credential does, and §"Give-up" in the
     // document argues the asymmetry. Nobody re-pairs to a Contest that has been Given Up.
     size_t abandoned = 0;
-    size_t already_written = 0;
+    std::vector<long long> written_records; // #1351: settled by name, below
     bool round_abandoned = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -474,9 +485,9 @@ void TurnausClient::releaseContestBinding(const char *why)
         {
             if (it->binding == Binding::Contest)
             {
-                if (it->spooled)
+                if (it->spooled && it->spool_index >= 0)
                 {
-                    already_written++;
+                    written_records.push_back(it->spool_index);
                 }
                 it = queue_.erase(it);
                 dropped_++;
@@ -489,17 +500,21 @@ void TurnausClient::releaseContestBinding(const char *why)
         }
     }
 
-    // MEASURED, AND IT IS THE FINDING THIS SLICE DID NOT KNOW IT WAS ASKING FOR. The
-    // cursor is a COUNT of settled leading records, not a set of them, so a record dropped
-    // out of the queue without settling it makes every later settle account for the record
-    // before it -- and the run ends one short. The first version of this function left
-    // that one behind: the run afterwards resumed a club dart that had already been
-    // delivered, and only #821's dedup made it harmless, answering ABSORBED because the
-    // round in hand had not moved. A dart that is never retried is settled, by the same
-    // definition the horizon uses two functions up, and it is settled HERE.
-    for (size_t i = 0; i < already_written; i++)
+    // MEASURED, AND IT IS THE FINDING THIS SLICE DID NOT KNOW IT WAS ASKING FOR. A
+    // record dropped out of the queue without settling it left the run one short: the
+    // run afterwards resumed a club dart that had already been delivered, and only
+    // #821's dedup made it harmless. A dart that is never retried is settled, by the
+    // same definition the horizon uses two functions up, and it is settled HERE.
+    //
+    // #1351: BY NAME now, not by count. Settling "that many records" moved the cursor
+    // over the LEADING records whatever they were, and these erasures come from the
+    // middle of the queue -- with club records interleaved ahead of them in the file,
+    // the count covered a leading club record that was never delivered, and a restart
+    // skipped it. The ledger settles the record each erased item really became, and the
+    // cursor stops at the first record still owed.
+    for (long long record : written_records)
     {
-        settleOneRecord();
+        settleRecord(record);
     }
 
     log_warning("TURNAUS: the binding to Casual Contest " + std::to_string(was) + " has ended (" +
@@ -671,7 +686,7 @@ bool TurnausClient::offer(const DetectorResult &result)
     return true;
 }
 
-void TurnausClient::spool(const OwedPush &item)
+void TurnausClient::spool(OwedPush &item)
 {
     if (spool_path_.empty())
     {
@@ -683,6 +698,12 @@ void TurnausClient::spool(const OwedPush &item)
         // The spool is a durability improvement, not a precondition. A board whose disk
         // is full still scores, still serves the WebSocket and still pushes what is in
         // memory; it just cannot survive a restart with a backlog.
+        //
+        // #1351: and the item's spool_index stays -1, which the ledger refuses to
+        // count. The old count-cursor advanced on delivery whether or not the record
+        // had reached the file, so a full disk made the cursor cover one real record
+        // per unwritten one -- the same overshoot the middle-of-queue erasures had,
+        // arrived at through the filesystem.
         return;
     }
     json line;
@@ -700,7 +721,11 @@ void TurnausClient::spool(const OwedPush &item)
                              .count();
     out << line.dump() << "\n";
     out.flush();
-    spool_records_++;
+    // #1351: the record's name, stamped on the item that became it. Appends are one
+    // thread at a time -- the worker, or spoolUnwritten() after the worker is joined --
+    // so the ledger's count is the file's.
+    std::lock_guard<std::mutex> lock(spool_mutex_);
+    item.spool_index = ledger_.recordAppended();
 }
 
 void TurnausClient::loadSpool()
@@ -712,12 +737,14 @@ void TurnausClient::loadSpool()
     std::string cursor_raw;
     if (od_paths::readFile(cursor_path_, cursor_raw))
     {
-        settled_records_ = strtoull(cursor_raw.c_str(), nullptr, 10);
+        // #1351: the cursor file still says what it always said -- how many LEADING
+        // records are settled -- so every file an earlier build wrote reads the same.
+        ledger_.startFrom(strtoull(cursor_raw.c_str(), nullptr, 10));
     }
     std::ifstream in(spool_path_.c_str(), std::ios::binary);
     if (!in)
     {
-        settled_records_ = 0;
+        ledger_.clear();
         return;
     }
 
@@ -725,7 +752,6 @@ void TurnausClient::loadSpool()
                        std::chrono::system_clock::now().time_since_epoch())
                        .count();
     std::string line;
-    uint64_t index = 0;
     size_t resumed = 0, stale = 0, orphaned = 0;
 
     while (std::getline(in, line))
@@ -734,9 +760,8 @@ void TurnausClient::loadSpool()
         {
             continue;
         }
-        uint64_t here = index++;
-        spool_records_ = index;
-        if (here < settled_records_)
+        const long long here = ledger_.recordAppended();
+        if ((uint64_t)here < ledger_.settledPrefix())
         {
             continue; // already delivered by an earlier run
         }
@@ -759,8 +784,10 @@ void TurnausClient::loadSpool()
         catch (const std::exception &)
         {
             // A torn last line is what a power cut leaves behind. It is settled by
-            // being unreadable; there is nothing to retry.
-            settled_records_ = index;
+            // being unreadable; there is nothing to retry. #1351: settled by its own
+            // index -- the old assignment covered every record before it as well, which
+            // for a mid-file line would have been records this scan just resumed.
+            ledger_.settle(here);
             continue;
         }
 
@@ -776,13 +803,13 @@ void TurnausClient::loadSpool()
         {
             stale++;
             dropped_++;
-            settled_records_ = index;
+            ledger_.settle(here);
             continue;
         }
 
         if (item.path.empty())
         {
-            settled_records_ = index;
+            ledger_.settle(here);
             continue;
         }
 
@@ -795,11 +822,16 @@ void TurnausClient::loadSpool()
         {
             orphaned++;
             dropped_++;
-            settled_records_ = index;
+            // #1351: its own index and nothing more. The old assignment declared every
+            // record BEFORE the orphan settled too -- including club records this very
+            // scan had just resumed into the queue, which one delivery would then write
+            // into the cursor, and a crash before they delivered lost them.
+            ledger_.settle(here);
             continue;
         }
 
         item.spooled = true; // it is already in the file; do not write it twice
+        item.spool_index = here;
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.push_back(item);
         resumed++;
@@ -813,13 +845,20 @@ void TurnausClient::loadSpool()
     }
 }
 
-void TurnausClient::settleOneRecord()
+void TurnausClient::settleRecord(long long index)
 {
-    settled_records_++;
+    // #1351: any order, any thread. The ledger holds settlement apart from the cursor:
+    // the file is rewritten only when the settled PREFIX advanced, so it can never name
+    // a count that covers a record still owed.
+    std::lock_guard<std::mutex> lock(spool_mutex_);
+    if (!ledger_.settle(index))
+    {
+        return;
+    }
     std::ofstream out(cursor_path_.c_str(), std::ios::binary | std::ios::trunc);
     if (out)
     {
-        out << settled_records_;
+        out << ledger_.settledPrefix();
         out.flush();
     }
 }
@@ -828,10 +867,6 @@ void TurnausClient::compactSpoolIfSettled()
 {
     // Nothing owed and nothing unsettled: the spool has done its job and may start again
     // at nothing, so a board left running for a month does not accumulate a file.
-    if (spool_records_ == 0 || settled_records_ < spool_records_)
-    {
-        return;
-    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!queue_.empty())
@@ -839,14 +874,18 @@ void TurnausClient::compactSpoolIfSettled()
             return;
         }
     }
+    std::lock_guard<std::mutex> spool_lock(spool_mutex_);
+    if (ledger_.records() == 0 || !ledger_.allSettled())
+    {
+        return;
+    }
     std::ofstream truncate_spool(spool_path_.c_str(), std::ios::binary | std::ios::trunc);
     std::ofstream truncate_cursor(cursor_path_.c_str(), std::ios::binary | std::ios::trunc);
     if (truncate_cursor)
     {
         truncate_cursor << 0;
     }
-    spool_records_ = 0;
-    settled_records_ = 0;
+    ledger_.clear();
 }
 
 bool TurnausClient::deliver(const OwedPush &item)
@@ -1115,15 +1154,46 @@ void TurnausClient::run()
 
         // Spool before posting, exactly once per item. A dart written down before it is
         // sent is a dart a power cut cannot take.
+        bool still_owed = true;
         if (!item.spooled)
         {
             spool(item);
             item.spooled = true;
             std::lock_guard<std::mutex> lock(mutex_);
-            if (!queue_.empty())
+            // #1351: mark the item that was spooled, BY NAME. The shipped code marked
+            // `queue_.front()`, and the front is only this item until the queue is
+            // reshaped underneath the write -- a Contest ending on the beat thread
+            // erases from the middle -- after which the front was some other item,
+            // marked spooled though it was never written, and its later delivery moved
+            // the cursor over a record the file does not hold.
+            OwedPush *owner = nullptr;
+            for (OwedPush &owed : queue_)
             {
-                queue_.front().spooled = true;
+                if (!owed.spooled && sameOwedPush(owed, item))
+                {
+                    owner = &owed;
+                    break;
+                }
             }
+            if (owner)
+            {
+                owner->spooled = true;
+                owner->spool_index = item.spool_index;
+            }
+            else
+            {
+                // The item left the queue while it was becoming a record -- dropped
+                // with its Contest. Nothing owes it any more, and a record nothing
+                // will retry is settled (#891's definition), or the cursor wedges
+                // under it for the life of the file.
+                still_owed = false;
+            }
+        }
+        if (!still_owed)
+        {
+            settleRecord(item.spool_index);
+            compactSpoolIfSettled();
+            continue;
         }
 
         bool settled = deliver(item);
@@ -1132,12 +1202,28 @@ void TurnausClient::run()
         {
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                if (!queue_.empty())
+                // #1351: pop what was delivered, which is the front unless the queue
+                // was reshaped underneath the POST. The shipped pop took the front
+                // unconditionally, so a reshape made it drop an item the POST was not
+                // about -- an undelivered dart, gone from memory and then from the
+                // file when the cursor passed it.
+                if (!queue_.empty() && sameOwedPush(queue_.front(), item))
                 {
                     queue_.pop_front();
                 }
+                else
+                {
+                    for (std::deque<OwedPush>::iterator it = queue_.begin(); it != queue_.end(); ++it)
+                    {
+                        if (sameOwedPush(*it, item))
+                        {
+                            queue_.erase(it);
+                            break;
+                        }
+                    }
+                }
             }
-            settleOneRecord();
+            settleRecord(item.spool_index);
             compactSpoolIfSettled();
             backoff_ms = config_.backoff_initial_ms;
             continue;

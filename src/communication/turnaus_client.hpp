@@ -34,6 +34,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <set>
 
 /** What a board was told at startup about who to talk to and how. */
 struct TurnausConfig
@@ -102,11 +103,93 @@ struct OwedPush
     std::string path;     // "/api/v1/autoscorer/detections"
     std::string body;     // the JSON, exactly as it will be posted, forever
     bool spooled = false; // written to the spool file once, by the worker
+    // #1351. Which record of the spool file this item became, so it can be settled BY
+    // NAME wherever it leaves the queue -- delivered at the front, or erased from the
+    // middle when its Contest ends. -1 until spool() writes it, and still -1 on an item
+    // the spool could not take (a full disk), which the ledger then refuses to count.
+    long long spool_index = -1;
     // #891. Which credential it is posted with, and -- for a Contest -- which evening it
     // belongs to, so a dart owed to Tuesday's knockabout can never be delivered into
     // Wednesday's.
     Binding binding = Binding::Organisation;
     long long contest_id = 0;
+};
+
+/**
+ * #1351: the cursor's arithmetic, as a thing of its own.
+ *
+ * The cursor on disk is a COUNT of settled leading records, and that shape is kept: it
+ * is what a torn write cannot corrupt and what every existing cursor file already says.
+ * What the count model could not survive was settlement OUT OF FILE ORDER, and three
+ * paths settle that way -- a Contest ending erases spooled records from the middle of
+ * the queue (#891), loadSpool orphans a mid-file record while resuming the club records
+ * around it, and the worker can be underneath a POST while the queue is reshaped. Each
+ * of those used to move the count anyway, so the cursor advanced past a leading club
+ * record that was never delivered, and a restart skipped it: a dart lost, silently.
+ *
+ * So the ledger holds the two apart. A record is settled BY INDEX, whatever order that
+ * happens in; the PREFIX -- the only thing the cursor file ever says -- advances only
+ * over records actually settled, and stops at the first that is not. An index settled
+ * ahead of the prefix waits in a set; on a restart that set is gone, which is safe by
+ * construction, because a record under the prefix is never rescanned and a record above
+ * it is rescanned into the same verdict that settled it (stale, orphaned, or owed).
+ *
+ * Pure, and inline for #1338's reason: the tester holds the arithmetic -- out-of-order
+ * settlement no longer covers an unsettled record -- without a client, a file or a
+ * network. TurnausClient guards every call with its own spool mutex; nothing here locks.
+ */
+class SpoolLedger
+{
+public:
+    /** One record appended to the file; answers the index it lives at. */
+    long long recordAppended() { return (long long)spool_records_++; }
+
+    /**
+     * Settle one record by index, in any order. True when the settled PREFIX advanced,
+     * which is when the cursor on disk is worth rewriting. An index below the prefix is
+     * already covered (a rescan after a restart), an index that never reached the file
+     * (-1, the full disk) is refused: neither moves anything.
+     */
+    bool settle(long long index)
+    {
+        if (index < 0 || (uint64_t)index < settled_records_)
+        {
+            return false;
+        }
+        out_of_order_.insert((uint64_t)index);
+        bool advanced = false;
+        while (out_of_order_.erase(settled_records_))
+        {
+            settled_records_++;
+            advanced = true;
+        }
+        return advanced;
+    }
+
+    /** What the cursor file says: how many leading records are settled. */
+    uint64_t settledPrefix() const { return settled_records_; }
+
+    /** How many records the file holds. */
+    uint64_t records() const { return spool_records_; }
+
+    /** Nothing in the file is still owed, so the file may start again at nothing. */
+    bool allSettled() const { return settled_records_ >= spool_records_; }
+
+    /** loadSpool: what the cursor file said before the scan begins. */
+    void startFrom(uint64_t settled) { settled_records_ = settled; }
+
+    /** The spool was truncated, or there is none. */
+    void clear()
+    {
+        spool_records_ = 0;
+        settled_records_ = 0;
+        out_of_order_.clear();
+    }
+
+private:
+    uint64_t spool_records_ = 0;
+    uint64_t settled_records_ = 0;
+    std::set<uint64_t> out_of_order_; // settled ahead of the prefix, waiting for it
 };
 
 class TurnausClient
@@ -350,9 +433,13 @@ private:
     /** #1259: write every queued push the worker never reached to the spool. */
     size_t spoolUnwritten();
     bool deliver(const OwedPush &item);
-    void spool(const OwedPush &item);
+    /** Append one item to the spool and stamp its spool_index; a file that cannot be
+     *  written leaves the index -1, which the ledger refuses to count (#1351). */
+    void spool(OwedPush &item);
     void loadSpool();
-    void settleOneRecord();
+    /** #1351: settle one record by its index -- in any order -- and rewrite the cursor
+     *  when the settled prefix advanced. Takes spool_mutex_; never call under mutex_. */
+    void settleRecord(long long index);
     void compactSpoolIfSettled();
     std::string newIdempotencyKey();
 
@@ -420,12 +507,12 @@ private:
 
     std::string spool_path_;
     std::string cursor_path_;
-    // How many leading records of the spool are settled -- delivered, refused as
-    // unreadable, or abandoned as stale. A record index rather than a byte offset,
-    // because records are appended in order and never rewritten, so an index is stable
-    // under a torn write in a way an offset is not.
-    uint64_t settled_records_ = 0;
-    uint64_t spool_records_ = 0;
+    // #1351: the cursor's arithmetic, and the lock that makes it one thread's at a time
+    // -- the worker settles delivered records and the beat thread settles a released
+    // Contest's. Held for the ledger and the two small files, never with mutex_, so
+    // offer() can never wait behind a cursor write.
+    mutable std::mutex spool_mutex_;
+    SpoolLedger ledger_;
 
     std::atomic<uint64_t> queued_{0};
     std::atomic<uint64_t> delivered_{0};
