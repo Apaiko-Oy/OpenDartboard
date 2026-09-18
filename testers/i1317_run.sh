@@ -23,6 +23,13 @@ rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
 cp "$SCRIPT" "$RUN/inside.sh"
 
+# The base commit's source, unpacked here rather than inside the container: this is a git
+# worktree, so its .git is a file pointing at a repository the container does not mount and
+# `git archive` there cannot work. Only 1317-asan.sh reads it; every other phase ignores it.
+BASE_COMMIT="${BASE_COMMIT:-50e3b07}"
+mkdir -p "$RUN/base-src"
+git -C /home/mikko/opendartboard/i1317 archive "$BASE_COMMIT" | tar -x -C "$RUN/base-src"
+
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
