@@ -18,7 +18,8 @@
 # Sourced, never executed: it defines and sets, and runs nothing.
 
 OD_TREE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OD_TREE_TAG="$(basename "$OD_TREE_ROOT" | tr -c 'A-Za-z0-9_.-' '-')"
+OD_TREE_TAG="$(basename "$OD_TREE_ROOT")"
+OD_TREE_TAG="${OD_TREE_TAG//[^A-Za-z0-9_.-]/-}"   # a container name holds no more than this
 OD_RUNS_BASE="${OD_RUNS:-$(dirname "$OD_TREE_ROOT")/runs-$OD_TREE_TAG}"
 OD_IMAGE="${OD_IMAGE:-od-amd64:bullseye}"
 
