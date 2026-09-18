@@ -5,6 +5,8 @@
 #include "utils/od_clock.hpp"
 #include "utils/od_fix.hpp"
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 
 using namespace cv;
 using namespace std;
@@ -17,6 +19,80 @@ namespace motion_processing
 
     static unique_ptr<streamer> motion_streamer;
     static unique_ptr<streamer> motion2_streamer;
+
+    // #1339: the region every ratio in this file is a fraction of, one per camera. The
+    // mask is built from the board calibration already fitted and rebuilt only when the
+    // board or the frame size changes, so the per-cycle cost is a bitwise_and.
+    struct Region
+    {
+        bool known = false;
+        Mat mask;
+        int pixels = 0;
+        Size frame;
+        RotatedRect edge;
+    };
+    static vector<Region> regions;
+
+    // #1339's falsification, in the shape od_fix established: one binary, the
+    // denominator chosen at run time, so "different build" is never a confound.
+    // OD_MOTION_DENOMINATOR=frame restores what this file did before #1339 -- the whole
+    // frame, numerator and denominator both -- and is how the rig's darts can be made to
+    // disappear again on the same binary that finds them.
+    static bool measuredAgainstTheFrame()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_MOTION_DENOMINATOR");
+            return e && std::string(e) == "frame";
+        }();
+        return v;
+    }
+
+    // The mask for one camera, built on first sight of its board and kept.
+    static const Region &regionFor(size_t i, const vector<BoardExtent> &boards, Size frame, const MotionParams &params)
+    {
+        if (regions.size() <= i)
+            regions.resize(i + 1);
+        Region &r = regions[i];
+        const BoardExtent extent = i < boards.size() ? boards[i] : BoardExtent();
+
+        const bool same = r.known == extent.known && r.frame == frame &&
+                          r.edge.center == extent.edge.center && r.edge.size == extent.edge.size &&
+                          r.edge.angle == extent.edge.angle;
+        if (same && (!r.known || !r.mask.empty()))
+            return r;
+
+        r = Region();
+        r.frame = frame;
+        r.edge = extent.edge;
+        r.known = extent.known;
+        if (!r.known)
+        {
+            log_warning("MOTION REGION: camera " + to_string(i + 1) + " has no fitted board, so it "
+                        "abstains from the motion figure rather than being measured against the frame");
+            return r;
+        }
+        r.mask = Mat::zeros(frame, CV_8UC1);
+        ellipse(r.mask, r.edge, Scalar(255), FILLED);
+        r.pixels = countNonZero(r.mask);
+        if (r.pixels <= 0)
+        {
+            r.known = false;
+            log_warning("MOTION REGION: camera " + to_string(i + 1) + " fitted a board of no area, so it abstains");
+            return r;
+        }
+        const int frame_pixels = frame.width * frame.height;
+        log_info("MOTION REGION: camera " + to_string(i + 1) + " measures motion inside its board, the " +
+                 to_string((int)lround(r.edge.size.width)) + "x" + to_string((int)lround(r.edge.size.height)) +
+                 " px ellipse at (" + to_string((int)lround(r.edge.center.x)) + "," +
+                 to_string((int)lround(r.edge.center.y)) + ") turned " + to_string((int)lround(r.edge.angle)) +
+                 " degrees: " +
+                 to_string(r.pixels) + " px of a " + to_string(frame_pixels) + " px frame (" +
+                 to_string((int)lround(100.0 * r.pixels / frame_pixels)) + "%); a ratio of " +
+                 to_string(params.spike_threshold) + " is " +
+                 to_string((int)lround(params.spike_threshold * r.pixels)) + " changed pixels");
+        return r;
+    }
 
     // Event-based dart detection state
     static DartEventState current_state = DartEventState::IDLE;
@@ -44,12 +120,13 @@ namespace motion_processing
     };
     static vector<MotionTrace> motion_trace;
 
-    vector<MotionData> detectMotion(const vector<Mat> &current_frames, const vector<Mat> &background_frames, bool debug_mode, const MotionParams &params)
+    vector<MotionData> detectMotion(const vector<Mat> &current_frames, const vector<Mat> &background_frames, const vector<BoardExtent> &boards, bool debug_mode, const MotionParams &params)
     {
         // Initialize previous frames on first run
         if (!initialized || previous_frames.size() != current_frames.size())
         {
             previous_frames.clear();
+            regions.clear(); // #1339: a fresh board is measured against a fresh region
 
             // check if we have any frames to initialize
             if (current_frames.size() != 3)
@@ -125,15 +202,35 @@ namespace motion_processing
                 motion_viz_frames2.push_back(thresh);
             }
 
-            // Count motion pixels and calculate ratio - CAPTURE THE REAL DATA!
-            int motion_pixels = countNonZero(thresh);
-            int total_pixels = thresh.rows * thresh.cols;
-            double motion_ratio = (double)motion_pixels / total_pixels;
+            // #1339: count what changed inside the board, over the board's own area.
+            // Both halves are the region: a ratio whose numerator is the whole frame
+            // and whose denominator is the board makes `low_threshold` unreachable on a
+            // small board -- the rig's quiet cycles measure 0.0019 that way, above the
+            // 0.001 an event has to settle under, so nothing ever settles.
+            int motion_pixels = 0;
+            int region_pixels = 0;
+            if (measuredAgainstTheFrame())
+            {
+                motion_pixels = countNonZero(thresh);
+                region_pixels = thresh.rows * thresh.cols;
+            }
+            else
+            {
+                const Region &region = regionFor(i, boards, thresh.size(), params);
+                if (!region.known)
+                    continue; // this camera has no scale, so it says nothing
+                Mat inside;
+                bitwise_and(thresh, region.mask, inside);
+                motion_pixels = countNonZero(inside);
+                region_pixels = region.pixels;
+            }
+            double motion_ratio = region_pixels > 0 ? (double)motion_pixels / region_pixels : 0.0;
 
             // Store all the motion data
             motion_data[i].motion_pixels = motion_pixels;
-            motion_data[i].total_pixels = total_pixels;
+            motion_data[i].region_pixels = region_pixels;
             motion_data[i].motion_ratio = motion_ratio;
+            motion_data[i].measured = true;
             motion_data[i].motion_detected = (motion_ratio > params.threshold_ratio);
         }
 
@@ -157,12 +254,12 @@ namespace motion_processing
         return motion_data;
     }
 
-    MotionResult processMotion(const vector<Mat> &current_frames, const vector<Mat> &background_frames, bool debug_mode, const MotionParams &params)
+    MotionResult processMotion(const vector<Mat> &current_frames, const vector<Mat> &background_frames, const vector<BoardExtent> &boards, bool debug_mode, const MotionParams &params)
     {
         MotionResult result;
 
         // Get motion data from all cameras
-        vector<MotionData> motion_data = detectMotion(current_frames, background_frames, debug_mode, params);
+        vector<MotionData> motion_data = detectMotion(current_frames, background_frames, boards, debug_mode, params);
         long long now = od_clock::now_ms();
         DartEventState state_in = current_state;
 
@@ -174,7 +271,9 @@ namespace motion_processing
         for (size_t i = 0; i < motion_data.size(); i++)
         {
             // #798: a camera that produced no frame did not say "no motion".
-            if (i < current_frames.size() && current_frames[i].empty())
+            // #1339: nor did one with no board to measure its motion against. Both are
+            // the same abstention and `measured` is now the one thing that says so.
+            if (!motion_data[i].measured)
                 continue;
 
             cameras_answering++;
