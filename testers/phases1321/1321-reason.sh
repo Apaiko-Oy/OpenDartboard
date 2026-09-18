@@ -53,6 +53,21 @@ REASONS=$(grep -cE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera [0-9]+ did not c
 if [ "$REASONS" = "3" ]; then say "OK   one ERROR naming camera, stage and a count, per camera (3)" ok
 else say "FAIL expected 3 naming ERROR lines, got $REASONS" no; fi
 
+echo "=== 1b. the number it prints is the number that fell short ==="
+# A line nothing can falsify is not evidence. Every count here is a count against a
+# threshold in the same sentence, so the sentence contradicts itself if the number comes
+# from anywhere but the measurement that refused: a mask holding more pixels than the
+# stage asks for did not fail on pixels. Measured by reporting the frame width instead
+# of the white-pixel count, where this reads "holds 1280 white pixels and this stage
+# needs at least 1000" and the check below goes red.
+INCONSISTENT=$(grep -oE 'the doubles mask holds [0-9]+ white pixels and this stage needs at least [0-9]+' /run1321/dark.txt \
+  | awk '$5 >= $14 { print }' | wc -l)
+RAYS=$(grep -oE '[0-9]+ gave a boundary point, and at least [0-9]+ are needed' /run1321/dark.txt \
+  | awk '$1 >= $7 { print }' | wc -l)
+if [ "$INCONSISTENT" = "0" ] && [ "$RAYS" = "0" ]; then
+  say "OK   every count printed is below the threshold it is printed against" ok
+else say "FAIL $INCONSISTENT mask counts and $RAYS ray counts are not below their own threshold" no; fi
+
 echo "=== 2. the three echoes are not ERROR ==="
 for pattern in \
   'ERROR.*Invalid input data' \
