@@ -250,7 +250,13 @@ namespace geometry_calibration
         {
             if (frames[cam_idx].empty())
             {
-                log_warning("Empty frame from camera " + log_string(cam_idx + 1));
+                // #1338: a camera that produced no frame is not a camera that was
+                // looked at and refused. It is said here in the words of the remedy --
+                // nothing was seen, so nothing about aim or lighting can be concluded --
+                // and its slot carries `Refused::NoFrame` into the census below.
+                log_warning("Camera " + log_string(cam_idx + 1) +
+                            " produced no frame to calibrate on, so it was never looked at; "
+                            "that is a cable, a hub or the bandwidth it shares, not its aim");
                 // #1318: the slot is kept. score_processing reads calibrations[i] by the
                 // camera's position in this vector, so a `continue` that shortened it
                 // handed every camera after this one the calibration of its neighbour --
@@ -279,8 +285,18 @@ namespace geometry_calibration
         // report `BOARD FAULTED: this board is running and cannot see`, which was true of
         // nothing anybody could act on. Now the count is here and the reason is on the
         // refused camera's own line above.
+        //
+        // #1338: and the refused are split in two, because the two remedies are at
+        // opposite ends of the room. A camera that ANSWERED and was refused is pointed
+        // wrong or lit wrong, and the sentence on its own line above says which check it
+        // failed. A camera that produced no frame was never looked at at all -- its slot
+        // carries `board_look::Refused::NoFrame` by construction, because a blank
+        // Evidence has `frame_pixels == 0` -- and the thing to go and look at is the
+        // cable, the hub or the bandwidth it is sharing (#1319). Lumping the two under
+        // one word `refused` sent the maintainer to check the aim of two cameras that
+        // were not plugged in.
         {
-            string seeing, blind;
+            string seeing, blind, silent;
             int count = 0;
             for (const auto &calibration : calibrations)
             {
@@ -289,6 +305,10 @@ namespace geometry_calibration
                 {
                     count++;
                     seeing += (seeing.empty() ? "" : ",") + index;
+                }
+                else if (board_look::verdict(calibration.look) == board_look::Refused::NoFrame)
+                {
+                    silent += (silent.empty() ? "" : ",") + index;
                 }
                 else
                 {
@@ -301,9 +321,11 @@ namespace geometry_calibration
                 line += " (" + seeing + ")";
             if (!blind.empty())
                 line += "; refused: " + blind;
+            if (!silent.empty())
+                line += "; produced no frame: " + silent;
             if (count == 0)
                 log_error(line);
-            else if (!blind.empty())
+            else if (!blind.empty() || !silent.empty())
                 log_warning(line);
             else
                 log_info(line);

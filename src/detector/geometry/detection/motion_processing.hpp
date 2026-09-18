@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <chrono>
+#include <string>
 
 using namespace cv;
 using namespace std;
@@ -66,5 +67,52 @@ namespace motion_processing
 
     // #811: write the per-cycle trace to $OD_TRACE, if set.
     void dumpTrace();
+
+    /**
+     * #1338: why this board can never form a dart event, or an empty string if it can.
+     *
+     * A dart event is a motion spike seen by `min_cameras_for_event` cameras at once, and
+     * this file is the only place that number is written. Nothing above it knew: a rig
+     * whose cameras 2 and 3 delivered no frames calibrated on camera 1, called itself
+     * ready, and sat in a state where `cameras_that_spiked` is bounded above by 1 and the
+     * threshold is 2 -- not a board that rarely scores, a board that arithmetically
+     * cannot. So the arithmetic is asked here, where its own constant lives, and the
+     * detector reads the sentence rather than a count of objects.
+     *
+     * Two facts, both about this translation unit and both checkable against the code:
+     *
+     *   1. `cameras_answering` is how many cameras produced a frame TO CALIBRATE ON, and
+     *      it is the ceiling on `cameras_that_spiked` for the life of the run rather than
+     *      for this cycle. `detectMotion` skips any slot whose `background_frames[i]` is
+     *      empty, and the backgrounds are the calibration frames, saved once. A camera
+     *      that was silent at calibration therefore reports `motion_ratio` 0.0 for ever,
+     *      even if it starts answering later, and 0.0 never exceeds `spike_threshold`.
+     *
+     *   2. `camera_slots` must be exactly 3. `detectMotion`'s initialisation refuses any
+     *      other number, returns zeroed MotionData and never sets `initialized`, so a
+     *      two-camera board reports no motion on any camera on any cycle.
+     *
+     * #1321's rule on the sentence: every count is stated against the threshold it fell
+     * short of, so a line reporting the wrong number can be seen to be wrong.
+     */
+    inline std::string whyNoEventIsPossible(int camera_slots, int cameras_answering,
+                                            const MotionParams &params = MotionParams())
+    {
+        if (camera_slots != 3)
+        {
+            return "this board is running " + std::to_string(camera_slots) +
+                   " cameras and motion detection only initialises on 3, so no camera ever "
+                   "reports motion and no dart can be scored";
+        }
+        if (cameras_answering < params.min_cameras_for_event)
+        {
+            return "only " + std::to_string(cameras_answering) + " of " + std::to_string(camera_slots) +
+                   " cameras produced a frame to calibrate on, and a dart event needs a motion "
+                   "spike seen by at least " + std::to_string(params.min_cameras_for_event) +
+                   " cameras at once, so no dart can be scored until the missing " +
+                   std::to_string(camera_slots - cameras_answering) + " answer";
+        }
+        return "";
+    }
 
 } // namespace motion_processing
