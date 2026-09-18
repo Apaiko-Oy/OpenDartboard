@@ -61,27 +61,9 @@ namespace
         return out;
     }
 
-    /** #821's sector tokens. Anything the detector publishes that is not one of these
-     *  is refused here rather than posted, because the server answers 422 for it and a
-     *  422 is not something a retry can improve. */
-    bool isPostableSector(const std::string &s)
-    {
-        if (s == "25" || s == "Bull" || s == "None")
-        {
-            return true;
-        }
-        if (s.size() < 2 || s.size() > 3)
-        {
-            return false;
-        }
-        char ring = s[0];
-        if (ring != 'S' && ring != 's' && ring != 'D' && ring != 'T')
-        {
-            return false;
-        }
-        int n = atoi(s.c_str() + 1);
-        return n >= 1 && n <= 20 && s.substr(1) == std::to_string(n);
-    }
+    // #1347: the sector check lives in the header now -- TurnausClient::postableSector,
+    // which also carries the BULL -> Bull and OUTER -> 25 translation the grammar
+    // always needed -- so a tester can hold it to the server's own pattern.
 }
 
 TurnausClient::TurnausClient(const TurnausConfig &config) : config_(config)
@@ -633,11 +615,13 @@ bool TurnausClient::offer(const DetectorResult &result)
     }
     else
     {
-        // The detector publishes MISS; #821's Sector grammar spells the same thing None.
-        // Measured rather than assumed: a 1100-cycle run at the mock footage published
-        // two of them, and without this line they were refused here and never counted.
-        std::string sector = result.score == "MISS" ? std::string("None") : result.score;
-        if (!isPostableSector(sector))
+        // The detector publishes MISS where #821's Sector grammar spells None -- measured
+        // in a 1100-cycle run at the mock footage: two of them, refused and uncounted
+        // before that translation -- and it publishes BULL and OUTER where the grammar
+        // spells Bull and 25, which #1347 found the same way by reading: every bull was
+        // dropped on the line below. postableSector is the one seam for all of it.
+        std::string sector = postableSector(result.score);
+        if (sector.empty())
         {
             // A 422 is not something a retry improves, so it does not enter the queue.
             dropped_++;
