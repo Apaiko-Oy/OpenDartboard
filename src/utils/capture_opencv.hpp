@@ -211,8 +211,15 @@ namespace camera
 
                     clock = deviceClock();
 
-                    sayFinding(fourccRequestFinding((int)(i + 1), fourcc_accepted, deviceBackendName()));
-                    sayFinding(negotiationFinding((int)(i + 1), rate));
+                    // Only about a camera that is actually there. A device that never
+                    // opened refuses every property it is handed, and a warning that
+                    // its backend would not take MJPG is a true sentence about the
+                    // wrong thing sitting directly above "Failed to open camera".
+                    if (cap.isOpened())
+                    {
+                        sayFinding(fourccRequestFinding((int)(i + 1), fourcc_accepted, deviceBackendName()));
+                        sayFinding(negotiationFinding((int)(i + 1), rate));
+                    }
 
                     log_debug("Opened camera " + log_string(i + 1) + " at " + log_string(width) + "x" + log_string(height) + " @ " + log_string(fps) + " FPS" +
                               " (requested FOURCC: " + log_string_src(decodeFourCC(fourcc)) + ", backend: " + log_string_src((std::string)deviceBackendName()) + ")");
