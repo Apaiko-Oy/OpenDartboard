@@ -284,6 +284,20 @@ namespace motion_processing
 
         double current_intensity = cameras_answering > 0 ? total_intensity / cameras_answering : 0.0;
 
+        // #1353: the entry figure. A dart splash is strong on one camera and near-noise
+        // on the others (rig census: 0.014-0.089 against 0.0002-0.008 for one throw), so
+        // an AVERAGE divides the one real signal by the camera count and a threshold
+        // that would catch it sinks into the noise. The peak is the entry test; the
+        // average keeps the settle test, where the quiet floor really is shared.
+        double peak_intensity = 0.0;
+        for (size_t i = 0; i < motion_data.size(); i++)
+        {
+            if (motion_data[i].measured && motion_data[i].motion_ratio > peak_intensity)
+            {
+                peak_intensity = motion_data[i].motion_ratio;
+            }
+        }
+
         // Initialize cameras_spiked vector if needed
         if (cameras_spiked.size() != motion_data.size())
         {
@@ -301,8 +315,9 @@ namespace motion_processing
         {
         case DartEventState::IDLE:
         {
-            // Look for motion spike that could indicate dart hit
-            if (current_intensity > params.spike_threshold)
+            // Look for motion spike that could indicate dart hit. #1353: on any ONE
+            // measured camera's board, not on the average -- see peak_intensity above.
+            if (peak_intensity > params.spike_threshold)
             {
                 current_state = DartEventState::SPIKE_DETECTED;
                 event_start_time = now;
