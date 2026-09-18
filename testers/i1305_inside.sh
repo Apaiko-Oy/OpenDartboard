@@ -8,7 +8,7 @@ ANCHOR=$(tr -d '\n\r' < /app/testers/fixtures1305/anchor.hex)
 
 echo "== building a binary with the fixture's key compiled in =="
 # In /out so a second run of this harness does not rebuild the whole program; delete
-# /home/mikko/opendartboard/runs1305/anchored to force one.
+# the run directory's anchored/ to force one.
 rm -rf /out/anchored/CMakeCache.txt
 mkdir -p /out/anchored
 [ -d /out/anchored/_deps ] || cp -r /app/build/_deps /out/anchored/_deps

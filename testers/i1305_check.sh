@@ -11,9 +11,10 @@
 # from a COPY of src/update/manifest.hpp, runs the same check against it, and expects it to
 # go RED. A check that survives that deletion is not measuring the refusal it claims to.
 set -u
-TREE="${1:-/home/mikko/opendartboard/i1305}"
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+TREE="${1:-$OD_TREE_ROOT}"
 MODE="${2:-}"
-docker run --rm --name od-i1305-check --network none -v "$TREE":/app -w /app -e MODE="$MODE" od-amd64:bullseye bash -c '
+docker run --rm --name "$(od_name "i1305-check")" --network none -v "$TREE":/app -w /app -e MODE="$MODE" "$OD_IMAGE" bash -c '
   python3 testers/i1305_fixtures.py || { echo FIXTURES_FAILED; exit 2; }
   SRC=/app/src
   if [ "$MODE" = "--mutate" ]; then

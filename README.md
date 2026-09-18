@@ -181,6 +181,25 @@ make build
 opendartboard --debug --cams mocks/cam_1.mp4,mocks/cam_2.mp4,mocks/cam_3.mp4 --width 1280 --height 720
 ```
 
+## Testers
+
+`testers/` holds the harnesses the issues in this repository were carried with. One command
+runs all of them and names the ones that failed:
+
+```sh
+testers/run_all.sh              # build, then every tester; non-zero if any failed
+testers/run_all.sh 1320 1317    # only the testers whose label contains one of these
+OD_SKIP_BUILD=1 testers/run_all.sh   # measure the binary already in build/
+```
+
+It runs on the host (it drives Docker), not inside the dev container, and it builds
+`build/opendartboard` with the dev defines first: several testers assert numbers that
+belong to that build, because `DEBUG_SEEK_VIDEO` seeks a file source three seconds in and
+a release binary calibrates on a different frame of the same clip.
+
+A tester runs from whatever checkout it is in -- no path in `testers/` names a worktree --
+and its run output goes to `runs-<checkout>/` beside the tree.
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.

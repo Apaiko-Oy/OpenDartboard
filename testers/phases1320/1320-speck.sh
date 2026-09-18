@@ -94,10 +94,33 @@ if [ "$SPREAD" -ge 2 ]; then say "OK   the two rigs do not agree on the ratio, a
 else say "FAIL only one ratio was measured, so the band is fitted to one rig" no; fi
 
 echo "=== 4. the speck is refused by name, and nothing is calibrated from it ==="
-grep -E 'REFUSED on size' /run1320/off.txt | grep -E 'radius=8\.9' || true
-if grep -qE 'radius=8\.9, circ=0\.8[0-9], centre=\(700,37[89]\).*REFUSED on size: it is 8\.9 px across the radius, 0\.03[0-9]+ of the board radius' /run1320/off.txt; then
-  say "OK   the speck is refused, on size, naming its radius against the board's" ok
+# What is pinned here is where the disc was PAINTED -- 700,380 is an argument to
+# i1320_speck_footage twenty lines up, not a measurement -- and a window of ten pixels
+# around it, because a centroid of an antialiased disc is not an integer. Everything else
+# about the speck is read out of the run.
+#
+# #1335: its radius was pinned at 8.9 px and its centroid at y=378 or 379 until two runs
+# of this tester on ONE commit measured 250 px at (700,379) and 244 px at (700,380). The
+# difference is which frame of the clip calibration lands on -- a binary built with
+# DEBUG_SEEK_VIDEO starts three seconds in and one built without it starts at the head --
+# and a tenth of a pixel of radius is six pixels of area on a disc this small. The frame
+# is not the subject of this issue; that a small very round thing off the middle of the
+# board is refused on size is. So the size and the centroid are read, and what is
+# asserted is the refusal, its roundness, and the band it is refused against.
+SPECK=$(grep -E 'Contour [0-9]+: .*centre=\((69[0-9]|70[0-9]),(37[0-9]|38[0-9])\)' /run1320/off.txt | head -1)
+echo "${SPECK:-no contour was reported where the disc was painted}"
+if [ -n "$SPECK" ]; then say "OK   the speck reached bull detection, where the disc was painted" ok
+else say "FAIL nothing was reported within ten pixels of (700,380), so this run measured no speck" no; fi
+if [ -n "$SPECK" ] && echo "$SPECK" | grep -qE 'circ=0\.[89][0-9]' && echo "$SPECK" | grep -q 'REFUSED on size'; then
+  say "OK   the speck is round enough to have won on circularity, and is refused on size" ok
 else say "FAIL the speck was not refused on size" no; fi
+# ... and the number it was refused on is below the band the same sentence prints, so a
+# refusal cannot be reported against a radius that is inside the band.
+if [ -n "$SPECK" ] && echo "$SPECK" \
+  | sed 's/.*it is \([0-9.]*\) px across the radius.*board is \([0-9.]*\) to \([0-9.]*\) px.*/\1 \2 \3/' \
+  | awk 'NF == 3 && $1 < $2 { found = 1 } END { exit found ? 0 : 1 }'; then
+  say "OK   the radius it was refused on is below the band printed beside it" ok
+else say "FAIL the speck's radius is not below the band it was refused against" no; fi
 grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1320/off.txt | head -1 || true
 if grep -qE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera [0-9]+ did not calibrate: the bull could not be found.*[0-9]+ were refused' /run1320/off.txt; then
   say "OK   one ERROR naming the camera, the stage and what it counted" ok

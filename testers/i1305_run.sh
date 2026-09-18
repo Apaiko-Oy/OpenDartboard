@@ -19,9 +19,10 @@
 #
 #   testers/i1305_run.sh [worktree]
 set -u
-TREE="${1:-/home/mikko/opendartboard/i1305}"
-OUT=/home/mikko/opendartboard/runs1305
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+TREE="${1:-$OD_TREE_ROOT}"
+OUT="$OD_RUNS_BASE/1305"
 mkdir -p "$OUT"
-docker run --rm --name od-i1305-run --cpus=2 --network none -e HOME=/root \
-  -v "$TREE":/app -v "$OUT":/out -w /app od-amd64:bullseye bash /app/testers/i1305_inside.sh
+docker run --rm --name "$(od_name "i1305-run")" --cpus=2 --network none -e HOME=/root \
+  -v "$TREE":/app -v "$OUT":/out -w /app "$OD_IMAGE" bash /app/testers/i1305_inside.sh
 echo "RUN_RC=$?"
