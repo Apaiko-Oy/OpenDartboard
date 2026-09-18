@@ -67,6 +67,18 @@ namespace board_look
         // Ray tracing already refuses to fit an ellipse through fewer than 50 rays
         // (EllipseParams::minValidRays), so this is that floor said again where the
         // decision is made, not a second, looser one.
+        //
+        // AND THEREFORE, TODAY, IT CANNOT FIRE, and it is left in deliberately and said
+        // out loud here rather than left for somebody to discover. `validOuterPoints` is
+        // only written inside the `>= minValidRays` branch of processEllipse, and
+        // `hasValidDoubles` is only set true inside that same branch, so a camera whose
+        // ring was traced always has at least 50 of them: `traced_doubles &&
+        // outer_points < 50` is unreachable while the two numbers are equal. That is
+        // #1317's class of guard exactly, and 74be46f names one of its own the same way.
+        // It is kept because this is where the floor belongs and where it would be
+        // raised -- a board camera at 96 to 110 points has room for a stricter number
+        // than the ellipse fitter's own minimum -- and raising it here is the one edit
+        // that makes it bite.
         int min_outer_points = 50;
     };
 
