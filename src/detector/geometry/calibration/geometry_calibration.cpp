@@ -60,8 +60,31 @@ namespace geometry_calibration
 
         // [===STEP 4:===] BULL dectection using the new bull processing module
         bull_processing::BullParams bullParams;
-        Point bullCenter = bull_processing::processBull(redGreenFrame, frameCenter, cameraIdx, debugMode, bullParams);
+        bull_processing::BullSighting bull = bull_processing::processBull(redGreenFrame, frameCenter, cameraIdx, debugMode, bullParams);
+        const Point bullCenter = bull.center;
         calibration.bullCenter = bullCenter;
+
+        // #1320: a centre nothing can vouch for is not a centre to calibrate from. Every
+        // stage below this one takes the bull as given -- the doubles mask is built
+        // around it and the rays are traced out of it -- so a wrong centre does not fail
+        // here. It fails 300 pixels away, as a boundary-point count that nearly worked.
+        // The camera fails here instead, at the level and in the shape #1321 established.
+        if (!bull.found)
+        {
+            log_error("Camera " + log_string(cameraIdx + 1) +
+                      " did not calibrate: the bull could not be found, so there is no centre to "
+                      "build the doubles mask around or to trace the rays from -- " +
+                      bull.failure + ".");
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+                                     " did not calibrate: the bull could not be found -- " + bull.failure);
+            return calibration; // ellipses.hasValidDoubles stays false, so the board fails
+        }
+
+        // What the winner was chosen on, where a reader sees it without --debug and
+        // without opening a debug image. #1320's speck won on circularity alone, and the
+        // only place that was ever written down was a JPEG nobody opens until afterwards.
+        log_info("Camera " + log_string(cameraIdx + 1) + " bull at (" + log_string(bullCenter.x) + "," +
+                 log_string(bullCenter.y) + "), chosen on " + log_string_src(bull.basis));
 
         // [===STEP 5:===] Create binary mask for contour processing
         mask_processing::MaskParams maskParams;
