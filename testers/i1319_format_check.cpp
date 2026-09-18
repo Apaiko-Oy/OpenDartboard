@@ -149,6 +149,98 @@ int main()
             "a camera outside the figure is named as being outside it");
     }
 
+    std::printf("=== 7. the rate is the lever, so the rate is negotiated and not just set ===\n");
+    {
+        // The rig's two modes, as MSMF's own chooser sees them: it ranks by nearest
+        // resolution, then largest, then NEAREST FRAME RATE, and never looks at the
+        // subtype at all (cap_msmf.cpp VideoIsBetterThan, 4.14.0 line 318). Both modes
+        // here are 1280x720, so the rate alone decides which one the camera is put in.
+        // Asking for 15 therefore picks the 10 fps yuyv422 mode by five frames a
+        // second, which is this whole issue in one line of arithmetic.
+        const double modes[] = {30.0, 10.0}; // mjpeg @30, yuyv422 @10
+        int asks = 0;
+        auto rig = [&](double want) -> double
+        {
+            asks++;
+            double best = modes[0];
+            for (double mode : modes)
+            {
+                const double a = mode > want ? mode - want : want - mode;
+                const double b = best > want ? best - want : want - best;
+                if (a < b)
+                    best = mode;
+            }
+            return best;
+        };
+
+        say(rig(15) == 10.0, "the model reproduces the defect: 15 asked, 10 granted");
+        say(rig(30) == 30.0, "and 30 asked gets 30");
+
+        asks = 0;
+        const RateOutcome out = negotiateRate(rig, 15);
+        say(out.first_granted == 10.0, "the first request is still the one the caller made");
+        say(out.asked_again == 30.0, "the shortfall is escalated, to 30");
+        say(out.granted == 30.0, "and the camera ends on the fast mode");
+        say(asks > 1, "which took more than one ask (" + std::to_string(asks) + ")");
+
+        const Finding spoke = negotiationFinding(2, out);
+        std::printf("     %s\n", spoke.text.c_str());
+        say(spoke.said && spoke.severity == Severity::Info, "a negotiation that worked is said, at INFO");
+        say(contains(spoke.text, "10 fps") && contains(spoke.text, "15") && contains(spoke.text, "30"),
+            "all three figures are in the line: what was asked, what was given, what it ended on");
+
+        // A camera already giving what it was asked for must be asked ONCE. This is
+        // every V4L2 device, where CAP_PROP_FOURCC really is the negotiation and
+        // already works, and their behaviour must not move.
+        asks = 0;
+        const RateOutcome content = negotiateRate(rig, 30);
+        say(asks == 1, "a camera that grants the request is asked exactly once");
+        say(content.asked_again == 0.0, "nothing is escalated");
+        say(!negotiationFinding(1, content).said, "and nothing is said about it");
+
+        // A camera with no faster mode is a different outcome: the rate is the
+        // camera's, not the request's, and no ladder can change that.
+        auto slow = [&](double want) -> double
+        {
+            (void)want;
+            return 10.0;
+        };
+        const RateOutcome stuck = negotiateRate(slow, 15);
+        say(stuck.granted == 10.0, "it stays at 10");
+        say(stuck.asked_again == 0.0, "no rung improved on it, so none is claimed");
+        say(!negotiationFinding(3, stuck).said, "and the escalation says nothing it cannot support");
+
+        // The ladder never asks for a rate at or below the one that already failed:
+        // a rung below the request would re-select the slow mode it is getting off.
+        say(rateLadder(15).size() == 2, "15 has two rungs above it");
+        say(rateLadder(30).size() == 1, "30 has one");
+        say(rateLadder(60).empty(), "60 has none, and is not asked again pointlessly");
+
+        // #1319: a device that ends up FASTER than it was asked for must not be
+        // accused of having been given a slower mode. That sentence was true of every
+        // device mismatch before the negotiation existed and is false of this one.
+        const Finding faster = rateFinding(2, 30, 15, true);
+        std::printf("     %s\n", faster.text.c_str());
+        say(faster.said && faster.severity == Severity::Info, "faster than asked is INFO, not a warning");
+        say(contains(faster.text, "faster mode"), "and the line says faster");
+        say(!contains(faster.text, "slower mode"), "it does not say slower about a faster camera");
+    }
+
+    std::printf("=== 8. a refused MJPG request is said by name ===\n");
+    {
+        // MSMF answers false to set(CAP_PROP_FOURCC, MJPG) -- configureVideoOutput's
+        // conversion switch accepts BGR3/RGB3/GREY/YUYV and returns false to everything
+        // else (4.14.0 line 1153). The refusal is the first acceptance criterion of this
+        // issue: the reason MJPG could not be asked for is reported by name.
+        const Finding refused = fourccRequestFinding(1, false, "MSMF");
+        std::printf("     %s\n", refused.text.c_str());
+        say(refused.said && refused.severity == Severity::Warning, "a refusal is a warning");
+        say(contains(refused.text, "MSMF"), "the backend that refused is named");
+        say(contains(refused.text, "refused CAP_PROP_FOURCC"), "the property that was refused is named");
+        say(!fourccRequestFinding(1, true, "V4L2").said,
+            "a backend that took the request says nothing, because there it IS the negotiation");
+    }
+
     std::printf("\n%s (%d failed)\n", failures ? "FAILED" : "PASSED", failures);
     return failures ? 1 : 0;
 }

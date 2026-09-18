@@ -173,13 +173,46 @@ namespace camera
                     // 1280x720 cameras do not fit on one bus uncompressed, so a silent
                     // fall back to YUY2 is the bandwidth failure arriving disguised as a
                     // timing one.
+                    //
+                    // #1319: the FOURCC request is KEPT, and it is kept because of V4L2
+                    // rather than because of MSMF. On V4L2 this really is the negotiation
+                    // — it becomes a VIDIOC_S_FMT with V4L2_PIX_FMT_MJPEG and it already
+                    // works, which is why the Linux board has never had this bug. On MSMF
+                    // it is refused (the property means the conversion target there; the
+                    // reading of OpenCV's own source is in capture.hpp), so the return
+                    // value is kept and the refusal is said by name below.
                     int fourcc = cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
-                    cap.set(cv::CAP_PROP_FOURCC, fourcc);
+                    const bool fourcc_accepted = cap.set(cv::CAP_PROP_FOURCC, fourcc);
                     cap.set(cv::CAP_PROP_FRAME_WIDTH, width);
                     cap.set(cv::CAP_PROP_FRAME_HEIGHT, height);
-                    cap.set(cv::CAP_PROP_FPS, fps);
+
+                    // #1319: the rate is negotiated rather than set once, because on
+                    // MSMF the rate IS the format request — its mode chooser scores
+                    // nearest-frame-rate and never looks at the subtype, so asking for
+                    // 15 on a module whose modes are `mjpeg @30` and `yuyv422 @10`
+                    // picks the uncompressed one by five frames a second. The escalation
+                    // fires only when the first request was answered with something
+                    // slower, so a camera that is already giving what it was asked for —
+                    // every V4L2 device, and any MSMF device whose mode list holds the
+                    // requested rate — is asked once and left alone.
+                    //
+                    // CAP_PROP_CONVERT_RGB is deliberately NOT touched. Turning it off
+                    // does make CAP_PROP_FOURCC settable on MSMF, but it also stops
+                    // OpenCV decoding at all: read() would hand back the raw MJPEG
+                    // bitstream as a 1-D Mat and every caller above this seam expects
+                    // BGR. That is a different change and a much larger one.
+                    const RateOutcome rate = negotiateRate(
+                        [&cap](double ask) -> double
+                        {
+                            cap.set(cv::CAP_PROP_FPS, ask);
+                            return cap.get(cv::CAP_PROP_FPS);
+                        },
+                        static_cast<double>(fps));
 
                     clock = deviceClock();
+
+                    sayFinding(fourccRequestFinding((int)(i + 1), fourcc_accepted, deviceBackendName()));
+                    sayFinding(negotiationFinding((int)(i + 1), rate));
 
                     log_debug("Opened camera " + log_string(i + 1) + " at " + log_string(width) + "x" + log_string(height) + " @ " + log_string(fps) + " FPS" +
                               " (requested FOURCC: " + log_string_src(decodeFourCC(fourcc)) + ", backend: " + log_string_src((std::string)deviceBackendName()) + ")");

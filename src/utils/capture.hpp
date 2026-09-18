@@ -2,6 +2,7 @@
 
 #include "frame.hpp"
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -222,10 +223,18 @@ namespace camera
         finding.said = true;
         if (is_device)
         {
-            finding.severity = Severity::Warning;
+            // #1319: a device can now end up FASTER than it was asked for, because
+            // negotiateRate() below deliberately asks for a faster mode when the first
+            // request is met with a slower one. The sentence that used to be printed
+            // here -- "granted a slower mode than the one asked for" -- would then be
+            // a false statement about a camera that is doing better than asked, which
+            // is exactly the kind of line this issue exists to stop printing.
+            const bool slower = granted < requested;
+            finding.severity = slower ? Severity::Warning : Severity::Info;
             finding.text = "Camera " + std::to_string(number) + " is running at " + wholeNumber(granted) +
-                           " fps where " + wholeNumber(requested) +
-                           " were requested — the backend granted a slower mode than the one asked for";
+                           " fps where " + wholeNumber(requested) + " were requested — the backend granted a " +
+                           (slower ? std::string("slower") : std::string("faster")) +
+                           " mode than the one asked for";
         }
         else
         {
@@ -234,6 +243,164 @@ namespace camera
                            " fps where --fps says " + wholeNumber(requested) +
                            " — a file has the rate it was recorded at, so the request paces nothing here";
         }
+        return finding;
+    }
+
+    // ---- #1319: the frame rate is the only lever MSMF gives over the wire format ----
+    //
+    // Read out of OpenCV 4.14.0's own source, which is the version .github/workflows/
+    // release.yml builds this binary against (modules/videoio/src/cap_msmf.cpp; line
+    // numbers are that tag's):
+    //
+    //   * `setProperty(CAP_PROP_FOURCC, v)` is one line -- `return
+    //     configureVideoOutput(newFormat, (int)cvRound(value))` (2332) -- and
+    //     configureVideoOutput's conversion switch (1153) accepts BGR3, RGB3, GREY and
+    //     YUYV and answers `default: return false` to everything else. MJPG is
+    //     everything else. So `cap.set(CAP_PROP_FOURCC, MJPG)` on MSMF is a no-op that
+    //     returns false: it cannot ever have asked a camera for a compressed mode, in
+    //     any order, before or after width and height.
+    //
+    //   * `getProperty(CAP_PROP_FOURCC)` is `captureVideoFormat.subType.Data1` (2172),
+    //     and `captureVideoFormat` is assigned in initStream() (943) from the format
+    //     the source reader was last set to -- which, with CAP_PROP_CONVERT_RGB on, is
+    //     OpenCV's own RGB32/RGB24 conversion target rather than anything the camera
+    //     transmits. MFVideoFormat_RGB32's Data1 is 22, which is the `0x00000016` the
+    //     rig's log prints. The read-back is structurally incapable of naming the wire
+    //     format, so no amount of reporting can verify this negotiation.
+    //
+    //   * What actually decides the camera's mode is findBestVideoFormat() (652),
+    //     ranking every native mode with VideoIsBetterThan() (318): nearest resolution,
+    //     then largest, then NEAREST FRAME RATE. The subtype is never scored at all.
+    //
+    // That last line is the whole of this issue. On a module offering
+    // `mjpeg 1280x720@30` and `yuyv422 1280x720@10`, a request for 15 fps picks YUY2,
+    // because |10-15| is 5 and |30-15| is 15 -- and `--fps` defaults to 15. The
+    // detector asked for a rate nearer the uncompressed mode's and was given it,
+    // faithfully.
+    //
+    // So the rate is the lever. Three 1280x720 cameras cannot carry 30 fps uncompressed
+    // on one USB 2.0 bus, so a camera that is nevertheless giving 30 fps at 720p is
+    // compressing: on this backend, asking for the faster mode IS asking for MJPG,
+    // said in the one property its mode chooser reads.
+
+    // The rates to ask for, in order, when the first request was met with a slower
+    // mode. Deliberately short and deliberately not the camera's own mode list -- the
+    // mode list is exactly what OpenCV does not expose. 30 and 60 are where UVC modules
+    // put their compressed modes; a rung at or below the request would re-select the
+    // slow mode it is trying to get off.
+    inline std::vector<double> rateLadder(double requested)
+    {
+        std::vector<double> ladder;
+        const double rungs[] = {30.0, 60.0};
+        for (double rung : rungs)
+        {
+            if (rung > requested + 1.0)
+                ladder.push_back(rung);
+        }
+        return ladder;
+    }
+
+    // What a negotiation did, as a value, so every branch can be exercised with no
+    // camera in the box.
+    struct RateOutcome
+    {
+        double requested = 0.0;     // what the caller asked for (--fps)
+        double first_granted = 0.0; // what the backend gave for that request
+        double asked_again = 0.0;   // the faster rate we then asked for; 0 if we did not
+        double granted = 0.0;       // what the camera is finally running at
+    };
+
+    // A camera that can be asked for a rate and answers with the rate it granted. The
+    // OpenCV caller sets CAP_PROP_FPS and reads it back; a test hands in a table of
+    // modes. Nothing in this header knows what a cv::VideoCapture is.
+    typedef std::function<double(double)> RateAsk;
+
+    inline RateOutcome negotiateRate(const RateAsk &ask, double requested)
+    {
+        RateOutcome outcome;
+        outcome.requested = requested;
+        outcome.first_granted = ask(requested);
+        outcome.granted = outcome.first_granted;
+
+        // The camera gave what it was asked for, so there is nothing to escalate and
+        // nothing is escalated. This is every V4L2 device -- where CAP_PROP_FOURCC
+        // really does select the wire format and already works -- and every camera
+        // whose mode list holds the requested rate. Their behaviour must not move, and
+        // the guard rather than a platform #ifdef is what keeps it still: the escalation
+        // fires on the observed shortfall, not on an operating system.
+        if (rateWasGranted(outcome.first_granted, requested))
+            return outcome;
+
+        double best_ask = requested;
+        for (double faster : rateLadder(requested))
+        {
+            const double granted = ask(faster);
+            if (granted > outcome.granted + 1.0)
+            {
+                best_ask = faster;
+                outcome.granted = granted;
+            }
+        }
+
+        // End on the request that produced the best mode, whatever the ladder asked
+        // after it. A rung that made things worse must not be the mode the camera is
+        // left in, and on MSMF the only way to put a mode back is to ask for it again:
+        // each set() re-reads the whole native mode list and re-runs the ranking.
+        outcome.granted = ask(best_ask);
+        outcome.asked_again = (best_ask > requested) ? best_ask : 0.0;
+        return outcome;
+    }
+
+    // What the escalation did, said once per camera. Silent when nothing was escalated,
+    // because rateFinding() above already says everything there is to say about a
+    // camera that was given what it asked for.
+    inline Finding negotiationFinding(int number, const RateOutcome &outcome)
+    {
+        Finding finding;
+        if (outcome.asked_again <= 0.0)
+            return finding; // said == false
+
+        finding.said = true;
+        const std::string where = "Camera " + std::to_string(number);
+        const std::string opening = where + " was granted " + wholeNumber(outcome.first_granted) +
+                                    " fps for the " + wholeNumber(outcome.requested) +
+                                    " that were requested, so it was asked again for " +
+                                    wholeNumber(outcome.asked_again);
+
+        if (outcome.granted > outcome.first_granted + 1.0)
+        {
+            finding.severity = Severity::Info;
+            finding.text = opening + " and is now running at " + wholeNumber(outcome.granted) +
+                           " fps. The rate is the only thing this backend scores when it chooses a mode, and a "
+                           "camera's compressed mode is its fast one, so this is how MJPG is asked for here";
+            return finding;
+        }
+
+        finding.severity = Severity::Warning;
+        finding.text = opening + " and that changed nothing: it is still at " + wholeNumber(outcome.granted) +
+                       " fps, so this is the fastest mode the camera has and no compressed one can be "
+                       "negotiated through the frame rate";
+        return finding;
+    }
+
+    // What the backend did with the MJPG request itself. cv::VideoCapture::set() answers
+    // false when the backend refused it, and on MSMF it always does, for the reason in
+    // the block above. Said so that a reader of the log is told the request failed BY
+    // NAME -- the first acceptance criterion of #1319 -- rather than left to infer it
+    // from a format read-back that cannot name a wire format either.
+    inline Finding fourccRequestFinding(int number, bool accepted, const std::string &backend)
+    {
+        Finding finding;
+        if (accepted)
+            return finding; // said == false: V4L2 takes it, and there it is the negotiation
+
+        finding.said = true;
+        finding.severity = Severity::Warning;
+        finding.text = "Camera " + std::to_string(number) + ": the " + backend +
+                       " backend refused CAP_PROP_FOURCC outright, so MJPG cannot be asked for by name here. "
+                       "On this backend that property names the format OpenCV converts INTO, not the one the "
+                       "camera transmits, and the frame rate is the only thing its mode chooser scores — so the "
+                       "rate is what asks for a compressed mode";
         return finding;
     }
 

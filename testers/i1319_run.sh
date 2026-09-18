@@ -7,13 +7,19 @@
 # Three things happen.
 #
 #   1. testers/i1319_format_check.cpp is built and run. It asks every branch of
-#      readFourCC(), formatFinding(), rateFinding() and busFinding() directly.
+#      readFourCC(), formatFinding(), rateFinding(), busFinding(), and -- since the
+#      negotiation half landed -- rateLadder(), negotiateRate(), negotiationFinding()
+#      and fourccRequestFinding() directly. The negotiation is asked against a model of
+#      the rig's own two modes rather than a camera: MSMF picks a mode by nearest frame
+#      rate and never scores the subtype, so two rates and a request are the whole of
+#      the arithmetic this issue turned on.
 #
-#   2. The two mutations that falsify it. A check nothing can fail is not evidence, so
+#   2. The three mutations that falsify it. A check nothing can fail is not evidence, so
 #      the no-format branch is made unreachable and the empty-name sentence is shown
-#      coming back, and the rate comparison is made to compare a value against itself
-#      and shown never firing. They are applied to a COPY of src/utils, never to the
-#      worktree.
+#      coming back, the rate comparison is made to compare a value against itself and
+#      shown never firing, and the rate escalation is taken out and the model camera
+#      shown staying on the ten frames a second this issue is about. They are applied to
+#      a COPY of src/utils, never to the worktree.
 #
 #   3. The end-to-end drive and its control. The fps finding is exercised through the
 #      real capture path by a file source whose rate is known -- mocks/rig-20260918 is
