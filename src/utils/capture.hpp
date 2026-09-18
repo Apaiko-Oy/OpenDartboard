@@ -2,7 +2,6 @@
 
 #include "frame.hpp"
 #include <cstdio>
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -223,12 +222,13 @@ namespace camera
         finding.said = true;
         if (is_device)
         {
-            // #1319: a device can now end up FASTER than it was asked for, because
-            // negotiateRate() below deliberately asks for a faster mode when the first
-            // request is met with a slower one. The sentence that used to be printed
-            // here -- "granted a slower mode than the one asked for" -- would then be
-            // a false statement about a camera that is doing better than asked, which
-            // is exactly the kind of line this issue exists to stop printing.
+            // #1319: `requested` here is the rate the DEVICE was asked for, which
+            // captureRateRequest() below may have raised above the operator's --fps, so
+            // a camera can now answer on either side of it. The sentence that used to
+            // be printed here -- "granted a slower mode than the one asked for" -- was
+            // true of every device mismatch that could happen before today and would be
+            // a false statement about a camera doing better than asked, which is
+            // exactly the kind of line this issue exists to stop printing.
             const bool slower = granted < requested;
             finding.severity = slower ? Severity::Warning : Severity::Info;
             finding.text = "Camera " + std::to_string(number) + " is running at " + wholeNumber(granted) +
@@ -278,108 +278,70 @@ namespace camera
     // detector asked for a rate nearer the uncompressed mode's and was given it,
     // faithfully.
     //
-    // So the rate is the lever. Three 1280x720 cameras cannot carry 30 fps uncompressed
-    // on one USB 2.0 bus, so a camera that is nevertheless giving 30 fps at 720p is
-    // compressing: on this backend, asking for the faster mode IS asking for MJPG,
-    // said in the one property its mode chooser reads.
+    // So the rate is the lever, and it is pulled ONCE, at open, before the camera has
+    // ever been in the slow mode.
+    //
+    // ---- why once, and not by re-asking: measured on the rig, 2026-09-18 ----
+    //
+    // The first shape of this fix asked for --fps, read back the shortfall, and then
+    // re-asked for a faster rate on the already-opened capture. It negotiated 30 fps
+    // correctly on cameras 1 and 2 and then HUNG the board on camera 3, twice, killed
+    // at 140s and at 300s, never reaching calibration. The same build given `--fps 30`
+    // -- one set() of 30 at open and no re-ask -- works on all three.
+    //
+    // Why the re-ask is the half that hangs, from the same source: every
+    // set(CAP_PROP_FPS) runs configureVideoOutput, which re-reads the whole native
+    // format list off the live source and then calls initStream TWICE -- once for the
+    // native type and once for the conversion type -- and each initStream is a
+    // SetStreamSelection plus a SetCurrentMediaType (951) on a source reader already
+    // bound to the device. For a UVC camera that is a renegotiation of the isochronous
+    // bandwidth reservation on the USB bus. The re-ask did four of those on camera 3 --
+    // eight SetCurrentMediaType calls -- while cameras 1 and 2 already held MJPG
+    // reservations on the same controller, and the FIRST of them put camera 3
+    // transiently into 1280x720 uncompressed, an 18.4 MB/s claim against a bus that has
+    // about 35 and had already given most of it away.
+    //
+    // Whether it blocks in the driver's bandwidth arbitration is a hypothesis, and not
+    // one this box can settle. What is measured is narrower and is enough: asking once
+    // at open works on this hardware and re-asking after open does not. So the rate the
+    // DEVICE is asked for is decided before the open, and the camera is never put into
+    // the mode this issue is about, not even for an instant.
 
-    // The rates to ask for, in order, when the first request was met with a slower
-    // mode. Deliberately short and deliberately not the camera's own mode list -- the
-    // mode list is exactly what OpenCV does not expose. 30 and 60 are where UVC modules
-    // put their compressed modes; a rung at or below the request would re-select the
-    // slow mode it is trying to get off.
-    inline std::vector<double> rateLadder(double requested)
+    // The rate a DEVICE is asked for, which is deliberately NOT the rate the operator
+    // asked for. `--fps` says how fast the detector should see; on MSMF the same number
+    // also, accidentally, chooses whether the camera compresses -- and those are two
+    // different questions that had been answered with one number. The floor separates
+    // them: it is what the mode chooser is handed, and it is high enough to score a
+    // compressed mode nearer than an uncompressed one on every UVC module of this
+    // class, because an uncompressed mode is slow precisely because it is uncompressed.
+    //
+    // A floor of 0 means no floor, and the operator's number goes through untouched.
+    // That is the V4L2 case, where CAP_PROP_FOURCC really is the negotiation and has
+    // always worked, and where raising the request would move a platform that has never
+    // had this bug.
+    inline double captureRateRequest(double operator_fps, double floor_rate)
     {
-        std::vector<double> ladder;
-        const double rungs[] = {30.0, 60.0};
-        for (double rung : rungs)
-        {
-            if (rung > requested + 1.0)
-                ladder.push_back(rung);
-        }
-        return ladder;
+        return (floor_rate > operator_fps) ? floor_rate : operator_fps;
     }
 
-    // What a negotiation did, as a value, so every branch can be exercised with no
-    // camera in the box.
-    struct RateOutcome
-    {
-        double requested = 0.0;     // what the caller asked for (--fps)
-        double first_granted = 0.0; // what the backend gave for that request
-        double asked_again = 0.0;   // the faster rate we then asked for; 0 if we did not
-        double granted = 0.0;       // what the camera is finally running at
-    };
-
-    // A camera that can be asked for a rate and answers with the rate it granted. The
-    // OpenCV caller sets CAP_PROP_FPS and reads it back; a test hands in a table of
-    // modes. Nothing in this header knows what a cv::VideoCapture is.
-    typedef std::function<double(double)> RateAsk;
-
-    inline RateOutcome negotiateRate(const RateAsk &ask, double requested)
-    {
-        RateOutcome outcome;
-        outcome.requested = requested;
-        outcome.first_granted = ask(requested);
-        outcome.granted = outcome.first_granted;
-
-        // The camera gave what it was asked for, so there is nothing to escalate and
-        // nothing is escalated. This is every V4L2 device -- where CAP_PROP_FOURCC
-        // really does select the wire format and already works -- and every camera
-        // whose mode list holds the requested rate. Their behaviour must not move, and
-        // the guard rather than a platform #ifdef is what keeps it still: the escalation
-        // fires on the observed shortfall, not on an operating system.
-        if (rateWasGranted(outcome.first_granted, requested))
-            return outcome;
-
-        double best_ask = requested;
-        for (double faster : rateLadder(requested))
-        {
-            const double granted = ask(faster);
-            if (granted > outcome.granted + 1.0)
-            {
-                best_ask = faster;
-                outcome.granted = granted;
-            }
-        }
-
-        // End on the request that produced the best mode, whatever the ladder asked
-        // after it. A rung that made things worse must not be the mode the camera is
-        // left in, and on MSMF the only way to put a mode back is to ask for it again:
-        // each set() re-reads the whole native mode list and re-runs the ranking.
-        outcome.granted = ask(best_ask);
-        outcome.asked_again = (best_ask > requested) ? best_ask : 0.0;
-        return outcome;
-    }
-
-    // What the escalation did, said once per camera. Silent when nothing was escalated,
-    // because rateFinding() above already says everything there is to say about a
-    // camera that was given what it asked for.
-    inline Finding negotiationFinding(int number, const RateOutcome &outcome)
+    // Said once per camera, at INFO, when a device is being asked for a rate the
+    // operator did not type. A number in a log that nobody typed and nothing explains
+    // is the shape of defect this issue was filed about, so it explains itself.
+    inline Finding rateFloorFinding(int number, double operator_fps, double asked, const std::string &backend)
     {
         Finding finding;
-        if (outcome.asked_again <= 0.0)
-            return finding; // said == false
+        if (asked <= operator_fps)
+            return finding; // said == false: the operator's number went through untouched
 
         finding.said = true;
-        const std::string where = "Camera " + std::to_string(number);
-        const std::string opening = where + " was granted " + wholeNumber(outcome.first_granted) +
-                                    " fps for the " + wholeNumber(outcome.requested) +
-                                    " that were requested, so it was asked again for " +
-                                    wholeNumber(outcome.asked_again);
-
-        if (outcome.granted > outcome.first_granted + 1.0)
-        {
-            finding.severity = Severity::Info;
-            finding.text = opening + " and is now running at " + wholeNumber(outcome.granted) +
-                           " fps. The rate is the only thing this backend scores when it chooses a mode, and a "
-                           "camera's compressed mode is its fast one, so this is how MJPG is asked for here";
-            return finding;
-        }
-
-        finding.severity = Severity::Warning;
-        finding.text = opening + " and that changed nothing: it is still at " + wholeNumber(outcome.granted) +
-                       " fps, so this is the fastest mode the camera has and no compressed one can be "
-                       "negotiated through the frame rate";
+        finding.severity = Severity::Info;
+        finding.text = "Camera " + std::to_string(number) + " is being asked for " + wholeNumber(asked) +
+                       " fps rather than the " + wholeNumber(operator_fps) + " that --fps says, because on " +
+                       backend + " the frame rate is the only thing the mode chooser scores: it takes the mode "
+                       "whose rate is nearest the one requested and never looks at the format, so asking for " +
+                       wholeNumber(operator_fps) +
+                       " selects an uncompressed mode on a camera that has a faster compressed one. This is the "
+                       "camera's mode, not the rate the detector runs its clock at";
         return finding;
     }
 

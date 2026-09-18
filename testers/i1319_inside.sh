@@ -47,24 +47,25 @@ if [ $MRC -ne 0 ]; then say "OK   the mutation is caught: a self-comparison neve
 else say "FAIL the rate checks pass when the requested rate is not consulted" no; fi
 
 echo
-echo "=== 2c. FALSIFY: take the escalation out and set the rate once, as before ==="
-# The pre-negotiation code, restored in a copy: ask for --fps, take whatever comes.
-# On the rig's mode list that is the 10 fps yuyv422 mode, which is the defect. If
-# section 7 still passes with the escalation gone, it is not measuring the fix.
+echo "=== 2c. FALSIFY: drop the floor and hand --fps straight to the camera ==="
+# The pre-#1319 code, restored in a copy: whatever --fps says is what the device is
+# asked for. On the rig's mode list that selects the 10 fps yuyv422 mode by five frames
+# a second, which is the defect. If section 7 still passes with the floor gone, it is
+# not measuring the fix.
 rm -rf /run1319/mutant3 && cp -r /app/src/utils /run1319/mutant3
 python3 - <<'PY'
 p='/run1319/mutant3/capture.hpp'
 s=open(p).read()
-s=s.replace('        if (rateWasGranted(outcome.first_granted, requested))\n            return outcome;',
-            '        if (true) // #1319 mutation: the escalation removed, one set() and take what comes\n            return outcome;')
+s=s.replace('        return (floor_rate > operator_fps) ? floor_rate : operator_fps;',
+            '        return operator_fps; // #1319 mutation: the floor dropped, --fps goes to the camera raw')
 open(p,'w').write(s)
 PY
 g++ -std=c++17 -O1 -I /run1319/mutant3 -o /run1319/mutant3_check /app/testers/i1319_format_check.cpp $CVFLAGS || exit 1
 /run1319/mutant3_check > /run1319/mutant3.txt 2>&1
 MRC=$?
 grep -E "^FAIL" /run1319/mutant3.txt | head -6
-if [ $MRC -ne 0 ]; then say "OK   the mutation is caught: without the escalation the camera stays on 10 fps" ok
-else say "FAIL the negotiation checks pass with the escalation removed; they measure nothing" no; fi
+if [ $MRC -ne 0 ]; then say "OK   the mutation is caught: without the floor the camera is asked for 15 and lands on 10" ok
+else say "FAIL the rate-request checks pass with the floor removed; they measure nothing" no; fi
 
 echo
 echo "=== 3. the fps finding, driven through the real capture path ==="
