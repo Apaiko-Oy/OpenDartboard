@@ -8,9 +8,13 @@ set -u
 # those runs printed `Found 20 wire boundaries` and calibrated. Nine was that day's
 # framing; eighteen is the same bug.
 #
-# The clip is cut from second 6 because that is where all three cameras come up short at
-# once, which is what lets the board-level failure be asserted as well as the per-camera
-# one. It is cut, rather than the .mp4 handed to the detector directly, for two reasons:
+# The clip is cut from second 6 because that is where the cameras come up short. How MANY
+# of the three do is not a property of the fixture: it depends on the second each camera's
+# calibration lands on, and that depends on the host's clock and on whether the binary was
+# built with DEBUG_SEEK_VIDEO. On the tree #1335 measured, two of the three fall short and
+# the third finds its twenty wires, so the board-level failure is measured in 3d on a board
+# made of one refused clip rather than asserted of this one. It is cut, rather than the
+# .mp4 handed to the detector directly, for two reasons:
 # the dev build seeks a file source three seconds in, so a short clip has to start before
 # what it is meant to show; and the fixture's later half has darts and a person in it, and
 # a low wire count read off a frame with an arm across the board would prove nothing about
@@ -123,12 +127,25 @@ echo "=== 3c. every camera is accounted for, and no refused camera reaches PnP =
 # three cameras, each either seeing or refused, and a PnP fit for each one that is seeing
 # and for none that is not. That is the criterion -- a partial detection ends in a reported
 # failure naming the count, not in `PnP calibration successful` -- said as a census.
-SEEING=$(grep -oE 'CAMERAS: [0-9]+ of 3' /run1317/partial.txt | head -1 | awk '{print $2}')
+#
+# #1335: the arithmetic used to count the cameras refused ON THE WIRE COUNT against the
+# census, which assumes the wire count is the only thing that can turn a camera down. It
+# is not -- a camera whose board cannot be measured at all is refused before the wires
+# are ever counted -- and when that happened the assertion failed saying the census did
+# not add up, which was not what had gone wrong. The census names the cameras it refused,
+# so the arithmetic is done against that list and the wire-count refusal is asserted as
+# itself on the line below.
+CENSUS=$(grep -E 'CAMERAS: [0-9]+ of 3' /run1317/partial.txt | head -1)
+echo "${CENSUS:-no camera census was printed}"
+SEEING=$(echo "$CENSUS" | grep -oE 'CAMERAS: [0-9]+ of 3' | awk '{print $2}')
 SEEING=${SEEING:-x}
-grep -E 'CAMERAS: [0-9]+ of' /run1317/partial.txt | head -1 || true
-if [ "$SEEING" != "x" ] && [ $((SEEING + REFUSED)) = "3" ]; then
-  say "OK   $SEEING seeing plus $REFUSED refused on the wire count is all three cameras" ok
-else say "FAIL $SEEING seeing and $REFUSED refused does not account for three cameras" no; fi
+BLIND=$(echo "$CENSUS" | sed -n 's/.*refused: \([0-9,]*\).*/\1/p' | tr ',' '\n' | grep -c '[0-9]' || true)
+if [ "$SEEING" != "x" ] && [ $((SEEING + BLIND)) = "3" ]; then
+  say "OK   $SEEING seeing plus $BLIND refused is all three cameras" ok
+else say "FAIL $SEEING seeing and $BLIND refused does not account for three cameras" no; fi
+if [ "$REFUSED" -ge 1 ] && [ "$BLIND" -ge "$REFUSED" ]; then
+  say "OK   $REFUSED of the $BLIND cameras the census refused fell short on the wire count" ok
+else say "FAIL the census refused $BLIND cameras and $REFUSED of them on the wire count" no; fi
 PNP=$(grep -c 'PnP calibration successful' /run1317/partial_dbg.txt || true)
 SEEING_DBG=$(grep -oE 'CAMERAS: [0-9]+ of 3' /run1317/partial_dbg.txt | head -1 | awk '{print $2}')
 SEEING_DBG=${SEEING_DBG:-x}
@@ -137,18 +154,46 @@ if [ "$PNP" = "$SEEING_DBG" ]; then
 else say "FAIL $PNP PnP fits against $SEEING_DBG cameras that saw the board" no; fi
 
 echo "=== 3d. a board on which nothing calibrated says so ==="
-if [ "$SEEING" = "0" ]; then
-  if grep -q 'Initial calibration completed successfully' /run1317/partial.txt; then
+# #1335: this required all three cameras to come up short at once, which is what second 6
+# of this fixture did when #1317 was carried and does not do on this tree: camera 3 finds
+# its twenty wires and the board comes up on one camera. The header above says why that is
+# not a surprise -- how many cameras fall short depends on the second the calibration
+# lands on, and the second it lands on depends on the host's clock -- so asserting the
+# board-level failure on a three-camera board was asserting a coincidence.
+#
+# It is measured instead on a board where it cannot vary: the clip this run has just
+# refused on the wire count, given to a board that has nothing else. Which clip that is
+# is read out of the run above, never pinned, and if the run refused none there is
+# nothing to measure and this section says so rather than passing.
+SHORT=$(grep -oE 'Camera [0-9]+ did not calibrate: the wire stage found' /run1317/partial.txt \
+  | head -1 | awk '{print $2}')
+if [ -z "${SHORT:-}" ]; then
+  say "FAIL no camera was refused on its wire count above, so there is no board to measure this on" no
+else
+  echo "--- the clip camera $SHORT was refused on, alone on its own board ---"
+  /app/build/opendartboard --cams /run1317/partial_$SHORT.avi \
+    --width 1280 --height 720 > /run1317/alone.out 2> /run1317/alone.err &
+  ALONE=$!
+  sleep 25
+  kill -TERM $ALONE 2>/dev/null
+  wait $ALONE 2>/dev/null
+  echo "ALONE_RC=$?"
+  sed 's/\x1b\[[0-9;]*m//g' /run1317/alone.out > /run1317/alone.txt
+  grep -E 'CAMERAS: [0-9]+ of 1|did not calibrate' /run1317/alone.txt | head -2 || true
+  # The positive control: this board really did refuse its only camera, on the wires.
+  if grep -qE 'CAMERAS: 0 of 1' /run1317/alone.txt &&
+     grep -qE 'Camera 1 did not calibrate: the wire stage found [0-9]+ wire boundaries' /run1317/alone.txt; then
+    say "OK   the only camera on this board was refused on its wire count" ok
+  else say "FAIL this board did not refuse its only camera on the wire count, so the rest of 3d proves nothing" no; fi
+  if grep -q 'Initial calibration completed successfully' /run1317/alone.txt; then
     say "FAIL no camera saw the board and it still calibrated" no
   else say "OK   no 'Initial calibration completed successfully'" ok; fi
-  if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: the wire stage found' /run1317/partial.txt; then
+  if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: the wire stage found' /run1317/alone.txt; then
     say "OK   the vigil says which camera and that it was the wires" ok
   else
-    grep -E 'BOARD FAULTED' /run1317/partial.txt | head -2 || true
+    grep -E 'BOARD FAULTED' /run1317/alone.txt | head -2 || true
     say "FAIL BOARD FAULTED does not name the wire count" no
   fi
-else
-  say "FAIL $SEEING camera(s) still calibrated on this input, so the board-level failure was not measured" no
 fi
 
 echo "=== 4. the control still calibrates and says nothing new ==="
