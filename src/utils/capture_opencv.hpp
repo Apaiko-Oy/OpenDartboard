@@ -74,6 +74,18 @@ namespace camera
         return (v && *v) ? std::atoi(v) : fallback;
     }
 
+    // #1319: a Finding carries its own severity, because which of these is a warning
+    // IS the finding. One place turns one into a line.
+    inline void sayFinding(const Finding &finding)
+    {
+        if (!finding.said)
+            return;
+        if (finding.severity == Severity::Warning)
+            log_warning(finding.text);
+        else
+            log_info(finding.text);
+    }
+
     // The OpenCV-backed capture source. On Linux it opens devices with CAP_V4L2 and
     // negotiates MJPEG; a path that looks like a video file is opened with OpenCV's
     // default backend. A Windows implementation is a sibling of this class and nothing
@@ -90,6 +102,11 @@ namespace camera
             // the exact mistake §5.2 of the Windows study predicts.
             skew::clockKind() = clockKindName(
                 (!sources.empty() && isVideoFile(sources[0])) ? CaptureClock::StreamPosition : deviceClock());
+            // #1319: what each DEVICE ended up running, filled in as the loop opens them,
+            // so the bandwidth claim can be made once at the bottom by something that
+            // knows how many there are. A video file never enters it.
+            std::vector<OpenedCamera> opened_devices;
+
             captures_.clear();
             clocks_.clear();
             anchors_.clear();
@@ -182,19 +199,28 @@ namespace camera
                     double actual_fps = cap.get(cv::CAP_PROP_FPS);
                     double fourcc = cap.get(cv::CAP_PROP_FOURCC);
 
+                    const NegotiatedFormat negotiated = readFourCC((int)fourcc);
+
                     log_debug("Camera " + log_string(i + 1) + " verification:");
                     log_debug("  Resolution: " + log_string((int)actual_width) + "x" + log_string((int)actual_height) + " (expected: " + log_string(width) + "x" + log_string(height) + ")");
                     log_debug("  FPS: " + log_string((int)actual_fps) + " (expected: " + log_string(fps) + ")");
-                    log_debug("  FOURCC: " + log_string_src(decodeFourCC(fourcc)) + " (expected: " + log_string_src(decodeFourCC(cv::VideoWriter::fourcc('M', 'J', 'P', 'G'))) + ")");
+                    log_debug("  FOURCC: " + log_string_src(negotiated.name) + " (expected: " + log_string_src(decodeFourCC(cv::VideoWriter::fourcc('M', 'J', 'P', 'G'))) + ")");
                     log_debug("  Backend: " + log_string_src(cap.getBackendName()) + " (expected: " + log_string_src((std::string)deviceBackendName()) + ")");
 
-                    // Said at INFO, not DEBUG: a camera that did not get MJPG is the one
-                    // fact a person debugging three cameras on one USB bus has to see.
-                    const std::string got = decodeFourCC((int)fourcc);
-                    if (got != "MJPG")
-                        log_warning("Camera " + log_string(i + 1) + " negotiated " + log_string_src(got) + ", not MJPG — three cameras at this resolution may not fit on one bus");
-                    else
-                        log_info("Camera " + log_string(i + 1) + " negotiated MJPG at " + log_string((int)actual_width) + "x" + log_string((int)actual_height) + " @ " + log_string((int)actual_fps) + " fps");
+                    // Said at INFO or WARN, not DEBUG: what a camera negotiated, and
+                    // whether the rate it was given is the rate it was asked for, are
+                    // the two facts a person debugging three cameras on one USB bus has
+                    // to see. #1319: "the backend said nothing" is its own outcome and
+                    // no longer renders as a hole in the middle of the sentence.
+                    sayFinding(formatFinding((int)(i + 1), (int)fourcc, (int)actual_width, (int)actual_height, actual_fps));
+                    sayFinding(rateFinding((int)(i + 1), actual_fps, (double)fps, /*is_device*/ true));
+
+                    OpenedCamera device;
+                    device.code = (int)fourcc;
+                    device.width = (int)actual_width;
+                    device.height = (int)actual_height;
+                    device.fps = actual_fps > 0 ? actual_fps : (double)fps;
+                    opened_devices.push_back(device);
 
                     if (actual_fps > 0)
                         nominal_fps_ = actual_fps;
@@ -202,6 +228,12 @@ namespace camera
                 else if (cap.get(cv::CAP_PROP_FPS) > 0)
                 {
                     nominal_fps_ = cap.get(cv::CAP_PROP_FPS);
+
+                    // #1319: the same comparison a device gets, at INFO, because a clip
+                    // has the rate it was recorded at and --fps paces nothing here. It
+                    // is deliberately NOT the format verification above, which stays
+                    // device-only: a file has no negotiation to report.
+                    sayFinding(rateFinding((int)(i + 1), nominal_fps_, (double)fps, /*is_device*/ false));
                 }
 
                 descriptions_.push_back(sources[i] + " (" + cap.getBackendName() + ")");
@@ -211,6 +243,12 @@ namespace camera
                 anchored_.push_back(false);
                 log_info("Camera/video " + log_string(i + 1) + " initialized successfully");
             }
+
+            // #1319: said ONCE, here, because this is the first point in the program
+            // that knows how many devices were opened and what each of them is running.
+            // It used to be a clause bolted to every per-camera warning, where the
+            // number of cameras is exactly the thing that is not in scope.
+            sayFinding(busFinding(opened_devices));
 
             return !captures_.empty();
         }
