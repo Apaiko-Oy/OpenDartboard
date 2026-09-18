@@ -77,13 +77,39 @@ namespace bull_processing
         // still below it.
         //
         // #1340 note: those six ratios were measured through the disc radius that is no
-        // longer taken. All six are boards whose ring closed in THIS stage's mask -- that
-        // is what a disc radius of 247 and of 151 on those two rigs means -- and on a
-        // closed ring the two radii agree to within the eccentricity of the ellipse a
-        // board projects to: a few percent, in the direction that LOWERS the ratio and so
-        // moves it toward 0.0935. Nothing here is refitted and the band does not move.
-        // The rig whose ring does NOT close never reached a ratio to be in this table:
-        // it was refused above, which is the whole of #1340.
+        // longer taken, and #1339 has since measured what that radius really is. It fits
+        // the outer double ellipse per camera, and those ellipses enclose 183859, 173006
+        // and 175444 px on mocks/cam_*.mp4 against 197117, 200385 and 194335 px on
+        // mocks/rig-20260918 -- equivalent radii of 242, 235, 236 and 250, 253, 249 px.
+        // So, board by board:
+        //
+        //   mocks/cam_*.mp4     red/green disc 247, 242, 250   board 242, 235, 236
+        //   mocks/rig-20260918  red/green disc 151, 153, 151   board 250, 253, 249
+        //
+        // On the first rig the red/green disc IS the board, to within five percent. On
+        // the second it is 0.60 of it -- and the second rig's board is the LARGER of the
+        // two. That rig's board was never smaller in frame; it is duller, so less of it
+        // survives into the red/green mask, and the area that mask encloses measures how
+        // much of a board is brightly coloured. That is what the 4% floor was a floor on.
+        // "A minimum board size nobody chose" is generous to it: it was not measuring
+        // board size at all.
+        //
+        // It also re-reads the two ratios above. 0.100 on the first rig is the bull
+        // against its own board. 0.154 on the second is the same bull against 0.60 of a
+        // board; against the whole of one it is 0.093, which is the physical ratio this
+        // constant is, to three decimals. The two rigs never disagreed about a bull. One
+        // of them was being divided by the wrong number.
+        //
+        // What the extent really reaches is therefore checkable on the rig, and the check
+        // is the span this stage now prints beside the disc radius. If the span reads near
+        // 250 the coloured arcs reach the outer ring, the board is the board, and the
+        // ratio printed beside it falls from 0.154 toward 0.09. If it still reads 151, the
+        // colour on that rig stops short of the doubles edge, the honest board is the
+        // fitted ellipse, and that does not exist for three stages yet -- which is #1331's
+        // ordering and not this issue's to fix. The floor holds either way, and that is
+        // the point of deriving it from resolvability rather than from a board: 64.2 px
+        // passes at 108, at 151 and at 250. Nothing here is refitted, and the band between
+        // minBullRadiusFactor and maxBullRadiusFactor does not move.
         double bullRadiusOfBoardRadius = 0.0935; // Outer bull radius / doubles radius
         double minBullRadiusFactor = 0.5;        // Reject below half the ideal radius
         double maxBullRadiusFactor = 3.0;        // Reject above three times the ideal radius
