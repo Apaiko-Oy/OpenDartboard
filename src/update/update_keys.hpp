@@ -30,10 +30,21 @@
 #include <string>
 #include <vector>
 
+// The two may also be given at build time -- -DOD_UPDATE_ANCHOR_CURRENT="<128 hex>" -- which
+// is still compiled in, and is how a release workflow holding the public half as a CI
+// variable writes it without editing a source file. There is no runtime equivalent and
+// there must never be one.
+#ifndef OD_UPDATE_ANCHOR_CURRENT
+#define OD_UPDATE_ANCHOR_CURRENT ""
+#endif
+#ifndef OD_UPDATE_ANCHOR_NEXT
+#define OD_UPDATE_ANCHOR_NEXT ""
+#endif
+
 namespace update_keys
 {
-    inline const char *kCurrent = "";
-    inline const char *kNext = "";
+    inline const char *kCurrent = OD_UPDATE_ANCHOR_CURRENT;
+    inline const char *kNext = OD_UPDATE_ANCHOR_NEXT;
 
     /** Every anchor this build trusts, malformed ones left out rather than accepted. */
     inline std::vector<update_manifest::Anchor> anchors()
