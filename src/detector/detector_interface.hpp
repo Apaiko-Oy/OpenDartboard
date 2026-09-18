@@ -79,6 +79,21 @@ public:
                               "this detector cannot say whether the board moved"};
     }
 
+    /**
+     * #1338: how many cameras this detector is actually scoring with, of how many it was
+     * given, in one phrase -- "1 of 3 cameras (2 produced no frame)".
+     *
+     * The detector is the only thing that knows. Scorer used to announce the loop with
+     * `camera_sources.size()`, the number of sources it was asked to OPEN, which on the
+     * rig this issue was measured on printed `Scorer running with 3 cameras` four lines
+     * below `Initial calibration completed successfully on 1 of 3 cameras`. Two numbers,
+     * two meanings, no way for a reader to tell which one the board was scoring on.
+     *
+     * Empty means the detector has not been asked to calibrate, or cannot say; the caller
+     * falls back to counting sources and says so.
+     */
+    virtual string scoringWith() const { return ""; }
+
     // Initialize the detector. A detector is given the frames it calibrates on and the
     // rate they arrive at; it is not given the device they came from.
     virtual bool initialize(const vector<camera::Frame> &calibration_frames, double capture_fps) = 0;

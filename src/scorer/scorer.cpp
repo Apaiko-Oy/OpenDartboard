@@ -241,7 +241,14 @@ void Scorer::run()
                   "runs as they were measured, set OD_UNGUARDED_BREAK=1 and say so.");
         exit(78);
     }
-    log_info("Scorer running with " + to_string(camera_sources.size()) + " cameras");
+    // #1338: the detector's own census, not a second count of the sources this Scorer was
+    // asked to open. Those are different numbers whenever a camera fails, and printing the
+    // source count here is what put `Scorer running with 3 cameras` under `Initial
+    // calibration completed successfully on 1 of 3 cameras` in the run this was filed on.
+    const string census = detector ? detector->scoringWith() : string();
+    log_info("Scorer running with " + (census.empty()
+                                           ? to_string(camera_sources.size()) + " camera sources, census unknown"
+                                           : census));
     log_info("Using detector: " + detector_type_name);
     cout << "-------------------------------------" << endl;
 
