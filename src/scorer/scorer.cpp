@@ -22,6 +22,37 @@
 using namespace std;
 using namespace cv;
 
+// ---- #899: the three numbers the sight-loss lifecycle is spelled with. ----
+namespace
+{
+    // How long every camera has to be silent before the board calls it a sight loss
+    // rather than a dropped frame. #798's CAPDROP is the dropped-frame instrument and it
+    // fires on one cycle; this is a different observable and wants a different unit.
+    // Three seconds is a couple of dozen cycles at any frame rate this program runs at,
+    // and it is well inside #895's measured detection bound of 6.58 s, so the board has
+    // already suspended scoring before the beat that reports it.
+    constexpr long kSightLostAfterSeconds = 3;
+
+    // The wait before the second attempt. The first is immediate, because the commonest
+    // cause is a USB device that re-enumerated while the loop was reading and is already
+    // back.
+    constexpr long kFirstRetryBackoffSeconds = 2;
+
+    // And the ceiling it doubles up to. A board that has been blind all night should
+    // cost a line a minute and one open() a minute, not a hot loop against a device node
+    // that is not there. This is the whole of "does repeated failure differ from the
+    // first": it differs by how often it is tried and by a sentence that says how long
+    // it has been going on, and it does not differ by becoming terminal -- a camera that
+    // is not plugged in yet is exactly the state a retry improves.
+    constexpr long kMaxRetryBackoffSeconds = 60;
+
+    // Frames averaged for the calibration the recovery is judged on. The same 30 the
+    // constructor calibrates with, deliberately: a witness taken from fewer frames than
+    // the geometry it is being compared to would be a noisier measurement judged against
+    // a quieter one, and every bit of that noise reads as movement.
+    constexpr int kReviewFrames = 30;
+}
+
 Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> &cams, bool debug_mode, const string &detector_type,
                const ScoreSocketSettings &socket)
     : model_path(model), width(w), height(h), fps(fps), camera_sources(cams), debug_display(debug_mode), detector_type_name(detector_type)
@@ -225,6 +256,16 @@ void Scorer::run()
     // seam it is the Frame's own.
     vector<long> last_pos_ms;
 
+    // ---- #899: the board's sight, and what it takes to get it back. ----
+    // See the docblock above attemptRecovery() for the decision this is the mechanism
+    // of. The state is three numbers and one flag, all local to this loop, because the
+    // whole of it lives and dies with one run of the scoring thread.
+    auto last_sight = chrono::steady_clock::now();
+    auto next_attempt_at = last_sight;
+    bool scoring_suspended = false;
+    int recovery_attempts = 0;
+    long backoff_seconds = kFirstRetryBackoffSeconds;
+
     while (running)
     {
         // #825: the flag the signal handler set, observed here. This is the exit path
@@ -270,8 +311,17 @@ void Scorer::run()
         {
             last_pos_ms[c] = (long)frames[c].pos_ms;
         }
-        if (camera::validCount(frames) > 0)
+        const bool saw_something = camera::validCount(frames) > 0;
+
+        // #899: a camera answering again is not permission to score. While the board is
+        // suspended it reads frames and does nothing with them -- it does not process
+        // them, it does not send a result, and it does not count the cycle towards
+        // READY. The frames are read anyway because reading is how the recovery finds
+        // out the cameras are back, and because a slot that stops being read stops
+        // reporting CAPDROP for the camera that is still missing.
+        if (saw_something && !scoring_suspended)
         {
+            last_sight = chrono::steady_clock::now();
             // #892: the one observation READY rests on, taken where it is made. A cycle
             // that read no valid frame does not count, so a board whose cameras have
             // stopped answering stops earning the word within one beat -- and it says
@@ -290,6 +340,67 @@ void Scorer::run()
             }
         }
 
+        // ---- #899: sight lost, and the road back ----
+        const auto now = chrono::steady_clock::now();
+        if (!scoring_suspended && !saw_something)
+        {
+            const long blind_for = (long)chrono::duration_cast<chrono::seconds>(now - last_sight).count();
+            if (blind_for >= kSightLostAfterSeconds)
+            {
+                scoring_suspended = true;
+                recovery_attempts = 0;
+                backoff_seconds = kFirstRetryBackoffSeconds;
+                next_attempt_at = now;
+                log_error("BOARD SIGHT LOST: no camera has answered for " + to_string(blind_for) +
+                          " seconds. Scoring is suspended from here and stays suspended until the "
+                          "cameras come back AND the calibration this board holds is confirmed "
+                          "against what they can see. The beat says ERROR throughout.");
+            }
+        }
+
+        if (scoring_suspended && now >= next_attempt_at)
+        {
+            const long blind_for = (long)chrono::duration_cast<chrono::seconds>(now - last_sight).count();
+            const GeometryReview::Verdict verdict = attemptRecovery(++recovery_attempts, blind_for);
+
+            if (verdict == GeometryReview::Verdict::Unchanged)
+            {
+                scoring_suspended = false;
+                last_sight = chrono::steady_clock::now();
+            }
+            else if (verdict == GeometryReview::Verdict::Moved)
+            {
+                running = false;
+                break;
+            }
+            else
+            {
+                next_attempt_at = chrono::steady_clock::now() + chrono::seconds(backoff_seconds);
+                backoff_seconds = min(backoff_seconds * 2, (long)kMaxRetryBackoffSeconds);
+            }
+        }
+
+        if (scoring_suspended)
+        {
+            // A suspended cycle reads three cameras that answer nothing and does no work
+            // at all, so it costs about a millisecond and the loop would otherwise run at
+            // a kilohertz against a device node that is not there -- a thousand CAPDROP
+            // lines a second into a log somebody has to read afterwards. A fifth of a
+            // second is the same pace #895's vigil settled on, and is still twenty times
+            // finer than the shortest backoff.
+            this_thread::sleep_for(chrono::milliseconds(200));
+        }
+    }
+
+    // #899: a board that stopped because its geometry could not be confirmed does not
+    // return to main and exit -- that is the silence #895 spent a slice replacing. It
+    // takes the same vigil a board that never came up takes, so the pub's screen goes on
+    // being told to look at the computer and the log goes on saying which camera moved.
+    if (board_sight::faulted().load())
+    {
+        log_info("Scorer stopped");
+        runFaultVigil();
+        return;
     }
 
     log_info("Scorer stopped");
@@ -325,9 +436,15 @@ void Scorer::run()
  *    any file an earlier run left. Until #1274 the announcement was published above the
  *    Scorer, so a dark board taken to this vigil advertised a score socket that this
  *    function never opens, and a phone that found the board by it connected to nothing.
- *  - It does not retry the cameras. board_sight::faulted() is documented as the state a
- *    retry does not improve, and a supervisor restarting the process is the remedy that
- *    exists. Making the fault recoverable is a different issue from making it reportable.
+ *  - It does not retry the cameras. A supervisor restarting the process is the remedy
+ *    that exists for a board that never came up, and making that fault recoverable is a
+ *    different issue from making it reportable.
+ *    #899: still true of THIS function, and no longer true of the program. A board that
+ *    came up and then lost every camera retries where it stands, in the scoring loop, and
+ *    only arrives here when the retry has been tried and refused -- see attemptRecovery().
+ *    Why the construction-time fault was deliberately left out of that is written there
+ *    too, and the short version is #1274: whether the board is announced on the network
+ *    is decided in main before run() is called.
  *  - It does not call exit(). It leaves by the same `return` the scoring loop leaves by,
  *    so #825's exit path -- main unwound, threads joined, destructors run -- is the exit
  *    path here too, and `Scorer stopped` is logged on this route as well.
@@ -381,4 +498,137 @@ void Scorer::runFaultVigil()
     }
 
     log_info("Scorer stopped");
+}
+
+/**
+ * #899: WHAT A BOARD DOES WHEN A CAMERA STOPS ANSWERING, AND WHY IT IS THIS.
+ *
+ * #895 made a camera failure reportable and deliberately not recoverable: somebody
+ * unplugs a camera, plugs it back in, and the board goes on beating ERROR until it is
+ * restarted. Three answers were available and they are genuinely different.
+ *
+ *   NEVER RETRY. What shipped. Honest, and it costs an evening when nobody is watching
+ *   the screen.
+ *
+ *   RETRY AND RE-CALIBRATE. Recovers unattended, and it is the dangerous one. A camera
+ *   that stopped answering was very likely TOUCHED -- a reseated plug, a nudged tripod.
+ *   Calibration is a fact about where the cameras are, so a board that reopens its
+ *   cameras and goes back to scoring has resumed on geometry that may no longer be true,
+ *   and that failure is silent: the darts land in the wrong wedge and every control still
+ *   looks like darts. Replacing the geometry instead of keeping it is no better -- see
+ *   geometry_agreement.hpp -- because a calibration taken at nine in the evening is taken
+ *   with darts in the board, and nothing compares it to anything.
+ *
+ *   RETRY AND REFUSE TO SCORE UNTIL A PERSON CONFIRMS THE BOARD HAS NOT MOVED. Safe, and
+ *   it needs a screen affordance that does not exist.
+ *
+ * WHAT IS IMPLEMENTED IS THE THIRD ONE WITH THE MACHINE AS THE WITNESS. The board retries,
+ * and it refuses to score until the question "has the board moved" has been ANSWERED --
+ * but it is answered by measurement rather than by asking somebody who was not in the
+ * room. The board takes a fresh calibration, compares it to the one it has been scoring
+ * with, and throws the fresh one away: agreement is evidence that nothing was touched, so
+ * the held geometry is still true and scoring may resume on it; disagreement is evidence
+ * that something was touched and the board does not know what, so it faults for good.
+ *
+ * The machine is the better witness of the two, and that is not a convenience argument.
+ * A person at the board is asked "did anyone move anything?" and answers about what they
+ * remember. The board is asked "is camera 2's bull where it was?" and answers with a
+ * number. #1318 and #1320 are what made that answer worth having -- before them a camera
+ * that was not looking at a dartboard still produced a confident calibration, so two
+ * confident wrong geometries could have agreed with each other. A camera that can no
+ * longer see a board is now refused BY NAME rather than compared, and a bull with no
+ * trustworthy centre is refused before it is ranked, so "these two calibrations agree" is
+ * a sentence about a dartboard now instead of a sentence about two ellipse fits.
+ *
+ * THE RULE UNDERNEATH BOTH HALVES: A BOARD NEVER SCORES ON GEOMETRY IT HAS NOT JUST
+ * CONFIRMED. At start the confirmation is the calibration itself. After a sight loss it
+ * is this comparison. There is no third case in which scoring resumes.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO.
+ *
+ *  - It does not retry a board that never came up. A construction-time fault -- cameras
+ *    that would not open at start, a calibration that failed on the first frames -- still
+ *    goes straight to #895's vigil and stays there. That half is SAFER than this one,
+ *    because a board with no geometry has nothing stale to resume on, and it is left out
+ *    for a mechanical reason rather than a nervous one: #1274 decides whether the board
+ *    is announced on the network from scorer.canSee(), in main, BEFORE run() is called.
+ *    A board that recovered inside the vigil would open a score socket that main has
+ *    already decided not to announce, and re-publishing the announcement afterwards is
+ *    main's surface, not this one. It is worth doing and it is a different slice.
+ *
+ *  - It does not invent a fifth word for the beat. #892 fixed the vocabulary at four and
+ *    the server's reading of it; a board that has lost its sight and is trying to get it
+ *    back is running and blind, which is ERROR, and a board that is refusing to score
+ *    until it is confirmed is also running and blind. Saying anything warmer than ERROR
+ *    while the geometry is unconfirmed is the exact failure ADR-0055 calls the one that
+ *    must be impossible.
+ *
+ *  - It does not tell the SERVER that it recovered. It tells the log, loudly, with the
+ *    numbers. An operator who saw ERROR and now sees READY has no way from the beat alone
+ *    to tell a fixed board from a board that gave up and lied, and closing that needs a
+ *    field in the beat and a Turnaus that reads it -- another repository and another
+ *    decision.
+ */
+GeometryReview::Verdict Scorer::attemptRecovery(int attempt, long blind_seconds)
+{
+    log_warning("BOARD SIGHT RECOVERY: attempt " + to_string(attempt) + " after " +
+                to_string(blind_seconds) + " seconds blind - reopening " +
+                to_string(camera_sources.size()) + " camera(s)");
+
+    if (!capture->open(camera_sources, width, height, fps))
+    {
+        log_warning("BOARD SIGHT RECOVERY: the cameras still will not open. Scoring stays "
+                    "suspended and this will be tried again.");
+        return GeometryReview::Verdict::Unreadable;
+    }
+
+    vector<camera::Frame> review_frames = capture->readAveraged(kReviewFrames);
+    if (camera::validCount(review_frames) == 0)
+    {
+        log_warning("BOARD SIGHT RECOVERY: the cameras opened and produced no frame. Scoring "
+                    "stays suspended and this will be tried again.");
+        return GeometryReview::Verdict::Unreadable;
+    }
+
+    const GeometryReview review = detector->reviewGeometry(review_frames);
+
+    switch (review.verdict)
+    {
+    case GeometryReview::Verdict::Unchanged:
+        // The one place in this program where a board goes from not scoring to scoring
+        // without having been started. It says so in one line, with the measurement, so
+        // that a log tailed the next morning tells a board that was fixed from a board
+        // that quietly resumed.
+        log_info("BOARD RECOVERED: the cameras are back after " + to_string(blind_seconds) +
+                 " seconds and the board has not moved - " + review.account +
+                 ". Scoring resumes on the calibration this board started with; the "
+                 "calibration just taken was a witness and has been discarded.");
+        return GeometryReview::Verdict::Unchanged;
+
+    case GeometryReview::Verdict::Moved:
+        // Terminal, and terminal on purpose. Nothing a retry can do makes a moved camera
+        // un-moved, and the one thing that must not happen is this board scoring again
+        // on geometry that has been contradicted.
+        board_sight::recordFault("the cameras came back and the board is not where it was - " +
+                                 review.account);
+        board_sight::faulted() = true;
+        log_error("BOARD MOVED: " + review.account +
+                  ". The cameras answer and the geometry this board was scoring with is no "
+                  "longer true of them, so it refuses to score rather than put darts in the "
+                  "wrong wedge. Put the camera back where it was, or restart the detector so "
+                  "it calibrates on the rig as it is now.");
+        // #895's argument one layer down: a board that cannot see must not go on serving
+        // a score socket that looks alive. main's mDNS announcement is not withdrawn from
+        // here -- that is #1274's surface and it is decided before run() is called.
+        if (websocket_service_)
+        {
+            websocket_service_->stop();
+        }
+        return GeometryReview::Verdict::Moved;
+
+    default:
+        log_warning("BOARD SIGHT RECOVERY: " + review.account +
+                    ". Scoring stays suspended and this will be tried again.");
+        return GeometryReview::Verdict::Unreadable;
+    }
 }
