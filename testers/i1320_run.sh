@@ -9,12 +9,13 @@
 # The default script is the one this issue is about: a small round thing that would win
 # on circularity, the mock footage beside it as the control.
 set -u
-SCRIPT="${1:-/home/mikko/opendartboard/i1320/testers/phases1320/1320-speck.sh}"
-BASE=/home/mikko/opendartboard/runs1320
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1320/1320-speck.sh}"
+BASE="$OD_RUNS_BASE/1320"
 RUN="$BASE/speck"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name od-i1320-clean --network none -v "$BASE":/base od-amd64:bullseye \
+  docker run --rm --name "$(od_name "i1320-clean")" --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf /base/speck > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -24,10 +25,10 @@ cp "$SCRIPT" "$RUN/inside.sh"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name od-i1320-speck --cpus=2 --network none -e HOME=/root \
-  -v /home/mikko/opendartboard/i1320:/app \
+docker run --rm --name "$(od_name "i1320-speck")" --cpus=2 --network none -e HOME=/root \
+  -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1320 -v "$RUN/cfg":/root/.config \
-  -w /run1320 od-amd64:bullseye bash /run1320/inside.sh
+  -w /run1320 "$OD_IMAGE" bash /run1320/inside.sh
 RC=$?
 
 T1=$(date +%s.%N)

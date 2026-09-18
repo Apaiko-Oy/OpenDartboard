@@ -1,0 +1,6 @@
+# #1305: the fixtures are minted per run by i1305_fixtures.py, because an ECDSA signature
+# is randomised and pinning bytes would be pinning nothing. What the check asserts is the
+# relationship between these files, and that is in the generator and the check, not here.
+*.json
+*.hex
+*.pem

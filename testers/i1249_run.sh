@@ -7,12 +7,13 @@
 #
 #   testers/i1249_run.sh <container-bash-script-file>
 set -u
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 SCRIPT="$1"
-BASE=/home/mikko/opendartboard/runs1249
+BASE="$OD_RUNS_BASE/1249"
 RUN="$BASE/control"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name od-i1249-clean --network none -v "$BASE":/base od-amd64:bullseye \
+  docker run --rm --name "$(od_name "i1249-clean")" --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf /base/control > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -22,10 +23,10 @@ cp "$SCRIPT" "$RUN/inside.sh"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name od-i1249-control --cpus=2 --network none -e HOME=/root \
-  -v /home/mikko/opendartboard/i1249:/app \
+docker run --rm --name "$(od_name "i1249-control")" --cpus=2 --network none -e HOME=/root \
+  -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1249 -v "$RUN/cfg":/root/.config \
-  -w /run1249 od-amd64:bullseye bash /run1249/inside.sh
+  -w /run1249 "$OD_IMAGE" bash /run1249/inside.sh
 RC=$?
 
 T1=$(date +%s.%N)
@@ -38,3 +39,6 @@ print('%.1f' % (100.0*(tot-i-w)/tot) if tot else 'n/a')")
 WALL=$(python3 -c "print('%.1f' % ($T1-$T0))")
 
 echo "RUN=control rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
+# The harness must exit on what it measured: run_all.sh reads the exit code and
+# nothing else, and an echo returns 0 whatever it printed (#1335).
+exit $RC

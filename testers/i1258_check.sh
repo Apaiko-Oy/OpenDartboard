@@ -5,10 +5,15 @@
 #
 #   testers/i1258_check.sh [worktree]
 set -u
-TREE="${1:-/home/mikko/opendartboard/i1258}"
-docker run --rm --name od-i1258-check --network none -v "$TREE":/app -w /app od-amd64:bullseye bash -c '
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+TREE="${1:-$OD_TREE_ROOT}"
+docker run --rm --name "$(od_name "i1258-check")" --network none -v "$TREE":/app -w /app "$OD_IMAGE" bash -c '
   g++ -std=c++17 -Wall -Wextra -I src/utils -I build/_deps/nlohmann_json-src/include \
       testers/i1258_choice_check.cpp -o /tmp/i1258_check || { echo COMPILE_FAILED; exit 2; }
   /tmp/i1258_check < /dev/null
 '
-echo "CHECK_RC=$?"
+RC=$?
+echo "CHECK_RC=$RC"
+# The harness must exit on what it measured: run_all.sh reads the exit code and
+# nothing else, and an echo returns 0 whatever it printed (#1335).
+exit $RC

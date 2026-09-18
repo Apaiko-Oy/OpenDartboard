@@ -6,11 +6,16 @@
 #
 #   testers/i1276_check.sh [worktree] [case ...]
 set -u
-TREE="${1:-/home/mikko/opendartboard/i1276}"
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+TREE="${1:-$OD_TREE_ROOT}"
 shift || true
-OUT=/home/mikko/opendartboard/runs1276
+OUT="$OD_RUNS_BASE/1276"
 mkdir -p "$OUT"
-docker run --rm --name od-i1276-check --cpus=2 --network none -v "$TREE":/app -w /app \
-  -e CHECK_WORK=/tmp/i1276-check -e OD_BIN="${OD_BIN:-/app/build/opendartboard}" od-amd64:bullseye \
+docker run --rm --name "$(od_name "i1276-check")" --cpus=2 --network none -v "$TREE":/app -w /app \
+  -e CHECK_WORK=/tmp/i1276-check -e OD_BIN="${OD_BIN:-/app/build/opendartboard}" "$OD_IMAGE" \
   bash -c 'python3 /app/testers/i1276_takeout_check.py "$@"; rc=$?; mkdir -p /app/build/i1276-check; cp -r /tmp/i1276-check/. /app/build/i1276-check/ 2>/dev/null; exit $rc' _ "$@"
-echo "CHECK_RC=$?"
+RC=$?
+echo "CHECK_RC=$RC"
+# The harness must exit on what it measured: run_all.sh reads the exit code and
+# nothing else, and an echo returns 0 whatever it printed (#1335).
+exit $RC
