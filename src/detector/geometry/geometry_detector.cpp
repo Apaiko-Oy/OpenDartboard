@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
 #include <ctime>
 
 #include "geometry_detector.hpp"
@@ -91,6 +92,72 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
 }
 
 // Main initialization method
+/**
+ * #1363: the operator's orientation anchors, applied to whatever calibration this start
+ * holds -- measured fresh or read from the cache, which is why this is a function called
+ * on both paths rather than a block inside one of them, and applied AFTER the cache is
+ * written, so the file keeps pure measurement and the statement lives in configuration.
+ *
+ * OD_CAMERA_WEDGES is a comma list, one entry per camera in camera order: the wedge
+ * NUMBER at the bottom of that camera's image, read off the setup view once; 0 or blank
+ * for a camera the operator does not anchor ("9,0,3" anchors cameras 1 and 3). It
+ * exists because the clip-wire heuristic's premise is a board's four visible mounting
+ * clips, and on the maintainer's Winmau Blade 6 over a black surround the finder sees
+ * ONE clip where both classification branches demand exactly four -- so no camera could
+ * anchor, and every dart of the first live scoring run published as the asserted 20.
+ * The cameras are fixed to the rig's frame (ADR-0079), so the anchor is a fact an
+ * operator can state once and the board can hold.
+ *
+ * A measured anchor wins over a stated one, a wedge no board carries is refused by
+ * name, and a camera with no south wire to index from keeps no anchor at all.
+ */
+void GeometryDetector::applyConfiguredAnchors()
+{
+    const char *env = getenv("OD_CAMERA_WEDGES");
+    if (!env || !*env)
+    {
+        return;
+    }
+    const string spec(env);
+    for (size_t i = 0; i < calibrations.size(); i++)
+    {
+        const int wedge = orientation_processing::configuredSouthWedge(spec, (int)i);
+        if (wedge == 0)
+        {
+            continue;
+        }
+        if (wedge < 0)
+        {
+            log_error("ORIENTATION: the OD_CAMERA_WEDGES entry for camera " + to_string(i + 1) +
+                      " is not a number a dartboard carries; that camera stays unanchored");
+            continue;
+        }
+        DartboardCalibration &calibration = calibrations[i];
+        if (calibration.orientation.anchored)
+        {
+            log_info("ORIENTATION: camera " + to_string(i + 1) + " is already anchored by its own "
+                     "measurement; the configured wedge " + to_string(wedge) + " is not applied");
+            continue;
+        }
+        const int wires = (int)calibration.wires.wireEndpoints.size();
+        const int index = orientation_processing::wedge20WireFromSouthWedge(
+            calibration.orientation.southWireIndex, wedge, wires);
+        if (index < 0)
+        {
+            log_warning("ORIENTATION: camera " + to_string(i + 1) + " has no south wire to anchor "
+                        "the configured wedge " + to_string(wedge) + " against");
+            continue;
+        }
+        calibration.orientation.wedge20WireIndex = index;
+        calibration.orientation.wedgeNumber = wedge;
+        calibration.orientation.cameraPosition = orientation_processing::CameraPosition::CONFIGURED;
+        calibration.orientation.anchored = true;
+        log_info("ORIENTATION: camera " + to_string(i + 1) + " anchored by configuration: wedge " +
+                 to_string(wedge) + " at its image south, so the 20 is wire index " + to_string(index) +
+                 " of " + to_string(wires));
+    }
+}
+
 bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frames, double capture_fps)
 {
 #ifdef DEBUG_VIA_VIDEO_INPUT
@@ -137,6 +204,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
 
         // Load background frames
         background_frames = cache::geometry::loadBackgroundFrames();
+
+        // #1363: the operator's anchors apply to a cached calibration exactly as to a
+        // fresh one -- the cache holds measurement, the statement lives in configuration.
+        applyConfiguredAnchors();
 
         // set initialized and calibrated
         initialized = true;
@@ -271,6 +342,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             {
                 log_debug("Saved background frames");
             }
+
+            // #1363: after the save, so the cache keeps pure measurement and every
+            // start re-applies the operator's statement from configuration.
+            applyConfiguredAnchors();
 
             initialized = true;
             calibrated = true;

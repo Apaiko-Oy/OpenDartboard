@@ -32,6 +32,10 @@ public:
     virtual string scoringWith() const override { return scoring_with; }
 
 protected:
+    // #1363: apply OD_CAMERA_WEDGES -- the operator's stated orientation anchors -- to
+    // the calibrations this start holds. Called on both the fresh and the cached path.
+    void applyConfiguredAnchors();
+
     bool initialized;
     bool calibrated;
     bool debug_mode;
