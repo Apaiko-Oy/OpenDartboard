@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "motion_processing.hpp"
+
 using namespace cv;
 using namespace std;
 
@@ -51,6 +53,15 @@ namespace dart_processing
         int total_changed_pixels = 0;              // Total changed pixels
         double change_ratio = 0.0;                 // Percentage of changed pixels
         int total_pixels = 0;                      // Total pixels in frame
+        // #1345: the same changed pixels counted again inside this camera's own fitted
+        // board. They decide nothing -- `change_ratio` above is what the state stage
+        // answers with, over the whole frame, as it always was. They are here because
+        // without them the figure cannot be read: a camera can clear 0.22% of its frame
+        // with every one of those pixels off the board, and on mocks/rig-20260918 the one
+        // camera that clears it does exactly that. `board_pixels` is 0 when this camera's
+        // board was never fitted, which means unknown rather than none.
+        int board_changed_pixels = 0;
+        int board_pixels = 0;
         Point2f tip_position = Point2f(-1, -1);    // Position of dart tip if found
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame
@@ -118,6 +129,14 @@ namespace dart_processing
         }
         char figure[32];
         string cameras;
+        bool board_share_known = false;
+        for (const CameraDetectionResult &r : camera_results)
+        {
+            if (r.frame_available && r.board_pixels > 0)
+            {
+                board_share_known = true;
+            }
+        }
         for (size_t i = 0; i < camera_results.size(); i++)
         {
             if (!cameras.empty())
@@ -133,19 +152,46 @@ namespace dart_processing
             snprintf(figure, sizeof(figure), "%.3f", camera_results[i].change_ratio);
             cameras += " said " + getDartBoardStateName(camera_results[i].detected_state) +
                        " (" + figure + ")";
+            // #1345: and how much of that figure was on the board it is about. Appended
+            // after the figure rather than inside it, so the figure reads as it always
+            // did; omitted entirely when the board was never fitted, because 0 px on an
+            // unknown board would read as evidence and is not.
+            if (camera_results[i].board_pixels > 0)
+            {
+                cameras += camera_results[i].board_changed_pixels == 0
+                               ? ", none of it inside its own board"
+                               : ", " + to_string(camera_results[i].board_changed_pixels) +
+                                     " px of it inside its own board";
+            }
         }
         snprintf(figure, sizeof(figure), "%.3f", params.change_percent_threshold);
         return "STATE VOTE: " + to_string(moves_up) + " moved up and " + to_string(goes_clean) +
                " read CLEAN, either takes 2 to move the board, so it stays " +
                getDartBoardStateName(final_state) + ": " + cameras +
                "; a figure is the % of that camera's own frame that changed, and " +
-               figure + " is where a camera calls a dart";
+               figure + " is where a camera calls a dart" +
+               // #1345: the clause above each camera's figure is what makes the figure
+               // readable. The denominator is the whole frame, so a camera can clear the
+               // threshold on the room around the board; on mocks/rig-20260918 the only
+               // camera that clears it has none of its changed pixels on the board.
+               (board_share_known ? ", which is a share of the frame and not of the board" : "");
     }
 
-    // Process dart state detection using background comparison on all 3 cameras
+    /**
+     * Process dart state detection using background comparison on all 3 cameras.
+     *
+     * #1345: `boards` carries each camera's fitted board, in that camera's slot, and
+     * this stage only ever OBSERVES it. Nothing here decides on it -- `change_ratio` is
+     * still changed pixels over the whole frame against `change_percent_threshold`,
+     * exactly as before -- and it is read so that the account of a refused window can
+     * say how much of each camera's figure was on the board at all. That number decides
+     * nothing precisely so that it can be trusted as evidence for the issue that moves
+     * the denominator.
+     */
     DartStateResult processDartState(
         const vector<Mat> &current_frames,
         const vector<Mat> &background_frames,
+        const vector<motion_processing::BoardExtent> &boards,
         bool movement_finished = false,
         bool debug_mode = false,
         const DartParams &params = DartParams());
