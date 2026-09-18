@@ -5,6 +5,8 @@ docker-compose.override.yml
 /dist
 docker-build.log
 /build
+# #1323's harness builds here, with -DDEBUG_SEEK_VIDEO, beside a release build
+/build-dev
 /.vscode/container-includes
 /debug_frames
 .DS_Store
