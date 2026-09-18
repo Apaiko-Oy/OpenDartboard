@@ -57,7 +57,6 @@ namespace bull_processing
         // found them to score candidates with, does not find them twice.
         BoardSighting measureBoardFrom(const vector<vector<Point>> &contours,
                                        const vector<Vec4i> &hierarchy,
-                                       Size frameSize,
                                        const Point &frameCenter,
                                        const BullParams &params)
         {
@@ -114,15 +113,6 @@ namespace bull_processing
             board.found = true;
             board.radius = boardSpan;
             board.center = Point(cvRound(boardSpanCenter.x), cvRound(boardSpanCenter.y));
-
-            // ADR-0079 §2: is the whole of it in shot? Asked of the region's own extremes
-            // against the four frame edges, in pixels, because a share of the frame is the
-            // kind of number a rig can sit just outside of for no reason anybody can see.
-            const Rect box = boundingRect(contours[boardIndex]);
-            board.edgeGap = min(min(box.x, box.y),
-                                min(frameSize.width - (box.x + box.width),
-                                    frameSize.height - (box.y + box.height)));
-            board.clipped = board.edgeGap <= 0;
             return board;
         }
     }
@@ -144,7 +134,7 @@ namespace bull_processing
         vector<Vec4i> hierarchy;
         findContours(binaryMask, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
 
-        return measureBoardFrom(contours, hierarchy, redGreenFrame.size(), frameCenter, params);
+        return measureBoardFrom(contours, hierarchy, frameCenter, params);
     }
 
     BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
@@ -187,7 +177,7 @@ namespace bull_processing
         // measurement on the frame that came back out of that ROI, and the clipping it
         // can report here is the ROI's rather than the frame's; calibration has already
         // refused a board the FRAME cuts.
-        const BoardSighting board = measureBoardFrom(contours, hierarchy, redGreenFrame.size(), frameCenter, params);
+        const BoardSighting board = measureBoardFrom(contours, hierarchy, frameCenter, params);
         const double boardArea = board.area;
         if (!board.found)
         {

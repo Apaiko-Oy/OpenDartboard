@@ -72,15 +72,51 @@ namespace geometry_calibration
         const bull_processing::BoardSighting board =
             bull_processing::measureBoard(fullFrameColours, frameCenter, bullParams);
 
-        // The evidence a refusal below is argued from, taken here because these two
-        // numbers exist from this point on whether or not the camera gets any further.
+        // The evidence a refusal below is argued from, taken here because these numbers
+        // exist from this point on whether or not the camera gets any further.
+        //
+        // ADR-0079 §2 is the second of them and it is asked of EVERYTHING the colour stage
+        // kept, not of the board region alone. The board region is the largest outermost
+        // one, and when a board is cut by the frame the doubles ring breaks and the largest
+        // survivor is the INNER part of the board, which touches no edge: mocks/cam_1.mp4
+        // shifted 430 px right -- a third of the board off the picture -- measures as a
+        // tidy board of radius 176 px sitting 56 px clear of the nearest edge and
+        // calibrates, where the union of the kept colour is hard against x=1279. The union
+        // is what "the whole board is visible" means, and it is a gap in pixels rather than
+        // a share of anything, so there is no number for a rig to sit just outside of.
+        //
+        // Both rigs, measured on the full frame: mocks/cam_*.mp4 clear the frame edge by
+        // 121, 148 and 119 px and mocks/rig-20260918 by 75, 39 and 55 px. The same mock
+        // shifted right in 50 px steps reads 122 px at +150, 62 px at +230 and 0 px from
+        // +300, which is where its board really does start leaving the picture.
         {
             Mat fullColourGray;
             cvtColor(fullFrameColours, fullColourGray, COLOR_BGR2GRAY);
             calibration.look.frame_pixels = static_cast<int>(fullFrameColours.total());
             calibration.look.red_green_pixels = countNonZero(fullColourGray);
-            calibration.look.board_clipped = board.found && board.clipped;
-            calibration.look.board_edge_gap = board.edgeGap;
+
+            const Rect kept = boundingRect(fullColourGray);
+            calibration.look.board_edge_gap = min(min(kept.x, kept.y),
+                                                  min(fullColourGray.cols - (kept.x + kept.width),
+                                                      fullColourGray.rows - (kept.y + kept.height)));
+            // Only where there is a board at all: an empty mask has an empty bounding box,
+            // whose gap is zero, and a camera looking at a grey wall is not a camera whose
+            // board is cut off -- it has no board, which the branch below says instead.
+            calibration.look.board_clipped = board.found && calibration.look.board_edge_gap <= 0;
+        }
+
+        // What the full frame says, which is the only picture in this pipeline that has not
+        // been cut down by anything. The edge gap is ADR-0079 §2's whole question and it
+        // is printed whether or not it refuses, so a rig that is close to the edge can be
+        // seen to be close to the edge before it falls off it.
+        if (board.found)
+        {
+            log_debug("Camera " + log_string(cameraIdx + 1) + " board found on the FULL frame: radius " +
+                      log_string((int)board.radius) + " px across its widest, centre (" +
+                      log_string(board.center.x) + "," + log_string(board.center.y) +
+                      "); its boundary encloses " + log_string((int)board.area) +
+                      " px; the colour this camera kept comes within " +
+                      log_string(calibration.look.board_edge_gap) + " px of the nearest frame edge");
         }
 
         if (!board.found)

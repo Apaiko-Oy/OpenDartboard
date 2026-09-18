@@ -52,12 +52,13 @@ namespace board_look
         bool traced_doubles = false; // the doubles ring was fitted at all
 
         // #1331 / ADR-0079 §2: whether the whole board is in this camera's frame. The
-        // board is found on the full frame before the ROI is drawn around it, and if the
-        // coloured region that is its doubles ring runs off the frame's own edge then
-        // this camera does not see a whole board -- which is a fact about where the
-        // hardware is bolted, not about anybody's aim (ADR-0079 §3). `board_edge_gap` is
-        // the smallest distance in pixels from that region's extremes to any of the four
-        // frame edges, so the refusal can carry a number rather than a verdict.
+        // board is found on the full frame before any region is drawn around it, and if
+        // what the colour stage kept of that frame runs off the frame's own edge then this
+        // camera does not see a whole board -- a fact about where the hardware is bolted,
+        // not about anybody's aim (ADR-0079 §3). `board_edge_gap` is the smallest distance
+        // in pixels from the extremes of that kept colour to any of the four frame edges,
+        // so a refusal carries a number rather than a verdict; a gap of 0 or less is a
+        // board with part of itself outside the picture.
         bool board_clipped = false;
         int board_edge_gap = 0;
     };

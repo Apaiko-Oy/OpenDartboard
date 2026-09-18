@@ -228,11 +228,15 @@ namespace bull_processing
      * comes back. One measurement, two callers; there is no second opinion about where a
      * board is.
      *
-     * `clipped` is ADR-0079 §2, and it is the one thing this adds to the measurement:
-     * whether the region runs off the FRAME's own edge. It is a gap in pixels rather
-     * than a share of anything, so there is no number for a rig to sit just outside.
-     * `edgeGap` is that gap -- the smallest distance from the region's bounding box to
-     * any of the four frame edges -- so a refusal can say by how much.
+     * ADR-0079 §2's question -- is the whole of it in shot -- is deliberately NOT asked
+     * here, and the reason is measured rather than tidy. This region is the largest
+     * outermost one, and when a board is cut by the frame the ring breaks and the largest
+     * surviving region is the INNER part of the board, which touches no edge at all. On
+     * mocks/cam_1.mp4 shifted 430 px right -- a board with a third of it off the picture
+     * -- this measurement reports a whole-looking board of radius 176 px sitting a
+     * comfortable 56 px from the nearest edge, and calibrates from a board 0.6 of the
+     * size of the real one. So the framing question is asked in geometry_calibration, of
+     * everything the colour stage kept and not of the winner alone.
      */
     struct BoardSighting
     {
@@ -240,8 +244,6 @@ namespace bull_processing
         Point center{0, 0};      // The middle of the smallest circle enclosing it
         double radius = 0.0;     // That circle's radius, in pixels
         double area = 0.0;       // What its boundary encloses, in pixels
-        int edgeGap = 0;         // Px from its bounding box to the nearest frame edge
-        bool clipped = false;    // That gap is gone: the board runs off the frame
         string failure;          // Why there is no board here; empty when found
     };
 
