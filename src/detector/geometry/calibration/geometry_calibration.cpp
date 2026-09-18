@@ -74,23 +74,6 @@ namespace geometry_calibration
         ellipse_processing::EllipseBoundaryData ellipseData = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
         calibration.ellipses = ellipseData;
 
-        // #1321: the one place a failed calibration is reported, and the only one that
-        // knows which camera this is. Everything below refuses on the same flag, so a
-        // reader who is told three times learns nothing the first telling did not say;
-        // those refusals are DEBUG now and this line carries the count they never did.
-        if (!ellipseData.hasValidDoubles)
-        {
-            const string reason = ellipseData.doublesFailure.empty()
-                                      ? string("the stage did not say why")
-                                      : ellipseData.doublesFailure;
-            log_error("Camera " + log_string(cameraIdx + 1) +
-                      " did not calibrate: the doubles ring could not be fitted, so wire "
-                      "detection and perspective correction cannot run -- " +
-                      reason + ".");
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
-                                     " did not calibrate: the doubles ring could not be fitted -- " + reason);
-        }
-
         // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step
         // that looks at the picture on its own terms and before the three that assume a
         // dartboard is in it. Steps 8, 8.5 and 9 fit wires, a perspective and an
@@ -109,25 +92,50 @@ namespace geometry_calibration
         log_debug("Camera " + log_string(cameraIdx + 1) + " sight: " + log_string_src(board_look::measured(calibration.look)));
 
         const board_look::Refused refused = board_look::verdict(calibration.look);
+
+        // #1321: the one place a failed calibration is reported, and the only one that
+        // knows which camera this is. Everything below refuses on the same flag, so a
+        // reader who is told three times learns nothing the first telling did not say;
+        // those refusals are DEBUG now and this line carries the count they never did.
+        //
+        // #1318 extends the sentence rather than adding a second one. A camera that is
+        // not pointed at a dartboard fails here too -- the ring it has no ring to fit --
+        // and "9 of 120 rays gave a boundary point" is that camera's symptom, not its
+        // illness. Where the look can say which it is, it is said in this ERROR, because
+        // one refused camera is one ERROR and a webcam and an unlit board want different
+        // things done about them.
+        if (!ellipseData.hasValidDoubles)
+        {
+            const string reason = ellipseData.doublesFailure.empty()
+                                      ? string("the stage did not say why")
+                                      : ellipseData.doublesFailure;
+            const string look = refused == board_look::Refused::RingNotTraced
+                                    ? string("")
+                                    : " This camera " + board_look::refusal(calibration.look) + ".";
+            log_error("Camera " + log_string(cameraIdx + 1) +
+                      " did not calibrate: the doubles ring could not be fitted, so wire "
+                      "detection and perspective correction cannot run -- " +
+                      reason + "." + log_string_src(look));
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+                                     " did not calibrate: the doubles ring could not be fitted -- " + reason);
+        }
+        else if (refused != board_look::Refused::None)
+        {
+            // The ring WAS fitted and the camera still is not looking at a dartboard:
+            // the one case #1321's line above cannot reach, and the one this issue was
+            // filed about. Same shape, same rule -- the index, and the count said
+            // against the threshold that refused it.
+            const string why = board_look::refusal(calibration.look);
+            log_error("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(why) + ".");
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " " + why);
+        }
+
         if (refused != board_look::Refused::None)
         {
-            calibration.sees_board = false;
-
-            // ONE error per refused camera, in #1321's shape: the index, and the count
-            // said against the threshold that refused it. The ring-not-traced case is
-            // deliberately silent here, because the branch above has already said it
-            // with more detail than this one has -- being told twice teaches nobody the
-            // name of a second camera.
-            if (refused != board_look::Refused::RingNotTraced)
-            {
-                const string why = board_look::refusal(calibration.look);
-                log_error("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(why) + ".");
-                board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " " + why);
-            }
-
             // The camera is refused; the board is not. calibrateMultipleCameras keeps
             // its slot so no other camera is scored through its perspective, and the
             // cameras that did see the board carry on without it.
+            calibration.sees_board = false;
             return calibration;
         }
         calibration.sees_board = true;
