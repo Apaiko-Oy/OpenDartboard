@@ -92,12 +92,16 @@ int main()
     params.stability_frames = 1; // one call is one window
 
     const std::vector<Mat> backgrounds = {plainBackground(), plainBackground(), plainBackground()};
+    // #1345 gave processDartState the boards so a refused window can say how much of a
+    // figure was on one. Unfitted here on purpose: this file is about the working
+    // backgrounds, and an unknown board omits the clause rather than deciding anything.
+    const std::vector<motion_processing::BoardExtent> no_boards(3);
 
     // ---- window 1: dart A on every camera ----------------------------------------------
     {
         const Mat seen = frameWith({kDartA});
         const std::vector<Mat> frames = {seen.clone(), seen.clone(), seen.clone()};
-        DartStateResult r = processDartState(frames, backgrounds, true, false, params);
+        DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::CLEAN && r.current_state == DartBoardState::DART_1,
             "window 1: three cameras seeing dart A take the board to DART_1");
         say(r.camera_results[1].tip_found && tipNear(r.camera_results[1].tip_position, kDartA, "window 1, camera 2"),
@@ -108,7 +112,7 @@ int main()
     {
         const Mat both = frameWith({kDartA, kDartB});
         const std::vector<Mat> frames = {plainBackground(), both.clone(), both.clone()};
-        DartStateResult r = processDartState(frames, backgrounds, true, false, params);
+        DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::DART_1 && r.current_state == DartBoardState::DART_2,
             "window 2: two cameras moving up outvote one flicker, DART_1 -> DART_2");
         say(r.camera_results[0].detected_state == DartBoardState::CLEAN,
@@ -129,7 +133,7 @@ int main()
     // ---- window 3: the takeout ---------------------------------------------------------
     {
         const std::vector<Mat> frames = {plainBackground(), plainBackground(), plainBackground()};
-        DartStateResult r = processDartState(frames, backgrounds, true, false, params);
+        DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::DART_2 && r.current_state == DartBoardState::CLEAN,
             "window 3: an empty board is the takeout, DART_2 -> CLEAN");
     }
@@ -142,7 +146,7 @@ int main()
     {
         const Mat seen = frameWith({kDartC});
         const std::vector<Mat> frames = {seen.clone(), seen.clone(), seen.clone()};
-        DartStateResult r = processDartState(frames, backgrounds, true, false, params);
+        DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::CLEAN && r.current_state == DartBoardState::DART_1,
             "window 4: the next round begins at DART_1");
         say(r.camera_results[1].tip_found &&
