@@ -370,6 +370,18 @@ namespace score_processing
                     continue;
                 }
 
+                // #1318: and a camera that was refused at calibration abstains for the
+                // life of the run. Its slot is still here -- so that every other camera
+                // keeps its own calibration -- but there is no dartboard in its picture
+                // to score a tip against, and a MISS from it is not an observation.
+                if (i >= calibrations.size() || !calibrations[i].sees_board)
+                {
+                    log_warning("Camera " + to_string(i) + " score: ABSTAIN (this camera is not looking at the dartboard)");
+                    if (debug_mode)
+                        points_on_screen.push_back(Mat());
+                    continue;
+                }
+
                 log_debug("-------");
                 PointScore point = scorePoint(dart_result.camera_results[i].tip_position, calibrations[i]);
                 string score_test = point.score;
