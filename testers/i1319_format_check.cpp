@@ -131,7 +131,16 @@ int main()
         std::vector<OpenedCamera> silent;
         for (int i = 0; i < 3; i++)
             silent.push_back(OpenedCamera{0, 1280, 720, 10});
-        say(!busFinding(silent).said, "three cameras that reported nothing: no figure is invented");
+        const Finding unmeasurable = busFinding(silent);
+        std::printf("     %s\n", unmeasurable.text.c_str());
+        say(unmeasurable.said && unmeasurable.severity == Severity::Info,
+            "three cameras that reported nothing: the arithmetic is stated, at INFO");
+        say(contains(unmeasurable.text, "no bandwidth figure can be measured"),
+            "it says outright that nothing was measured");
+        say(contains(unmeasurable.text, "18.4 MB/s per camera") && contains(unmeasurable.text, "55.3 MB/s for 3"),
+            "the scale it gives is the arithmetic of the mode they are really running");
+        say(!contains(unmeasurable.text, "running uncompressed"),
+            "it does not claim they are uncompressed, because nothing said so");
 
         std::vector<OpenedCamera> mixed{OpenedCamera{yuy2, 1280, 720, 10}, OpenedCamera{0, 1280, 720, 10}};
         const Finding partial = busFinding(mixed);

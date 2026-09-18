@@ -289,7 +289,35 @@ namespace camera
         }
 
         if (uncompressed == 0)
-            return finding; // nothing measurable is uncompressed; no claim to make
+        {
+            // Nothing measurable is uncompressed. On MSMF that is the ORDINARY case
+            // rather than a happy one: the backend reports no format at all, so a
+            // bandwidth figure cannot be computed from anything the program was told.
+            // Saying nothing here is what #1319 is about, so the arithmetic is stated
+            // instead -- explicitly as arithmetic about the mode these cameras really
+            // are running, with the one unknown named as unknown. It is INFO because it
+            // is a scale, not a measurement, and the two warnings above it carry the
+            // alarm.
+            if (unknown == 0 || cameras.empty())
+                return finding; // every camera is compressed and accounted for
+
+            const OpenedCamera &first = cameras.front();
+            if (first.width <= 0 || first.height <= 0 || first.fps <= 0)
+                return finding;
+
+            const double each = (double)first.width * first.height * 2.0 * first.fps / 1000000.0;
+            finding.said = true;
+            finding.severity = Severity::Info;
+            finding.text = std::to_string(unknown) +
+                           (unknown == 1 ? " camera reported" : " cameras reported") +
+                           " no negotiated format, so no bandwidth figure can be measured. For scale: " +
+                           std::to_string(first.width) + "x" + std::to_string(first.height) +
+                           " uncompressed at " + wholeNumber(first.fps) + " fps is " + oneDecimal(each) +
+                           " MB/s per camera and " + oneDecimal(each * unknown) + " MB/s for " +
+                           std::to_string(unknown) + ", against roughly " + oneDecimal(usbTwoBusMegabytesPerSecond()) +
+                           " MB/s practical on one USB 2.0 bus";
+            return finding;
+        }
 
         const double ceiling = usbTwoBusMegabytesPerSecond();
         const std::string who = std::to_string(uncompressed) +
