@@ -199,6 +199,13 @@ else say "FAIL the faulted board does not say the geometry moved" no; fi
 echo "=== 8. the two arms differ, which is the whole proof ==="
 # The same run, the same flags, the same footage generator, the same seconds. If the two
 # arms said the same thing the refusal would be measuring nothing.
+#
+# MEASURED, not asserted: with geometry_agreement::Limits::max_bull_shift_px moved from
+# 12 to 100 and nothing else changed, arm 2 recovers instead of refusing, resumes scoring
+# on a calibration 25 px out of date, and beats READY three times -- and seven of the
+# checks below and above go red. So the refusal really is decided by that tolerance, and
+# a board that scores on stale geometry really is what this run would otherwise be
+# watching.
 R1=$(grep -c 'BOARD RECOVERED' /run899/recovers.txt || true)
 R2=$(grep -c 'BOARD RECOVERED' /run899/refuses.txt || true)
 M1=$(grep -c 'BOARD MOVED' /run899/recovers.txt || true)
