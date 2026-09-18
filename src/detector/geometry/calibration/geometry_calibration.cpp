@@ -73,10 +73,31 @@ namespace geometry_calibration
         // The camera fails here instead, at the level and in the shape #1321 established.
         if (!bull.found)
         {
+            // #1318 asks its question two stages below here, and a camera that is not
+            // looking at a dartboard now fails before it gets there: a frame that is a
+            // quarter dartboard red has no bull in it either. "No candidate can be a
+            // bull" is that camera's symptom rather than its illness, so the look is
+            // taken here too, from the red/green frame the doubles mask is derived
+            // from, and the ERROR carries whichever sentence says more. A dark board
+            // reads as RingNotTraced, which says nothing this line has not, so it is
+            // left off -- #1321's rule that one refused camera is one ERROR.
+            Mat redGreenGray;
+            cvtColor(redGreenFrame, redGreenGray, COLOR_BGR2GRAY);
+            calibration.look.frame_pixels = static_cast<int>(redGreenFrame.total());
+            calibration.look.red_green_pixels = countNonZero(redGreenGray);
+            calibration.look.traced_doubles = false;
+            calibration.look.outer_points = 0;
+            calibration.look.inner_points = 0;
+
+            const board_look::Refused looked = board_look::verdict(calibration.look);
+            const string look = (looked == board_look::Refused::None || looked == board_look::Refused::RingNotTraced)
+                                    ? string("")
+                                    : " This camera " + board_look::refusal(calibration.look) + ".";
+
             log_error("Camera " + log_string(cameraIdx + 1) +
                       " did not calibrate: the bull could not be found, so there is no centre to "
                       "build the doubles mask around or to trace the rays from -- " +
-                      bull.failure + ".");
+                      bull.failure + "." + look);
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: the bull could not be found -- " + bull.failure);
             return calibration; // ellipses.hasValidDoubles stays false, so the board fails

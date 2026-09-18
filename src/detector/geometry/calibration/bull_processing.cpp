@@ -69,8 +69,11 @@ namespace bull_processing
 
         if (contours.empty())
         {
-            sighting.failure = "the red/green frame holds no contour at all, so there is neither a "
-                               "board to measure nor a candidate to measure against it";
+            // The count is in the sentence for #1321's reason: a line that carries no
+            // number is a line nothing can contradict.
+            sighting.failure = "the red/green frame yields 0 contours, and at least 1 region is "
+                               "needed before there is a board to measure or a candidate to "
+                               "measure against it";
             return sighting;
         }
 
@@ -234,10 +237,13 @@ namespace bull_processing
         if (bestContourIndex == -1)
         {
             sighting.center = frameCenter;
-            sighting.failure = "no candidate on this board can be a bull: " + to_string(contours.size()) +
-                               " regions were scored against a board of radius " +
-                               decimals(sighting.boardRadius, 1) + " px and " + to_string(refused) +
-                               " were refused (" + to_string(refusedOnSize) + " on size, " +
+            const string scored = to_string(contours.size()) +
+                                  (contours.size() == 1 ? string(" region was") : string(" regions were"));
+            const string turnedDown = to_string(refused) +
+                                      (refused == 1 ? string(" was refused") : string(" were refused"));
+            sighting.failure = "no candidate on this board can be a bull: " + scored +
+                               " scored against a board of radius " + decimals(sighting.boardRadius, 1) +
+                               " px and " + turnedDown + " (" + to_string(refusedOnSize) + " on size, " +
                                to_string(refusedOnPosition) + " on position, " + to_string(refusedOnShape) +
                                " on shape)" +
                                (roundestRefusal.empty() ? string() : string("; ") + roundestRefusal);

@@ -22,17 +22,36 @@ namespace bull_processing
 
         // A dartboard is 451 mm across the doubles ring and its outer bull is 31.8 mm
         // across, so the bull's radius is 15.9/170 = 0.0935 of the doubles radius. That
-        // ratio is the board's, not this camera's, and it survives perspective to well
-        // within the band below.
+        // ratio is the board's rather than this camera's, and it is the number the band
+        // is drawn around -- but the band is wide, and both rigs in this repository say
+        // why. What reaches this stage is not the bull, it is the bull after
+        // color_processing's blur, bull's-eye dilation and multi-scale closing, and
+        // those add pixels to a radius rather than a fraction to a ratio. So the smaller
+        // the board sits in the frame, the further above 0.0935 its bull measures:
+        //
+        //   mocks/cam_{1,2,3}.mp4     board radius 247, 242, 250 px -> 0.100, 0.099, 0.098
+        //   mocks/rig-20260918/       board radius 151, 153, 151 px -> 0.155, 0.154, 0.154
+        //
+        // Every constant in this repository was fitted against the first rig alone, and
+        // this is one the second rig moved: a band of 0.5x to 2.0x fits both, and leaves
+        // the second rig 1.2x from the ceiling, which is a constant that happens to fit.
+        // The ceiling is 3.0x for that reason. The floor is what #1320 is about and it is
+        // the one measured against the fault: the issue's speck is 205 px of area, 8.1 px
+        // of radius, on a board whose bull is at x=710 and whose left edge is the x=392
+        // the speck sits on -- a board radius near 320, so 0.025 of it, a quarter of the
+        // floor. On the smallest board either rig shows, 151 px, that same speck is 0.054,
+        // still below it.
         double bullRadiusOfBoardRadius = 0.0935; // Outer bull radius / doubles radius
         double minBullRadiusFactor = 0.5;        // Reject below half the ideal radius
-        double maxBullRadiusFactor = 2.0;        // Reject above twice the ideal radius
+        double maxBullRadiusFactor = 3.0;        // Reject above three times the ideal radius
 
         // Where the bull may be. A circle seen at an angle projects to an ellipse whose
         // centre is not the projection of the circle's centre, so the bull is measurably
-        // off the middle of the region it sits in -- 0.22, 0.27 and 0.33 of the board
-        // radius on the three mock cameras. The gate is what a board camera can do, not
-        // what these three happen to do.
+        // off the middle of the region it sits in -- 0.21, 0.22 and 0.28 of the board
+        // radius on the three mock cameras, and 0.14, 0.14 and 0.16 on the three of
+        // rig-20260918, which are aimed straighter. The gate is 0.45, which is 1.6x the
+        // furthest either rig has to go. #1320's speck is some 320 px from the bull on a
+        // board of about that radius, which is past 1.0.
         double maxOffsetOfBoardRadius = 0.45; // Reject further than this from the board
 
         double minCircularity = 0.3; // Reject a candidate no rounder than this
