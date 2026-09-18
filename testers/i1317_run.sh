@@ -11,12 +11,13 @@
 # twenty wires, the three guards that exist to catch it, and the mock footage beside them
 # as the control.
 set -u
-SCRIPT="${1:-/home/mikko/opendartboard/i1317/testers/phases1317/1317-partial.sh}"
-BASE=/home/mikko/opendartboard/runs1317
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1317/1317-partial.sh}"
+BASE="$OD_RUNS_BASE/1317"
 RUN="$BASE/partial"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name od-i1317-clean --network none -v "$BASE":/base od-amd64:bullseye \
+  docker run --rm --name "$(od_name "i1317-clean")" --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf /base/partial > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -28,15 +29,15 @@ cp "$SCRIPT" "$RUN/inside.sh"
 # `git archive` there cannot work. Only 1317-asan.sh reads it; every other phase ignores it.
 BASE_COMMIT="${BASE_COMMIT:-50e3b07}"
 mkdir -p "$RUN/base-src"
-git -C /home/mikko/opendartboard/i1317 archive "$BASE_COMMIT" | tar -x -C "$RUN/base-src"
+git -C "$OD_TREE_ROOT" archive "$BASE_COMMIT" | tar -x -C "$RUN/base-src"
 
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name od-i1317-partial --cpus=2 --network none -e HOME=/root \
-  -v /home/mikko/opendartboard/i1317:/app \
+docker run --rm --name "$(od_name "i1317-partial")" --cpus=2 --network none -e HOME=/root \
+  -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1317 -v "$RUN/cfg":/root/.config \
-  -w /run1317 od-amd64:bullseye bash /run1317/inside.sh
+  -w /run1317 "$OD_IMAGE" bash /run1317/inside.sh
 RC=$?
 
 T1=$(date +%s.%N)

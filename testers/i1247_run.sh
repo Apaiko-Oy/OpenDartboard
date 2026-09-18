@@ -17,30 +17,30 @@
 #
 #   NET=none testers/i1247_run.sh <label> <container-bash-script-file> <mount>
 set -u
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 LABEL="$1"
 SCRIPT="$2"
 MOUNT="$3"
 NET="${NET:-none}"
-STILL=/home/mikko/opendartboard/runs895/dark/still.jpg
-BASE=/home/mikko/opendartboard/runs1247
+BASE="$OD_RUNS_BASE/1247"
 RUN="$BASE/$LABEL"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name "od-i1247-clean-$LABEL" --network none -v "$BASE":/base od-amd64:bullseye \
+  docker run --rm --name "$(od_name "i1247-clean-$LABEL")" --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf "/base/$LABEL" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
-cp "$STILL" "$RUN/still.jpg"
+od_still "$RUN/still.jpg" || exit 2
 cp "$SCRIPT" "$RUN/inside.sh"
 
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "od-i1247-$LABEL" --cpus=2 --network "$NET" -e HOME=/root \
-  -v /home/mikko/opendartboard/i1247:/app \
+docker run --rm --name "$(od_name "i1247-$LABEL")" --cpus=2 --network "$NET" -e HOME=/root \
+  -v "$OD_TREE_ROOT":/app \
   -v "$RUN":"$MOUNT" -v "$RUN/cfg":/root/.config \
-  -w "$MOUNT" od-amd64:bullseye bash "$MOUNT/inside.sh"
+  -w "$MOUNT" "$OD_IMAGE" bash "$MOUNT/inside.sh"
 RC=$?
 
 T1=$(date +%s.%N)

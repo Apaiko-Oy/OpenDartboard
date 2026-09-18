@@ -5,29 +5,30 @@
 #
 #   testers/i822_run.sh <label> <container-bash-script-file>
 set -u
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 LABEL="$1"
 SCRIPT="$2"
-BASE=/home/mikko/opendartboard/runs895
+BASE="$OD_RUNS_BASE/895"
 RUN="$BASE/$LABEL"
 # debug_frames/ and cache/ are written by root inside the container, so the host user
 # cannot remove them. Reap the directory from a container instead, and never leave a
 # previous run's cache or spool where this one would read it.
 if [ -d "$RUN" ]; then
-  docker run --rm --name "i895-clean-$LABEL" -v "$BASE":/base od-amd64:bullseye \
+  docker run --rm --name "$(od_name "895-clean-$LABEL")" -v "$BASE":/base "$OD_IMAGE" \
     rm -rf "/base/$LABEL" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
-cp /tmp/still892.jpg "$RUN/still.jpg"
+od_still "$RUN/still.jpg" || exit 2
 cp "$SCRIPT" "$RUN/inside.sh"
 
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "i895-$LABEL" --cpus=3 -e HOME=/root \
-  -v /home/mikko/opendartboard/i895:/app \
+docker run --rm --name "$(od_name "895-$LABEL")" --cpus=3 -e HOME=/root \
+  -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run895 -v "$RUN/cfg":/root/.config \
-  -w /run895 od-amd64:bullseye bash /run895/inside.sh
+  -w /run895 "$OD_IMAGE" bash /run895/inside.sh
 RC=$?
 
 T1=$(date +%s.%N)
