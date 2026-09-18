@@ -60,7 +60,10 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
     motion_processing::MotionResult motion_result = motion_processing::processMotion(images, background_frames, board_extents, debug_mode);
 
     // Process dart state detection
-    dart_processing::DartStateResult dart_result = dart_processing::processDartState(images, background_frames, motion_result.motion_finished, debug_mode);
+    // #1345: the same boards, for the same reason, one stage on. Until #1345 this stage
+    // decided whether a camera had seen a dart from a percentage of the whole frame,
+    // which is the denominator #1339 took out of the stage above it.
+    dart_processing::DartStateResult dart_result = dart_processing::processDartState(images, background_frames, board_extents, motion_result.motion_finished, debug_mode);
 
     // Process scoring using the new scoring system
     score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode);

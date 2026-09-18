@@ -8,6 +8,60 @@ using namespace std;
 
 namespace dart_processing
 {
+    // #1345: the board one camera's changed pixels are counted again inside -- #1339's
+    // Region, in the stage that does NOT measure against it. A local cache rather than a
+    // reach into motion_processing, so #1339's denominator is read from the same
+    // calibration and not touched: the mask is built on first sight of a camera's board
+    // and rebuilt only if the board or the frame size moves, so the per-window cost is a
+    // bitwise_and.
+    struct Region
+    {
+        bool known = false;
+        Mat mask;
+        int pixels = 0;
+        Size frame;
+        RotatedRect edge;
+    };
+    static vector<Region> regions;
+
+    static const Region &regionFor(size_t i, const vector<motion_processing::BoardExtent> &boards, Size frame)
+    {
+        if (regions.size() <= i)
+            regions.resize(i + 1);
+        Region &r = regions[i];
+        const motion_processing::BoardExtent extent = i < boards.size() ? boards[i] : motion_processing::BoardExtent();
+
+        const bool same = r.known == extent.known && r.frame == frame &&
+                          r.edge.center == extent.edge.center && r.edge.size == extent.edge.size &&
+                          r.edge.angle == extent.edge.angle;
+        if (same && (!r.known || !r.mask.empty()))
+            return r;
+
+        r = Region();
+        r.frame = frame;
+        r.edge = extent.edge;
+        r.known = extent.known;
+        if (!r.known)
+        {
+            // Not a refusal: this stage decides on the frame either way. It means only
+            // that how much of this camera's figure was on the board cannot be said, and
+            // the window's account then omits the clause rather than printing a zero.
+            log_warning("DART REGION: camera " + to_string(i + 1) + " has no fitted board, so how much "
+                        "of its dart figure is on the board cannot be reported");
+            return r;
+        }
+        r.mask = Mat::zeros(frame, CV_8UC1);
+        ellipse(r.mask, r.edge, Scalar(255), FILLED);
+        r.pixels = countNonZero(r.mask);
+        if (r.pixels <= 0)
+        {
+            r.known = false;
+            log_warning("DART REGION: camera " + to_string(i + 1) + " fitted a board of no area, so how much "
+                        "of its dart figure is on the board cannot be reported");
+        }
+        return r;
+    }
+
     // Static state tracking
     static vector<DartBoardState> previous_states = {
         DartBoardState::CLEAN,
@@ -216,6 +270,7 @@ namespace dart_processing
     }
 
     DartStateResult processDartState(const vector<Mat> &current_frames, const vector<Mat> &background_frames,
+                                     const vector<motion_processing::BoardExtent> &boards,
                                      bool movement_finished, bool debug_mode, const DartParams &params)
     {
         DartStateResult result;
@@ -242,6 +297,7 @@ namespace dart_processing
             }
 #endif
 
+            regions.clear(); // #1345: a fresh board is measured against a fresh region
             initialized = true;
         }
 
@@ -374,10 +430,35 @@ namespace dart_processing
                 dart_threshs.push_back(thresh);
             }
 
+            // #1345: the same count again, inside this camera's own board. It decides
+            // nothing -- the branch below is the frame figure and the constant it always
+            // was -- and it exists because without it the figure cannot be read. On
+            // mocks/rig-20260918 camera 1 clears the threshold in six windows out of six
+            // with 12,109 to 13,372 changed pixels and NONE of them inside its board: it
+            // is answering for the thrower's shoes at the top of its frame, which the
+            // other two cameras do not have in shot. Cameras 2 and 3 measure 0 px, in
+            // the frame and on the board alike. The shipped mocks measure 1,114 to
+            // 29,282 px on the board in the same windows, so the instrument is sound and
+            // the rig's zero is real.
+            int board_changed_pixels = 0;
+            int board_pixels = 0;
+            {
+                const Region &region = regionFor(i, boards, thresh.size());
+                if (region.known)
+                {
+                    Mat inside;
+                    bitwise_and(thresh, region.mask, inside);
+                    board_changed_pixels = countNonZero(inside);
+                    board_pixels = region.pixels;
+                }
+            }
+
             // set camera result
             result.camera_results[i].total_changed_pixels = total_changed_pixels;
             result.camera_results[i].change_ratio = change_ratio;
             result.camera_results[i].total_pixels = total_pixels;
+            result.camera_results[i].board_changed_pixels = board_changed_pixels;
+            result.camera_results[i].board_pixels = board_pixels;
 
             // Crate a working background for this camera
             Mat single_thresh;
