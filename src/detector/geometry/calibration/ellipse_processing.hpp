@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <string>
 #include "mask_processing.hpp" // Include for MaskBundle
 
 namespace ellipse_processing
@@ -52,6 +53,13 @@ namespace ellipse_processing
         bool hasValidDoubles;               // Ray tracing succeeded for doubles
         int validOuterPoints;               // Number of validated outer boundary points
         int validInnerPoints;               // Number of validated inner boundary points
+
+        // #1321: why the doubles ring was not fitted, in the words the ERROR line says
+        // out loud. Empty when hasValidDoubles is true. Every count in it was measured
+        // here already and was only ever logged at DEBUG; carrying it out lets the one
+        // caller that knows which camera this is report the reason at the level a
+        // tester runs at, instead of three stages each announcing the flag.
+        std::string doublesFailure;
 
         // CONTOUR FITTING RESULTS (triples & bull rings - efficient)
         cv::RotatedRect outerTripleEllipse; // Triple ring outer edge (contour fitted)

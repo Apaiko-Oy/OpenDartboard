@@ -25,9 +25,26 @@ namespace perspective_processing
     {
         RingIntersections result;
 
-        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < 16)
+        if (!calib.ellipses.hasValidDoubles)
         {
-            log_error("Insufficient calibration data for intersection calculation");
+            // #1321: the second echo of the same flag. See wire_processing.
+            log_debug("Declining to compute ring-wire intersections for camera " +
+                      log_string(calib.camera_index + 1) +
+                      ": no valid doubles ellipse (already reported)");
+            return result;
+        }
+
+        if (calib.wires.wireEndpoints.size() < 16)
+        {
+            // A fact of its own, so it says the count. It cannot fire today --
+            // WireData::wireEndpoints is a std::array<Point2f, 20> and its size() is the
+            // template argument rather than anything that was detected, which is #1317's
+            // subject -- but the test this branch wants to make is the one written here,
+            // and it is written so that fixing the count makes this line true rather
+            // than making it appear.
+            log_error("Camera " + log_string(calib.camera_index + 1) +
+                      " has a fitted doubles ring but only " + log_string(calib.wires.wireEndpoints.size()) +
+                      " wire endpoints, and at least 16 are needed for the perspective fit.");
             return result;
         }
 
@@ -136,7 +153,11 @@ namespace perspective_processing
         RingIntersections intersections = findAllRingWireIntersections(calib, spec);
         if (!intersections.isValid)
         {
-            log_error("Failed to compute ring-wire intersections");
+            // #1321: the third telling of the first fact. findAllRingWireIntersections
+            // has just said why it refused, at whatever level that reason deserves, so
+            // this is the caller noticing rather than a new fault.
+            log_debug("No ring-wire intersections for camera " + log_string(calib.camera_index + 1) +
+                      ", returning the raw image uncorrected (already reported)");
             return rawImage.clone();
         }
 
