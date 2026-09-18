@@ -435,6 +435,46 @@ namespace camera
                 return finding;
 
             const double each = (double)first.width * first.height * 2.0 * first.fps / 1000000.0;
+
+            // #1319, second pass: the rate a camera negotiated is itself evidence about
+            // its format, and once ONE camera's uncompressed demand does not fit the bus
+            // the evidence is conclusive.
+            //
+            // Measured on the rig, 2026-09-18, on the build that fixed the negotiation:
+            // three cameras at 1280x720 @ 30, all delivering, and this branch printed
+            // "For scale: ... 55.3 MB/s per camera and 165.9 MB/s for 3, against roughly
+            // 35.0 MB/s practical on one USB 2.0 bus" -- on a board that was working. It
+            // reads as a warning about the problem this issue removed, which is the
+            // defect this issue is about, one turn later.
+            //
+            // The sentence was not merely unhelpful, it was self-refuting: 55.3 MB/s is
+            // ONE camera against a bus that carries about 35, so a camera running at that
+            // rate and handing over frames cannot be uncompressed, whatever it declined to
+            // say about its format. Before the fix the same arithmetic ran at 10 fps and
+            // gave 18.4 MB/s each -- which one camera CAN do -- so the scale paragraph
+            // described something the cameras really might have been doing, and it stays
+            // for exactly that case.
+            //
+            // Note what this does NOT read: it asks nothing about whether a floor was
+            // applied, or on which backend, or what anybody requested. It is an inference
+            // from the rate the camera came back with, so a camera that reaches 30 fps by
+            // some other route is read the same way.
+            if (each > usbTwoBusMegabytesPerSecond())
+            {
+                finding.said = true;
+                finding.severity = Severity::Info;
+                finding.text = std::to_string(unknown) +
+                               (unknown == 1 ? " camera reported" : " cameras reported") +
+                               " no negotiated format, but the rate is evidence enough: " +
+                               std::to_string(first.width) + "x" + std::to_string(first.height) +
+                               " uncompressed at " + wholeNumber(first.fps) + " fps would be " +
+                               oneDecimal(each) + " MB/s for a SINGLE camera, against roughly " +
+                               oneDecimal(usbTwoBusMegabytesPerSecond()) +
+                               " MB/s practical on one USB 2.0 bus — so a camera delivering frames at "
+                               "this rate is compressing them, and there is no bandwidth problem to report";
+                return finding;
+            }
+
             finding.said = true;
             finding.severity = Severity::Info;
             finding.text = std::to_string(unknown) +

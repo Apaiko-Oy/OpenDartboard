@@ -237,6 +237,57 @@ int main()
             "a backend that took the request says nothing, because there it IS the negotiation");
     }
 
+    std::printf("=== 9. a rate one camera cannot reach uncompressed IS the format evidence ===\n");
+    {
+        // Measured on the rig on the build that fixed the negotiation: three cameras at
+        // 1280x720 @ 30, all delivering, and the bandwidth claim printed "For scale ...
+        // 165.9 MB/s for 3, against roughly 35.0" -- a warning about the problem the fix
+        // had just removed. It was self-refuting as well as unhelpful, and that is what
+        // this branch is: 55.3 MB/s is ONE camera against a bus carrying about 35, so a
+        // camera running at that rate and handing over frames is not uncompressed.
+        std::vector<OpenedCamera> fast;
+        for (int i = 0; i < 3; i++)
+            fast.push_back(OpenedCamera{0, 1280, 720, 30});
+        const Finding settled = busFinding(fast);
+        std::printf("     %s\n", settled.text.c_str());
+        say(settled.said && settled.severity == Severity::Info, "it is still said, and still at INFO");
+        say(contains(settled.text, "the rate is evidence enough"), "the rate is read as evidence");
+        say(contains(settled.text, "55.3 MB/s for a SINGLE camera"),
+            "1280*720*2*30 = 55.3 MB/s, and it is one camera's figure, not three");
+        say(contains(settled.text, "is compressing them"), "the conclusion is stated");
+        say(!contains(settled.text, "165.9"),
+            "the three-camera total is gone: it describes a mode no camera here can be in");
+        say(!contains(settled.text, "no bandwidth figure can be measured"),
+            "and it is no longer the sentence that says nothing could be told");
+
+        // The pre-fix case is UNCHANGED, and that is the half that makes this a
+        // distinction rather than a mute button: at 10 fps one camera really could be
+        // uncompressed -- 18.4 MB/s fits -- so the scale paragraph still describes
+        // something these cameras might really be doing, and still prints.
+        std::vector<OpenedCamera> slow;
+        for (int i = 0; i < 3; i++)
+            slow.push_back(OpenedCamera{0, 1280, 720, 10});
+        const Finding scale = busFinding(slow);
+        std::printf("     %s\n", scale.text.c_str());
+        say(contains(scale.text, "no bandwidth figure can be measured"),
+            "at 10 fps the scale paragraph is what is printed");
+        say(contains(scale.text, "18.4 MB/s per camera") && contains(scale.text, "55.3 MB/s for 3"),
+            "with the arithmetic this issue was filed on");
+        say(!contains(scale.text, "the rate is evidence enough"),
+            "and it does NOT claim the rate settles anything, because at 10 fps it does not");
+
+        // The threshold is one camera against the bus, not three, and nothing about the
+        // floor, the backend or what anybody requested is consulted.
+        std::vector<OpenedCamera> one{OpenedCamera{0, 1280, 720, 30}};
+        say(contains(busFinding(one).text, "the rate is evidence enough"),
+            "one camera at 30 is read the same way as three");
+        std::vector<OpenedCamera> small;
+        for (int i = 0; i < 3; i++)
+            small.push_back(OpenedCamera{0, 640, 480, 30});
+        say(contains(busFinding(small).text, "no bandwidth figure can be measured"),
+            "and 640x480 at 30 -- 18.4 MB/s, which one camera CAN do -- is not settled by its rate");
+    }
+
     std::printf("\n%s (%d failed)\n", failures ? "FAILED" : "PASSED", failures);
     return failures ? 1 : 0;
 }

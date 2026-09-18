@@ -68,6 +68,27 @@ if [ $MRC -ne 0 ]; then say "OK   the mutation is caught: without the floor the 
 else say "FAIL the rate-request checks pass with the floor removed; they measure nothing" no; fi
 
 echo
+echo "=== 2d. FALSIFY: make the rate-as-evidence branch unreachable ==="
+# With it gone, a working board at 1280x720 @ 30 goes back to being told that three
+# uncompressed cameras would want 165.9 MB/s against a bus carrying 35 -- a warning
+# about a problem the fix removed, which is what the rig printed and what section 9
+# exists to stop. If section 9 still passes with the branch removed, it measures nothing.
+rm -rf /run1319/mutant4 && cp -r /app/src/utils /run1319/mutant4
+python3 - <<'PY'
+p='/run1319/mutant4/capture.hpp'
+s=open(p).read()
+s=s.replace('            if (each > usbTwoBusMegabytesPerSecond())',
+            '            if (false) // #1319 mutation: the rate is no longer read as evidence')
+open(p,'w').write(s)
+PY
+g++ -std=c++17 -O1 -I /run1319/mutant4 -o /run1319/mutant4_check /app/testers/i1319_format_check.cpp $CVFLAGS || exit 1
+/run1319/mutant4_check > /run1319/mutant4.txt 2>&1
+MRC=$?
+grep -E "^FAIL" /run1319/mutant4.txt | head -6
+if [ $MRC -ne 0 ]; then say "OK   the mutation is caught: the working board is warned about a bus it is not filling" ok
+else say "FAIL the bandwidth checks pass with the branch removed; they measure nothing" no; fi
+
+echo
 echo "=== 3. the fps finding, driven through the real capture path ==="
 # mocks/rig-20260918 is 30 fps at 1280x720 on all three clips.
 OD_MAX_CYCLES=5 /app/build/opendartboard \
