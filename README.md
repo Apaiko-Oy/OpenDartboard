@@ -45,8 +45,18 @@
 > opened. A device that cannot is named and left alone. `--autocams` is unchanged and is a
 > different question: it asks what a camera's electronics can do — whether it will negotiate MJPG,
 > which matters because three 1280x720 cameras do not fit uncompressed on one USB bus — and most
-> laptop webcams answer yes, so it cannot tell where a camera points. `src/utils/board_look.hpp`
-> holds what "can see a dartboard" means and the measurements it was set from.
+> laptop webcams answer yes, so it cannot tell where a camera points.
+> `src/detector/geometry/calibration/board_look.hpp` holds what "can see a dartboard" means and
+> the measurements it was set from.
+>
+> **What a camera has to show, and the one moment it can be changed.** The whole board is visible
+> in this camera's frame, or this camera does not see a whole board — ADR-0079 §2. Not a
+> percentage and not a share of the picture: calibration finds the board on the full frame before
+> it frames anything, and refuses the camera by name if what it found runs off the frame's own
+> edge. There is nothing to aim. The cameras are bolted to the frame and cannot be pointed, so a
+> camera that reports this is reporting a permanent fact about the mount; the one adjustable
+> degree of freedom is where the board sits in its circle while it is being hung, and it closes
+> when the hanging does. Nothing in this program will ever tell you to move a camera.
 
 <div align="center">
 

@@ -14,11 +14,19 @@ namespace roi_processing
      * `roiSizePercent`, `horizontalScale = 0.95f  // (was 1.1f - too wide!)`,
      * `verticalScale` and `perspectiveMargin`. On 1280x720 that admitted x 154 to 1126
      * and y 44 to 676, and #1322 was filed against a rig whose board reached x=1130: it
-     * was clipped by tens of pixels against a number nobody chose. It is worse than that
-     * on the footage this repository ships. The mocks' own boards are measured at radius
-     * 291, 315 and 309 px around centres at y 338, 370 and 374, so camera 2's board runs
-     * to y=684 against an ellipse that stops at 676 -- the control has been calibrating
-     * on a clipped board all along.
+     * was clipped by tens of pixels against a number nobody chose.
+     *
+     * The shipped mocks were never clipped by it and the measurement says so: both rigs
+     * read the same six boards through the old ellipse and on the full frame, to the
+     * pixel -- 291, 314 and 308 px on mocks/cam_*.mp4, 194, 195 and 197 px on
+     * mocks/rig-20260918. What the ellipse cost was never visible on a camera aimed at
+     * the middle of its own frame, which is exactly why it survived this long. Move that
+     * same mock 230 px right and 150 px down, with its whole board still in shot and 27 px
+     * of daylight to the frame edge, and the old ellipse measures its board at 176.9 px
+     * where it really is 287.7 -- 0.61 of it -- and traces its doubles ring with 60 of 120
+     * rays instead of 96, ten above the 50 at which a camera is refused outright.
+     * `OD_ROI=frame` puts the ellipse back at run time and is how those numbers are taken
+     * on one binary.
      *
      * ADR-0079 §1 refuses widening those constants on its own evidence: the number you
      * would widen to is fitted against a measurement the clipping distorts. So the board
@@ -47,8 +55,8 @@ namespace roi_processing
          * It cannot decide whether a board is framed and it cannot refuse a camera; the
          * region is intersected with the frame, so a margin that reaches past the frame
          * edge simply stops there. Both rigs, measured on the full frame and with the
-         * board radius this multiplies: mocks 291/315/309 px -> 364/393/386 px of region
-         * radius; rig-20260918 195/196/197 px -> 243/244/247 px.
+         * board radius this multiplies: mocks 291/314/308 px -> 364/393/386 px of region
+         * radius; rig-20260918 194/195/197 px -> 243/244/247 px.
          */
         float roiRadiusOfBoardRadius = 1.25f;
     };

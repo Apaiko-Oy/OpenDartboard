@@ -13,10 +13,17 @@ namespace bull_processing
     {
         // #1320/#1340: the board this stage sizes a candidate against is the one in the
         // same mask the candidates come from -- the largest red/green region, whose outer
-        // boundary is the outside of the doubles ring. Nothing above this stage has
-        // measured the board: the ROI is a fixed 80% of the frame (roi_processing) and
-        // the ring ellipses are not fitted until STEP 6, three stages below here. So the
-        // scale is taken here.
+        // boundary is the outside of the doubles ring. No stage above this one MEASURES a
+        // board of its own -- the ring ellipses are not fitted until STEP 6, three stages
+        // below here -- so the scale is taken here.
+        //
+        // #1331 note: since ADR-0079 calibration makes this same measurement one stage
+        // earlier, by calling measureBoard() below on the FULL frame, and draws the region
+        // around what it found; so the frame this stage is handed is one whose board is
+        // whole by construction. It is the same function and there is no second opinion.
+        // What is measured is unchanged and both rigs read the same numbers either way;
+        // what moved is that they can no longer be numbers about a board a frame-centred
+        // ellipse had already clipped.
         //
         // It is taken from that region's EXTENT and not from the area it fills, and that
         // is #1340's repair. #1320 took the radius a disc of that area would have, which
@@ -105,8 +112,11 @@ namespace bull_processing
         // 250 the coloured arcs reach the outer ring, the board is the board, and the
         // ratio printed beside it falls from 0.154 toward 0.09. If it still reads 151, the
         // colour on that rig stops short of the doubles edge, the honest board is the
-        // fitted ellipse, and that does not exist for three stages yet -- which is #1331's
-        // ordering and not this issue's to fix. The floor holds either way, and that is
+        // fitted ellipse, and that does not exist for three stages yet -- which #1331 was
+        // expected to settle and did NOT. #1331 moved the region and the measurement that
+        // sizes it; the ellipse fit is still STEP 6 and the rig still reads 194, 195 and
+        // 197 px here, unmoved by the reordering. Whichever board that is, it is now
+        // measured on a picture nothing has cut. The floor holds either way, and that is
         // the point of deriving it from resolvability rather than from a board: 64.2 px
         // passes at 108, at 151 and at 250. Nothing here is refitted, and the band between
         // minBullRadiusFactor and maxBullRadiusFactor does not move.

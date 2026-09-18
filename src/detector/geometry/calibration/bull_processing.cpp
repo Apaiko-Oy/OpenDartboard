@@ -172,11 +172,10 @@ namespace bull_processing
         // ---- Step 3.5: the board, before anything is scored against it ------------------
         //
         // #1331 moved the measurement itself into measureBoard() above, unchanged, so
-        // that calibration can make it one stage earlier -- on the FULL frame, where the
-        // ROI has not yet had a chance to cut a board's edge off. This call is the same
-        // measurement on the frame that came back out of that ROI, and the clipping it
-        // can report here is the ROI's rather than the frame's; calibration has already
-        // refused a board the FRAME cuts.
+        // that calibration can make it one stage earlier -- on the FULL frame, where
+        // nothing has yet had a chance to cut a board's edge off. This call is the same
+        // measurement on the frame that came back out of the region calibration then drew
+        // around what it found, so a board that reaches this stage is a whole one.
         const BoardSighting board = measureBoardFrom(contours, hierarchy, frameCenter, params);
         const double boardArea = board.area;
         if (!board.found)
