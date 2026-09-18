@@ -87,9 +87,19 @@ namespace board_sight
     /**
      * Something at the machine will not come up: a camera that would not open, or a
      * calibration that failed on the frames it got. Either one is a board that cannot
-     * see, and neither is a state a retry improves, so both are ERROR rather than
-     * silence -- ERROR is the word that tells the pub to go and look at the computer,
-     * and silence is the word that says the same thing about a machine nobody can ask.
+     * see, so both are ERROR rather than silence -- ERROR is the word that tells the pub
+     * to go and look at the computer, and silence is the word that says the same thing
+     * about a machine nobody can ask.
+     *
+     * #899 corrected the sentence that used to be in the middle of that one: "neither is
+     * a state a retry improves". It was true of the two faults named above and it was
+     * read as a fact about the flag, which it is not. An unplugged camera IS improved by
+     * a retry, and since #899 a board that loses every camera mid-run retries until they
+     * come back -- without setting this flag, because it has not failed, it has stopped.
+     * What is still true is what this flag means: once it is set the board does not score
+     * again in this process. The two constructor faults set it, and so does the one
+     * finding a retry cannot improve -- the cameras came back and the board is not where
+     * it was (scorer.cpp, attemptRecovery).
      */
     inline std::atomic<bool> &faulted()
     {

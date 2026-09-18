@@ -45,6 +45,12 @@ private:
   // board is still there and #892 gave it a word for exactly this.
   void runFaultVigil();
 
+  // #899: one attempt at getting the board's sight back -- reopen the cameras, average a
+  // few frames, and ask the detector whether the calibration it holds is still true of
+  // what it can see. The verdict is the caller's instruction: `Unchanged` resumes
+  // scoring, `Moved` faults the board for good, `Unreadable` means try again later.
+  GeometryReview::Verdict attemptRecovery(int attempt, long blind_seconds);
+
   // Configuration
   string model_path;
   int width, height, fps;

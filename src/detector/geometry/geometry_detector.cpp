@@ -197,3 +197,90 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
 
     return initialized;
 }
+
+/**
+ * #899: the board is asked whether it is still looking at what it calibrated on.
+ *
+ * Called by Scorer after a sight loss has been survived and the cameras have been
+ * reopened, on a fresh average of frames. What comes back is a verdict and the numbers it
+ * was reached by; `calibrations` is not touched, and the board goes on scoring with the
+ * geometry it earned at start or it stops scoring at all.
+ *
+ * WHICH CAMERAS ARE ASKED. Only the ones that were scoring: #1318 lets a camera that is
+ * not looking at a dartboard abstain for the life of the run, and a slot that abstained
+ * has no held geometry to compare a fresh picture against. A camera that has not come
+ * back yet -- an empty frame in its slot -- abstains here too, because "this camera is
+ * still missing" is a fact about the recovery and not about whether the board moved.
+ *
+ * WHAT IT TAKES TO SAY `Unchanged`. One camera that was scoring, is back, still sees a
+ * dartboard, and agrees. That is #1318's `cameras_that_must_see = 1` read forward rather
+ * than a second, stricter quorum invented here: a board that can score on one camera can
+ * be vouched for by one camera. The refusal is the other quantifier on purpose -- ANY
+ * camera that disagrees is a `Moved`, and it returns on the first one, because one
+ * camera that has been shifted is enough to put a dart in the wrong wedge.
+ */
+GeometryReview GeometryDetector::reviewGeometry(const vector<camera::Frame> &frames)
+{
+    const vector<Mat> images = camera::images(frames);
+    const geometry_agreement::Limits limits;
+
+    int witnesses = 0;
+    int still_missing = 0;
+    int no_longer_sees = 0;
+    string last_account;
+
+    for (size_t i = 0; i < calibrations.size(); i++)
+    {
+        if (!calibrations[i].sees_board)
+        {
+            // #1318: this camera was not scoring, so there is nothing it can vouch for.
+            continue;
+        }
+        if (i >= images.size() || images[i].empty())
+        {
+            still_missing++;
+            continue;
+        }
+
+        DartboardCalibration fresh = geometry_calibration::calibrateSingleCamera(images[i], (int)i, false);
+        if (!fresh.sees_board)
+        {
+            // The camera is answering and there is no dartboard in the picture. That is
+            // not agreement and it is not a measured move either; it is a camera that
+            // cannot be used as a witness, and it is said by name because a lens that
+            // somebody has turned to face the room looks exactly like this.
+            no_longer_sees++;
+            log_warning("GEOMETRY REVIEW: camera " + to_string(i + 1) +
+                        " is answering but no longer sees a dartboard - " +
+                        board_look::refusal(fresh.look));
+            continue;
+        }
+
+        const geometry_agreement::Movement movement =
+            geometry_agreement::measure(calibrations[i], fresh);
+        const string account = geometry_agreement::account((int)i, movement, limits);
+
+        if (geometry_agreement::hasMoved(movement, limits))
+        {
+            log_error("GEOMETRY REVIEW: " + account);
+            return GeometryReview{GeometryReview::Verdict::Moved, account};
+        }
+
+        log_info("GEOMETRY REVIEW: " + account);
+        witnesses++;
+        last_account = account;
+    }
+
+    if (witnesses == 0)
+    {
+        return GeometryReview{GeometryReview::Verdict::Unreadable,
+                              "no camera that was scoring can vouch for the board yet (" +
+                                  to_string(still_missing) + " still not answering, " +
+                                  to_string(no_longer_sees) + " answering without a dartboard in the picture)"};
+    }
+
+    return GeometryReview{GeometryReview::Verdict::Unchanged,
+                          to_string(witnesses) + " of " + to_string((int)calibrations.size()) +
+                              " cameras vouch for the board being where it was, the last of them " +
+                              last_account};
+}

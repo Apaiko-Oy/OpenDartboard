@@ -243,14 +243,54 @@ namespace camera
             // every capture -- so this stands in for an unplug that cannot be performed
             // on a container with three video files for cameras.
             static const int od_blind_after = odEnvInt("OD_BLIND_AFTER", 0);
+            // ---- #899 instrumentation, the third of the same shape and equally NOT a
+            // feature. OD_BLIND_AFTER is one-way by construction -- "and never recovers"
+            // is what #895 wanted from it -- so nothing in the program could produce the
+            // half of a pub evening this issue is about: the plug goes back in. This
+            // names how LONG the cameras stay unplugged, in milliseconds of wall clock
+            // from the cycle OD_BLIND_AFTER blinded them.
+            //
+            // Milliseconds rather than a second cycle number, and the difference is not a
+            // taste: the thing being tested is a threshold measured in seconds and a
+            // backoff measured in seconds, while a blind cycle costs about a millisecond
+            // because read() returns immediately -- so a window stated in cycles is a
+            // window of unpredictable length in the only unit the behaviour under test is
+            // written in. Stated in milliseconds, "the cameras come back during the
+            // second retry" is a fact about the run rather than a guess about its speed.
+            //
+            // The clock is shared by every capture source this process opens, so a
+            // recovery that reopens the cameras is still inside the same window -- which
+            // is what makes an early attempt fail and a later one succeed.
+            static const int od_blind_for_ms = odEnvInt("OD_BLIND_FOR_MS", 0);
+            static std::chrono::steady_clock::time_point od_blinded_at{};
+            static bool od_unblinding_said = false;
             static long od_short_cycles = 0;
             od_cycle++;
             const bool od_inject = (od_drop_every > 0 && (od_cycle % od_drop_every) == 0);
-            const bool od_blind = (od_blind_after > 0 && od_cycle >= od_blind_after);
+            bool od_blind = (od_blind_after > 0 && od_cycle >= od_blind_after);
             if (od_blind && od_cycle == od_blind_after)
             {
+                od_blinded_at = std::chrono::steady_clock::now();
                 log_error("BLINDING cycle=" + std::to_string(od_cycle) +
-                          " every camera stops answering from here (OD_BLIND_AFTER)");
+                          " every camera stops answering from here (OD_BLIND_AFTER)" +
+                          (od_blind_for_ms > 0 ? " for " + std::to_string(od_blind_for_ms) + " ms" : ""));
+            }
+            if (od_blind && od_blind_for_ms > 0)
+            {
+                const long blind_ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now() - od_blinded_at)
+                                          .count();
+                if (blind_ms >= od_blind_for_ms)
+                {
+                    od_blind = false;
+                    if (!od_unblinding_said)
+                    {
+                        od_unblinding_said = true;
+                        log_warning("UNBLINDING cycle=" + std::to_string(od_cycle) + " after " +
+                                    std::to_string(blind_ms) +
+                                    " ms the cameras answer again (OD_BLIND_FOR_MS)");
+                    }
+                }
             }
 
             std::vector<Frame> frames(captures_.size());

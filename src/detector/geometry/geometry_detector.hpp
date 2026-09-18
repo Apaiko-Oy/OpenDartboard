@@ -4,6 +4,7 @@
 #include <vector>
 #include "../detector_interface.hpp"
 #include "calibration/geometry_calibration.hpp"
+#include "calibration/geometry_agreement.hpp"
 #include "detection/motion_processing.hpp"
 #include "streamer.hpp"
 
@@ -21,6 +22,11 @@ public:
 
     // Process method that handles motion + detection
     virtual DetectorResult process(const vector<camera::Frame> &frames) override;
+
+    // #899: look again at the cameras that are back and say whether the calibration this
+    // detector holds is still true of them. It does not replace `calibrations`, by
+    // design -- geometry_agreement.hpp holds the argument.
+    virtual GeometryReview reviewGeometry(const vector<camera::Frame> &frames) override;
 
 protected:
     bool initialized;
