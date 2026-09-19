@@ -24,6 +24,13 @@ set -u
 #      absolute count, and a calibration that never asks the vote's arithmetic. It must
 #      calibrate again. Without C, B is a claim about a build.
 #
+#      #1389 added the second half of that switch. There are two rules to put back now,
+#      not one: the vote's, and the camera quorum the admission gate reads since ADR-0081
+#      (OD_CAMERA_QUORUM=1, the value #1318 and #1353 shipped). Restoring only the vote
+#      leaves the board refused by the floor instead, which is a true refusal and not the
+#      one this phase is falsifying -- so C sets both and the pre-#1348 board comes back
+#      whole.
+#
 # Every detector started here can end in #895's fault vigil, which never returns, so each
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
@@ -44,8 +51,8 @@ sleep 5
 kill -TERM $B 2>/dev/null; wait $B 2>/dev/null
 echo "B_RC=$?"
 
-echo "=== C: the same board under OD_STATE_QUORUM=absolute ==="
-OD_STATE_QUORUM=absolute OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $MOCKS \
+echo "=== C: the same board under OD_STATE_QUORUM=absolute OD_CAMERA_QUORUM=1 ==="
+OD_STATE_QUORUM=absolute OD_CAMERA_QUORUM=1 OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $MOCKS \
   --width 1280 --height 720 > /run1348/c.out 2>&1 &
 C=$!
 i=0; while [ $i -lt 120 ]; do grep -qa 'BOARD FAULTED\|Scorer running with' /run1348/c.out 2>/dev/null && break; i=$((i+1)); sleep 1; done
@@ -97,10 +104,10 @@ if [ "$BAD" = "0" ]; then say "OK   every count printed is below the threshold i
 else say "FAIL $BAD refusals print a count that is not below its own threshold" no; fi
 
 echo
-echo "=== 3. falsification: the same board, the same binary, the rule put back ==="
+echo "=== 3. falsification: the same board, the same binary, both rules put back ==="
 grep -aE 'Initial calibration (failed|completed)|BOARD FAULTED|Scorer running with' /run1348/c.txt | head -3 || true
 if grep -qa 'Initial calibration completed successfully on 1 of 3 cameras' /run1348/c.txt; then
-  say "OK   under OD_STATE_QUORUM=absolute the same board calibrates again" ok
+  say "OK   under OD_STATE_QUORUM=absolute OD_CAMERA_QUORUM=1 the same board calibrates again" ok
 else say "FAIL the switch did not restore the behaviour this issue changed, so phase B is about a build and not about a rule" no; fi
 if grep -qa 'Scorer running with 1 of 3 cameras' /run1348/c.txt; then
   say "OK   and starts scoring -- which is what it did before #1348, and could not do" ok
