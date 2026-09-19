@@ -130,6 +130,16 @@ segment the detector asserts, and `angle` says where in that wedge the dart is.
 carry `"segment": null, "ring": null, "board": null`; a bull carries `"segment": null` with a
 ring and a radius, and `"angle": null` when the orientation is unknown.
 
+**The push to Turnaus says the same thing more narrowly, and the difference is deliberate**
+(#1366). A detection posted to `/api/v1/{autoscorer,casual}/detections` carries the same two
+numbers as `board_radius` and `board_angle`, **both or neither** — that door refuses half a
+polar position with a 422, and a 422 is not retried, so a dart sent with a radius and no angle
+would be lost rather than stored without its place. So the bull with a ring, a radius and no
+orientation, which this socket publishes as `"angle": null`, is posted with **no board fields
+at all**; so is a `MISS`, and a takeout body stays `{}`. The two numbers are also rounded to
+the four decimal places Turnaus keeps, and an angle that rounds to `360.0000` is posted as `0`,
+because 360 degrees is 0 degrees. Nothing about what this socket publishes changed.
+
 ### Finding a board on the network
 
 A board whose socket is open on the network - started with `--listen` - **announces itself

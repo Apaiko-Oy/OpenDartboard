@@ -47,9 +47,16 @@ private:
 
   // #899: one attempt at getting the board's sight back -- reopen the cameras, average a
   // few frames, and ask the detector whether the calibration it holds is still true of
-  // what it can see. The verdict is the caller's instruction: `Unchanged` resumes
-  // scoring, `Moved` faults the board for good, `Unreadable` means try again later.
-  GeometryReview::Verdict attemptRecovery(int attempt, long blind_seconds);
+  // what it can see.
+  //
+  // #1388 / ADR-0080: it returns the whole review rather than the verdict alone, and it
+  // decides nothing. `Moved` used to fault the board from inside this call, which made
+  // one measurement and one policy the same event; a budget cannot be spent by a function
+  // that ends the run on the first disagreement. So the verdicts are now instructions to
+  // run(): `Unchanged` resumes scoring on the held calibration, `Unreadable` means try
+  // again on the backoff, and `Moved` means ask again -- until the budget is spent, and
+  // then fault, with the account this carries back.
+  GeometryReview attemptRecovery(int attempt, long blind_seconds);
 
   // Configuration
   string model_path;

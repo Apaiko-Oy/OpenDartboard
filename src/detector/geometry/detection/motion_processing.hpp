@@ -4,6 +4,8 @@
 #include <chrono>
 #include <string>
 
+#include "detector/geometry/camera_quorum.hpp"
+
 using namespace cv;
 using namespace std;
 
@@ -117,10 +119,35 @@ namespace motion_processing
         // #1350: an empty window is one refused STATE VOTE line. This also closes half
         // of #1348: with 1 here, whyNoEventIsPossible's answering-count gate and the
         // spiking ceiling can no longer disagree by one abstaining camera.
-        int min_cameras_for_event = 1;     // Cameras whose own board must spike for a dart event
+        //
+        // #1389 NARROWED WHAT THIS NUMBER IS, AND LEFT ITS VALUE ALONE. It used to be
+        // asked two ways: how many cameras must SPIKE TOGETHER inside one window (the
+        // gate in processMotion, which is what the census above measured), and how many
+        // cameras a board must HAVE before an event is possible at all
+        // (whyNoEventIsPossible). Those are a trigger and a census, and ADR-0081 §2 is
+        // about exactly that -- a count taken against one population compared against
+        // another. The census half now reads `camera_quorum::cameras()` with the other
+        // two quorums; this field is the trigger and nothing else, and 1 is the number
+        // the rig census above measured. Raising it to two would stop a healthy
+        // three-camera board scoring at all.
+        // camera-quorum-exempt: this is the per-window SPIKE TRIGGER and not the camera
+        // quorum -- how many cameras must spike together inside one window, which #1353
+        // measured on the rig at one. ADR-0081 §2 lists it among the three quorums; the
+        // half of it that really counted cameras is whyNoEventIsPossible's census, and
+        // that half now reads camera_quorum::cameras(). Moving this number to two would
+        // stop a HEALTHY three-camera board forming any event at all, which is a worse
+        // failure than the one ADR-0081 is about. If this marker is ever removed, the
+        // number beside it has to become camera_quorum::cameras() and the rig census in
+        // #1353 has to be re-measured first.
+        int min_cameras_for_event = 1;     // Cameras whose own board must spike TOGETHER in one window
         int spike_window_frames = 10;      // Frames to wait for other cameras to join spike
         int stability_frames = 15;         // Consecutive low-motion frames needed for stability
         int max_event_duration_ms = 10000; // Maximum time for dart event (safety timeout)
+        // #1358: this is a floor on how long a QUIET board waits, not a deaf period. A
+        // spike above `spike_threshold` inside it starts its own event immediately --
+        // an event reaches its end only by settling under `low_threshold`, so the
+        // motion this clock exists to ignore is over before the clock starts, and what
+        // it used to ignore was the next throw. See processMotion, case COOLDOWN.
         int cooldown_period_ms = 1000;     // Cooldown after dart detection
     };
 
@@ -159,21 +186,39 @@ namespace motion_processing
      * #1338: why this board can never form a dart event, or an empty string if it can.
      *
      * A dart event is a motion spike seen by `min_cameras_for_event` cameras at once, and
-     * this file is the only place that number is written. Nothing above it knew: a rig
-     * whose cameras 2 and 3 delivered no frames calibrated on camera 1, called itself
-     * ready, and sat in a state where `cameras_that_spiked` is bounded above by 1 and the
-     * threshold is 2 -- not a board that rarely scores, a board that arithmetically
-     * cannot. So the arithmetic is asked here, where its own constant lives, and the
-     * detector reads the sentence rather than a count of objects.
+     * a board that cannot reach the camera floor can never form one usefully. Nothing
+     * above it knew: a rig whose cameras 2 and 3 delivered no frames calibrated on camera
+     * 1, called itself ready, and sat in a state where `cameras_that_spiked` is bounded
+     * above by 1 and the threshold was 2 -- not a board that rarely scores, a board that
+     * arithmetically cannot. So the arithmetic is asked here, against this stage's own
+     * population, and the detector reads the sentence rather than a count of objects.
+     *
+     * #1389: the THRESHOLD is no longer this file's. It is `camera_quorum::cameras()`,
+     * read by calibration admission and by the state vote's floor as well, because the
+     * three used to be three different numbers and a one-camera board fell through all of
+     * them (ADR-0081 §1). What stayed here is the per-window spike trigger, which is a
+     * different question about a different population -- see MotionParams above.
      *
      * Two facts, both about this translation unit and both checkable against the code:
      *
-     *   1. `cameras_answering` is how many cameras produced a frame TO CALIBRATE ON, and
-     *      it is the ceiling on `cameras_that_spiked` for the life of the run rather than
-     *      for this cycle. `detectMotion` skips any slot whose `background_frames[i]` is
-     *      empty, and the backgrounds are the calibration frames, saved once. A camera
-     *      that was silent at calibration therefore reports `motion_ratio` 0.0 for ever,
-     *      even if it starts answering later, and 0.0 never exceeds `spike_threshold`.
+     *   1. `cameras_that_can_spike` is the ceiling on `cameras_that_spiked` for the life
+     *      of the run rather than for this cycle, and #1348 is what narrowed it. A camera
+     *      needs BOTH halves to ever spike. It needs a frame to calibrate on, because
+     *      `detectMotion` skips any slot whose `background_frames[i]` is empty and the
+     *      backgrounds are the calibration frames, saved once -- a camera silent at
+     *      calibration reports `motion_ratio` 0.0 for ever, even if it starts answering
+     *      later, and 0.0 never exceeds `spike_threshold`. And since #1339 it needs a
+     *      FITTED BOARD, because every ratio here is a fraction of the board's own area
+     *      and a camera with `BoardExtent::known` false abstains from the figure rather
+     *      than being measured against a frame -- so it never spikes either.
+     *
+     *      Until #1348 this argument was asked with the ANSWERING count, which is the
+     *      wider of the two populations: a board with three answering cameras of which
+     *      one fitted a board was told an event was possible on three, by a function
+     *      whose own file says only one of them can ever produce one. The two happen to
+     *      agree today -- `min_cameras_for_event` is 1 since #1353 and calibration takes
+     *      at least one seeing camera -- and that is exactly the kind of agreement that
+     *      stops holding the next time somebody moves a constant.
      *
      *   2. `camera_slots` must be exactly 3. `detectMotion`'s initialisation refuses any
      *      other number, returns zeroed MotionData and never sets `initialized`, so a
@@ -182,22 +227,26 @@ namespace motion_processing
      * #1321's rule on the sentence: every count is stated against the threshold it fell
      * short of, so a line reporting the wrong number can be seen to be wrong.
      */
-    inline std::string whyNoEventIsPossible(int camera_slots, int cameras_answering,
-                                            const MotionParams &params = MotionParams())
+    inline std::string whyNoEventIsPossible(int camera_slots, int cameras_that_can_spike,
+                                            int quorum = camera_quorum::cameras())
     {
+        // camera-quorum-exempt: detectMotion initialises on exactly three slots and on no
+        // other number. That is the rig's shape (ADR-0080: three cameras bolted to one
+        // frame), not the floor, and it is a different fact from how many of them work.
         if (camera_slots != 3)
         {
             return "this board is running " + std::to_string(camera_slots) +
                    " cameras and motion detection only initialises on 3, so no camera ever "
                    "reports motion and no dart can be scored";
         }
-        if (cameras_answering < params.min_cameras_for_event)
+        if (cameras_that_can_spike < quorum)
         {
-            return "only " + std::to_string(cameras_answering) + " of " + std::to_string(camera_slots) +
-                   " cameras produced a frame to calibrate on, and a dart event needs a motion "
-                   "spike seen by at least " + std::to_string(params.min_cameras_for_event) +
-                   " cameras at once, so no dart can be scored until the missing " +
-                   std::to_string(camera_slots - cameras_answering) + " answer";
+            return "only " + std::to_string(cameras_that_can_spike) + " of " + std::to_string(camera_slots) +
+                   " cameras can report motion -- a camera needs a frame to calibrate on and a "
+                   "fitted board to measure it against -- and this board needs " +
+                   std::to_string(quorum) +
+                   " of them before it may score, so no dart can be scored until the missing " +
+                   std::to_string(camera_slots - cameras_that_can_spike) + " answer";
         }
         return "";
     }

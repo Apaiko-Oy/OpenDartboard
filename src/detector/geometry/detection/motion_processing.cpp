@@ -48,6 +48,36 @@ namespace motion_processing
         return v;
     }
 
+    // #1358's falsification, in the shape #1339's `OD_MOTION_DENOMINATOR` established:
+    // one binary, the TRIGGER chosen at run time, so "different build" is never a
+    // confound. OD_DART_WINDOW=settle restores the dart window's trigger exactly as it
+    // was when #1358 was filed and #1345 measured it -- a spike big enough that only a
+    // board-wide disturbance reaches it, seen by two cameras at once, and a cooldown
+    // that swallows whatever lands inside it. On mocks/rig-20260918 that is the trigger
+    // under which every window this program opened had ZERO changed pixels inside every
+    // camera's own fitted board: the six windows were the six RETRIEVALS, and the board
+    // they measured had just been emptied by hand.
+    static bool settleTrigger()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_DART_WINDOW");
+            return e && std::string(e) == "settle";
+        }();
+        return v;
+    }
+
+    // The thresholds this cycle really reads. #1353 moved both constants and #1358's
+    // switch is the only thing that moves them back.
+    static double spikeThreshold(const MotionParams &params)
+    {
+        return settleTrigger() ? 0.08 : params.spike_threshold;
+    }
+    static int minCamerasForEvent(const MotionParams &params)
+    {
+        return settleTrigger() ? 2 : params.min_cameras_for_event;
+    }
+
     // The mask for one camera, built on first sight of its board and kept.
     static const Region &regionFor(size_t i, const vector<BoardExtent> &boards, Size frame, const MotionParams &params)
     {
@@ -317,7 +347,7 @@ namespace motion_processing
         {
             // Look for motion spike that could indicate dart hit. #1353: on any ONE
             // measured camera's board, not on the average -- see peak_intensity above.
-            if (peak_intensity > params.spike_threshold)
+            if (peak_intensity > spikeThreshold(params))
             {
                 current_state = DartEventState::SPIKE_DETECTED;
                 event_start_time = now;
@@ -328,7 +358,7 @@ namespace motion_processing
                 // Mark cameras that are spiking
                 for (size_t i = 0; i < motion_data.size(); i++)
                 {
-                    if (motion_data[i].motion_ratio > params.spike_threshold)
+                    if (motion_data[i].motion_ratio > spikeThreshold(params))
                     {
                         cameras_spiked[i] = true;
                     }
@@ -342,7 +372,7 @@ namespace motion_processing
             // Continue tracking which cameras spike during the event window
             for (size_t i = 0; i < motion_data.size(); i++)
             {
-                if (motion_data[i].motion_ratio > params.spike_threshold)
+                if (motion_data[i].motion_ratio > spikeThreshold(params))
                 {
                     cameras_spiked[i] = true;
                 }
@@ -358,7 +388,7 @@ namespace motion_processing
                                             : (long long)(params.spike_window_frames * 50);
 
             // Check if we have enough camera participation and motion is settling
-            if (cameras_that_spiked >= params.min_cameras_for_event &&
+            if (cameras_that_spiked >= minCamerasForEvent(params) &&
                 current_intensity <= params.low_threshold)
             {
                 current_state = DartEventState::STABILIZING;
@@ -366,7 +396,7 @@ namespace motion_processing
             }
             // Timeout if event takes too long or insufficient participation
             else if (event_duration > params.max_event_duration_ms ||
-                     (event_duration > spike_window_ms && cameras_that_spiked < params.min_cameras_for_event))
+                     (event_duration > spike_window_ms && cameras_that_spiked < minCamerasForEvent(params)))
             {
                 bool safety_timeout = event_duration > params.max_event_duration_ms;
                 current_state = DartEventState::IDLE;
@@ -431,7 +461,7 @@ namespace motion_processing
             else
             {
                 // Motion increased - could be dart removal or false positive
-                if (current_intensity > params.spike_threshold)
+                if (current_intensity > spikeThreshold(params))
                 {
                     // Big spike during stabilization - probably dart removal, reset
                     current_state = DartEventState::IDLE;
@@ -462,7 +492,46 @@ namespace motion_processing
             {
                 current_state = DartEventState::IDLE;
             }
-            else if (debug_mode && current_intensity > params.spike_threshold)
+            // #1358: a spike inside the cooldown is a NEW dart, and this is where the
+            // rig's missing darts went. An event only ever reaches END by settling --
+            // `current_intensity <= low_threshold`, three orders of magnitude under a
+            // spike -- so the motion this cooldown exists to ignore is already over
+            // before the clock starts. What the clock then ignores is the next throw.
+            // Measured on mocks/rig-20260918, 1800 cycles: four splashes of 0.018 to
+            // 0.039 of one camera's own board -- throws, by #1353's census, which puts
+            // a throw at 0.0135-0.089 and the noise ceiling at 0.0088 -- landed inside
+            // a cooldown and opened no window at all. The board scored 17 darts where
+            // 21 were thrown, and the four it lost are those four.
+            //
+            // So a fresh spike ends the cooldown and starts its own event, exactly as
+            // IDLE would have. The cooldown still stands against a dart whose own
+            // splash rings on for a few cycles, because that never gets here: the state
+            // machine cannot leave STABILIZING until the room is quiet.
+            //
+            // Gated off under #1339's `OD_MOTION_DENOMINATOR=frame` for the same reason
+            // it is gated off under #1358's own switch: the argument above is that a
+            // spike is a spike ON A BOARD, and under the frame denominator there is no
+            // board in the figure -- the thrower fills it, which is what #1339 measured.
+            // A falsification switch must vary one thing, so that run keeps the whole of
+            // the machine it was written to falsify.
+            else if (peak_intensity > spikeThreshold(params) && !settleTrigger() && !measuredAgainstTheFrame())
+            {
+                current_state = DartEventState::SPIKE_DETECTED;
+                event_start_time = now;
+                fill(cameras_spiked.begin(), cameras_spiked.end(), false);
+                intensity_history.clear();
+                stable_frame_count = 0;
+                for (size_t i = 0; i < motion_data.size(); i++)
+                {
+                    if (motion_data[i].motion_ratio > spikeThreshold(params))
+                    {
+                        cameras_spiked[i] = true;
+                    }
+                }
+                log_debug("COOLDOWN: a spike of " + to_string(peak_intensity) + " on one camera's own board, " +
+                          to_string(params.cooldown_period_ms - cooldown_elapsed) + "ms into the cooldown: a new dart event");
+            }
+            else if (debug_mode && current_intensity > spikeThreshold(params))
             {
                 log_debug("COOLDOWN: Motion during cooldown period - intensity: " + to_string(current_intensity) + ", remaining: " + to_string(params.cooldown_period_ms - cooldown_elapsed) + "ms");
             }

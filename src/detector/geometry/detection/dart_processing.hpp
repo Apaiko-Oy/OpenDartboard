@@ -2,9 +2,11 @@
 
 #include <opencv2/opencv.hpp>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
+#include "detector/geometry/camera_quorum.hpp"
 #include "motion_processing.hpp"
 
 using namespace cv;
@@ -20,6 +22,46 @@ namespace dart_processing
         DART_2, // 2 darts on board
         DART_3  // 3 darts on board
     };
+
+    /**
+     * #1389 falsification switch: OD_STATE_FLOOR=<n> pins the state vote's floor, and
+     * pins it AGAINST the camera quorum, which is the only way to reproduce ADR-0081 §1
+     * on one binary.
+     *
+     * The defect this issue removed was not a number that was wrong. It was three numbers
+     * that DISAGREED: a calibration gate at 1, an event census at 1, and a vote at 2. A
+     * board caught between them is admitted, opens dart windows, and can never move its
+     * own state -- inert, while reporting itself healthy. With one constant there is
+     * nothing left in the program that can be set to that combination, so the defect
+     * becomes undemonstrable and the fix becomes a claim rather than a measurement. This
+     * puts the disagreement back on request:
+     *
+     *     OD_CAMERA_QUORUM=1 OD_STATE_FLOOR=2 OD_STATE_QUORUM=absolute
+     *
+     * is exactly what #1318, #1353 and the pre-#1348 vote shipped, and
+     * testers/phases1389/1389-floor.sh phase E runs the real binary under it and watches
+     * the board be admitted, form windows and move its state not once.
+     *
+     * It is a PIN and nothing reads it on an ordinary run: unset, zero and anything that
+     * is not a positive number all leave the floor where camera_quorum puts it. It is
+     * deliberately not a second home for the number -- a pin that wins where it is set
+     * and is absent everywhere else, which is the shape `HOSTING_PRICE_<SPORT>` has in
+     * the application this detector reports to.
+     */
+    inline int stateFloorPin()
+    {
+        static const int pinned = []
+        {
+            const char *e = std::getenv("OD_STATE_FLOOR");
+            if (e == nullptr || *e == '\0')
+            {
+                return 0;
+            }
+            const int n = std::atoi(e);
+            return n > 0 ? n : 0;
+        }();
+        return pinned;
+    }
 
     // Parameters for dart state detection
     struct DartParams
@@ -68,7 +110,104 @@ namespace dart_processing
         // measured 348-15,556 px on the board (shadows inflate the big end), and an
         // empty window's residue measured 0 px on the rig, 13-271 px on the mocks.
         double board_change_percent_threshold = 0.10; // % of a camera's own fitted board
+
+        // #1348: the vote's quorum, and the population it is measured against.
+        //
+        // `min_cameras_to_move_the_board` is the CORROBORATION rule and it is a floor: a
+        // board never moves on one camera's word. That is not #1345's finding restated --
+        // #1345's camera 1 voted DART_1 on the thrower's shoes and the cure was a
+        // LOCATION (#1354: the deciding figure is the board's own share, and a camera
+        // with no fitted board abstains), not a bigger majority. The two guards answer
+        // different questions and neither implies the other: location says whether what a
+        // camera saw is on the board, corroboration says whether one camera saying so is
+        // enough.
+        //
+        // What #1348 adds is the population. The vote already excludes abstainers -- #798
+        // for a camera that contributed no frame to the window, #1354 for one with no
+        // fitted board while another has one -- so `moves_up` and `goes_clean` are counts
+        // over the VOTERS, while the 2 they were compared against was absolute. One
+        // abstainer silently turned "2 of 3" into unanimity, two made any state change
+        // impossible -- takeouts included -- and nothing said so at any level. So the
+        // quorum is a majority of the voters with the floor above it:
+        //
+        //   voters  1  2  3  4  5      quorum  2  2  2  3  3
+        //
+        // At three voters and under that is the shipped 2, which is why nothing either
+        // fixture measures moves; above it, it is the half #1355 made reachable, where an
+        // absolute 2 is a MINORITY of a four-camera board.
+        // #1389: the floor is `camera_quorum::kCameras` and is no longer written here.
+        // It was one of the three copies of this number ADR-0081 §2 is about, and it is
+        // the copy the other two are measured against: everything below it is arithmetic
+        // a board cannot reach. The field is kept so that a tester can still move it
+        // under a fixed board -- #1348's whole argument for it -- and so that
+        // OD_STATE_QUORUM=absolute has something to restore.
+        int min_cameras_to_move_the_board =
+            stateFloorPin() > 0 ? stateFloorPin() : camera_quorum::cameras(); // The floor: never one camera's word
+        // #1348 falsification: the absolute count the vote used before it, restored under
+        // a fixed board. Set from OD_STATE_QUORUM=absolute at run time.
+        bool absolute_quorum = false;
     };
+
+    /**
+     * #1348: how many of this window's voters it takes to move the board.
+     *
+     * A majority of the population that actually voted, never fewer than the floor. Pure
+     * and inline for the reason whyNoEventIsPossible is (#1338): the table is a thing a
+     * tester holds without building the detector, and a constant that can be moved under
+     * a fixed board is a gate that can be made to fail.
+     */
+    // #1348 falsification switch: OD_STATE_QUORUM=absolute restores the vote as it was
+    // before this issue -- the absolute count, and a calibration that never asks the
+    // vote's arithmetic. Defined in dart_processing.cpp, where the reason is written.
+    bool stateQuorumIsAbsolute();
+
+    inline int stateVoteQuorum(int voters, const DartParams &params = DartParams())
+    {
+        if (params.absolute_quorum)
+        {
+            return params.min_cameras_to_move_the_board;
+        }
+        const int majority = voters / 2 + 1;
+        return majority > params.min_cameras_to_move_the_board
+                   ? majority
+                   : params.min_cameras_to_move_the_board;
+    }
+
+    /**
+     * #1348: why this board can never change state, or an empty string if it can.
+     *
+     * whyNoEventIsPossible's argument, one stage on and against the other population.
+     * `cameras_that_can_vote` is how many cameras bring both a frame and -- where any
+     * camera on the board has one -- a fitted board to measure against; it is the ceiling
+     * on `moves_up` and on `goes_clean` for the life of the run, because a calibration
+     * does not change under a running board. A board whose ceiling is under its own
+     * quorum does not score rarely: it holds CLEAN for ever, and cannot see a dart taken
+     * out either.
+     *
+     * This is the gap #1353 opened where it closed the other one. Moving
+     * `min_cameras_for_event` to 1 made the event quorum reachable on one camera, and the
+     * vote's 2 then became the binding arithmetic that nothing asked -- so a one-camera
+     * board passed #1338's gate and beat READY while unable to leave CLEAN. #1348 is that
+     * sentence, asked where its own constant lives.
+     *
+     * #1321's rule on the sentence: the count is stated against the threshold it fell
+     * short of.
+     */
+    inline std::string whyNoStateChangeIsPossible(int camera_slots, int cameras_that_can_vote,
+                                                  const DartParams &params = DartParams())
+    {
+        const int quorum = stateVoteQuorum(cameras_that_can_vote, params);
+        if (cameras_that_can_vote < quorum)
+        {
+            return "only " + std::to_string(cameras_that_can_vote) + " of " +
+                   std::to_string(camera_slots) +
+                   " cameras can vote on what is on the board -- a camera needs a frame and a "
+                   "fitted board to vote with -- and it takes " + std::to_string(quorum) +
+                   " of them to move the board, so this board can neither call a dart nor "
+                   "see one taken out";
+        }
+        return "";
+    }
 
     // Per-camera detection result
     struct CameraDetectionResult
@@ -142,9 +281,16 @@ namespace dart_processing
      * chain's controls were extracted from.
      *
      * The shape is #1321's: every camera's candidate beside the figure it answered with,
-     * the two counts beside the 2 either of them needed, and the threshold the figures
-     * are read against -- named from DartParams, not retyped, so a moved constant moves
-     * this sentence with it.
+     * the two counts beside the number either of them needed, and the threshold the
+     * figures are read against -- named from DartParams, not retyped, so a moved constant
+     * moves this sentence with it.
+     *
+     * #1348: that number is now computed rather than typed, from the VOTERS this window
+     * had, and the voters are recounted here from the same two abstention flags the vote
+     * counts them from rather than being passed in -- so the sentence cannot name a
+     * quorum the vote did not use. A window whose voters cannot reach their own quorum
+     * says that too, because "1 moved up and 0 read CLEAN, either takes 2" is a true
+     * sentence about a board that was never going to move at all.
      *
      * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds the
      * sentence to the vote without building the detector.
@@ -163,13 +309,20 @@ namespace dart_processing
         char figure[32];
         string cameras;
         bool board_share_known = false;
+        int voters = 0;
         for (const CameraDetectionResult &r : camera_results)
         {
             if (r.frame_available && r.board_pixels > 0)
             {
                 board_share_known = true;
             }
+            // #1348: the same two exclusions the vote makes, #798's and #1354's.
+            if (r.frame_available && !r.abstained_no_board)
+            {
+                voters++;
+            }
         }
+        const int quorum = stateVoteQuorum(voters, params);
         for (size_t i = 0; i < camera_results.size(); i++)
         {
             if (!cameras.empty())
@@ -206,7 +359,15 @@ namespace dart_processing
         }
         snprintf(figure, sizeof(figure), "%.3f", params.change_percent_threshold);
         return "STATE VOTE: " + to_string(moves_up) + " moved up and " + to_string(goes_clean) +
-               " read CLEAN, either takes 2 to move the board, so it stays " +
+               " read CLEAN, either takes " + to_string(quorum) + " of the " + to_string(voters) +
+               " cameras that voted to move the board" +
+               // #1348: and if the voters could never have reached it, that is the fact
+               // about this window, not the counts above it. Said here because this is
+               // where a window accounts for itself; the board-level case -- a ceiling
+               // under the quorum for the life of the run -- is refused at calibration by
+               // whyNoStateChangeIsPossible instead.
+               (voters < quorum ? ", which those " + to_string(voters) + " could not have reached" : "") +
+               ", so it stays " +
                getDartBoardStateName(final_state) + ": " + cameras +
                "; a figure is the % of that camera's own frame that changed, and " +
                figure + " is where a camera calls a dart" +
