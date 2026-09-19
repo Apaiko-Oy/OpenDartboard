@@ -90,11 +90,19 @@ namespace
     //
     // THE BUDGET IS A SPAN, AND THE TWO NUMBERS ARE HOW IT IS SPENT. An attempt is not
     // free: it reopens the cameras, reads thirty frames and re-calibrates every camera
-    // that was scoring, which measured 3.4 s for three cameras on this box. So four
-    // attempts two seconds apart span 3 x (2.0 + 3.4) = 16.2 s from the first
-    // disagreement to the last -- two and a half times the longest disturbance measured
-    // on either rig, and the margin is deliberate, because 6.00 s is the longest
-    // disturbance seen in two minutes of footage rather than the longest one there is.
+    // that was scoring, so the measurements are further apart than the wait alone. That
+    // was measured on a running board rather than reasoned about -- the same harness,
+    // phase 3, reads the seconds-blind figure each attempt prints, and the four
+    // measurements of a spent budget landed at 11, 15, 19 and 23 seconds blind:
+    //
+    //     4 measurements, 4 s apart (2 s of wait and 2 s of measuring three cameras)
+    //     = a 12 s span from the first disagreement to the last
+    //
+    // Twice the longest disturbance measured on either rig, and the margin is deliberate,
+    // because 6.00 s is the longest disturbance seen in two minutes of footage rather
+    // than the longest one there is. The harness asserts the span against the
+    // disturbance, in seconds, on every run -- so a slower box, a fourth camera or a
+    // moved constant fails here rather than in a pub.
     //
     // AND THE COST OF BEING WRONG IS NOT SYMMETRIC, which is why the margin goes this
     // way. A board spending this budget is a board that has already suspended scoring, so

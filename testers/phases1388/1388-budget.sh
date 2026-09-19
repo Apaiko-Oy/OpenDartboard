@@ -59,17 +59,14 @@ echo "BUDGET in the code: attempts=$ATTEMPTS wait=${WAIT}s"
 if [ -n "$ATTEMPTS" ] && [ -n "$WAIT" ]; then say "OK   the budget is two named constants" ok
 else say "FAIL could not read the budget out of scorer.cpp" no; fi
 
-# A budget spans (attempts - 1) waits plus (attempts - 1) measurements. The measurement's
-# own cost is measured in phase 3, where a real board takes four of them; here the wait
-# alone already has to outlast the disturbance, which is the conservative half of the
-# question and the half that needs no timing.
-SPAN=$(( (ATTEMPTS - 1) * WAIT ))
-echo "BUDGET waits alone span ${SPAN}s; the disturbance to outlast is ${WORST}.00 s"
-if [ "$WORST" -lt "$ATTEMPTS" ]; then
-  say "OK   $ATTEMPTS measurements outnumber the ${WORST} consecutive disagreeing samples measured" ok
-else
-  say "FAIL a budget of $ATTEMPTS measurements cannot outlast $WORST consecutive disagreeing samples" no
-fi
+# The budget is a SPAN and not a count, so the comparison is not made here: a measurement
+# is not free -- it reopens the cameras, reads thirty frames and re-calibrates every camera
+# that was scoring -- and the board's measurements are therefore further apart than the
+# wait alone. What that costs is a timing and a timing has to be taken from a running
+# board, so the span is measured in phase 3 and compared against ${WORST}.00 s there.
+# Carried forward in a file because each phase is a paragraph of this script and not a
+# function with a return.
+echo "$WORST" > $RUN/worst_disturbance_seconds
 
 echo "=============== the footage the two arms are built from ==============="
 g++ -std=c++17 -O1 -o $RUN/moved /app/testers/i899_moved_footage.cpp $CVFLAGS || exit 1
@@ -166,14 +163,29 @@ echo "measurements that disagreed: $SPENT of a budget of $ATTEMPTS"
 if [ "$SPENT" -ge "$ATTEMPTS" ]; then say "OK   the board measured $SPENT times before faulting" ok
 else say "FAIL the board faulted after $SPENT measurement(s) of a budget of $ATTEMPTS" no; fi
 
-echo "=== 3b. what one measurement really costs, which is the other half of the span ==="
+echo "=== 3b. the span the budget really covers, measured, against the disturbance ==="
 # The seconds-blind figure each attempt prints is the one unit a reader can check the
-# spacing in. The gap between consecutive disagreeing attempts is the wait plus the
-# measurement, measured on a running board rather than asserted.
-grep -oE 'attempt [0-9]+ after [0-9]+ seconds blind' $RUN/move.txt | tail -5
-FIRST_MOVED=$(grep -oE 'attempt [0-9]+ after [0-9]+ seconds blind' $RUN/move.txt | awk '{print $4}' | head -1)
-LAST_MOVED=$(grep -oE 'attempt [0-9]+ after [0-9]+ seconds blind' $RUN/move.txt | awk '{print $4}' | tail -1)
-echo "MEASURED the run spent from ${FIRST_MOVED}s to ${LAST_MOVED}s blind reaching its verdict"
+# spacing in, and it is printed by the board rather than taken with a stopwatch from
+# outside it. Only the attempts that MEASURED count: an attempt that found the cameras
+# shut spends no budget and takes no time, and including it would flatter the span.
+awk '/BOARD SIGHT RECOVERY: attempt/ {
+       if (match($0, /after [0-9]+ seconds blind/)) { blind = substr($0, RSTART + 6, RLENGTH - 20) }
+     }
+     /BOARD GEOMETRY DISAGREES/ { if (blind != "") print blind }' $RUN/move.txt > $RUN/disagreed_at
+echo "the measurements that disagreed landed at these seconds blind: $(tr '\n' ' ' < $RUN/disagreed_at)"
+FIRST_MOVED=$(head -1 $RUN/disagreed_at)
+LAST_MOVED=$(tail -1 $RUN/disagreed_at)
+FIRST_MOVED=${FIRST_MOVED:-0}
+LAST_MOVED=${LAST_MOVED:-0}
+MEASURED_SPAN=$(( LAST_MOVED - FIRST_MOVED ))
+WORST=$(cat $RUN/worst_disturbance_seconds)
+echo "MEASURED the budget spans ${MEASURED_SPAN}s from the first disagreement to the last"
+echo "MEASURED the longest disturbance on an untouched rig is ${WORST}.00 s (phase 1)"
+if [ "$MEASURED_SPAN" -gt "$WORST" ]; then
+  say "OK   the budget's ${MEASURED_SPAN}s outlasts the ${WORST}.00 s a knock was measured to last" ok
+else
+  say "FAIL the budget spans ${MEASURED_SPAN}s and a knock was measured to last ${WORST}.00 s, so a dart into the frame takes this board down" no
+fi
 
 echo "=== 3c. the refusal names the camera and how far it moved ==="
 if grep -qE 'BOARD MOVED: camera [0-9]+: the bull moved [0-9.]+ px' $RUN/move.txt; then
@@ -285,11 +297,24 @@ src = src.replace(anchor, anchor + """
 open(path, "w").write(src)
 print("MUTATED: reviewGeometry now writes the fresh calibration over the held one")
 PY
+# The container has no network (#899's harness shape, kept), and CMakeLists.txt fetches
+# nlohmann_json and cpp-httplib from GitHub. FetchContent takes a source directory instead
+# of a download, so this build reuses the two the tree's own build already unpacked --
+# which run_all.sh guarantees are there, because it builds before it runs anything.
+JSON_SRC=/app/build/_deps/nlohmann_json-src
+HTTPLIB_SRC=/app/build/_deps/httplib-src
+if [ ! -d "$JSON_SRC" ] || [ ! -d "$HTTPLIB_SRC" ]; then
+  say "FAIL $JSON_SRC or $HTTPLIB_SRC is missing; this phase builds offline against what the tree's own build fetched" no
+  MUT_RC=1
+else
 cmake -S $RUN/mut -B $RUN/mut/build -DCMAKE_PREFIX_PATH=/usr/local \
+  -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON="$JSON_SRC" \
+  -DFETCHCONTENT_SOURCE_DIR_HTTPLIB="$HTTPLIB_SRC" \
   -DCMAKE_CXX_FLAGS="-DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT" \
   -DAPP_VERSION=0.0.0-dev > $RUN/mut_cmake.log 2>&1 \
   && cmake --build $RUN/mut/build -j 4 > $RUN/mut_build.log 2>&1
 MUT_RC=$?
+fi
 if [ "$MUT_RC" = "0" ]; then say "OK   the adopting tree builds, so what follows is about behaviour" ok
 else say "FAIL the mutated tree did not build; see mut_build.log" no; tail -20 $RUN/mut_build.log; fi
 
@@ -305,6 +330,10 @@ if [ "$MUT_RC" = "0" ]; then
   if grep -q 'It refuses to score rather than go on' $RUN/adopts.txt; then
     say "OK   it refuses to score" ok
   else say "FAIL the adopting board went on scoring" no; fi
+fi
+
+if [ "$MUT_RC" != "0" ]; then
+  say "FAIL phase 5 could not build the adopting tree, so the guard was never made to fire" no
 fi
 
 echo "=== 5c. the same arm on the real tree does NOT fire it ==="
