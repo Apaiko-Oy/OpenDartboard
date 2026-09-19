@@ -1,4 +1,9 @@
 #!/bin/bash
+# unrun-tester: needs a Windows toolchain, a Windows disk and powershell.exe, and this file
+# has said exactly that in its own prose since it was written -- #1306's marker calls it
+# "#1303's pair". run_all.sh is a docker gate and has none of the three; this is run by hand
+# on the box scripts\build-windows.bat is written for. It was reported unrun for the first
+# time by #1430: until then a sentence in i1303_check.sh naming this file counted as a call.
 # #1303: the launcher on real Windows, driven from WSL.
 #
 # WHY THIS EXISTS AND WHAT IT IS NOT. testers/i1303_check.sh measures the launcher's

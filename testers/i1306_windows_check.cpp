@@ -1,3 +1,7 @@
+// unrun-tester: compiled by cl.exe and run by i1306_windows.sh, which carries its own
+// marker -- a Windows toolchain, a Windows disk and WSL interop, none of which a docker
+// gate has. The four questions below are the ones only real Windows can answer, which is
+// the same sentence as saying there is nothing here to substitute for it.
 // #1306: the four questions only real Windows can answer, asked of the real code.
 //
 // testers/i1306_check.sh measures the whole slice in the Linux container -- 54 checks

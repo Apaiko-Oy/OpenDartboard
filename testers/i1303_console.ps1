@@ -1,3 +1,8 @@
+# unrun-tester: copied to a Windows staging directory and driven by i1303_windows.sh, which
+# carries its own marker and is run by hand. It needs a real Windows console and a Windows
+# build of the launcher, for i1258_console.ps1's reason: the rule under test is that the
+# question is asked only of a console input buffer, so nothing that could be stubbed here
+# would be testing it.
 # #1303: drive the launcher in a REAL Windows console and measure that the window stays.
 #
 # #1258's i1303 sibling, cut down. The shape is the same and for the same reason: the
