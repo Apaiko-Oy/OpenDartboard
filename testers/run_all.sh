@@ -98,7 +98,9 @@ tester 1441-region        "bash '$T/i1441_run.sh'"
 # test every commit before that issue asked, and once as this tree is -- so both censuses
 # come off one binary and differ by one comparison and nothing else. Plus a pure check of
 # the count, the two guards it decides and a dart, run four ways including one deliberate
-# mismatch that must FAIL. MEASURED_1442_COST
+# # mismatch that must FAIL. MEASURED 2026-09-20 on the 4-core box, to completion, rc=0:
+# wall 110 s -- it starts no detector and reads no build/opendartboard, so it takes no
+# `slow` and sits well inside the default 1200.
 tester 1442-count         "bash '$T/i1442_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
