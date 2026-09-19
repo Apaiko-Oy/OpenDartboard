@@ -93,6 +93,13 @@ tester 1394-windows       "bash '$T/i1394_run.sh'"
 # nobody's head, which is how 1317-asan's 1200 got to be wrong.
 tester 1437-fixture       "bash '$T/i1437_run.sh'"
 tester 1441-region        "bash '$T/i1441_run.sh'"
+# #1442: twenty is a ceiling as well as a floor. It calibrates the same ninety single
+# frames #1437 does, TWICE -- once under OD_WIRE_COUNT=atleast, which is the one-sided
+# test every commit before that issue asked, and once as this tree is -- so both censuses
+# come off one binary and differ by one comparison and nothing else. Plus a pure check of
+# the count, the two guards it decides and a dart, run four ways including one deliberate
+# mismatch that must FAIL. MEASURED_1442_COST
+tester 1442-count         "bash '$T/i1442_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"
