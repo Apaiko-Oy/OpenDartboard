@@ -191,7 +191,8 @@ static void theVersionOrdering()
     std::cout << std::endl << "---- minimumLauncher: the one ordering in this program (ADR-0077 §1) ----" << std::endl;
     note(launcher::versionIsAtLeast("v1.0.0", "v1.0.0"), "equal is enough");
     note(!launcher::versionIsAtLeast("v1.0.0", "v1.0.1"), "older is refused");
-    note(launcher::versionIsAtLeast("v1.10.0", "v1.9.0"), "v1.10 is newer than v1.9, which a string compare gets wrong");
+    note(launcher::versionIsAtLeast("v1.10.0", "v1.9.0"),
+         "v1.10 is newer than v1.9, which a string compare gets wrong");
     note(launcher::versionIsAtLeast("v2", "v1.9.9"), "a short version is padded with zeroes, not refused");
     note(launcher::versionIsAtLeast("1.4.2-rc1", "v1.4.2"), "a suffix and a leading v are both ignored");
     note(!launcher::versionIsAtLeast("0.0.0-dev", "v1.0.0"), "a development build is below every real minimum");
@@ -273,11 +274,12 @@ static Run carryOnce(const World &world, long long now, bool forced, size_t cut_
     surroundings.layout = world.layout();
     surroundings.address = "http://127.0.0.1:" + std::to_string(world.port);
     surroundings.channel = "stable";
-    surroundings.anchors = std::vector<update_manifest::Anchor>();
-    const std::string anchor_hex = slurp(world.fixtures + "/anchor.hex");
-    surroundings.anchors.push_back(update_manifest::anchorFromHex(
-        anchor_hex.substr(0, anchor_hex.find_first_of("\r\n") == std::string::npos ? anchor_hex.size()
-                                                                                   : anchor_hex.find_first_of("\r\n"))));
+    std::string anchor = slurp(world.fixtures + "/anchor.hex");
+    while (!anchor.empty() && (anchor[anchor.size() - 1] == '\n' || anchor[anchor.size() - 1] == '\r'))
+    {
+        anchor.erase(anchor.size() - 1);
+    }
+    surroundings.anchors.push_back(update_manifest::anchorFromHex(anchor));
     surroundings.fetch_manifest = update_check::fetchOverHttp;
     const std::string local = "http://127.0.0.1:" + std::to_string(world.port);
     surroundings.fetch_artefact = [local, cut_after](const std::string &url)

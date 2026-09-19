@@ -25,9 +25,7 @@ path = "/tmp/mutated/launcher/apply_update.hpp"
 text = open(path, encoding="utf-8").read()
 gone = """        if (digest != answer.published_sha256)
         {
-            Application refused = stoppedAt(Step::DigestMismatch, digest);
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::DigestMismatch, digest);
             return refused;
         }
 """

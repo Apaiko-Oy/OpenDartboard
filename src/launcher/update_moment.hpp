@@ -21,16 +21,25 @@
 // request in that log.
 //
 // FIFTEEN MINUTES, AND WHY IT STAYS FIFTEEN. The ADR calls it the starting figure and
-// hands #1306 the measuring. What the number trades is the two costs either side of it:
-// too small and a crash-restart mid-evening still stops to update; too large and a board
-// switched on, tried, switched off and switched on again in the same half hour never
-// updates at all. Measured on this box, applying a real 39 MB artefact -- download over
-// the local network, digest, unpack, swap -- takes 2.4 s, and over a pub's ADSL the
-// download alone is minutes. A restart gap is therefore worth skipping for as long as an
-// evening's play lasts between two legs, and fifteen minutes is comfortably longer than
-// any pause a match makes and comfortably shorter than the gap between two evenings. It
-// is left where the ADR put it; what #1306 adds is that it is now a named constant with
-// this paragraph beside it, and a test that says what it does at 14:59 and at 15:01.
+// hands #1306 the measuring. It was measured, and the measurement says the figure is not
+// about us.
+//
+// Applying an artefact the size of the real one -- a 39,017,435-byte zip, fetched over a
+// socket, length-checked, SHA-256'd, written, unpacked by the real seam and renamed into
+// place -- took 0.99 s, 0.59 s and 0.48 s on three runs in the od-amd64:bullseye
+// container on this box. Everything this program DOES therefore costs about half a
+// second. What the ADR was worried about -- "spends two minutes on 38 MB while a match
+// waits at the board" -- is entirely the transfer: 39 MB is about forty seconds on an
+// 8 Mbit/s line and about two and a half minutes on a 2 Mbit/s one, which is the sort of
+// line a pub back room has.
+//
+// So the number is a bet about somebody else's connection and not about our work, and no
+// amount of making the code faster moves it. What it has to be is longer than the longest
+// pause an evening's play makes -- a leg, a round of drinks, a board restarted because
+// somebody knocked the USB out -- and shorter than the gap between two evenings, so that
+// a board switched on tomorrow still updates. Fifteen minutes is comfortably both, and it
+// is left where the ADR put it. What #1306 adds is that it is a named constant with this
+// paragraph beside it, and a test that says what it does at 14:59 and at 15:01.
 //
 // A BAD ENDING SKIPS TOO, AND FOR A DIFFERENT REASON. A board that faulted is a board
 // somebody may be standing in front of. Downloading 38 MB in front of them, on the run

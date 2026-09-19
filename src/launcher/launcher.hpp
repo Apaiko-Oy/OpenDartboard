@@ -207,8 +207,13 @@ namespace launcher
 
         State state = readState(surroundings.layout.state_file);
 
+        // A caller that named no clock gets the real one, rather than a crash in the one
+        // program whose failure mode is a board that will not start.
+        const std::function<long long()> clock = surroundings.clock ? surroundings.clock
+                                                                    : std::function<long long()>(wallClock);
+
         // ADR-0077 §7, evaluated. There is no other path from here to the network.
-        const long long started_at = surroundings.clock();
+        const long long started_at = clock();
         const MomentDecision moment =
             decideMoment(state, started_at, surroundings.forced, surroundings.quiet_seconds);
         report.moment = moment.moment;
@@ -238,7 +243,7 @@ namespace launcher
         {
             report.starts = attempt;
             report.ran_version = installedVersion(state, version());
-            state.last_started = surroundings.clock();
+            state.last_started = clock();
             state.last_ending.clear();
             writeState(surroundings.layout.state_file, state);
 
@@ -248,7 +253,7 @@ namespace launcher
                 std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
 
             const Ending ending = endingOf(outcome);
-            state.last_stopped = surroundings.clock();
+            state.last_stopped = clock();
             state.last_ending = endingWord(ending);
 
             if (!failedToStart(ending, ran_for))

@@ -42,6 +42,10 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 TREE="${1:-$OD_TREE_ROOT}"
 MODE="${2:-}"
+if [ ! -d "$TREE/build/_deps/nlohmann_json-src" ]; then
+  echo "i1303_check: no $TREE/build/_deps -- configure a Linux build of this worktree first" >&2
+  exit 2
+fi
 docker run --rm --name "$(od_name "i1303-check")" --network none -v "$TREE":/app -w /app -e MODE="$MODE" \
   "$OD_IMAGE" bash /app/testers/i1303_inside.sh
 RC=$?

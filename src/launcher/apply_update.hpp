@@ -295,13 +295,20 @@ namespace launcher
         bool detector_is_missing = false;
     };
 
-    inline Application stoppedAt(Step step, const std::string &detail = "")
+    /**
+     * A refusal, carrying the two versions the sentence about it has to name. They are
+     * copied from the attempt rather than passed again, so there is no way to write a
+     * refusal that says what a board is going back to and gets it wrong.
+     */
+    inline Application stoppedAt(const Application &attempt, Step step, const std::string &detail = "")
     {
-        Application application;
-        application.step = step;
-        application.ok = false;
-        application.detail = detail;
-        return application;
+        Application refused;
+        refused.step = step;
+        refused.ok = false;
+        refused.detail = detail;
+        refused.from_version = attempt.from_version;
+        refused.to_version = attempt.to_version;
+        return refused;
     }
 
     // ------------------------------------------------------------------ the application
@@ -325,18 +332,14 @@ namespace launcher
         // 1. §1: is this launcher allowed to install this release at all?
         if (!versionIsAtLeast(launcher_version, answer.published_minimum_launcher))
         {
-            Application refused = stoppedAt(Step::LauncherTooOld, answer.published_minimum_launcher);
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::LauncherTooOld, answer.published_minimum_launcher);
             return refused;
         }
 
         // 2. An absurd size is refused before a byte is asked for.
         if (answer.published_size <= 0 || answer.published_size > kLargestSensibleArtefact)
         {
-            Application refused = stoppedAt(Step::SizeRefused, std::to_string(answer.published_size));
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::SizeRefused, std::to_string(answer.published_size));
             return refused;
         }
 
@@ -348,18 +351,15 @@ namespace launcher
         odhttp::Response response = fetch(answer.published_url);
         if (!response.reached_a_server())
         {
-            Application refused = stoppedAt(Step::CouldNotReach, response.transport_error.empty()
+            Application refused = stoppedAt(application, Step::CouldNotReach, response.transport_error.empty()
                                                                      ? std::string("nothing answered")
                                                                      : response.transport_error);
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
             return refused;
         }
         if (response.status != 200)
         {
-            Application refused = stoppedAt(Step::CouldNotReach, "HTTP " + std::to_string(response.status));
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused =
+                stoppedAt(application, Step::CouldNotReach, "HTTP " + std::to_string(response.status));
             return refused;
         }
 
@@ -371,36 +371,30 @@ namespace launcher
         {
             // The two numbers, not a sentence: `detail` is read by two languages and a
             // word joining them in one of them reads as a typo in the other.
-            Application refused = stoppedAt(Step::WrongLength, std::to_string(response.body.size()) + " / " +
-                                                                   std::to_string(answer.published_size));
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::WrongLength,
+                                            std::to_string(response.body.size()) + " / " +
+                                                std::to_string(answer.published_size));
             return refused;
         }
         const std::string digest = od_sha256::hex(response.body);
         if (digest != answer.published_sha256)
         {
-            Application refused = stoppedAt(Step::DigestMismatch, digest);
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::DigestMismatch, digest);
             return refused;
         }
 
         // 6. Only now does anything reach the disk, and only inside update\.
         if (!ensureDirectory(layout.update_dir) || !ensureDirectory(layout.staging_dir))
         {
-            Application refused = stoppedAt(Step::CouldNotStage, layout.update_dir + " (" + lastFileError() + ")");
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused =
+                stoppedAt(application, Step::CouldNotStage, layout.update_dir + " (" + lastFileError() + ")");
             return refused;
         }
         {
             std::ofstream out(layout.download_file.c_str(), std::ios::binary | std::ios::trunc);
             if (!out)
             {
-                Application refused = stoppedAt(Step::CouldNotStage, layout.download_file);
-                refused.from_version = application.from_version;
-                refused.to_version = application.to_version;
+                Application refused = stoppedAt(application, Step::CouldNotStage, layout.download_file);
                 return refused;
             }
             out.write(response.body.data(), static_cast<std::streamsize>(response.body.size()));
@@ -409,9 +403,8 @@ namespace launcher
             {
                 out.close();
                 std::remove(layout.download_file.c_str());
-                Application refused = stoppedAt(Step::CouldNotStage, layout.download_file + " (short write)");
-                refused.from_version = application.from_version;
-                refused.to_version = application.to_version;
+                Application refused =
+                    stoppedAt(application, Step::CouldNotStage, layout.download_file + " (short write)");
                 return refused;
             }
         }
@@ -421,9 +414,7 @@ namespace launcher
         {
             removeTree(layout.staging_dir);
             std::remove(layout.download_file.c_str());
-            Application refused = stoppedAt(Step::CouldNotUnpack, layout.download_file);
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::CouldNotUnpack, layout.download_file);
             return refused;
         }
         std::remove(layout.download_file.c_str());
@@ -431,9 +422,7 @@ namespace launcher
         if (!fileExists(staged))
         {
             removeTree(layout.staging_dir);
-            Application refused = stoppedAt(Step::NothingToInstall, std::string(kDetectorFileName));
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::NothingToInstall, std::string(kDetectorFileName));
             return refused;
         }
         makeExecutable(staged);
@@ -445,18 +434,16 @@ namespace launcher
         if (!ensureDirectory(layout.previous_dir))
         {
             removeTree(layout.staging_dir);
-            Application refused = stoppedAt(Step::CouldNotStage, layout.previous_dir + " (" + lastFileError() + ")");
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused =
+                stoppedAt(application, Step::CouldNotStage, layout.previous_dir + " (" + lastFileError() + ")");
             return refused;
         }
         const bool had_a_detector = fileExists(layout.detector);
         if (had_a_detector && !moveFile(layout.detector, layout.previous_exe))
         {
             removeTree(layout.staging_dir);
-            Application refused = stoppedAt(Step::SwapFailed, layout.detector + " (" + lastFileError() + ")");
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused =
+                stoppedAt(application, Step::SwapFailed, layout.detector + " (" + lastFileError() + ")");
             return refused;
         }
 
@@ -469,15 +456,11 @@ namespace launcher
             {
                 removeTree(layout.previous_dir);
                 removeTree(layout.staging_dir);
-                Application refused = stoppedAt(Step::SwapFailedAndPutBack, why);
-                refused.from_version = application.from_version;
-                refused.to_version = application.to_version;
+                Application refused = stoppedAt(application, Step::SwapFailedAndPutBack, why);
                 return refused;
             }
             removeTree(layout.staging_dir);
-            Application refused = stoppedAt(Step::SwapFailed, why);
-            refused.from_version = application.from_version;
-            refused.to_version = application.to_version;
+            Application refused = stoppedAt(application, Step::SwapFailed, why);
             refused.detector_is_missing = !fileExists(layout.detector);
             return refused;
         }

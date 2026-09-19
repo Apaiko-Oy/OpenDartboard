@@ -23,7 +23,7 @@
 // measured on Linux; what is measured here is everything the bytes then go through. The
 // substitution is one lambda, below, and it hands over the file the manifest names.
 //
-//   i1306_windows_check.exe <fixtures> <work> <vA> <vB> <vC> <vBAD>
+//   i1306_windows_check.exe <fixtures> <work> <stubs> <vA> <vB> <vC> <vBAD>
 
 #include "utils/od_platform_first.hpp"
 
@@ -80,6 +80,26 @@ static std::string identityOf(const std::string &path)
     return std::string(text);
 }
 
+/**
+ * Put a stub where a detector goes. It ASSERTS the bytes arrived, because a path that is
+ * wrong writes an empty file and an empty file is a board that will not start -- which is
+ * a thing this harness is also trying to measure, and would then measure for the wrong
+ * reason. (It did: the first run of this file pointed at the wrong stubs directory and
+ * only the locked-file case noticed.)
+ */
+static bool install_file(const std::string &from, const std::string &to)
+{
+    const std::string body = slurp(from);
+    if (body.empty())
+    {
+        std::cout << "     ! nothing at " << from << std::endl;
+        return false;
+    }
+    std::ofstream out(to.c_str(), std::ios::binary | std::ios::trunc);
+    out.write(body.data(), (std::streamsize)body.size());
+    return out.good();
+}
+
 static std::string basenameOf(const std::string &path)
 {
     const size_t cut = path.find_last_of("/\\");
@@ -107,16 +127,9 @@ static void aFileNobodyHasFinishedWith(const std::string &work, const std::strin
     launcher::ensureDirectory(install);
     const std::string detector = install + "\\opendartboard.exe";
     const std::string incoming = install + "\\incoming.exe";
-    {
-        std::ofstream out(detector.c_str(), std::ios::binary | std::ios::trunc);
-        const std::string body = slurp(stubs + "\\stub-" + first + ".exe");
-        out.write(body.data(), (std::streamsize)body.size());
-    }
-    {
-        std::ofstream out(incoming.c_str(), std::ios::binary | std::ios::trunc);
-        const std::string body = slurp(stubs + "\\stub-" + second + ".exe");
-        out.write(body.data(), (std::streamsize)body.size());
-    }
+    note(install_file(stubs + "\\stub-" + first + ".exe", detector) &&
+             install_file(stubs + "\\stub-" + second + ".exe", incoming),
+         "the two versions are on disk");
     const std::string was = identityOf(detector);
 
     // Start it and leave it running. Four seconds is longer than everything below.
@@ -148,8 +161,8 @@ static void aFileNobodyHasFinishedWith(const std::string &work, const std::strin
         ::CloseHandle(overwrite);
     }
     note(overwrite == INVALID_HANDLE_VALUE,
-         "CONTROL: while it runs, its own file CANNOT BE OVERWRITTEN (Windows " + std::to_string((unsigned long)refusal) +
-             ") -- which is why this lives in the launcher");
+         "CONTROL: while it runs, its own file CANNOT BE OVERWRITTEN (Windows " +
+             std::to_string((unsigned long)refusal) + ") -- which is why this lives in the launcher");
 
     // 2. And the rename is allowed anyway, which is what the swap is built out of.
     const std::string moved = install + "\\update\\previous\\opendartboard.exe";
@@ -247,16 +260,16 @@ public:
 
 int main(int argc, char **argv)
 {
-    if (argc < 7)
+    if (argc < 8)
     {
-        std::cerr << "usage: i1306_windows_check <fixtures> <work> <vA> <vB> <vC> <vBAD>" << std::endl;
+        std::cerr << "usage: i1306_windows_check <fixtures> <work> <stubs> <vA> <vB> <vC> <vBAD>" << std::endl;
         return 2;
     }
     Windows world;
     world.fixtures = argv[1];
     world.work = argv[2];
-    const std::string first = argv[3], second = argv[4], third = argv[5], bad = argv[6];
-    const std::string stubs = world.work + "\\stubs";
+    const std::string stubs = argv[3];
+    const std::string first = argv[4], second = argv[5], third = argv[6], bad = argv[7];
     const std::string ran = world.work + "\\ran.txt";
 
     ::SetEnvironmentVariableA("OD_STUB_RAN_TO", ran.c_str());
@@ -279,17 +292,15 @@ int main(int argc, char **argv)
     // ---- and the whole chain, on this platform ----------------------------------------
     launcher::removeTree(world.install());
     launcher::ensureDirectory(world.install());
-    {
-        std::ofstream out(world.detector().c_str(), std::ios::binary | std::ios::trunc);
-        const std::string body = slurp(stubs + "\\stub-" + first + ".exe");
-        out.write(body.data(), (std::streamsize)body.size());
-    }
+    note(install_file(stubs + "\\stub-" + first + ".exe", world.detector()),
+         "the board starts life on " + first);
     long long now = 1758300000;
     std::vector<std::string> arguments;
     arguments.push_back("--cams");
     arguments.push_back("0,1,2");
 
-    std::cout << std::endl << "---- 1. " << first << " is installed, and " << second << " is published ----" << std::endl;
+    std::cout << std::endl
+              << "---- 1. " << first << " is installed, and " << second << " is published ----" << std::endl;
     std::remove(ran.c_str());
     const std::string was = identityOf(world.detector());
     Quiet one;

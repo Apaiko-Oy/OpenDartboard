@@ -143,11 +143,48 @@ static std::vector<std::string> linesOf(const std::string &path)
     return lines;
 }
 
+/**
+ * #1306 gave carry() a world to run in -- where the install is, who it trusts, how it
+ * reaches the network, what time it is -- so a carry that is about ENDINGS has to say
+ * that none of that is in play. This is that sentence, in one place:
+ *
+ *   no anchor, so every manifest is refused before it is read (update_keys.hpp's
+ *   NoAnchor, which is what a build with no key compiled in really does);
+ *   a fetch that reaches nothing, so the address is never asked;
+ *   and the state file removed first, so one case cannot inherit another's memory.
+ *
+ * What #1303 measures is therefore exactly what it measured before: a launcher that
+ * starts a detector, waits for it, and says how it ended.
+ */
+static launcher::Surroundings nothingToUpdateFrom(const std::string &program)
+{
+    launcher::Surroundings surroundings;
+    surroundings.layout = launcher::layoutFor(program);
+    std::remove(surroundings.layout.state_file.c_str());
+    surroundings.address = "http://127.0.0.1:1";
+    surroundings.channel = "stable";
+    surroundings.fetch_manifest = [](const std::string &, const std::string &)
+    {
+        odhttp::Response response;
+        response.transport_error = "this check reaches no network at all";
+        return response;
+    };
+    surroundings.fetch_artefact = [](const std::string &)
+    {
+        odhttp::Response response;
+        response.transport_error = "this check reaches no network at all";
+        return response;
+    };
+    surroundings.unpack = [](const std::string &, const std::string &) { return false; };
+    surroundings.clock = launcher::wallClock;
+    return surroundings;
+}
+
 /** One carry of the stub, with a console that remembers and nobody at the keyboard. */
 static launcher::Report carryStub(RecordingConsole &console, const std::vector<std::string> &arguments,
                                   bool somebodyIsThere = false)
 {
-    return launcher::carry(gStub, arguments, console, somebodyIsThere, launcher::runAndWait);
+    return launcher::carry(arguments, console, somebodyIsThere, launcher::runAndWait, nothingToUpdateFrom(gStub));
 }
 
 // ---------------------------------------------------------------- the Windows splitter
@@ -427,8 +464,8 @@ int main(int argc, char **argv)
         arrangeNothing();
         RecordingConsole console;
         const std::string missing = gWork + "/there-is-no-detector-here";
-        const launcher::Report report =
-            launcher::carry(missing, std::vector<std::string>(), console, false, launcher::runAndWait);
+        const launcher::Report report = launcher::carry(std::vector<std::string>(), console, false,
+                                                       launcher::runAndWait, nothingToUpdateFrom(missing));
         check(report.ending == launcher::Ending::NeverStarted && report.exit_code == launcher::kNeverStarted,
               "a detector that could not be started at all is its own ending and its own exit code");
         check(console.says("there-is-no-detector-here"), "and the window names the file it looked for");
@@ -478,7 +515,7 @@ int main(int argc, char **argv)
             verbatimBefore = console.verbatim.size();
             return launcher::runAndWait(program, arguments);
         };
-        launcher::carry(gStub, std::vector<std::string>(), console, false, watching);
+        launcher::carry(std::vector<std::string>(), console, false, watching, nothingToUpdateFrom(gStub));
         check(saidBefore == 0 && verbatimBefore == 0,
               "the launcher prints nothing before the detector starts, so a working board looks as it did");
         check(!console.said.empty(), "and the control: it does print once the detector has stopped");

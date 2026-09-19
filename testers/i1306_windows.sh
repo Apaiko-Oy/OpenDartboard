@@ -149,7 +149,7 @@ cl /nologo /std:c++17 /EHsc /MT /O1 /utf-8 /FIod_platform_first.hpp ^
   /Fe:wincheck.exe /Fo:wincheck. i1306_windows_check.cpp ^
   /link bcrypt.lib winhttp.lib || exit /b 1
 echo CHECK_BUILT
-wincheck.exe $STAGE_WIN\\fixtures $STAGE_WIN\\work $A $B $C $BAD
+wincheck.exe $STAGE_WIN\\fixtures $STAGE_WIN\\work $STAGE_WIN\\stubs $A $B $C $BAD
 echo WINCHECK_RC=%ERRORLEVEL%
 BAT
 echo
