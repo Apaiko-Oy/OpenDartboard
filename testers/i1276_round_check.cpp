@@ -105,11 +105,14 @@ namespace
             well = false;
         }
 
-        // The stub gave the evening up on that dart (STUB_GIVE_UP_AFTER=1). A second dart
-        // is what meets the refusal -- #891's `deliver()` 401, which is the same verdict
-        // the beat reaches and the one a harness can time. It is abandoned with the
-        // evening, as everything owed to it is.
-        client.offer(aDart("S20"));
+        // The stub gave the evening up on that dart (STUB_GIVE_UP_AFTER=1), and the BEAT is
+        // what meets the refusal -- #891 says so itself: the beat goes every interval while
+        // a dart goes only when somebody throws, so it is what usually reaches a Given Up
+        // Contest first. Nothing is offered while it is awaited, and that is the whole
+        // point of this case: #1276 is narrow, so ANY dart offered between the release and
+        // the takeout re-opens the round at the club and there is nothing left to drop.
+        // Offering one here was this harness's own first mistake, and it read exactly like
+        // the bug it is supposed to catch.
         const bool released_now = contestBindingReleased(client, 30);
         std::printf("RELEASED contest=%lld dropped=%llu\n", (long long)client.contestId(),
                     (unsigned long long)client.dropped());
