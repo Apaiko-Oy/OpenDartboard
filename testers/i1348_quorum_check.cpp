@@ -165,11 +165,22 @@ static void theSentences()
 
 // ---- four voters, both rules ---------------------------------------------------------------
 //
-// Two of four cameras see dart A; the other two see the plain background. Under the
-// majority rule that is 2 of 4 against a quorum of 3 and the board stays CLEAN; under the
-// restored absolute count it is 2 against 2 and the board moves to DART_1. This is the
-// only place in the repository where the two rules answer differently, because
-// whyNoEventIsPossible will not let a whole binary run four cameras at all.
+// Two windows, because the dissent has to be a camera that STAYS PUT rather than one that
+// reads CLEAN: from a CLEAN board a camera that sees nothing votes CLEAN, and with two of
+// each the two rules both settle the tie in CLEAN's favour and measure nothing.
+//
+//   window 1  all four cameras see dart A -> 4 move up, the board is DART_1 under either
+//             rule. This is also the control: at four voters the majority is 3 and a
+//             unanimous window still moves.
+//   window 2  cameras 1 and 2 see A and B; cameras 3 and 4 still see only A, so their
+//             boards are occupied with nothing NEW on them and #1354 holds them where
+//             they are. That is 2 moved up, 0 CLEAN, 2 stayed put.
+//
+// Under the majority rule window 2 is 2 against a quorum of 3 and the board stays DART_1;
+// under the restored absolute count it is 2 against 2 and the board moves to DART_2 on a
+// MINORITY of its own cameras. This is the only place in the repository where the two
+// rules answer differently, because whyNoEventIsPossible will not let a whole binary run
+// four cameras at all.
 static void fourVoters(bool absolute)
 {
     DartParams params;
@@ -180,39 +191,60 @@ static void fourVoters(bool absolute)
     const std::vector<Mat> backgrounds(cameras, plainBackground());
     const std::vector<motion_processing::BoardExtent> boards(cameras, fittedBoard());
 
-    const Mat seen = frameWith({kDartA});
+    {
+        const std::vector<Mat> frames(cameras, frameWith({kDartA}));
+        DartStateResult r = processDartState(frames, backgrounds, boards, true, false, params);
+        std::cout << "window 1 (all four see dart A): " << getDartBoardStateName(r.previous_state)
+                  << " -> " << getDartBoardStateName(r.current_state) << std::endl;
+        say(r.current_state == DartBoardState::DART_1,
+            "window 1: four cameras unanimous take a four-camera board to DART_1 under "
+            "either rule -- without this the window below measures nothing");
+    }
+
+    const Mat both = frameWith({kDartA, kDartB});
+    const Mat only_a = frameWith({kDartA});
     std::vector<Mat> frames(cameras);
     for (int i = 0; i < cameras; i++)
     {
-        frames[i] = i < 2 ? seen.clone() : plainBackground();
+        frames[i] = i < 2 ? both.clone() : only_a.clone();
     }
 
     DartStateResult r = processDartState(frames, backgrounds, boards, true, false, params);
     int moved_up = 0;
+    int stayed = 0;
     for (const CameraDetectionResult &c : r.camera_results)
     {
-        if (c.frame_available && !c.abstained_no_board && c.detected_state != DartBoardState::CLEAN)
+        if (!c.frame_available || c.abstained_no_board)
+        {
+            continue;
+        }
+        if (c.detected_state == DartBoardState::DART_2)
         {
             moved_up++;
         }
+        else if (c.detected_state == DartBoardState::DART_1)
+        {
+            stayed++;
+        }
     }
-    std::cout << "four voters, " << (absolute ? "absolute" : "majority") << " rule: "
-              << moved_up << " of 4 cameras called a dart, quorum "
-              << stateVoteQuorum(4, params) << ", board "
+    std::cout << "window 2, four voters, " << (absolute ? "absolute" : "majority") << " rule: "
+              << moved_up << " of 4 cameras called a second dart, " << stayed
+              << " stayed put, quorum " << stateVoteQuorum(4, params) << ", board "
               << getDartBoardStateName(r.previous_state) << " -> "
               << getDartBoardStateName(r.current_state) << std::endl;
 
-    say(moved_up == 2,
-        "the fixture really is two of four calling a dart (it was " + std::to_string(moved_up) + ")");
+    say(moved_up == 2 && stayed == 2,
+        "the fixture really is two of four calling a second dart and two staying put (it "
+        "was " + std::to_string(moved_up) + " and " + std::to_string(stayed) + ")");
     if (absolute)
     {
-        say(r.current_state == DartBoardState::DART_1,
+        say(r.current_state == DartBoardState::DART_2,
             "under the absolute count two of four move a four-camera board -- a MINORITY "
             "of its cameras, which is the rule #1348 replaced");
     }
     else
     {
-        say(r.current_state == DartBoardState::CLEAN,
+        say(r.current_state == DartBoardState::DART_1,
             "under the majority rule two of four do not move the board: the quorum is 3");
     }
 }
