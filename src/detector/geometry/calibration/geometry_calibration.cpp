@@ -310,7 +310,10 @@ namespace geometry_calibration
 
         // [===STEP 5:===] Create binary mask for contour processing
         mask_processing::MaskParams maskParams;
-        mask_processing::MaskBundle masks = mask_processing::processMask(redGreenFrame, bullCenter, cameraIdx, debugMode, maskParams);
+        // #1393: the board this camera measured goes down with the bull centre. The bull
+        // carve was a fifteenth of the FRAME and is now a fraction of this; nothing else
+        // about this call moved.
+        mask_processing::MaskBundle masks = mask_processing::processMask(redGreenFrame, bullCenter, bull.boardRadius, cameraIdx, debugMode, maskParams);
 
         // [===STEP 6:===] ELLIPSE DETECTION for dartboard shape
         ellipse_processing::EllipseParams ellipseParams;

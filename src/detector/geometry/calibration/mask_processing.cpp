@@ -1,12 +1,66 @@
 #include "mask_processing.hpp"
 #include "logging.hpp"
+#include <cstdlib>
 #include <iostream>
+#include <sstream>
 
 using namespace cv;
 using namespace std;
 
 namespace mask_processing
 {
+    namespace
+    {
+        /**
+         * #1393's falsification, in the shape OD_ROI, OD_ROI_MARGIN and OD_BOARD
+         * established: one binary, the carve chosen at run time, so "different build" is
+         * never a confound in a before/after.
+         *
+         * OD_BULL_CARVE=frame restores exactly what this stage did before #1393 --
+         * `min(cols, rows) / 15`, a fixed 48 px at 720p whatever board is in the picture
+         * -- and is how the over-carve can be put back on the very binary that no longer
+         * makes it, so the doubles and triples the ellipse fit is handed can be measured
+         * both ways on one footage.
+         *
+         * Anything other than the exact word `frame` is ignored rather than obeyed, which
+         * is OD_BOARD's rule: a half-understood spelling must not quietly select a carve
+         * nobody asked for.
+         */
+        bool carvedAgainstTheFrame()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_BULL_CARVE");
+                return e && string(e) == "frame";
+            }();
+            return v;
+        }
+
+        /** A number a reader can compare, rather than to_string's six decimals. */
+        string decimals(double value, int places)
+        {
+            ostringstream out;
+            out.precision(places);
+            out << fixed << value;
+            return out.str();
+        }
+
+        /** What the frame rule gave before #1393: a fixed 48 px at 720p. */
+        int frameCarveRadius(const Mat &redGreenFrame)
+        {
+            return max(1, min(redGreenFrame.cols, redGreenFrame.rows) / 15);
+        }
+
+        int bullCarveRadius(const Mat &redGreenFrame, double boardRadius, const MaskParams &params)
+        {
+            if (carvedAgainstTheFrame() || boardRadius <= 0.0)
+            {
+                return frameCarveRadius(redGreenFrame);
+            }
+            return max(1, (int)lround(boardRadius * params.bullCarveOfBoardRadius));
+        }
+    }
+
     // Moved from ellipse_processing - preprocess mask to remove artifacts
     Mat preprocessMask(const Mat &inputMask, const MaskParams &params)
     {
@@ -65,7 +119,7 @@ namespace mask_processing
         return cleanedMask;
     }
 
-    MaskBundle processMask(const Mat &redGreenFrame, Point bullCenter, int camera_idx, bool debug_mode, const MaskParams &params)
+    MaskBundle processMask(const Mat &redGreenFrame, Point bullCenter, double boardRadius, int camera_idx, bool debug_mode, const MaskParams &params)
     {
         MaskBundle result;
 
@@ -76,7 +130,7 @@ namespace mask_processing
 
         // Step 2: Extract bull red area (50-point bullseye)
         Mat bullRedMask = Mat::zeros(redGreenFrame.size(), CV_8UC1);
-        int searchRadius = min(redGreenFrame.cols, redGreenFrame.rows) / 15;
+        const int searchRadius = bullCarveRadius(redGreenFrame, boardRadius, params);
 
         for (int y = max(0, bullCenter.y - searchRadius); y < min(redGreenFrame.rows, bullCenter.y + searchRadius); y++)
         {
@@ -98,6 +152,34 @@ namespace mask_processing
         dilate(bullRedMask, bullRedMask, dilateKernel);
 
         result.bullMask = bullRedMask.clone(); // 50-point bullseye (double bull)
+
+        // #1393: said per camera, without --debug, because this number decides the shape
+        // of every mask below it and until now nothing anywhere printed it -- neither
+        // the radius nor what it took. Both rules are on the line whichever chose, so a
+        // reader of either run sees what the other would have done on this footage, and
+        // the pixel count is what makes "the over-carve was masking nothing" a
+        // measurement rather than an inference from the stages downstream.
+        const int carved = countNonZero(bullRedMask);
+        const int derived = max(1, (int)lround(boardRadius * params.bullCarveOfBoardRadius));
+        const int frameRule = frameCarveRadius(redGreenFrame);
+        //
+        // The sentence is built into a named string and not written inline in the call:
+        // `log_string_src(v)` is the macro `("\033[36m" + v + "\033[0m")`, and `+` binds
+        // tighter than `?:`, so a conditional passed to it parses as
+        // `("\033[36m" + cond) ? a : (b + "\033[0m")` -- pointer arithmetic on a string
+        // literal, never null, so the first branch is taken whatever the condition was.
+        // Measured on 2026-09-19: three cameras printed "OD_BULL_CARVE=frame" beside the
+        // 27 px the derived rule had just given them.
+        const string rule = carvedAgainstTheFrame()
+                                ? "OD_BULL_CARVE=frame, a fifteenth of the frame, where " +
+                                      decimals(params.bullCarveOfBoardRadius, 4) + "x its board of " +
+                                      to_string((int)lround(boardRadius)) + " px would give " +
+                                      to_string(derived) + " px"
+                                : decimals(params.bullCarveOfBoardRadius, 4) + "x a board of " +
+                                      to_string((int)lround(boardRadius)) + " px, where a fifteenth of " +
+                                      "the frame would give " + to_string(frameRule) + " px";
+        log_info("Camera " + log_string(camera_idx + 1) + " bull carve: " + log_string(searchRadius) +
+                 " px, carving " + log_string(carved) + " px of red; " + log_string_src(rule));
 
         // Step 3: Create fullMask - carved version that reveals ring structure
         result.fullMask = basicMask.clone();
