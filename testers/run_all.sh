@@ -123,6 +123,7 @@ tester 891-horizon        "bash '$T/i891_run.sh' horizon '$T/phases891/horizon.s
 tester 891-givenup        "bash '$T/i891_run.sh' givenup '$T/phases891/givenup.sh'"
 tester 891-givenup-nobeat "bash '$T/i891_run.sh' givenup-nobeat '$T/phases891/givenup-nobeat.sh'"
 tester 891-unreachable    "bash '$T/i891_run.sh' unreachable '$T/phases891/unreachable.sh'"
+tester 1282-footage       "bash '$T/i1282_run.sh'"
 tester 1303-launcher      "bash '$T/i1303_check.sh'"
 tester 1306-install      "bash '$T/i1306_check.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
