@@ -42,6 +42,8 @@
 #include <string>
 #include <vector>
 
+#include "board_look.hpp"
+#include "wire_processing.hpp"
 #include "geometry_calibration.hpp"
 #include "geometry_agreement.hpp"
 
@@ -172,6 +174,35 @@ namespace
         return evidence;
     }
 
+    /**
+     * Why a calibration abstained, from whichever stage really refused it.
+     *
+     * `board_look::refusal` answers for the sight gate and returns an EMPTY string when
+     * that gate is content, so printing it alone puts a blank reason beside a camera that
+     * was refused somewhere else -- measured on this tree, where
+     * mocks/rig-20260918/cam_2.mp4 abstains with a doubles ring cleanly fitted and the
+     * sight gate saying nothing. `geometry_calibration` refuses a camera in two places
+     * and the second is the wire stage (#1317), which has its own count and its own
+     * threshold; a reader given the first reason for the second refusal looks in the
+     * wrong half of the pipeline.
+     */
+    std::string whyItAbstained(const DartboardCalibration &calibration)
+    {
+        const std::string sight = board_look::refusal(calibration.look);
+        if (!sight.empty())
+        {
+            return sight;
+        }
+        if (!calibration.wires.isValid)
+        {
+            return "was refused by the wire stage, not by the sight gate: it found " +
+                   std::to_string(calibration.wires.wiresDetected) + " of the " +
+                   std::to_string(wire_processing::kWiresRequired) +
+                   " wire boundaries a board has";
+        }
+        return "no stage this instrument can read says why";
+    }
+
     /** The evidence as log fields, with a `-` wherever a length was not produced. */
     std::string ringFields(const RingEvidence &evidence)
     {
@@ -247,8 +278,15 @@ int main(int argc, char **argv)
               << ringFields(held_ring) << std::endl;
     if (!held.sees_board)
     {
+        // #1416: with the reason, because the reason is the finding. A held calibration
+        // that abstains takes its whole clip out of the census silently otherwise -- the
+        // summary line is never printed, and a harness reading `longest_disagreeing_run`
+        // out of a missing line reads 0 and calls the clip clean.
         std::cerr << "the held calibration does not see a board; nothing can be compared to it"
                   << std::endl;
+        std::cout << "HELD REFUSED clip=" << clip_path << " at=" << hold_at
+                  << ringFields(held_ring)
+                  << " because: " << whyItAbstained(held) << std::endl;
         return 1;
     }
 
@@ -288,7 +326,8 @@ int main(int argc, char **argv)
             run = 0;
             std::cout << "SAMPLE " << s << " frame=" << from
                       << " second=" << twoPlaces(from / fps) << " NO BOARD IN THE PICTURE"
-                      << std::endl;
+                      << ringFields(ringEvidence(fresh))
+                      << " because: " << whyItAbstained(fresh) << std::endl;
             continue;
         }
         const geometry_agreement::Movement movement = geometry_agreement::measure(held, fresh);
