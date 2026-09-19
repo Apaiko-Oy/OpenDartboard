@@ -59,16 +59,37 @@
 // fired is that a ring is thinner than the disc it encloses -- an accident of ring
 // width, not anything the check stated.
 //
-// SO THE QUESTION IS ASKED ABOUT THE BOARD. `bull_processing::measureBoard` has already
-// measured a radius by the time any of this is asked -- on the FULL frame, at STEP 1,
-// before a region is drawn -- so the denominator is a circle of that radius:
+// SO THE QUESTION IS ASKED ABOUT THE BOARD -- and it turned out to be two questions,
+// which the census below settled rather than argument. Both were measured on one binary
+// on 2026-09-19, with the gates held open so that every camera reached every stage.
 //
-//       board_disc_colour = red_green_pixels / (pi * board_span_px^2)
+//   THE RING, at STEP 6.5, which is the site this issue was filed against.
+//   `bull_processing::measureBoard` has already measured a radius by then -- on the FULL
+//   frame, at STEP 1, before a region is drawn -- so the doubles mask is asked what share
+//   of a circle of that radius it fills:
 //
-// "What share of the circle this camera's own board measures out is coloured." Double
-// every pixel and the numerator goes up by four and so does the denominator; the number
-// does not move. That is the whole of the repair, and testers/phases1392 measures it by
-// scaling one clip rather than by arguing it.
+//       ring_of_board_disc = ring_pixels / (pi * board_span_px^2)
+//
+//   Double every pixel and the numerator goes up by four and so does the denominator; the
+//   number does not move. Measured: 11.1% to 14.7% on mocks/cam_*.mp4 and 23.6% to 26.9%
+//   on mocks/rig-20260918, against 100% for any shape with no hole in it.
+//
+//   THE FLOOD, at STEP 1.5, which shares this file's verdict and had been sharing its
+//   number. It is asked of everything the colour stage kept on the WHOLE frame, over the
+//   whole frame, and that really is a question about the frame: "is this camera's whole
+//   picture coloured". What could not stay is the constant. The line is now drawn from
+//   `floodCeiling` -- the most of its own frame a WHOLE board could account for, which
+//   ADR-0079 §2 bounds and which the frame's own shape decides -- so a board mounted
+//   closer is already granted the whole ceiling and cannot walk a camera towards the line.
+//
+// THE OBVIOUS SHAPE WAS TRIED FIRST AND IT DOES NOT WORK, which is worth writing down
+// because it is the thing anybody reading this issue would reach for. Dividing STEP 1's
+// numerator -- all the colour on the frame -- by the same board disc puts
+// mocks/rig-20260918 at 38.3%, 42.7% and 54.3% against a face at 54.5%: no gap at all.
+// The span is that rig's TREBLE ring, 0.78 of its board (#1340's census), so the
+// denominator is 0.61 of the disc while the numerator is the whole frame's colour. Two
+// different numerators need two different denominators, and pretending otherwise is how
+// one constant came to be asked of both in the first place.
 //
 // THE NUMERATOR IS A MASK AND NOT AN ANNULUS, which is the trap in the arithmetic. A
 // dartboard's doubles ring is a ring of known width -- 170 mm outer, 162 mm inner in
@@ -160,20 +181,79 @@ namespace board_look
     struct Limits
     {
         // #1392, THE RING. What share of the circle its own board spans keys as dartboard
-        // red or green, asked at STEP 6.5 of the mask the ellipse stage was handed.
+        // red or green, asked at STEP 6.5 of the mask the ellipse stage was handed. It is
+        // scale-free: double every pixel and the numerator goes up by four and so does the
+        // denominator.
         //
-        //   MEASURED_RING_TABLE
+        // MEASURED, on one binary, on 2026-09-19, on every fixture this repository has:
         //
-        double max_ring_of_board_disc = 9.99;
+        //   mocks/cam_*.mp4        12.2%  11.1%  14.7%      3 of 3 calibrate
+        //   mocks/rig-20260918     23.6%  26.9%  25.7%      3 of 3 calibrate
+        //   mocks/cam_* at 0.60    43.6%  14.2%  17.3%      camera 1's ring had broken to a
+        //                                                   fragment; the WIRE stage refuses
+        //                                                   it, at 19 of 20 boundaries
+        //   mocks/cam_* cropped    ----   11.1%  13.7%      the same boards in a 720x720
+        //     to 720x720                                    frame -- a longer lens
+        //   a FILLED shape        100.0%                    by construction: a shape with no
+        //                                                   hole fills its own circle
+        //
+        // The two rows that look like disagreement are the whole reason this is measured
+        // rather than derived from millimetres. A doubles ring is (170^2-162^2)/170^2 =
+        // 9.2% of the board's disc and a treble ring is (107^2-99^2)/107^2 = 14.4% of its
+        // own; every coloured ring on a board together is 15.8% of the board's disc. But
+        // the denominator is not the board's disc -- it is `measureBoard`'s span, which
+        // #1340's census measured at 0.78 to 1.34 of the fitted board. At 0.78, which is
+        // what mocks/rig-20260918 reads because its doubles ring has dropped out of the
+        // colour mask and the span is its TREBLE ring, the same 15.8% reads 15.8/0.78^2 =
+        // 26.0%. The rig measures 23.6, 26.9 and 25.7. The arithmetic lands on the
+        // measurement to within a percentage point, and the measurement is what is used.
+        //
+        // 0.65 SITS IN THE GAP BETWEEN THE TWO RATHER THAN BESIDE EITHER, in ratio: it is
+        // 1.49x the highest board camera anything here can produce and a filled shape is
+        // 1.54x it. Against the shipped fixtures alone -- highest 26.9% -- it is 2.4x. It
+        // cannot be reached by mounting a board closer, which is what this issue is about,
+        // and nothing in it is fitted to a rig.
+        //
+        // WHAT IT IS FOR, which is not what the sentence it replaces was for. #1318's real
+        // failure was a face that got all the way through: a bull was found in it, a
+        // doubles ring was fitted through it, and the old check refused it at STEP 6.5 on
+        // 237,036 mask pixels over a 1280x720 frame -- 25.7%. A blob with a hole in it
+        // fills most of its own circle and a ring does not, so that face is refused here,
+        // in terms that do not move when a board is mounted closer. The flood check below
+        // catches the other shape of the same failure: a warm room that colours a whole
+        // picture, which never reaches this stage because there is no bull in it.
+        double max_ring_of_board_disc = 0.65;
 
-        // #1392, THE FLOOD, as a multiple of what a whole board in this camera's frame
-        // could possibly account for. See `floodCeiling` below: the ceiling is derived
-        // from the frame's own shape and from ADR-0079 §2, and this is where the line
-        // sits between that ceiling and a picture that is coloured edge to edge.
+        // #1392, THE FLOOD. How much of the whole picture keys as dartboard red or green,
+        // asked at STEP 1.5, before a region is drawn. This one really IS about the frame,
+        // because the question is "is this camera's whole picture coloured". What moved is
+        // the line it is held to: see `floodCeiling` below, which is the largest share of
+        // ITS OWN FRAME a whole board could account for if every pixel of it were coloured
+        // -- 44.2% on 1280x720, 58.9% on 4:3, 78.5% on a square frame. The line is drawn
+        // this far along the gap between that ceiling and a picture coloured edge to edge,
+        // which is #1318's own rule for where a line goes, applied to a ceiling that
+        // follows the frame instead of to a constant that does not.
         //
-        //   MEASURED_FLOOD_TABLE
+        //   line = ceiling + (1 - ceiling) * 0.5   ->   72.1% at 16:9, 89.3% at 1:1
         //
-        double flood_of_ceiling = 9.99;
+        // MEASURED, on the same binary and the same day:
+        //
+        //   mocks/cam_*.mp4         4.2%   4.3%   5.2%    of a 1280x720 frame
+        //   mocks/rig-20260918      5.5%   7.1%   5.1%
+        //   mocks/cam_* at 0.60     2.0%   2.2%   2.9%
+        //   mocks/cam_* at 720x720  7.7%   7.6%   9.9%    of a square frame, ceiling 78.5%
+        //   a warm room with a face          100.0%       testers/i1318_make_source.cpp
+        //   a grey office wall                 0.0%       the other half of that control
+        //
+        // A constant is what this issue is about, and it is worth one line why a constant
+        // could not be kept here even generously. 12% was one. On mocks/rig-20260918 the
+        // ring fills 26.9% of the circle its board spans, ADR-0079 §2 lets that circle
+        // fill at most 44.2% of a 16:9 frame, so that rig mounted as close as a WHOLE
+        // board can be mounted reads 26.9% x 44.2% = 11.9% on the old measure -- against a
+        // line of 12%. One tenth of one percentage point, and on a 4:3 sensor the same rig
+        // reads 15.8% and loses the camera outright. Nothing the old check stated had
+        // anything to do with that margin.
+        double flood_share_of_the_gap = 0.5;
 
         // The pre-#1392 line, kept for OD_LOOK=frame and reachable by nothing else. 12%,
         // sitting in the gap between the two measurements #1318 took -- 3.0% for a board
@@ -215,12 +295,8 @@ namespace board_look
      * closer, or behind a longer lens, cannot walk a camera towards it: the board is
      * already granted the whole ceiling.
      *
-     * That is the number the flood line is a multiple OF, which is why the flood check is
-     * not a constant share of a frame. A constant share is what this issue is about. 12%
-     * was one, and on 1280x720 the two fixtures in this repository key 4.2% to 7.1% of
-     * their frames with boards spanning a third of the picture -- so the old line sat less
-     * than a factor of two in area, i.e. 1.3x in distance, from a rig that was merely
-     * mounted nearer.
+     * That is what the flood line is drawn FROM, which is why the flood check is not a
+     * constant share of a frame. A constant share is what this issue is about.
      */
     inline double floodCeiling(const Evidence &e)
     {
@@ -231,6 +307,13 @@ namespace board_look
         }
         const double shortest = w < h ? w : h;
         return M_PI * shortest * shortest / (4.0 * w * h);
+    }
+
+    /** Where the flood line sits: that far along the gap from the ceiling to all of it. */
+    inline double floodAllowed(const Evidence &e, const Limits &limits)
+    {
+        const double ceiling = floodCeiling(e);
+        return ceiling + (1.0 - ceiling) * limits.flood_share_of_the_gap;
     }
 
     /**
@@ -324,7 +407,7 @@ namespace board_look
         // share of a frame -- it is a multiple of what a whole board in THIS frame could
         // account for, which is derived from the frame's own shape and cannot be walked
         // towards by moving a camera nearer a board.
-        if (floodFraction(e) > limits.flood_of_ceiling * floodCeiling(e))
+        if (floodFraction(e) > floodAllowed(e, limits))
         {
             return Refused::FloodedFrame;
         }
@@ -409,7 +492,7 @@ namespace board_look
                    std::to_string(e.frame_cols) + "x" + std::to_string(e.frame_rows) +
                    " frame could account for at most " + percentOf(floodCeiling(e)) +
                    "% if every pixel of it were coloured, so this check allows " +
-                   percentOf(limits.flood_of_ceiling * floodCeiling(e)) +
+                   percentOf(floodAllowed(e, limits)) +
                    "% -- skin in warm room light colours a whole picture and a dartboard cannot";
         case Refused::BoardClipped:
             return "is not looking at a WHOLE dartboard: the coloured region that is its doubles ring "

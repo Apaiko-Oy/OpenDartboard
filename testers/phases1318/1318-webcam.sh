@@ -66,16 +66,25 @@ FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
 echo "=== 1. the camera that is not looking at the board is refused BY NAME ==="
+# #1392 moved what this sentence is a share OF. The camera, the measure and the line are
+# still in one line -- #1321's rule, which is what this phase is really about -- but the
+# measure is no longer a share of the frame held to a constant: it is the whole picture's
+# colour against what a WHOLE board in a frame this shape could account for. The old
+# sentence is still reachable, word for word, under OD_LOOK=frame, and #1392's own tester
+# is what holds it to #1318's numbers.
 grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1318/a.txt || true
-if grep -qE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera 1 .*is not looking at the dartboard: [0-9]+% of its frame keys as dartboard red or green and this check allows at most [0-9]+%' /run1318/a.txt; then
+if grep -qE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera 1 .*is not looking at the dartboard: [0-9.]+% of its whole picture keys as dartboard red or green and the biggest board that fits in a [0-9]+x[0-9]+ frame could account for at most [0-9.]+%' /run1318/a.txt; then
   say "OK   camera 1 is named, with the measure and the threshold in one sentence" ok
 else say "FAIL no line names camera 1 and what it failed on" no; fi
 
 echo "=== 1b. the number printed is on the wrong side of the threshold it is printed against ==="
 # #1321's rule. A line nothing can falsify is not evidence: a camera refused for holding
 # LESS red and green than the check allows did not fail on red and green.
-BAD=$(grep -oE '[0-9]+% of its frame keys as dartboard red or green and this check allows at most [0-9]+%' /run1318/a.txt \
-  | tr -d '%' | awk '$1 <= $17 { print }' | wc -l)
+#
+# $NF rather than a field number since #1392: the threshold is the last number in the
+# matched string either way, and counting words was a thing the sentence could break.
+BAD=$(grep -oE '[0-9.]+% of its whole picture keys as dartboard red or green and .* this check allows [0-9.]+%' /run1318/a.txt \
+  | tr -d '%' | awk '{ if ($1 <= $NF) print }' | wc -l)
 if [ "$BAD" = "0" ]; then say "OK   every percentage printed is above the threshold it is printed against" ok
 else say "FAIL $BAD refusals print a percentage that is not above its own threshold" no; fi
 
