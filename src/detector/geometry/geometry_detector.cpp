@@ -11,6 +11,7 @@
 #include "detection/score_processing.hpp"
 #include "utils.hpp"
 #include "utils/board_sight.hpp"
+#include "calibration/geometry_agreement.hpp"
 
 using namespace cv;
 using namespace std;
@@ -619,7 +620,43 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         calibrated = false;
     }
 
+    // #1388: the geometry, sealed at the one moment this board is allowed to decide what
+    // its geometry is. It is taken here rather than in the success branch above so that
+    // it covers every path initialize can leave by -- fresh calibration, cached
+    // calibration, and the three failures, which seal the empty geometry they are going
+    // to fault on. A board that seals nothing is a board that could not be shown to have
+    // adopted anything later, which is the one outcome this must not have.
+    sealed_geometry = geometry_agreement::fingerprint(calibrations);
+    log_info("GEOMETRY SEALED: " + sealed_geometry);
+
     return initialized;
+}
+
+/**
+ * #1388: whether this detector is still scoring with the geometry it sealed.
+ *
+ * Asked once per scoring cycle by Scorer's loop, which is the only place that can act on
+ * the answer. Rebuilding the line every cycle rather than caching a hash is deliberate
+ * and it is not a measurable cost: it is a few dozen numbers formatted for three cameras,
+ * against three frames of video decoded, differenced and scored in the same cycle. What
+ * it buys is that the check reads the LIVE calibrations every time, so there is no second
+ * copy of the geometry that could be updated in step with the first and agree with it.
+ */
+string GeometryDetector::geometryBreach() const
+{
+    if (sealed_geometry.empty())
+    {
+        // initialize() has not finished. There is nothing to have departed from.
+        return "";
+    }
+    const string now = geometry_agreement::fingerprint(calibrations);
+    if (now == sealed_geometry)
+    {
+        return "";
+    }
+    return "the geometry this board is scoring with is not the geometry it calibrated. "
+           "It calibrated on [" +
+           sealed_geometry + "] and it is now holding [" + now + "]";
 }
 
 /**
@@ -629,6 +666,11 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
  * reopened, on a fresh average of frames. What comes back is a verdict and the numbers it
  * was reached by; `calibrations` is not touched, and the board goes on scoring with the
  * geometry it earned at start or it stops scoring at all.
+ *
+ * #1388: "`calibrations` is not touched" is now enforced rather than stated. The fresh
+ * calibration below is a local, it is read by `measure` and it goes out of scope; the
+ * seal taken at the end of `initialize` is what makes that a fact a test can fail on
+ * instead of a sentence in a comment. See `geometryBreach` and ADR-0080 §2.
  *
  * WHICH CAMERAS ARE ASKED. Only the ones that were scoring: #1318 lets a camera that is
  * not looking at a dartboard abstain for the life of the run, and a slot that abstained

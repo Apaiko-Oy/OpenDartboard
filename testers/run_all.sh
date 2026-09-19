@@ -130,6 +130,10 @@ tester 1334-networkless   "bash '$T/i1334_run.sh'"
 # #1334's other half measures what systemd does with templates/*.service.template, so it
 # needs a live manager and a live journal where everything here runs in a container with
 # no init. It is deliberately outside this list and carries a marker saying so.
+# #1388: added at the end rather than beside 899-recover, which is the lifecycle it
+# extends, because it builds a second binary from a scratch copy of the tree and takes
+# several minutes -- 1317-asan's reason, and it belongs in 1317-asan's half of the list.
+tester 1388-budget        "bash '$T/i1388_run.sh'"
 # Last, because it builds a second binary under AddressSanitizer and takes longer than
 # everything above it together.
 tester 1317-asan          "bash '$T/i1317_run.sh' '$T/phases1317/1317-asan.sh'"
