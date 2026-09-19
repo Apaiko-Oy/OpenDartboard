@@ -109,6 +109,18 @@ tester 891-unreachable    "bash '$T/i891_run.sh' unreachable '$T/phases891/unrea
 # Last, because it builds a second binary under AddressSanitizer and takes longer than
 # everything above it together.
 tester 1317-asan          "bash '$T/i1317_run.sh' '$T/phases1317/1317-asan.sh'"
+# MEASURED 2026-09-19 on the 4-core box, to completion, rc=0: wall 601 s with
+# host_busy_pct=97.0 and the load average going 3.2 -> 12.9 under it, which is to say the
+# 601 s is already a busy-box number and not a quiet-box one. Two ASan builds is most of
+# it: this tree's, and the base commit's for the half of #1317's question that asks what
+# the OLD build did on the same footage.
+#
+# 2400 rather than 1200 because 1200 is the number that failed. The baseline of 2026-09-18
+# reported `no answer in 1200s` -- the only red of thirty, and not a finding -- so the
+# honest budget is twice the limit that was actually exceeded rather than twice the cost
+# measured here. Raising it does not make a HUNG run cheap, and it is not meant to: a
+# timeout bounds a run that is stuck, and this one only ever bounded a run that was slow.
+slow 2400
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")

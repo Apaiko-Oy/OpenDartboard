@@ -189,9 +189,10 @@ od_claim() {
   echo "FAIL $name: a container from an earlier run is still here ($state)." >&2
   echo "     Nothing new can take that name, so this run cannot start. Stop it and re-run:" >&2
   echo "       docker rm -f $name" >&2
-  echo "     A run that ends any way but SIGKILL now reaps its own container, so meeting" >&2
-  echo "     this means something was killed outright -- or another checkout is using the" >&2
-  echo "     name, which it should not be, because the name carries the checkout (#1335)." >&2
+  echo "     A run reaps its own container however it is killed, SIGKILL included, and" >&2
+  echo "     leak_check.sh measures that on every run_all. So meeting this means the" >&2
+  echo "     watchdog went with it -- the box went down, or Docker restarted -- or another" >&2
+  echo "     checkout is using the name, which it should not be: it carries one (#1335)." >&2
   return 1
 }
 
