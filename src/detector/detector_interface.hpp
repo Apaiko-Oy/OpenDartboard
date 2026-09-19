@@ -80,6 +80,27 @@ public:
     }
 
     /**
+     * #1388: empty while this detector is scoring with the geometry it was given, or one
+     * sentence naming what changed under it.
+     *
+     * ADR-0080 makes a `Moved` verdict survivable, so a board now goes back to scoring
+     * after a disagreement instead of exiting. The half of #899 that must survive that
+     * unchanged is the other one: nothing adopts fresh geometry mid-run, in any path.
+     * Before #1388 that was true because the only way back into scoring was a `Moved`
+     * that killed the process; afterwards it is true because nothing writes the held
+     * calibrations after `initialize`, which is a property of the code rather than a
+     * fact anything reads.
+     *
+     * So the detector is asked, every cycle, and the caller stops the board on an answer.
+     * The default is empty rather than a refusal -- the opposite direction from
+     * `reviewGeometry` above, and for the opposite reason: `reviewGeometry`'s default
+     * governs whether a board may START scoring again, where silence must not be taken
+     * for consent; this one governs whether a board that IS scoring must stop, where a
+     * detector that holds no geometry of its own has nothing to have adopted.
+     */
+    virtual string geometryBreach() const { return ""; }
+
+    /**
      * #1338: how many cameras this detector is actually scoring with, of how many it was
      * given, in one phrase -- "1 of 3 cameras (2 produced no frame)".
      *

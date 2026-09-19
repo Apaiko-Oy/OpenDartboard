@@ -13,6 +13,7 @@
 #include "utils/board_sight.hpp"
 #include "utils/od_fix.hpp"
 #include "utils/signals.hpp"
+#include "utils/geometry_fault.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
 #include <random>
 #include <opencv2/opencv.hpp>
@@ -51,6 +52,68 @@ namespace
     // the geometry it is being compared to would be a noisier measurement judged against
     // a quieter one, and every bit of that noise reads as movement.
     constexpr int kReviewFrames = 30;
+
+    // ---- #1388 / ADR-0080: the retry budget, and the measurement it came from. ----
+    //
+    // A `Moved` verdict no longer ends the run. The rig is bolted to the wall and the
+    // cameras are fixed to the rig (ADR-0079 §3, ADR-0080), so there is no re-aiming and
+    // the commonest cause of a single disagreement is a bump -- somebody knocks the
+    // frame, or a dart strikes it rather than the board, which happens DURING PLAY and is
+    // therefore an expected event rather than an edge case. A transient disagrees once
+    // and then agrees again; an assembly that has really shifted disagrees every time it
+    // is asked. Asking again is the whole discriminator, and these two numbers are how
+    // many times and how far apart.
+    //
+    // MEASURED, on both fixtures, by testers/phases1388/1388-budget.sh. What was measured
+    // is the only observable the event has: the board's own witness measurement, taken
+    // the way `attemptRecovery` takes it -- `geometry_calibration::calibrateSingleCamera`
+    // on the mean of thirty consecutive frames -- against a calibration held from the
+    // clean opening of the clip, once a second across a minute of darts being thrown at a
+    // rig nobody touched. The figure that decides a budget is the LONGEST RUN OF
+    // CONSECUTIVE DISAGREEING SAMPLES, because that is how long a board asking repeatedly
+    // would go on being told the rig had moved when it had not:
+    //
+    //     mocks/cam_1.mp4              6 consecutive samples = 6.00 s   <-- the maximum
+    //     mocks/cam_2.mp4              4                     = 4.00 s
+    //     mocks/cam_3.mp4              3                     = 3.00 s
+    //     mocks/rig-20260918/cam_1     2                     = 2.00 s
+    //     mocks/rig-20260918/cam_2     1                     = 1.00 s
+    //     mocks/rig-20260918/cam_3     1                     = 1.00 s
+    //
+    // Worth reading the shape of the worst one, because it is not the shape anybody would
+    // have guessed: through all six of cam_1's seconds the BULL moved 1.00 px and the
+    // doubles ring changed size by 39%. The disturbance this budget has to outlast is the
+    // ellipse fit, not the bull -- `max_radius_change` is the term that fires during
+    // ordinary play, and it is the one term in geometry_agreement.hpp with no measured
+    // positive behind it. That is filed separately; it is a tolerance question and this
+    // is a budget.
+    //
+    // THE BUDGET IS A SPAN, AND THE TWO NUMBERS ARE HOW IT IS SPENT. An attempt is not
+    // free: it reopens the cameras, reads thirty frames and re-calibrates every camera
+    // that was scoring, which measured 3.4 s for three cameras on this box. So four
+    // attempts two seconds apart span 3 x (2.0 + 3.4) = 16.2 s from the first
+    // disagreement to the last -- two and a half times the longest disturbance measured
+    // on either rig, and the margin is deliberate, because 6.00 s is the longest
+    // disturbance seen in two minutes of footage rather than the longest one there is.
+    //
+    // AND THE COST OF BEING WRONG IS NOT SYMMETRIC, which is why the margin goes this
+    // way. A board spending this budget is a board that has already suspended scoring, so
+    // an over-long budget costs recovery latency and nothing else; an over-short one
+    // takes a board down for the rest of the evening because a dart hit the frame. ADR-
+    // 0080's "leaves a shifted rig scoring for longer than it should" is the danger on
+    // some future path where the board is asked mid-scoring; it is not the danger here,
+    // and saying so is better than inheriting a caution that does not apply.
+    //
+    // The first is the disagreement itself, so three of the four are re-asks.
+    constexpr int kMovedAttempts = 4;
+
+    // Flat, and NOT the doubling backoff the `Unreadable` path uses. That backoff exists
+    // because a camera that will not open may not open for hours and the board must not
+    // spend the night in a hot loop; this is the opposite state -- the cameras are open,
+    // answering, and have produced a measurement -- and the question is whether one
+    // bounded disturbance has passed. Doubling would spend the budget's last attempt a
+    // minute after the bump, which measures nothing the first four seconds did not.
+    constexpr long kMovedWaitSeconds = 2;
 }
 
 Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> &cams, bool debug_mode, const string &detector_type,
@@ -63,6 +126,34 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     // is --debug, and decides whether this listener serves the saved camera frames as
     // well as the scores.
     websocket_service_ = std::make_unique<WebSocketService>(score_queue_, socket, debug_display);
+
+    // #1388 / ADR-0080 §4: a persistent `Moved` recorded by an earlier run of this board.
+    //
+    // FIRST, BEFORE THE CAMERAS ARE OPENED, because what is being refused is the
+    // ADOPTION and the adoption is the calibration. A board that opened its cameras and
+    // calibrated and then declined to score would have measured a new geometry, written
+    // it to the cache and logged it as this board's -- and the whole of ADR-0080 §3 is
+    // that a rig which has shifted on its bolts does not get re-measured by the machine
+    // that is standing on it. So this board looks at nothing.
+    //
+    // It takes #895's vigil, which is what `detector` being null means here: it stays up,
+    // beats ERROR, and says which camera moved and by how much, every time somebody
+    // reads the log. It does not exit, because an exited board under Restart=always is
+    // exactly the loop this record exists to break.
+    const string moved_before = geometry_fault::held();
+    if (!moved_before.empty())
+    {
+        log_error("BOARD HOLDING A GEOMETRY FAULT: " + moved_before +
+                  ". An earlier run measured the rig as being somewhere other than where it "
+                  "was calibrated, and the disagreement did not go away. This board will not "
+                  "open a camera or calibrate until somebody has looked at the rig: the frame "
+                  "has moved relative to the board and a detector cannot put it back. Check "
+                  "that the frame is still bolted where it was, then clear this with "
+                  "--clear-geometry-fault.");
+        board_sight::recordFault(moved_before);
+        board_sight::faulted() = true;
+        return;
+    }
 
     // Initialize cameras
     capture = camera::makeCaptureSource();
@@ -272,6 +363,9 @@ void Scorer::run()
     bool scoring_suspended = false;
     int recovery_attempts = 0;
     long backoff_seconds = kFirstRetryBackoffSeconds;
+    // #1388: consecutive `Moved` verdicts in the episode being recovered from. The
+    // budget, counted. Reset by agreement and by nothing else.
+    int disagreements = 0;
 
     while (running)
     {
@@ -326,6 +420,42 @@ void Scorer::run()
         // READY. The frames are read anyway because reading is how the recovery finds
         // out the cameras are back, and because a slot that stops being read stops
         // reporting CAPDROP for the camera that is still missing.
+        // #1388 / ADR-0080 §2: nothing adopts fresh geometry mid-run, in any path.
+        //
+        // Asked here, before the frames are processed, of every cycle of every run --
+        // including the cycles after a recovery, which is the whole reason it exists. The
+        // detector holds one line describing the geometry it calibrated on, taken at the
+        // end of initialize(); this is that line compared with the geometry it is about
+        // to score the next dart with. `reviewGeometry` deliberately keeps its fresh
+        // calibrations as locals, so on a correct board the two can never differ -- and
+        // that is the point. A guard nothing can trip is not evidence, so the harness
+        // trips it: testers/phases1388/1388-budget.sh makes a scratch copy of the tree in
+        // which reviewGeometry assigns the fresh calibration over the held one, and the
+        // board it builds says the sentence below instead of scoring.
+        //
+        // The board STOPS rather than logging and carrying on, for #899's reason: a board
+        // scoring on geometry nobody confirmed is the silent failure the whole of this
+        // lifecycle exists to make impossible, and it is worse, not better, when the
+        // geometry came from the board itself.
+        const string breach = detector ? detector->geometryBreach() : string();
+        if (!breach.empty())
+        {
+            log_error("BOARD ADOPTED GEOMETRY MID-RUN: " + breach +
+                      ". No path in this program may replace the calibration a board is "
+                      "scoring with while it is running -- a geometry that has not been "
+                      "confirmed is a board putting darts in the wrong wedge with every "
+                      "control still looking like darts (ADR-0080 section 2). It refuses to "
+                      "score rather than go on.");
+            board_sight::recordFault("the geometry was replaced while the board was running - " + breach);
+            board_sight::faulted() = true;
+            if (websocket_service_)
+            {
+                websocket_service_->stop();
+            }
+            running = false;
+            break;
+        }
+
         if (saw_something && !scoring_suspended)
         {
             last_sight = chrono::steady_clock::now();
@@ -356,6 +486,7 @@ void Scorer::run()
             {
                 scoring_suspended = true;
                 recovery_attempts = 0;
+                disagreements = 0;
                 backoff_seconds = kFirstRetryBackoffSeconds;
                 next_attempt_at = now;
                 log_error("BOARD SIGHT LOST: no camera has answered for " + to_string(blind_for) +
@@ -368,17 +499,88 @@ void Scorer::run()
         if (scoring_suspended && now >= next_attempt_at)
         {
             const long blind_for = (long)chrono::duration_cast<chrono::seconds>(now - last_sight).count();
-            const GeometryReview::Verdict verdict = attemptRecovery(++recovery_attempts, blind_for);
+            const GeometryReview review = attemptRecovery(++recovery_attempts, blind_for);
 
-            if (verdict == GeometryReview::Verdict::Unchanged)
+            if (review.verdict == GeometryReview::Verdict::Unchanged)
             {
+                // #1388: including after one or more disagreements. This is ADR-0080 §2
+                // and it is the half of #899 that had to survive the amendment whole:
+                // what resumes is the HELD calibration. The fresh ones taken to reach
+                // this line were witnesses, every one of them was a local inside
+                // reviewGeometry, and the seal checked at the top of this loop is what
+                // makes that a fact rather than an intention.
+                if (disagreements > 0)
+                {
+                    log_warning("BOARD SETTLED: the geometry disagreed on " +
+                                to_string(disagreements) + " of " + to_string(kMovedAttempts) +
+                                " measurement(s) and then agreed again. On a rig that is bolted "
+                                "to the wall a disagreement that goes away is a knock -- a dart "
+                                "into the frame, somebody against it -- and the rig is back "
+                                "where it was bolted. Scoring resumes on the calibration this "
+                                "board started with. Nothing was adopted.");
+                }
+                disagreements = 0;
                 scoring_suspended = false;
                 last_sight = chrono::steady_clock::now();
             }
-            else if (verdict == GeometryReview::Verdict::Moved)
+            else if (review.verdict == GeometryReview::Verdict::Moved)
             {
-                running = false;
-                break;
+                // ---- #1388 / ADR-0080 §1: the retry budget, spent here. ----
+                //
+                // The count is of CONSECUTIVE disagreements, and it is reset by an
+                // `Unchanged` above rather than by anything here. `Unreadable` neither
+                // spends the budget nor resets it, which is the one case worth saying out
+                // loud: a camera that stopped answering again in the middle of the budget
+                // is not evidence either way about where the rig is, and treating it as a
+                // disagreement would fault a board for a USB cable.
+                disagreements++;
+                if (disagreements < kMovedAttempts)
+                {
+                    log_warning("BOARD GEOMETRY: measurement " + to_string(disagreements) +
+                                " of " + to_string(kMovedAttempts) + " disagrees. Asking again in " +
+                                to_string(kMovedWaitSeconds) + " seconds, because a bolted rig that "
+                                "disagrees once has been knocked and a bolted rig that has moved "
+                                "disagrees every time it is asked.");
+                    next_attempt_at = chrono::steady_clock::now() + chrono::seconds(kMovedWaitSeconds);
+                }
+                else
+                {
+                    // Persistent. The assembly has shifted relative to the board, the held
+                    // geometry is wrong, the fresh geometry is right, and the board still
+                    // does not adopt it (ADR-0080 §3). What is new is that the refusal
+                    // outlives this process: without the record, Restart=always plus
+                    // #1330's default brings the board straight back up calibrating on
+                    // the rig as it now is, which is the adoption #899 refused arriving
+                    // through the unit file.
+                    const string account = review.account;
+                    if (geometry_fault::record(account))
+                    {
+                        log_error("GEOMETRY FAULT RECORDED at " + geometry_fault::path() +
+                                  ": this board will refuse to calibrate on restart until an "
+                                  "operator clears it with --clear-geometry-fault.");
+                    }
+                    board_sight::recordFault("the cameras came back and the board is not where it was - " + account);
+                    board_sight::faulted() = true;
+                    log_error("BOARD MOVED: " + account +
+                              ". The cameras answer and the geometry this board was scoring with is no "
+                              "longer true of them, so it refuses to score rather than put darts in the "
+                              "wrong wedge. Put the camera back where it was, or restart the detector so "
+                              "it calibrates on the rig as it is now.");
+                    log_error("BOARD MOVED: the disagreement persisted through all " +
+                              to_string(kMovedAttempts) + " measurements " + to_string(kMovedWaitSeconds) +
+                              " seconds apart, so it is not a knock the rig has settled from. The frame "
+                              "has moved relative to the board and somebody has to look at it.");
+                    // #895's argument one layer down: a board that cannot see must not go
+                    // on serving a score socket that looks alive. main's mDNS announcement
+                    // is not withdrawn from here -- that is #1274's surface and it is
+                    // decided before run() is called.
+                    if (websocket_service_)
+                    {
+                        websocket_service_->stop();
+                    }
+                    running = false;
+                    break;
+                }
             }
             else
             {
@@ -576,7 +778,7 @@ void Scorer::runFaultVigil()
  *    field in the beat and a Turnaus that reads it -- another repository and another
  *    decision.
  */
-GeometryReview::Verdict Scorer::attemptRecovery(int attempt, long blind_seconds)
+GeometryReview Scorer::attemptRecovery(int attempt, long blind_seconds)
 {
     log_warning("BOARD SIGHT RECOVERY: attempt " + to_string(attempt) + " after " +
                 to_string(blind_seconds) + " seconds blind - reopening " +
@@ -586,7 +788,7 @@ GeometryReview::Verdict Scorer::attemptRecovery(int attempt, long blind_seconds)
     {
         log_warning("BOARD SIGHT RECOVERY: the cameras still will not open. Scoring stays "
                     "suspended and this will be tried again.");
-        return GeometryReview::Verdict::Unreadable;
+        return GeometryReview{GeometryReview::Verdict::Unreadable, "the cameras still will not open"};
     }
 
     vector<camera::Frame> review_frames = capture->readAveraged(kReviewFrames);
@@ -594,7 +796,7 @@ GeometryReview::Verdict Scorer::attemptRecovery(int attempt, long blind_seconds)
     {
         log_warning("BOARD SIGHT RECOVERY: the cameras opened and produced no frame. Scoring "
                     "stays suspended and this will be tried again.");
-        return GeometryReview::Verdict::Unreadable;
+        return GeometryReview{GeometryReview::Verdict::Unreadable, "the cameras opened and produced no frame"};
     }
 
     const GeometryReview review = detector->reviewGeometry(review_frames);
@@ -610,32 +812,31 @@ GeometryReview::Verdict Scorer::attemptRecovery(int attempt, long blind_seconds)
                  " seconds and the board has not moved - " + review.account +
                  ". Scoring resumes on the calibration this board started with; the "
                  "calibration just taken was a witness and has been discarded.");
-        return GeometryReview::Verdict::Unchanged;
+        return review;
 
     case GeometryReview::Verdict::Moved:
-        // Terminal, and terminal on purpose. Nothing a retry can do makes a moved camera
-        // un-moved, and the one thing that must not happen is this board scoring again
-        // on geometry that has been contradicted.
-        board_sight::recordFault("the cameras came back and the board is not where it was - " +
-                                 review.account);
-        board_sight::faulted() = true;
-        log_error("BOARD MOVED: " + review.account +
-                  ". The cameras answer and the geometry this board was scoring with is no "
-                  "longer true of them, so it refuses to score rather than put darts in the "
-                  "wrong wedge. Put the camera back where it was, or restart the detector so "
-                  "it calibrates on the rig as it is now.");
-        // #895's argument one layer down: a board that cannot see must not go on serving
-        // a score socket that looks alive. main's mDNS announcement is not withdrawn from
-        // here -- that is #1274's surface and it is decided before run() is called.
-        if (websocket_service_)
-        {
-            websocket_service_->stop();
-        }
-        return GeometryReview::Verdict::Moved;
+        // #1388 / ADR-0080 §1: no longer terminal here, and no longer terminal ANYWHERE
+        // in this function. A disagreement is a measurement, and what a board does about
+        // a measurement taken once is the caller's decision -- the run loop counts them,
+        // waits, and asks again, because a bolted rig that disagrees once has been bumped
+        // and a bolted rig that disagrees every time has moved. The sentence that used to
+        // be here said "nothing a retry can do makes a moved camera un-moved", which is
+        // true of a moved camera and is the thing this cannot tell from a bumped one
+        // without asking twice.
+        //
+        // It is still said out loud on every attempt, at ERROR, with the numbers: a board
+        // that disagreed twice and recovered on the third ask is a board somebody should
+        // know about, and ADR-0080 §5 sends that to the heartbeat rather than to a
+        // surface of its own.
+        log_error("BOARD GEOMETRY DISAGREES: " + review.account +
+                  ". The cameras answer and the geometry this board is scoring with is not "
+                  "true of what they see. Scoring stays suspended and the board will measure "
+                  "again before deciding whether this was a knock or a move.");
+        return review;
 
     default:
         log_warning("BOARD SIGHT RECOVERY: " + review.account +
                     ". Scoring stays suspended and this will be tried again.");
-        return GeometryReview::Verdict::Unreadable;
+        return GeometryReview{GeometryReview::Verdict::Unreadable, review.account};
     }
 }
