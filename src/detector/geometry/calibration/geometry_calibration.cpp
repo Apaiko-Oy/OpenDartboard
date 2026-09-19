@@ -100,6 +100,8 @@ namespace geometry_calibration
             Mat fullColourGray;
             cvtColor(fullFrameColours, fullColourGray, COLOR_BGR2GRAY);
             calibration.look.frame_pixels = static_cast<int>(fullFrameColours.total());
+            calibration.look.frame_cols = fullFrameColours.cols;
+            calibration.look.frame_rows = fullFrameColours.rows;
             calibration.look.red_green_pixels = countNonZero(fullColourGray);
 
             // #1392: what those pixels are a share OF, set once, here, because this is
@@ -180,7 +182,9 @@ namespace geometry_calibration
         // `RingNotTraced` and refuse every camera in the building -- measured, on both
         // rigs, while writing this.
         const board_look::Refused framing = board_look::verdict(calibration.look);
-        if (framing == board_look::Refused::TooMuchRedGreen || framing == board_look::Refused::BoardClipped)
+        if (framing == board_look::Refused::FloodedFrame ||
+            framing == board_look::Refused::TooMuchRedGreen || // OD_LOOK=frame's single test
+            framing == board_look::Refused::BoardClipped)
         {
             const string why = board_look::refusal(calibration.look);
             log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +
@@ -297,10 +301,16 @@ namespace geometry_calibration
             // from, and the ERROR carries whichever sentence says more. A dark board
             // reads as RingNotTraced, which says nothing this line has not, so it is
             // left off -- #1321's rule that one refused camera is one ERROR.
+            //
+            // #1392: this goes into `ring_pixels` and NOT over the full frame's flood
+            // count, which STEP 1 took and which nothing below it may overwrite. It is
+            // the colour inside the region and it is not a ring -- nothing has traced one
+            // -- so `ringWasTraced` is false and the ring gate is not asked of it. It is
+            // set because OD_LOOK=frame's single test is asked of exactly this numerator
+            // over exactly this denominator, which is what the code did here before.
             Mat redGreenGray;
             cvtColor(redGreenFrame, redGreenGray, COLOR_BGR2GRAY);
-            calibration.look.frame_pixels = static_cast<int>(redGreenFrame.total());
-            calibration.look.red_green_pixels = countNonZero(redGreenGray);
+            calibration.look.ring_pixels = countNonZero(redGreenGray);
             calibration.look.traced_doubles = false;
             calibration.look.outer_points = 0;
             calibration.look.inner_points = 0;
@@ -359,12 +369,9 @@ namespace geometry_calibration
         // mocks/rig-20260918 the doubles ring has dropped out of the colour mask
         // altogether and it is the TREBLE ring (#1378). Both are rings and both are a
         // small share of the circle they sit in, which is the property this gate is on.
-        calibration.look.frame_pixels = masks.doublesMask.empty()
-                                            ? 0
-                                            : (int)masks.doublesMask.total();
-        calibration.look.red_green_pixels = masks.doublesMask.empty()
-                                                ? 0
-                                                : countNonZero(masks.doublesMask);
+        calibration.look.ring_pixels = masks.doublesMask.empty()
+                                           ? 0
+                                           : countNonZero(masks.doublesMask);
         calibration.look.traced_doubles = ellipseData.hasValidDoubles;
         calibration.look.outer_points = ellipseData.validOuterPoints;
         calibration.look.inner_points = ellipseData.validInnerPoints;

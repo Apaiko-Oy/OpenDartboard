@@ -129,13 +129,26 @@ namespace board_look
         bool board_clipped = false;
         int board_edge_gap = 0;
 
+        // #1392: the frame's own shape, because the flood ceiling below is derived from
+        // it. `frame_pixels` is cols*rows and is what NoFrame is asked of; these two are
+        // what says whether this camera is 16:9, 4:3 or square, which changes how much of
+        // a picture the biggest possible whole board can fill.
+        int frame_cols = 0;
+        int frame_rows = 0;
+
+        // #1392: the ring this camera's ellipse stage was handed, in pixels -- STEP 6.5's
+        // `countNonZero(masks.doublesMask)`, which is the carved red/green mask reduced to
+        // its LARGEST CONNECTED COMPONENT. Zero until that stage runs. It is kept apart
+        // from `red_green_pixels` rather than overwriting it, which is what the code did
+        // before this issue: a ring counted into a field called red_green_pixels, beside a
+        // frame_pixels that was still the whole picture, is what made "a share of the
+        // frame" look like a sensible thing to ask.
+        int ring_pixels = 0;
+
         // #1392: the radius `bull_processing::measureBoard` measured on the FULL frame,
-        // which is what `red_green_pixels` is divided by. Zero where no board was found
-        // at all -- a camera with no board in its picture is refused by the stage that
-        // could not find one, in that stage's own words, and has no disc to be a share
-        // of. `frame_pixels` is kept beside it because it is still what NoFrame is asked
-        // of, because it is what OD_LOOK=frame divides by, and because a reader
-        // comparing the two is reading the whole of this issue.
+        // which is what `ring_pixels` is divided by. Zero where no board was found at all
+        // -- a camera with no board in its picture is refused by the stage that could not
+        // find one, in that stage's own words, and has no circle to be a share of.
         double board_span_px = 0.0;
     };
 
@@ -146,12 +159,21 @@ namespace board_look
      */
     struct Limits
     {
-        // #1392. MEASURED, on one binary, on every fixture this repository has, with
-        // `board_span_px` as the denominator and the mask each site really hands over:
+        // #1392, THE RING. What share of the circle its own board spans keys as dartboard
+        // red or green, asked at STEP 6.5 of the mask the ellipse stage was handed.
         //
-        //   MEASURED_TABLE_GOES_HERE
+        //   MEASURED_RING_TABLE
         //
-        double max_board_disc_colour = 0.30;
+        double max_ring_of_board_disc = 9.99;
+
+        // #1392, THE FLOOD, as a multiple of what a whole board in this camera's frame
+        // could possibly account for. See `floodCeiling` below: the ceiling is derived
+        // from the frame's own shape and from ADR-0079 §2, and this is where the line
+        // sits between that ceiling and a picture that is coloured edge to edge.
+        //
+        //   MEASURED_FLOOD_TABLE
+        //
+        double flood_of_ceiling = 9.99;
 
         // The pre-#1392 line, kept for OD_LOOK=frame and reachable by nothing else. 12%,
         // sitting in the gap between the two measurements #1318 took -- 3.0% for a board
@@ -178,23 +200,76 @@ namespace board_look
     }
 
     /**
-     * The share of the picture, or of the board's own circle, that keys as dartboard red
-     * or green -- whichever this run is deciding on.
+     * #1392: the largest share of ITS OWN FRAME that a camera looking at a whole dartboard
+     * could possibly key as dartboard red or green, derived and not fitted.
+     *
+     * ADR-0079 §2 already refuses a camera whose board runs off its picture, so the board
+     * this camera sees fits inside the frame both ways: its diameter is at most
+     * min(cols, rows). Grant it every pixel of its own disc -- a board is half black and
+     * white, so this is generous by better than a factor of four -- and the share is
+     *
+     *     pi * min(W,H)^2 / (4 * W * H)
+     *
+     * which is 44.2% on 1280x720, 58.9% on 4:3 and 78.5% on a square frame. It is a
+     * statement about the frame and about nothing that was measured, so a board mounted
+     * closer, or behind a longer lens, cannot walk a camera towards it: the board is
+     * already granted the whole ceiling.
+     *
+     * That is the number the flood line is a multiple OF, which is why the flood check is
+     * not a constant share of a frame. A constant share is what this issue is about. 12%
+     * was one, and on 1280x720 the two fixtures in this repository key 4.2% to 7.1% of
+     * their frames with boards spanning a third of the picture -- so the old line sat less
+     * than a factor of two in area, i.e. 1.3x in distance, from a rig that was merely
+     * mounted nearer.
      */
-    inline double colourFraction(const Evidence &e)
+    inline double floodCeiling(const Evidence &e)
     {
-        if (measuredAgainstTheFrame())
+        const double w = e.frame_cols, h = e.frame_rows;
+        if (!(w > 0.0 && h > 0.0))
         {
-            return e.frame_pixels > 0 ? (double)e.red_green_pixels / (double)e.frame_pixels : 0.0;
+            return 1.0; // nothing is known about this frame, so nothing is refused on it
         }
-        const double disc = boardDiscPixels(e);
-        return disc > 0.0 ? (double)e.red_green_pixels / disc : 0.0;
+        const double shortest = w < h ? w : h;
+        return M_PI * shortest * shortest / (4.0 * w * h);
     }
 
-    /** The line this run is deciding against, in the same terms `colourFraction` is in. */
-    inline double colourAllowed(const Limits &limits)
+    /**
+     * The pre-#1392 measure, kept whole for OD_LOOK=frame and reachable by nothing else.
+     *
+     * It is the old arithmetic exactly, including which numerator each site had put in
+     * front of it: STEP 1 divided the full frame's kept colour by the frame, and the two
+     * stages below it OVERWROTE that field with a mask while leaving the denominator at
+     * the whole picture's size -- `masks.doublesMask.total()` is a Mat's full size whether
+     * or not anything in it is masked. `ring_pixels` is where that mask now goes, so the
+     * old number is reproduced rather than approximated.
+     */
+    inline double frameFraction(const Evidence &e)
     {
-        return measuredAgainstTheFrame() ? limits.max_red_green_fraction : limits.max_board_disc_colour;
+        if (e.frame_pixels <= 0)
+        {
+            return 0.0;
+        }
+        const int numerator = e.ring_pixels > 0 ? e.ring_pixels : e.red_green_pixels;
+        return (double)numerator / (double)e.frame_pixels;
+    }
+
+    /** How much of this camera's whole picture keys as dartboard red or green. */
+    inline double floodFraction(const Evidence &e)
+    {
+        return e.frame_pixels > 0 ? (double)e.red_green_pixels / (double)e.frame_pixels : 0.0;
+    }
+
+    /** How much of the circle this camera's own board spans is ring. */
+    inline double ringFraction(const Evidence &e)
+    {
+        const double disc = boardDiscPixels(e);
+        return disc > 0.0 ? (double)e.ring_pixels / disc : 0.0;
+    }
+
+    /** Whether this camera has a ring to be asked about at all. */
+    inline bool ringWasTraced(const Evidence &e)
+    {
+        return e.traced_doubles && e.ring_pixels > 0 && e.board_span_px > 0.0;
     }
 
     /** Which of the tests refused this camera, or `None`. */
@@ -202,9 +277,11 @@ namespace board_look
     {
         None,
         NoFrame,
-        TooMuchRedGreen,
+        TooMuchRedGreen, // OD_LOOK=frame only: the pre-#1392 single test
+        FloodedFrame,
         BoardClipped,
-        RingNotTraced
+        RingNotTraced,
+        TooMuchRingColour
     };
 
     inline Refused verdict(const Evidence &e, const Limits &limits = Limits())
@@ -213,20 +290,50 @@ namespace board_look
         {
             return Refused::NoFrame;
         }
-        // Asked before the ring, because it is the one that explains the ring: a flooded
-        // mask is why the rays found nothing, and "too much of this board's own circle is
-        // dartboard red and green" is the sentence that sends somebody to look at where
-        // the camera is pointed rather than at the ellipse fitter.
-        if (colourFraction(e) > colourAllowed(limits))
+
+        // The whole of the pre-#1392 decision, restored on one branch so that a falsifier
+        // reproduces the old stage rather than a modern imitation of it. One test, one
+        // number, the frame underneath whichever numerator the calling site had put in
+        // front of it.
+        if (measuredAgainstTheFrame())
         {
-            return Refused::TooMuchRedGreen;
+            if (frameFraction(e) > limits.max_red_green_fraction)
+            {
+                return Refused::TooMuchRedGreen;
+            }
+            if (e.board_clipped)
+            {
+                return Refused::BoardClipped;
+            }
+            if (!e.traced_doubles)
+            {
+                return Refused::RingNotTraced;
+            }
+            return Refused::None;
+        }
+
+        // Asked first, because it is the one that explains everything below it: a picture
+        // that keys as board colour from edge to edge is why the rays found nothing, and
+        // "more of this picture is dartboard red and green than a whole board could
+        // account for" is the sentence that sends somebody to look at where the camera is
+        // pointed rather than at the ellipse fitter.
+        //
+        // #1392: this is the ONE question in this file that really is about the frame, and
+        // it is about the frame because it is the question "is this camera's whole picture
+        // coloured". What moved is that the line it is held to is no longer a constant
+        // share of a frame -- it is a multiple of what a whole board in THIS frame could
+        // account for, which is derived from the frame's own shape and cannot be walked
+        // towards by moving a camera nearer a board.
+        if (floodFraction(e) > limits.flood_of_ceiling * floodCeiling(e))
+        {
+            return Refused::FloodedFrame;
         }
         // Asked after the flood and before the ring, and the order is the argument. A
         // camera pointed at a face is clipped too -- a face runs off the frame -- and
-        // "too much of this is dartboard red and green" is the sentence that sends
-        // somebody to the right place. A camera really looking at a board that the frame
-        // cuts is not flooded, so it reaches this, and it must not be told instead that
-        // no ring could be traced: nothing tried to trace one.
+        // "this picture is coloured edge to edge" is the sentence that sends somebody to
+        // the right place. A camera really looking at a board that the frame cuts is not
+        // flooded, so it reaches this, and it must not be told instead that no ring could
+        // be traced: nothing tried to trace one.
         if (e.board_clipped)
         {
             return Refused::BoardClipped;
@@ -234,6 +341,15 @@ namespace board_look
         if (!e.traced_doubles)
         {
             return Refused::RingNotTraced;
+        }
+        // #1392, and this is the site the issue was filed against. A doubles ring is a
+        // thin ring around a bull and fills a small share of the circle it sits in; a
+        // filled blob fills its own circle. Both halves of that scale together, so this
+        // number does not move when the same board is mounted closer -- which the old
+        // one, the same count over the frame, did with the square of the distance.
+        if (ringWasTraced(e) && ringFraction(e) > limits.max_ring_of_board_disc)
+        {
+            return Refused::TooMuchRingColour;
         }
         return Refused::None;
         // #1392 removed a `min_outer_points` floor from the end of this function, and it
@@ -248,18 +364,20 @@ namespace board_look
         // kept on the argument that this is where a STRICTER floor would be raised.
         //
         // There is no stricter floor to raise it to that is not fitted. The board cameras
-        // this repository has ever measured score 68, 96, 103 and 110 of 120 rays, so a
-        // floor that can fire has to sit in 51..67, and the only evidence anywhere near
-        // that window is a real board camera at 68. Worse, #1340's own fixture -- a
-        // doubles ring painted out over 150 degrees, which is 50 of the 120 rays -- is
-        // deliberately refused by the WIRE stage, the one that can see the damage, and a
-        // floor in the sixties would take that refusal away from it. A number nothing has
-        // ever produced, chosen so that a guard can be said to fire, is exactly #1322.
+        // this repository has ever measured score 68, 70, 95, 96, 97, 103, 104, 105, 109
+        // and 110 of 120 rays, so a floor that can fire has to sit in 51..67, and the only
+        // evidence anywhere near that window is a real board camera at 68 and another at
+        // 70 -- mocks/rig-20260918's camera 1 at 0.6 scale, in this issue's own tester.
+        // Worse, #1340's fixture -- a doubles ring painted out over 150 degrees, which is
+        // 50 of the 120 rays -- is deliberately refused by the WIRE stage, the one that
+        // can see the damage, and a floor in the sixties would take that refusal away from
+        // it. A number nothing has ever produced, chosen so that a guard can be said to
+        // fire, is exactly #1322.
         //
         // So the floor lives in one place, `EllipseParams::minValidRays`, enforced where
         // the fit happens and printed there with its own count. `outer_points` is still
-        // carried and still logged, because it is evidence a refusal is argued from; it
-        // is no longer a second, identical gate pretending to be a first.
+        // carried and still logged, because it is evidence a refusal is argued from; it is
+        // no longer a second, identical gate pretending to be a first.
     }
 
     /**
@@ -271,33 +389,28 @@ namespace board_look
      */
     inline std::string refusal(const Evidence &e, const Limits &limits = Limits())
     {
-        const int percent = (int)(colourFraction(e) * 100.0 + 0.5);
-        const int allowed = (int)(colourAllowed(limits) * 100.0 + 0.5);
-
         switch (verdict(e, limits))
         {
         case Refused::NoFrame:
             return "no frame to look at";
         case Refused::TooMuchRedGreen:
-            // Two sentences, because there are two measures and a reader has to be able
-            // to tell from the line alone which one refused this camera. The pre-#1392
-            // wording is kept WORD FOR WORD on the OD_LOOK=frame side, so a falsifier run
+            // The pre-#1392 sentence, kept WORD FOR WORD, so an OD_LOOK=frame run
             // reproduces the old line and not merely the old verdict.
-            if (measuredAgainstTheFrame())
-            {
-                return "is not looking at the dartboard: " + std::to_string(percent) +
-                       "% of its frame keys as dartboard red or green and this check allows at most " +
-                       std::to_string(allowed) +
-                       "% -- a board's doubles and trebles are a few per cent of a frame, and skin in warm "
-                       "room light is most of one";
-            }
-            return "is not looking at the dartboard: " + percentOf(colourFraction(e)) +
-                   "% of the circle its own board spans -- " + std::to_string((int)(e.board_span_px + 0.5)) +
-                   " px of radius -- keys as dartboard red or green and this check allows at most " +
-                   percentOf(colourAllowed(limits)) +
-                   "% -- a board's doubles and trebles are a thin ring around a bull and fill a tenth to a "
-                   "seventh of the circle they sit in however close the camera is bolted, and a face fills "
-                   "most of one";
+            return "is not looking at the dartboard: " +
+                   std::to_string((int)(frameFraction(e) * 100.0 + 0.5)) +
+                   "% of its frame keys as dartboard red or green and this check allows at most " +
+                   std::to_string((int)(limits.max_red_green_fraction * 100.0 + 0.5)) +
+                   "% -- a board's doubles and trebles are a few per cent of a frame, and skin in warm "
+                   "room light is most of one";
+        case Refused::FloodedFrame:
+            return "is not looking at the dartboard: " + percentOf(floodFraction(e)) +
+                   "% of its whole picture keys as dartboard red or green and the biggest board that "
+                   "fits in a " +
+                   std::to_string(e.frame_cols) + "x" + std::to_string(e.frame_rows) +
+                   " frame could account for at most " + percentOf(floodCeiling(e)) +
+                   "% if every pixel of it were coloured, so this check allows " +
+                   percentOf(limits.flood_of_ceiling * floodCeiling(e)) +
+                   "% -- skin in warm room light colours a whole picture and a dartboard cannot";
         case Refused::BoardClipped:
             return "is not looking at a WHOLE dartboard: the coloured region that is its doubles ring "
                    "comes within " +
@@ -307,6 +420,15 @@ namespace board_look
                    "bolted rather than how they are aimed";
         case Refused::RingNotTraced:
             return "is not looking at the dartboard: no doubles ring could be traced around the bull";
+        case Refused::TooMuchRingColour:
+            return "is not looking at the dartboard: " + percentOf(ringFraction(e)) +
+                   "% of the circle its own board spans -- " +
+                   std::to_string((int)(e.board_span_px + 0.5)) +
+                   " px of radius -- keys as dartboard red or green and this check allows at most " +
+                   percentOf(limits.max_ring_of_board_disc) +
+                   "% -- a doubles ring is a thin ring around a bull and fills about an eighth of the "
+                   "circle it sits in however close the camera is bolted, and a filled blob fills all "
+                   "of one";
         default:
             return "";
         }
@@ -320,25 +442,24 @@ namespace board_look
     /**
      * The numbers themselves, for the log, so a refusal can be argued with.
      *
-     * #1392: BOTH shares are printed, always, whichever one is deciding. The frame share
-     * is the one this issue removed from the decision and it is the one a reader who has
-     * moved a camera will want to see move; the board share is the one that decides and
-     * the one that should not have moved. A line carrying only the deciding number would
-     * make the whole claim of this issue unreadable from a log.
+     * #1392: THREE shares are printed, always. The flood share and the ring share are
+     * the two this file decides on. The third -- what the ring would have been as a share
+     * of the frame -- is the number this issue REMOVED from the decision, and it is
+     * printed beside the one that replaced it because the whole claim of this issue is
+     * that one of them moves when a camera is mounted closer and the other does not. A
+     * log that carried only the deciding number would make that unreadable.
      */
     inline std::string measured(const Evidence &e)
     {
-        const double frameShare = e.frame_pixels > 0 ? (double)e.red_green_pixels / (double)e.frame_pixels : 0.0;
-        const double disc = boardDiscPixels(e);
-        const double discShare = disc > 0.0 ? (double)e.red_green_pixels / disc : 0.0;
-
-        return "red_green=" + std::to_string(e.red_green_pixels) +
-               " of frame " + std::to_string(e.frame_pixels) +
-               " (" + percentOf(frameShare) + "%)" +
-               " of board disc " + std::to_string((long)(disc + 0.5)) +
-               " at span " + std::to_string((int)(e.board_span_px + 0.5)) + " px" +
-               " (" + percentOf(discShare) + "%)" +
-               " ring=" + std::string(e.traced_doubles ? "traced" : "not traced") +
+        return "flood=" + std::to_string(e.red_green_pixels) + " of frame " +
+               std::to_string(e.frame_cols) + "x" + std::to_string(e.frame_rows) +
+               " (" + percentOf(floodFraction(e)) + "%, ceiling " + percentOf(floodCeiling(e)) + "%)" +
+               " ring=" + std::to_string(e.ring_pixels) + " of board disc " +
+               std::to_string((long)(boardDiscPixels(e) + 0.5)) + " at span " +
+               std::to_string((int)(e.board_span_px + 0.5)) + " px" +
+               " (" + percentOf(ringFraction(e)) + "%; of the frame it would be " +
+               percentOf(e.frame_pixels > 0 ? (double)e.ring_pixels / (double)e.frame_pixels : 0.0) + "%)" +
+               " fitted=" + std::string(e.traced_doubles ? "traced" : "not traced") +
                " outer_points=" + std::to_string(e.outer_points) +
                " inner_points=" + std::to_string(e.inner_points);
     }
