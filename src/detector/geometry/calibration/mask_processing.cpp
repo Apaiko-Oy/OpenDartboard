@@ -162,16 +162,24 @@ namespace mask_processing
         const int carved = countNonZero(bullRedMask);
         const int derived = max(1, (int)lround(boardRadius * params.bullCarveOfBoardRadius));
         const int frameRule = frameCarveRadius(redGreenFrame);
+        //
+        // The sentence is built into a named string and not written inline in the call:
+        // `log_string_src(v)` is the macro `("\033[36m" + v + "\033[0m")`, and `+` binds
+        // tighter than `?:`, so a conditional passed to it parses as
+        // `("\033[36m" + cond) ? a : (b + "\033[0m")` -- pointer arithmetic on a string
+        // literal, never null, so the first branch is taken whatever the condition was.
+        // Measured on 2026-09-19: three cameras printed "OD_BULL_CARVE=frame" beside the
+        // 27 px the derived rule had just given them.
+        const string rule = carvedAgainstTheFrame()
+                                ? "OD_BULL_CARVE=frame, a fifteenth of the frame, where " +
+                                      decimals(params.bullCarveOfBoardRadius, 4) + "x its board of " +
+                                      to_string((int)lround(boardRadius)) + " px would give " +
+                                      to_string(derived) + " px"
+                                : decimals(params.bullCarveOfBoardRadius, 4) + "x a board of " +
+                                      to_string((int)lround(boardRadius)) + " px, where a fifteenth of " +
+                                      "the frame would give " + to_string(frameRule) + " px";
         log_info("Camera " + log_string(camera_idx + 1) + " bull carve: " + log_string(searchRadius) +
-                 " px, carving " + log_string(carved) + " px of red; " +
-                 log_string_src(carvedAgainstTheFrame()
-                                    ? "OD_BULL_CARVE=frame, a fifteenth of the frame, where " +
-                                          decimals(params.bullCarveOfBoardRadius, 4) + "x its board of " +
-                                          to_string((int)lround(boardRadius)) + " px would give " +
-                                          to_string(derived) + " px"
-                                    : decimals(params.bullCarveOfBoardRadius, 4) + "x a board of " +
-                                          to_string((int)lround(boardRadius)) + " px, where a fifteenth of " +
-                                          "the frame would give " + to_string(frameRule) + " px"));
+                 " px, carving " + log_string(carved) + " px of red; " + log_string_src(rule));
 
         // Step 3: Create fullMask - carved version that reveals ring structure
         result.fullMask = basicMask.clone();
