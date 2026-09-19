@@ -219,9 +219,6 @@ namespace wire_processing
         float regionOfDoublesEllipse = 0.9076f;
     };
 
-    /** True when OD_WIRE_REGION=doubles put the pre-#1441 region back. */
-    bool readsOutToTheDoublesRing();
-
     /**
      * The wire stage's region, as an ellipse: a fraction of the doubles ring fitted at
      * STEP 6, which is what both of `detectMetalWires`'s own masks are drawn from.

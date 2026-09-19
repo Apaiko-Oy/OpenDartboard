@@ -68,11 +68,6 @@ namespace wire_processing
         }
     }
 
-    bool readsOutToTheDoublesRing()
-    {
-        return wireReadsOutToTheDoubles();
-    }
-
     RotatedRect regionOf(const DartboardCalibration &calib, const WireRegionParams &params)
     {
         // OD_WIRE_REGION=doubles restores the pre-#1441 region whole: the stage's masks
@@ -723,6 +718,18 @@ namespace wire_processing
 
         log_debug("Starting wire detection for camera " + log_string(calib.camera_index));
         log_debug("Frame size: " + log_string(frame.cols) + "x" + log_string(frame.rows));
+
+        // #1441: the region this stage read inside, said out loud. #1378 was invisible
+        // for nineteen merges because a region clipped a ring and no line of any log
+        // mentioned a region at all; this stage now names its own beside the count it is
+        // about to refuse a camera on.
+        const RotatedRect wireRegion = regionOf(calib);
+        log_debug("Camera " + log_string(calib.camera_index + 1) + " wire region: " +
+                  log_string((int)wireRegion.size.width) + "x" + log_string((int)wireRegion.size.height) +
+                  " px, drawn from the doubles ring fitted at STEP 6 (" +
+                  log_string((int)calib.ellipses.outerDoubleEllipse.size.width) + "x" +
+                  log_string((int)calib.ellipses.outerDoubleEllipse.size.height) +
+                  " px) and not from the board finder's search region");
 
         // Choose detection method based on config
         vector<Point2f> colorWires;
