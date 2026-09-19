@@ -213,12 +213,17 @@ def compile_round_check(board, case):
 
 
 def case_givenup():
-    """#891's give-up, and the takeout that follows it.
+    """#891's give-up, end to end through the real detector.
 
-    The stub gives the evening up at the third dart, which is the last dart of the round in
-    hand; it beats every two seconds, so the refusal is met by the beat before the round's
-    takeout is published. That is #891's `givenup2` ordering, deterministic here rather than
-    raced: the release lands between the round's last dart and its END.
+    The stub gives the evening up at the third dart and beats every two seconds, so the
+    refusal is met within one beat of it. What happens NEXT is the footage's business and
+    not this case's: whether the third dart is a round's last (and the next publish is that
+    round's takeout) or its first (and the next publish is another dart) is a reading of
+    mocks/cam_*.mp4. It used to be the last -- which is what #1276 built the case on, in a
+    docstring that called the ordering deterministic -- and since #1353/#1354 it is the
+    first. So the takeout #1276 is about is asserted in `released`, where it is arranged;
+    what is asked here is everything an end-to-end run really settles, and the door the
+    evening closed behind it.
     """
     port = 18921
     stub = Stub("givenup", port, STUB_GIVE_UP_AFTER=3)
