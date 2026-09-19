@@ -54,10 +54,16 @@
 
 namespace geometry_fault
 {
-    /** The file a restart reads. Relative to the working directory, deliberately. */
+    /**
+     * The file a restart reads. Relative to the working directory, deliberately.
+     *
+     * It does not create the directory. A board that reads this on every start and has
+     * never faulted should leave nothing behind -- the directory is made by the write,
+     * where making it is the point, and an absent one reads as an absent fault, which is
+     * the truth.
+     */
     inline std::string path()
     {
-        (void)odfs::ensureDirectory("cache");
         return "cache/geometry_moved.txt";
     }
 
@@ -99,6 +105,7 @@ namespace geometry_fault
         {
             return false;
         }
+        (void)odfs::ensureDirectory("cache");
         std::ofstream file(path(), std::ios::trunc);
         if (!file)
         {
