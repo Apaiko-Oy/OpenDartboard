@@ -105,6 +105,13 @@ tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1257-control       "bash '$T/i1257_run.sh' control '$T/i1257_control.sh'"
 tester 1257-resolution    "bash '$T/i1257_run.sh' resolution '$T/i1257_resolution.sh'"
+# Of the five phases under phases1247/, one computes a verdict and four record (#1412).
+# 1188-subscribers runs check_subscribers.py, which exits 0 when every check held and 1
+# when one did not -- until #1412 the phase script ended on `echo "CHECK_RC=$?"`, so the
+# container exited 0 whatever the check said and this label could not go red. The other
+# four run the detector through a situation and leave a transcript for a reader; they
+# assert nothing, so a PASS beside them means "it ran to the end" and not "it held". Each
+# says so in its own first lines, including what its exit status does and does not carry.
 tester 1188-subscribers   "bash '$T/i1247_run.sh' subscribers '$T/phases1247/1188-subscribers.sh' /runs"
 tester 822-unreachable    "NET=bridge bash '$T/i1247_run.sh' unreachable '$T/phases1247/822-unreachable.sh' /run822"
 tester 892-control        "bash '$T/i1247_run.sh' control '$T/phases1247/892-control.sh' /run892"

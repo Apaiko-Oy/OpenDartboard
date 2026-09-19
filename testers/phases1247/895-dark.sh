@@ -1,3 +1,12 @@
+# A RECORDING phase (#1412). It asserts nothing. It runs the detector through a
+# situation and leaves stdout, stderr and the stub's transcript behind for a reader to
+# judge, so its green tick in run_all.sh means "it ran to the end" and never "it held".
+# phases1247/1188-subscribers.sh is the one phase in this directory that really does
+# compute a verdict, and since #1412 it exits on it.
+#
+# What its exit status carries is its last line and no more: `wc -l` on the stub's
+# transcript, which fails if no transcript was written at all. So a run whose stub never
+# started is red; everything else about the run is for a reader.
 set -u
 export STUB_TRANSCRIPT=/run895/transcript.jsonl
 export STUB_INTERVAL_SECONDS=5

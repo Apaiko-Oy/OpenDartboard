@@ -1,3 +1,13 @@
+# A RECORDING phase (#1412). It asserts nothing. It runs the detector through a
+# situation and leaves stdout, stderr and the stub's transcript behind for a reader to
+# judge, so its green tick in run_all.sh means "it ran to the end" and never "it held".
+# phases1247/1188-subscribers.sh is the one phase in this directory that really does
+# compute a verdict, and since #1412 it exits on it.
+#
+# What this one's exit status carries is nothing at all: its last line is an `echo`, which
+# returns 0 whatever it printed. That is left as it is deliberately -- there is no verdict
+# here for it to carry -- and it is recorded rather than tidied so the next reader does not
+# mistake it for the defect #1412 fixed one file away.
 set -u
 export STUB_TRANSCRIPT=/run822/transcript.jsonl
 echo "=== PHASE 1: pair while the stub is up ==="
