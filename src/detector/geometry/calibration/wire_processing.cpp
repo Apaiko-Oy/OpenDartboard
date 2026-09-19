@@ -5,19 +5,105 @@
 #include "wire_processing.hpp"
 #include "geometry_calibration.hpp"
 #include "utils.hpp"
+#include <cstdlib>
+#include <string>
 
 using namespace cv;
 using namespace std;
 
 namespace wire_processing
 {
+    namespace
+    {
+        /**
+         * #1441's falsification, in the shape OD_ROI, OD_ROI_MARGIN, OD_BOARD,
+         * OD_BULL_CARVE and OD_COLOUR_WINDOWS established: one binary, the region chosen
+         * at run time, so "different build" is never a confound.
+         *
+         * OD_WIRE_REGION=roi hands the wire stage the board finder's region again -- the
+         * colour mask `geometry_calibration` already computed inside
+         * `roi_processing::processROI` -- which is what every commit before this issue
+         * did. Anything but that exact word is ignored, so a typo reads inside the wire
+         * stage's own region rather than silently inside somebody else's.
+         */
+        bool wireReadsInsideTheROI()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_WIRE_REGION");
+                return e && std::string(e) == "roi";
+            }();
+            return v;
+        }
+
+        /**
+         * OD_WIRE_REGION_MARGIN=<x> moves the region's margin on one binary, the way
+         * OD_ROI_MARGIN moves the board finder's. Zero or less, or anything atof cannot
+         * read, is ignored rather than obeyed: a region of no radius is a black frame,
+         * and the wire stage would then refuse every camera while naming a wire count.
+         */
+        double wireMarginAsked(double stated)
+        {
+            static double asked = []
+            {
+                const char *e = std::getenv("OD_WIRE_REGION_MARGIN");
+                return e ? std::atof(e) : 0.0;
+            }();
+            return asked > 0.0 ? asked : stated;
+        }
+    }
+
+    RotatedRect regionOf(const DartboardCalibration &calib, const WireRegionParams &params)
+    {
+        // OD_WIRE_REGION=roi restores the whole of the old behaviour, region included:
+        // the stage's masks were the fitted doubles ellipse itself, which is scale 1.0.
+        const float scale = wireReadsInsideTheROI()
+                                ? 1.0f
+                                : (float)wireMarginAsked(params.regionOfDoublesEllipse);
+        RotatedRect region = calib.ellipses.outerDoubleEllipse;
+        region.size.width *= scale;
+        region.size.height *= scale;
+        return region;
+    }
+
+    bool readsInsideTheBoardFindersRegion()
+    {
+        return wireReadsInsideTheROI();
+    }
+
+    Mat regionFor(const Mat &frame, const DartboardCalibration &calib, const WireRegionParams &params)
+    {
+        if (frame.empty() || !calib.ellipses.hasValidDoubles)
+        {
+            // No fitted ring, so there is no region derived from one. The caller is the
+            // pipeline, which already refuses this camera at STEP 6.5.
+            return Mat();
+        }
+
+        const RotatedRect region = regionOf(calib, params);
+        Mat mask = Mat::zeros(frame.size(), CV_8UC1);
+        ellipse(mask, region, Scalar(255), -1);
+
+        log_debug("Camera " + log_string(calib.camera_index + 1) + " wire region: " +
+                  log_string((int)region.size.width) + "x" + log_string((int)region.size.height) +
+                  " px around the doubles ring fitted at (" + log_string((int)region.center.x) + "," +
+                  log_string((int)region.center.y) + "), and not the board finder's search region");
+
+        Mat regionFrame;
+        frame.copyTo(regionFrame, mask);
+        return regionFrame;
+    }
+
     Mat detectMetalWires(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib)
     {
         Mat wireEnhanced;
 
-        // STEP 1: Create ROI mask with 5% buffer around double outer ring
+        // STEP 1: Create ROI mask with 5% buffer around the wire stage's own region
+        // (#1441: `regionOf`, which is a fraction of the FITTED doubles ellipse. At
+        // scale 1.0 this is the outer doubles ring and therefore exactly what this line
+        // read before that issue.)
         Mat roiMask = Mat::zeros(frame.size(), CV_8UC1);
-        RotatedRect bufferedRing = calib.ellipses.outerDoubleEllipse;
+        RotatedRect bufferedRing = regionOf(calib);
         bufferedRing.size.width *= 1.05f;
         bufferedRing.size.height *= 1.05f;
         ellipse(roiMask, bufferedRing, Scalar(255), -1);
@@ -75,9 +161,9 @@ namespace wire_processing
         // Subtract green areas from wireEnhanced (remove doubles/triples)
         subtract(wireEnhanced, greenMask, wireEnhanced);
 
-        // STEP 10: Apply final tighter ROI mask (-5% from doubles ring) to clean up outer artifacts
+        // STEP 10: Apply final tighter ROI mask (-5% from the region) to clean up outer artifacts
         Mat finalRoiMask = Mat::zeros(frame.size(), CV_8UC1);
-        RotatedRect tighterRing = calib.ellipses.outerDoubleEllipse;
+        RotatedRect tighterRing = regionOf(calib);
         tighterRing.size.width *= 0.95f; // -5% instead of +5%
         tighterRing.size.height *= 0.95f;
         ellipse(finalRoiMask, tighterRing, Scalar(255), -1);

@@ -433,7 +433,48 @@ namespace geometry_calibration
         wire_processing::WireDetectionConfig wireConfig;
         // When useHoughLinesDetection = false, it will use ensemble method
 
-        wire_processing::WireData wireData = wire_processing::processWires(orginalFrame, redGreenFrame, calibration, debugMode, wireConfig);
+        // #1441: the wire stage reads inside its OWN region, derived from the doubles
+        // ellipse fitted four statements above, and not inside the board finder's.
+        //
+        // The two regions answer different questions and have wanted different answers
+        // since #1378. STEP 2's is a SEARCH radius: it is drawn around
+        // `bull_processing::measureBoard`'s circle, which lands on the treble ring of a
+        // dull board, so its margin has to carry the whole rim -- 2.107 -- for the colour
+        // stage to reach the doubles ring at all. This one is drawn around a ring that
+        // has already been FOUND, and every wire endpoint the stage can return lies on
+        // that ring.
+        //
+        // What was measured when one region answered both (#1437, on one binary, under
+        // OD_ROI_MARGIN): on mocks/rig-20260918/cam_2.mp4 the wire stage refuses 1 of 15
+        // held frames at 1.25 and 8 of 15 from 1.80 up, while the FITTED board is 91,849
+        // px at 1.25 and 258,582 px from 1.80 up. No value buys both, because the two
+        // consumers are on opposite sides of the split.
+        //
+        // The colour stage is run a second time inside this region for the reason STEP
+        // 2.5 gives about the first: its component filtering decides what is board and
+        // what is room against the largest region it can see, so masking STEP 2.5's
+        // output down to the ring would keep the decisions that region's contents
+        // produced. That is the whole defect here -- the wire stage subtracts green that
+        // was judged against the number ring, the wire ends and the wall.
+        //
+        // OD_WIRE_REGION=roi hands it `redGreenFrame` again on the same binary.
+        Mat wireColours = redGreenFrame;
+        if (!wire_processing::readsInsideTheBoardFindersRegion())
+        {
+            const Mat wireRegion = wire_processing::regionFor(orginalFrame, calibration);
+            if (!wireRegion.empty())
+            {
+                // `false`, not debugMode, and that is not an oversight: the colour
+                // stage names its debug image after the CAMERA, so a second pass under
+                // debug would overwrite STEP 2.5's red_green_frame_<idx>.jpg with this
+                // one and a reader looking at the board finder's colours would be
+                // looking at the wire stage's. Varying that name is an edit to
+                // color_processing, which this slice does not make.
+                wireColours = color_processing::processColors(wireRegion, cameraIdx, false, colorParams);
+            }
+        }
+
+        wire_processing::WireData wireData = wire_processing::processWires(orginalFrame, wireColours, calibration, debugMode, wireConfig);
         calibration.wires = wireData;
 
         // #1317: a partial detection does not calibrate. This is the second place a camera

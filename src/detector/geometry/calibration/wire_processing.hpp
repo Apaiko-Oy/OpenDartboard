@@ -136,5 +136,80 @@ namespace wire_processing
                   "fwrites DartboardCalibration and cannot follow a pointer");
 
     // Public interfaces - using global DartboardCalibration
+    /**
+     * #1441: the wire stage's OWN region, and why it is not the board finder's.
+     *
+     * `roi_processing` draws a region around a board that has NOT been found yet: its
+     * input is `bull_processing::measureBoard`'s smallest circle around the largest
+     * red/green contour, which #1378 measured landing on the TREBLE ring on a dull board,
+     * so its margin has to carry the board's whole rim -- 225.5/107 = 2.107 -- for the
+     * colour stage to reach the doubles ring at all. That is a search radius, and it is
+     * correct for the consumer it was sized for.
+     *
+     * The wire stage asks a different question. It runs after STEP 6, so the doubles
+     * ellipse has already been FITTED, and every wire it can ever return is an endpoint
+     * ON that ellipse: `findWiresByColorTransitions` intersects each segment's angular
+     * extent with `outerDoubleEllipse` and `detectMetalWires` masks its own work to
+     * 1.05x it and then to 0.95x it. So the region it wants is the thing it is looking
+     * inside, at the buffer it already states.
+     *
+     * Until this issue nobody drew that region: the wire stage was handed the colour
+     * stage's output, which is computed inside the board finder's region, and #1378
+     * widening that region from 243 px to 410 px on mocks/rig-20260918 put the number
+     * ring, the wire ends and the wall into the mask the wire stage subtracts its green
+     * from. `mocks/rig-20260918/cam_2.mp4` went from 1 refusal in 15 held frames to 8,
+     * two-sided -- 17, 18 and 19 wires, and 21 and 22 -- and no value of the one margin
+     * buys both halves: #1437 swept it on one binary and the board is repaired from 1.60
+     * up while the wire stage is intact only at 1.25.
+     *
+     * `regionFor` is the repair: the frame with everything outside the FITTED doubles
+     * ellipse blacked out, at the frame's own size, so the colour stage's frame-relative
+     * windows still mean what they meant. The margin is 1.05 because that is not a new
+     * number -- it is `detectMetalWires`'s own buffered ring, said once here instead of
+     * twice there, and it is the outermost thing this stage ever reads.
+     *
+     * `OD_WIRE_REGION=roi` hands the wire stage the board finder's region again, which is
+     * the behaviour every commit before this one had, on the same binary. Anything else
+     * -- including an empty value or a word this does not know -- is ignored rather than
+     * obeyed, because a region nobody can name is not a region and a silent fallback is
+     * what #1378 was invisible behind.
+     */
+    struct WireRegionParams
+    {
+        /**
+         * How much wider than the FITTED doubles ellipse the wire stage's region is.
+         *
+         * 1.05 is `detectMetalWires`'s `bufferedRing`, which has been the outer edge of
+         * everything this stage reads since long before this issue; the region is drawn
+         * at the same place so that nothing the stage can read is outside the region the
+         * stage was measured in. `OD_WIRE_REGION_MARGIN=<x>` moves it at run time on one
+         * binary. A value of zero or less, or anything atof cannot read, is ignored
+         * rather than obeyed -- a region of no radius is a black frame, and a wire stage
+         * handed one returns nothing while naming a count rather than a region.
+         */
+        float regionOfDoublesEllipse = 1.0f;
+    };
+
+    /** True when OD_WIRE_REGION=roi put the board finder's region back. */
+    bool readsInsideTheBoardFindersRegion();
+
+    /**
+     * The wire stage's region, drawn around the doubles ellipse fitted at STEP 6.
+     *
+     * The result is the frame with everything outside that ellipse blacked out, at the
+     * frame's own size -- the same shape `roi_processing::processROI` returns, and for
+     * the same reason: the colour stage's own windows are frame-relative.
+     *
+     * A camera whose doubles ring was never fitted has no region: the caller is handed
+     * an empty Mat and must not go on, which is the state `processWires` already declines
+     * to run in.
+     */
+    Mat regionFor(const Mat &frame, const DartboardCalibration &calib,
+                  const WireRegionParams &params = WireRegionParams());
+
+    /** The region as an ellipse, which is what this stage's own masks are drawn from. */
+    RotatedRect regionOf(const DartboardCalibration &calib,
+                         const WireRegionParams &params = WireRegionParams());
+
     WireData processWires(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib, bool enableDebug = false, const WireDetectionConfig &config = WireDetectionConfig());
 }
