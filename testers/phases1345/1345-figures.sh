@@ -89,6 +89,17 @@ done
 # there -- it has no assertion that a refusal is possible at all, in either direction,
 # and asserting one about the rig here would be the retired census coming back under a
 # new name. The shipped mocks still refuse: 7 of 16 on main, 4 of 19 on this tree.
+#
+# Measured both ways on this tree, with src/ reverted afterwards. (a) A tree that cannot
+# refuse -- every completed window forced to change state -- prints not one STATE VOTE
+# line on either rig, and the line this replaces passes it green: `OK   the rig refuses
+# no more windows than it opened (0 of 29)`, as does the loop above. This one goes red.
+# (b) A tree where a window is still refused but stops accounting for itself (#1350's
+# regression, refusedWindowAccount returning "" for every window) leaves
+# testers/phases1358/1358-window.sh green throughout, rc=0 -- that file reads WINDOW
+# CENSUS and never STATE VOTE, so it holds nothing about this -- and turns this one red.
+# Section 3's figure census goes red under both as well, but says "a figure was printed
+# with nowhere", which names a defect neither tree has.
 MV=$(votes mocks)
 if [ "$MV" -ge 1 ]; then
   say "OK   a refusal is possible at all: the control refused $MV of $(windows mocks) windows" ok
