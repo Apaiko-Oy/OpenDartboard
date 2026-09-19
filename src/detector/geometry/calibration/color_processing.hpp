@@ -283,6 +283,54 @@ namespace color_processing
         //
         // If it is ever changed, it is changed against the rig and not against this
         // comment. bull_processing no longer holds a twin of it to keep in step.
+        //
+        // #1394 CHANGED IT, against the rig, and this is what it decided and why.
+        //
+        // What this floor is asked of is the area ENCLOSED by the largest outermost
+        // contour of this stage's own mask, before any of its filtering and before any
+        // blur. That is the one place in the pipeline where a dartboard's ring is least
+        // closed, and #1340 has already written down what happens to that number when a
+        // ring breaks: it collapses, while the board does not move. The evidence was
+        // always in this comment -- 2.45% and 7.61% are one board, one mounting, one
+        // distance -- and #1394 measured the other half of it. mocks/rig-20260918's
+        // camera 1 encloses 22540 px here and is refused; the same camera, one stage
+        // later, through `measureBoard`'s own 7x7 Gaussian, encloses 71959 px and measures
+        // a 194 px board. The board was always there. This floor could not see it, and
+        // what it was really measuring was the blur.
+        //
+        // #1340 met exactly this in bull_processing and replaced the twin of this floor
+        // with `BullParams::minBoardRadius()`: 64.2 px of SPAN, derived from the smallest
+        // bull that survives that stage's own 7x7 kernel (3 px, over a
+        // bullRadiusOfBoardRadius * minBullRadiusFactor of 0.047). A span cannot collapse
+        // when a ring breaks -- half a ring gives its own radius back, a third gives 0.87
+        // of it -- and #1394 is what makes that number available HERE, because these
+        // windows now need a length and the length they need is the same span.
+        //
+        // So this stage floors on the span too, and the two stages are back in step on the
+        // REPAIRED rule rather than the broken one. That is the opposite of the twin this
+        // comment warned about: it is not a second copy of a constant to keep aligned, it
+        // is `BullParams().minBoardRadius()` read directly, so there is one number.
+        //
+        // Measured, on both fixtures, with `OD_BOARD_FLOOR=area` putting this constant
+        // back on the same binary:
+        //
+        //   rig camera 1   refused at 2.45%  ->  a board spanning 314 px
+        //                  bull unchanged at (671,309), 3 of 3, no ERROR or WARN,
+        //                  and its kept colour goes 50863 px to 50876
+        //   everything else on both fixtures  identical, to the pixel
+        //   mocks at 0.5x (#1339's scaler)    refused at 1.84% -> a board spanning 91 px,
+        //                  and the windows go from the frame's 128/320/96 to 53/144/44
+        //
+        // #1320's speck still cannot pass it: 205 px of area is 8.1 px of disc radius and
+        // at most 16 px of extent if every pixel of it lay on one circle, against 64.2.
+        //
+        // WHAT IT COSTS, named. The smallest circle around a broken ring cannot collapse
+        // but it CAN over-measure, which is #1340's own sentence, and rig camera 1 spans
+        // 314 px where its two siblings 30 cm from the same board span 192 and 194. Here
+        // that direction is the safe one and it is safe by construction rather than by
+        // luck: every window this length sizes is a window that KEEPS, so an over-measured
+        // board widens them, and the measurement above says what the widening admitted on
+        // that camera -- thirteen pixels.
         double minBoardAreaPercent = 0.04; // Area enclosed by the board, as a share of the frame
 
         // Specific text filtering (targeting known problem areas)

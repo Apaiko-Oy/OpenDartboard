@@ -128,6 +128,12 @@ cmake -S /run1323/mutant -B /run1323/mutant/build -DCMAKE_PREFIX_PATH=/usr/local
   -DFETCHCONTENT_SOURCE_DIR_HTTPLIB=/app/build/_deps/httplib-src > /run1323/mcmake.log 2>&1 \
   || { tail -20 /run1323/mcmake.log; exit 1; }
 
+# #1394 sized these windows off the board and the three lines below therefore changed
+# shape: `enhancedMask.cols * params.centralityThreshold` became `centralityWindow`, a
+# length in pixels computed before the loop. The mutations are the same three mutations --
+# the window always keeps, the window always drops, the board is never measured -- and
+# each still asserts its own anchor is present, so a fourth rewrite of these lines fails
+# here by name rather than silently mutating nothing.
 mutate() { # $1 python file describing the edit
   cp /app/src/detector/geometry/calibration/color_processing.cpp \
      /run1323/mutant/src/detector/geometry/calibration/color_processing.cpp
@@ -157,7 +163,7 @@ echo "=== 5b. FALSIFY: a window that always keeps ==="
 cat > /run1323/m_keep.py <<'PY'
 p = '/run1323/mutant/src/detector/geometry/calibration/color_processing.cpp'
 s = open(p).read()
-old = '            bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);'
+old = '            bool isBullsEyeArea = (distToCenter < bullsEyeWindow);'
 new = '            bool isBullsEyeArea = true; // #1323 mutation: the window always keeps'
 assert old in s, 'the always-keep mutation has nothing to replace'
 open(p, 'w').write(s.replace(old, new))
@@ -180,11 +186,11 @@ cat > /run1323/m_drop.py <<'PY'
 p = '/run1323/mutant/src/detector/geometry/calibration/color_processing.cpp'
 s = open(p).read()
 edits = [
-    ('            bool isCentral = (distToCenter < enhancedMask.cols * params.centralityThreshold);',
+    ('            bool isCentral = (distToCenter < centralityWindow);',
      '            bool isCentral = false; // #1323 mutation: the window always drops'),
-    ('            bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);',
+    ('            bool isBullsEyeArea = (distToCenter < bullsEyeWindow);',
      '            bool isBullsEyeArea = false; // #1323 mutation: the window always drops'),
-    ('            bool isTooFarFromCenter = (distToCenter > (enhancedMask.cols * params.maxDistanceFromCenter / 2));',
+    ('            bool isTooFarFromCenter = (distToCenter > farWindow);',
      '            bool isTooFarFromCenter = true; // #1323 mutation: the window always drops'),
 ]
 for old, new in edits:
