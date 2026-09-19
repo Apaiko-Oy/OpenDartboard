@@ -143,7 +143,7 @@ namespace geometry_calibration
         // camera that moves closer moves the first number and must not move the second,
         // and that claim is unreadable from a log that prints only the deciding one.
         log_debug("Camera " + log_string(cameraIdx + 1) + " sight on the full frame: " +
-                  log_string_src(board_look::measured(calibration.look)));
+                  log_string_src(board_look::measuredOnTheFullFrame(calibration.look)));
 
         if (!board.found)
         {

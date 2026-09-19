@@ -523,6 +523,26 @@ namespace board_look
     }
 
     /**
+     * What is known on the FULL frame, at STEP 1, before a region is drawn and before
+     * anything has looked for a bull or traced a ring.
+     *
+     * Deliberately NOT `measured()` below. That line carries `ring=`, `outer_points=` and
+     * `inner_points=`, all of which are zero this early because nothing has tried -- and a
+     * log line that prints a zero for a thing nobody has measured yet is a line something
+     * downstream will read. testers/i1331_inside.sh takes `outer_points=` with `head -1`,
+     * and this file learned that the expensive way.
+     */
+    inline std::string measuredOnTheFullFrame(const Evidence &e)
+    {
+        return "flood=" + std::to_string(e.red_green_pixels) + " of frame " +
+               std::to_string(e.frame_cols) + "x" + std::to_string(e.frame_rows) +
+               " (" + percentOf(floodFraction(e)) + "%, and a whole board could account for " +
+               percentOf(floodCeiling(e)) + "% of a frame this shape)" +
+               " board span " + std::to_string((int)(e.board_span_px + 0.5)) + " px" +
+               ", so its circle is " + std::to_string((long)(boardDiscPixels(e) + 0.5)) + " px";
+    }
+
+    /**
      * The numbers themselves, for the log, so a refusal can be argued with.
      *
      * #1392: THREE shares are printed, always. The flood share and the ring share are
