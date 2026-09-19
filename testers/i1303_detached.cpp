@@ -1,3 +1,7 @@
+// unrun-tester: a Windows program -- it includes <windows.h> and starts a child with
+// DETACHED_PROCESS -- compiled by cl.exe and run by i1303_windows.sh, which is run by hand.
+// The docker gate has no MSVC, and the condition this measures is the absence of a console
+// on a platform that has them.
 // #1303: start something with NO CONSOLE AT ALL, and say what it returned.
 //
 // "Started without a console" is a condition, not a window style. A hidden window is
