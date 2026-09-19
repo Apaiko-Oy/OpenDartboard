@@ -173,12 +173,24 @@ namespace motion_processing
      *
      * Two facts, both about this translation unit and both checkable against the code:
      *
-     *   1. `cameras_answering` is how many cameras produced a frame TO CALIBRATE ON, and
-     *      it is the ceiling on `cameras_that_spiked` for the life of the run rather than
-     *      for this cycle. `detectMotion` skips any slot whose `background_frames[i]` is
-     *      empty, and the backgrounds are the calibration frames, saved once. A camera
-     *      that was silent at calibration therefore reports `motion_ratio` 0.0 for ever,
-     *      even if it starts answering later, and 0.0 never exceeds `spike_threshold`.
+     *   1. `cameras_that_can_spike` is the ceiling on `cameras_that_spiked` for the life
+     *      of the run rather than for this cycle, and #1348 is what narrowed it. A camera
+     *      needs BOTH halves to ever spike. It needs a frame to calibrate on, because
+     *      `detectMotion` skips any slot whose `background_frames[i]` is empty and the
+     *      backgrounds are the calibration frames, saved once -- a camera silent at
+     *      calibration reports `motion_ratio` 0.0 for ever, even if it starts answering
+     *      later, and 0.0 never exceeds `spike_threshold`. And since #1339 it needs a
+     *      FITTED BOARD, because every ratio here is a fraction of the board's own area
+     *      and a camera with `BoardExtent::known` false abstains from the figure rather
+     *      than being measured against a frame -- so it never spikes either.
+     *
+     *      Until #1348 this argument was asked with the ANSWERING count, which is the
+     *      wider of the two populations: a board with three answering cameras of which
+     *      one fitted a board was told an event was possible on three, by a function
+     *      whose own file says only one of them can ever produce one. The two happen to
+     *      agree today -- `min_cameras_for_event` is 1 since #1353 and calibration takes
+     *      at least one seeing camera -- and that is exactly the kind of agreement that
+     *      stops holding the next time somebody moves a constant.
      *
      *   2. `camera_slots` must be exactly 3. `detectMotion`'s initialisation refuses any
      *      other number, returns zeroed MotionData and never sets `initialized`, so a
@@ -187,7 +199,7 @@ namespace motion_processing
      * #1321's rule on the sentence: every count is stated against the threshold it fell
      * short of, so a line reporting the wrong number can be seen to be wrong.
      */
-    inline std::string whyNoEventIsPossible(int camera_slots, int cameras_answering,
+    inline std::string whyNoEventIsPossible(int camera_slots, int cameras_that_can_spike,
                                             const MotionParams &params = MotionParams())
     {
         if (camera_slots != 3)
@@ -196,13 +208,14 @@ namespace motion_processing
                    " cameras and motion detection only initialises on 3, so no camera ever "
                    "reports motion and no dart can be scored";
         }
-        if (cameras_answering < params.min_cameras_for_event)
+        if (cameras_that_can_spike < params.min_cameras_for_event)
         {
-            return "only " + std::to_string(cameras_answering) + " of " + std::to_string(camera_slots) +
-                   " cameras produced a frame to calibrate on, and a dart event needs a motion "
+            return "only " + std::to_string(cameras_that_can_spike) + " of " + std::to_string(camera_slots) +
+                   " cameras can report motion -- a camera needs a frame to calibrate on and a "
+                   "fitted board to measure it against -- and a dart event needs a motion "
                    "spike seen by at least " + std::to_string(params.min_cameras_for_event) +
-                   " cameras at once, so no dart can be scored until the missing " +
-                   std::to_string(camera_slots - cameras_answering) + " answer";
+                   " of them at once, so no dart can be scored until the missing " +
+                   std::to_string(camera_slots - cameras_that_can_spike) + " answer";
         }
         return "";
     }

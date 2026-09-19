@@ -95,6 +95,30 @@ namespace dart_processing
         return v;
     }
 
+    // #1348 falsification switch, off unless asked for -- the shape #1339's and #1358's
+    // switches use, so the rule this issue replaced and the one it wrote can be measured
+    // on ONE binary and one fixture rather than on two builds. It restores the vote as it
+    // was before #1348, both halves of it: the absolute count of 2 whatever the voting
+    // population, AND a calibration that never asks the vote's arithmetic -- which is
+    // what let a one-voting-camera board beat READY. Anything else, unset included, is
+    // the majority rule and the gate.
+    //
+    // On a board of three slots the two rules agree on every reachable population, and
+    // that is a measurement rather than an oversight: a majority of 1, 2 or 3 voters
+    // floored at 2 IS 2. So what this switch moves on a fixture is the GATE. The rule's
+    // own difference appears at four voters, which `whyNoEventIsPossible` will not let a
+    // whole-binary run reach, and is measured by driving processDartState directly --
+    // testers/i1348_quorum_check.cpp, the way #1355 measured its fourth camera.
+    bool stateQuorumIsAbsolute()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_STATE_QUORUM");
+            return e && std::string(e) == "absolute";
+        }();
+        return v;
+    }
+
     // Static state tracking. #1355: no count is written here -- processDartState sizes
     // it from the frames it was handed, beside the other three per-camera arrays.
     static vector<DartBoardState> previous_states;
@@ -752,6 +776,10 @@ namespace dart_processing
         int moves_up = 0;
         int goes_clean = 0;
         int stays_same = 0;
+        // #1348: the population the two counts below are counts OF, kept as a number
+        // because it is what the quorum is measured against. Every `continue` under it is
+        // a camera that is not in it.
+        int voters = 0;
 
         // Loop through all cameras once
         for (size_t i = 0; i < result.camera_results.size(); i++)
@@ -760,6 +788,7 @@ namespace dart_processing
                 continue; // #798: an abstaining camera is not a vote for anything
             if (result.camera_results[i].abstained_no_board)
                 continue; // #1354: nor is one with no board to have measured against
+            voters++;
 
             if (result.camera_results[i].detected_state == DartBoardState::CLEAN)
             {
@@ -775,15 +804,28 @@ namespace dart_processing
             }
         }
 
+        // #1348: the quorum against the population that was just counted, rather than the
+        // absolute 2 both rules compared against. At three voters and under it IS 2, so
+        // nothing either fixture measures moves; what changes is that a board with fewer
+        // voters than 2 is now a sentence somebody can read instead of a rule silently
+        // out of reach, and a board with more than three -- which #1355 made possible --
+        // takes a majority of them rather than any two.
+        DartParams voting = params;
+        if (stateQuorumIsAbsolute())
+        {
+            voting.absolute_quorum = true;
+        }
+        const int quorum = stateVoteQuorum(voters, voting);
+
         // Pick the winner
         DartBoardState final_state;
-        if (goes_clean >= 2)
+        if (goes_clean >= quorum)
         {
-            final_state = DartBoardState::CLEAN; // Rule 3: 2+ think CLEAN
+            final_state = DartBoardState::CLEAN; // Rule 3: a quorum thinks CLEAN
         }
-        else if (moves_up >= 2)
+        else if (moves_up >= quorum)
         {
-            final_state = static_cast<DartBoardState>(static_cast<int>(best_previous_state) + 1); // Rule 1: 2+ move up
+            final_state = static_cast<DartBoardState>(static_cast<int>(best_previous_state) + 1); // Rule 1: a quorum moves up
         }
         else
         {
@@ -831,7 +873,11 @@ namespace dart_processing
                           " opened=" + to_string(window_opened_at) + " closed=" + to_string(cycle_ordinal) + " " +
                           getDartBoardStateName(result.previous_state) + " -> " +
                           getDartBoardStateName(final_state) + " (" + to_string(moves_up) + " up, " +
-                          to_string(goes_clean) + " clean)";
+                          to_string(goes_clean) + " clean" +
+                          // #1348: and out of how many, against what. A census that names
+                          // the counts without the population cannot be read for the
+                          // failure this issue is about.
+                          ", " + to_string(voters) + " voted, quorum " + to_string(quorum) + ")";
             for (size_t i = 0; i < result.camera_results.size(); i++)
             {
                 const CameraDetectionResult &r = result.camera_results[i];
@@ -853,8 +899,10 @@ namespace dart_processing
         // where the blank line was. A window that scored keeps the blank line instead,
         // byte for byte, because the research chain's controls were extracted from that
         // output and this issue promises not to move it.
+        // #1348: `voting`, not `params` -- the sentence must name the quorum the vote just
+        // used, and under the falsification switch that is the absolute count.
         const string refusal = refusedWindowAccount(result.camera_results, result.previous_state,
-                                                    result.current_state, moves_up, goes_clean, params);
+                                                    result.current_state, moves_up, goes_clean, voting);
         if (!refusal.empty())
         {
             log_info(refusal);
