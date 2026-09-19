@@ -143,3 +143,45 @@ if(MSVC)
 endif()
 
 target_compile_features(opendartboard PRIVATE cxx_std_17)
+# ---------------------------------------------------------- the launcher (#1303)
+# ADR-0077 §1: a board's program is two files. This is the small one -- what a shortcut
+# points at, what a tester double-clicks, and what stays on screen to say why the
+# detector stopped. It links nothing at all: no OpenCV, no httplib, no json, nothing but
+# what the CRT already brings. So it builds in seconds, it cannot be broken by a change
+# to the detector's dependencies, and it keeps the one-file property #1299 asserts --
+# there is no second DLL to put beside it.
+#
+# `cmake --build` builds every target, so scripts\build-windows.bat produces both
+# executables with no change to how it is called.
+#
+# WINDOWS ONLY, because the launcher is Windows only (ADR-0077, "Scope"): a Linux board
+# updates through apt and is started by whatever starts it, and adding a binary here that
+# nothing installs and the .deb does not carry would be a thing to explain for ever. The
+# decisions inside it are still compiled and RUN on Linux -- testers/i1303_check.sh does
+# that with g++ directly, the way #1258's and #1305's logic checks do -- so no criterion
+# depends on a platform this repository's harnesses cannot reach.
+if(WIN32)
+    add_executable(opendartboard-launcher src/launcher/main.cpp)
+
+    target_include_directories(opendartboard-launcher PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+    )
+
+    target_compile_definitions(opendartboard-launcher PRIVATE
+        APP_VERSION="${APP_VERSION}"
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        _CRT_SECURE_NO_WARNINGS
+    )
+
+    target_compile_features(opendartboard-launcher PRIVATE cxx_std_17)
+
+    if(MSVC)
+        # The same three as the detector, for the same three reasons: the sources are
+        # UTF-8 and carry a and o with umlauts in every line this program says; /EHsc
+        # because CMAKE_CXX_FLAGS is overwritten by the build script; and the Windows SDK
+        # force-included ahead of everything, which is what od_platform_first.hpp is for.
+        target_compile_options(opendartboard-launcher PRIVATE /utf-8 /EHsc /FIod_platform_first.hpp)
+    endif()
+endif()
