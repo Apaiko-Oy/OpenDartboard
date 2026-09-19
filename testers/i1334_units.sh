@@ -266,7 +266,9 @@ Wants=$TAG-network-online.target
 After=$TAG-network-online.target
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'date +%s.%N > $RUN/probe.ran'
+# %% because % is a systemd specifier: %s is the shell and %N the unit name, so an
+# unescaped 'date +%s.%N' writes "/bin/bash.<unit>" and the stamp is not a clock at all.
+ExecStart=/bin/sh -c 'date +%%s.%%N > $RUN/probe.ran'
 EOF
   rm -f "$UNITS/$TAG-network-online.target.wants/$TAG-wait-online.service"
   rmdir "$UNITS/$TAG-network-online.target.wants" 2> /dev/null
