@@ -173,6 +173,44 @@ if [ -x /run1437/partial ]; then
 fi
 
 echo
+echo "=== D. the same question one stage down, over the calibration window ==="
+# C asks the whole detector, which calibrates on ONE frame per run and is therefore five
+# measurements per fixture. This asks the calibration stage directly -- the same function
+# the detector calls, not a cheaper imitation -- once per frame across the window, which
+# is where a clip that answers sometimes can be told from a clip that answers never.
+# It is also the instrument the numbers in mocks/rig-20260918/README.md were taken with,
+# so running it here is what keeps those numbers honest.
+g++ -std=c++17 -O1 -I /app/src -I /app/src/utils -I /app/src/detector/geometry/calibration \
+  -o /run1437/wire_census /app/testers/i1437_wire_census.cpp \
+  /app/src/detector/geometry/calibration/*.cpp $(pkg-config --cflags --libs opencv4) \
+  > /run1437/wire_census.log 2>&1 \
+  || { say "FAIL could not build the wire census, so D measures nothing" no; }
+BAND="${BAND:-30 60 90 120 150 180 210 240 270 300 330 360 390 420 450}"
+if [ -x /run1437/wire_census ]; then
+  for f in $FIXTURES; do
+    SILENT=""
+    for c in $(clips_of "$f"); do
+      /run1437/wire_census "$c" $BAND 2>/dev/null | grep '^I1437' > "/run1437/band_$(basename "$c" .mp4)_$f.txt"
+      L="/run1437/band_$(basename "$c" .mp4)_$f.txt"
+      TOT=$(grep -c '^I1437' "$L" || true)
+      REF=$(grep -c 'wires_ok=0' "$L" || true)
+      WIRES=$(sed -n 's/.*wires=\([0-9]*\) kept.*/\1/p' "$L" | tr '\n' ' ')
+      echo "  $f $(basename "$c"): refused $REF of $TOT -- wires: $WIRES"
+      if [ "$TOT" = "0" ]; then
+        SILENT="$SILENT $(basename "$c") (no measurement at all)"
+      elif [ "$REF" = "$TOT" ]; then
+        SILENT="$SILENT $(basename "$c")"
+      fi
+    done
+    if [ -z "$SILENT" ]; then
+      say "OK   $f: every clip answered somewhere in the calibration window" ok
+    else
+      say "FAIL $f: these clips answered NOWHERE in the calibration window:$SILENT" no
+    fi
+  done
+fi
+
+echo
 echo "=== the verdict ==="
 if [ "$FAILED" = 0 ]; then echo "1437-fixture: PASS"; else echo "1437-fixture: FAIL"; fi
 exit $FAILED
