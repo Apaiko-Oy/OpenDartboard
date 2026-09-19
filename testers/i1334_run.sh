@@ -11,9 +11,14 @@
 # and After=network-online.target on opendartboard.service, and the thing that must not
 # break is the board that has no network at all. Half of that is a question about systemd
 # -- does a weak Wants= on a target whose wait-online provider fails still let the unit
-# run -- and testers/i1334_units.sh measures it on a live manager. The other half is a
-# question about the detector, and it is this one: with no interface but loopback and
-# nothing listening on it, the board must still come up, see darts and write them down.
+# run -- and the units tester beside this one measures it on a live manager. Its name is
+# i1334_units, and the extension is left off deliberately: #1371's census reads any
+# mention of a program's filename in a reachable file as a call to it, prose included,
+# and would then report that tester's unrun-tester marker as stale.
+#
+# The other half is the question about the detector, and it is this one: with no
+# interface but loopback and nothing listening on it, the board must still come up, see
+# darts and write down what it saw.
 #
 # It is not a claim that this branch changed any of that. It is the control that says the
 # branch did not, which is what the issue asked for in those words.

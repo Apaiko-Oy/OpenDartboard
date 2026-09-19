@@ -79,10 +79,9 @@ tester 891-givenup        "bash '$T/i891_run.sh' givenup '$T/phases891/givenup.s
 tester 891-givenup-nobeat "bash '$T/i891_run.sh' givenup-nobeat '$T/phases891/givenup-nobeat.sh'"
 tester 891-unreachable    "bash '$T/i891_run.sh' unreachable '$T/phases891/unreachable.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
-# testers/i1334_units.sh is the other half of #1334 and is deliberately not here: it
-# measures what systemd does with templates/*.service.template, so it needs a live manager
-# and a live journal, and everything above it runs in a container with no init. It carries
-# an unrun-tester marker saying so.
+# #1334's other half measures what systemd does with templates/*.service.template, so it
+# needs a live manager and a live journal where everything here runs in a container with
+# no init. It is deliberately outside this list and carries a marker saying so.
 # Last, because it builds a second binary under AddressSanitizer and takes longer than
 # everything above it together.
 tester 1317-asan          "bash '$T/i1317_run.sh' '$T/phases1317/1317-asan.sh'"
