@@ -85,7 +85,55 @@ namespace geometry_agreement
         // 5% of the board's radius. The same run measures 0.00%, 0.02% and 0.10% of
         // re-measurement across a reopen, so this is two orders of magnitude clear of the
         // noise; it is the term that catches a camera pushed along its own axis, which
-        // the other two cannot see, and there is no measured positive for it here.
+        // the other two cannot see.
+        //
+        // #1416: WHAT THERE IS, NOW THAT SOMEBODY HAS LOOKED. There is still no measured
+        // positive for this term -- no camera anywhere in either fixture has been
+        // measured moving along its own axis -- and there are 44 measured NEGATIVES, on
+        // footage of a rig nobody touched. `testers/i1388_disturbance` calibrates from
+        // the clean opening of a clip and re-calibrates once a second across the rest, by
+        // the same two calls `Scorer::attemptRecovery` makes: 348 samples over the six
+        // clips, 45 disagreements, 44 of them this term and one a bull shift.
+        //
+        // EVERY ONE OF THE 44 IS A RING THE STAGE RENAMED, AND NONE IS A CAMERA. The
+        // radius cannot tell the two apart, because it is the thing both of them move, so
+        // the instrument takes two witnesses that are not the radius. The fitted ring
+        // measured against the 50-bull, which is carved out of the red by radius and
+        // fitted from its own mask: a camera really pushed along its own axis scales
+        // every ring in the picture by one factor, so that RATIO is invariant and only
+        // the radius moves, while a ray trace that fitted a different ring moves the
+        // ratio by the factor it moved the radius by. Measured across the 44, the radius
+        // moved and the ratio moved with it, a median of 0.50 percentage points apart.
+        // And the ring's own width as a fraction of its own outer radius -- a doubles
+        // ring runs 162 -> 170 mm and a treble 99 -> 107 mm, both 8 mm wide but 0.047 and
+        // 0.075 of their own outer radius -- which moved by a median factor of 1.566
+        // against the 1.589 those millimetres predict.
+        //
+        // The two fixtures disagree about WHICH WAY, and that is what makes it one
+        // finding rather than two numbers. On the mocks the held calibration fits the
+        // doubles ring and play occasionally fits the treble: the ring shrinks to a
+        // median 0.6087 of itself and the term reads ~39%. On the rig it is the mirror
+        // image -- the held calibration fits the TREBLE and the disagreements are the
+        // moments the stage briefly got the doubles right, 1.647x, reading ~64%. The
+        // same two populations stand behind both: ring-against-bull 22.6-22.9 where the
+        // doubles were fitted and 13.4-14.1 where the treble was, on both fixtures, and
+        // 0.6087 against 1/1.647 = 0.6071 for one ratio measured in opposite directions.
+        // The board's own millimetres put it at 107/170 = 0.629. This is #1423, whose
+        // ground is `mask_processing` handing the ray trace the LARGEST CONNECTED
+        // COMPONENT of the red/green mask and nothing anywhere asking which ring that is.
+        //
+        // SO THE 5% IS LEFT ALONE, AND THAT IS A MEASUREMENT RATHER THAN AN OMISSION.
+        // Across all 348 samples on both trees there is no sample whose radius change
+        // lies between 3.29% and 38.26%. The band is empty, an order of magnitude wide
+        // on each side of this constant, and every tolerance from 3.3% to 38.2% returns
+        // exactly the same verdict on every sample -- so no value in it is better or
+        // worse than any other and there is nothing here to fit. The only values that
+        // WOULD move a verdict are below the re-measurement noise, which manufactures
+        // false positives out of nothing, or above 66%, which is a term blind to a camera
+        // that moved two thirds of the board's radius and is retiring it under another
+        // name. Retiring it is #1423's to decide once a stage can say which ring it
+        // measured; widening it to fit the renames would leave a board scoring on a
+        // geometry that is 0.629 of its board with nothing left to notice.
         double max_radius_change = 0.05;
     };
 
@@ -249,7 +297,15 @@ namespace geometry_agreement
         }
         if (movement.radius_comparable)
         {
-            line += ", the doubles ring changed size by " + twoPlaces(movement.radius_change * 100.0) +
+            // #1416: "the ring fitted as the doubles" and not "the doubles ring". The
+            // stage names what it fitted rather than measuring it, and on every one of
+            // the 44 disagreements measured on untouched footage it had fitted the
+            // TREBLE ring under this name. A line saying the doubles ring changed size
+            // by 39% cannot be argued with the way #1321 means, because in each of those
+            // cases it was not the doubles ring and the line gave a reader no way to
+            // suspect it.
+            line += ", the ring fitted as the doubles changed size by " +
+                    twoPlaces(movement.radius_change * 100.0) +
                     "% of an allowed " + twoPlaces(limits.max_radius_change * 100.0) + "%";
         }
         else
