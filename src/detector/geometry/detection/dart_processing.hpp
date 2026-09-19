@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,46 @@ namespace dart_processing
         DART_2, // 2 darts on board
         DART_3  // 3 darts on board
     };
+
+    /**
+     * #1389 falsification switch: OD_STATE_FLOOR=<n> pins the state vote's floor, and
+     * pins it AGAINST the camera quorum, which is the only way to reproduce ADR-0081 §1
+     * on one binary.
+     *
+     * The defect this issue removed was not a number that was wrong. It was three numbers
+     * that DISAGREED: a calibration gate at 1, an event census at 1, and a vote at 2. A
+     * board caught between them is admitted, opens dart windows, and can never move its
+     * own state -- inert, while reporting itself healthy. With one constant there is
+     * nothing left in the program that can be set to that combination, so the defect
+     * becomes undemonstrable and the fix becomes a claim rather than a measurement. This
+     * puts the disagreement back on request:
+     *
+     *     OD_CAMERA_QUORUM=1 OD_STATE_FLOOR=2 OD_STATE_QUORUM=absolute
+     *
+     * is exactly what #1318, #1353 and the pre-#1348 vote shipped, and
+     * testers/phases1389/1389-floor.sh phase E runs the real binary under it and watches
+     * the board be admitted, form windows and move its state not once.
+     *
+     * It is a PIN and nothing reads it on an ordinary run: unset, zero and anything that
+     * is not a positive number all leave the floor where camera_quorum puts it. It is
+     * deliberately not a second home for the number -- a pin that wins where it is set
+     * and is absent everywhere else, which is the shape `HOSTING_PRICE_<SPORT>` has in
+     * the application this detector reports to.
+     */
+    inline int stateFloorPin()
+    {
+        static const int pinned = []
+        {
+            const char *e = std::getenv("OD_STATE_FLOOR");
+            if (e == nullptr || *e == '\0')
+            {
+                return 0;
+            }
+            const int n = std::atoi(e);
+            return n > 0 ? n : 0;
+        }();
+        return pinned;
+    }
 
     // Parameters for dart state detection
     struct DartParams
@@ -100,7 +141,8 @@ namespace dart_processing
         // a board cannot reach. The field is kept so that a tester can still move it
         // under a fixed board -- #1348's whole argument for it -- and so that
         // OD_STATE_QUORUM=absolute has something to restore.
-        int min_cameras_to_move_the_board = camera_quorum::cameras(); // The floor: never one camera's word
+        int min_cameras_to_move_the_board =
+            stateFloorPin() > 0 ? stateFloorPin() : camera_quorum::cameras(); // The floor: never one camera's word
         // #1348 falsification: the absolute count the vote used before it, restored under
         // a fixed board. Set from OD_STATE_QUORUM=absolute at run time.
         bool absolute_quorum = false;
