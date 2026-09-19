@@ -23,6 +23,13 @@ using namespace std;
 
 namespace geometry_calibration
 {
+    // #1378, and both are stated here rather than inline so that a test can move them and
+    // watch the answer move. `kRegionRimPx` is three pixels because the colour stage's own
+    // 7x7 blur and dilation already spread a boundary by about that much, so a rim thinner
+    // than it would be measuring the blur rather than the board.
+    static constexpr int kRegionRimPx = 3;
+    static constexpr double kRegionRimColourShare = 0.01;
+
     // This function orchestrates the entire calibration pipeline for one camera
     DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode)
     {
@@ -178,6 +185,75 @@ namespace geometry_calibration
         // The second pass costs one bilateral filter per camera, once, at calibration.
         Mat redGreenFrame = color_processing::processColors(roiFrame, cameraIdx, debugMode, colorParams);
 
+
+        // [===STEP 2.6:===] #1378: DID THE REGION CUT COLOURED BOARD?
+        //
+        // This is the line whose absence cost eight darts. The region is drawn from a
+        // COLOUR measurement -- `measureBoard`'s smallest circle around the largest
+        // red/green contour -- and on a board whose doubles ring has dropped out of that
+        // mask, that circle is the TREBLE ring (ROIParams). Under #1331's 1.25 margin
+        // mocks/rig-20260918 therefore drew a 243 px region around a 316 px board, the
+        // ray tracer four stages down fitted a doubles ring out of the arcs that survived
+        // it, and the fit did not fail: it succeeded, smaller. The board every stage below
+        // measures darts against went 197117/200385/194335 px to 72171/72374/72531 -- and
+        // not one line of any log, at any level, said a region had clipped anything.
+        //
+        // Asking the FITTED ring whether it reached the region's edge does not work, and
+        // it is worth writing down because it is the obvious check: the collapsed ring
+        // sits at 199 px inside a 243 px region, comfortably clear of the boundary it was
+        // cut by. What is hard against that boundary is the COLOUR. So the question is
+        // asked here, of the rim of the region itself, one stage after it was drawn:
+        //
+        //   mocks/rig-20260918 at 1.25   13.5%, 10.2%, 8.7% of the region's rim is coloured
+        //   mocks/rig-20260918 at 2.107   0.0%,  0.3%, 0.0%
+        //   mocks/cam_*.mp4 at either     0.0%,  0.0%, 0.0%
+        //
+        // 1% sits two orders of magnitude from the broken readings and three times the
+        // largest innocent one, which is a room's own red touching a rim that no longer
+        // touches the board. The denominator is the rim this camera really has rather than
+        // 2*pi*r: the region is intersected with the frame, so on a board near an edge
+        // part of its rim does not exist, and a share of a rim that was never drawn would
+        // read high for the one reason this check must not fire on.
+        //
+        // A WARNING and not an ERROR: the camera calibrated, and the board it hands down
+        // is still a board -- a smaller one, measured against a ring somebody cut. That is
+        // a thing to go and look at, not a reason to refuse a rig mid-evening. #1321's
+        // rule on the sentence: both numbers, against each other, in one line.
+        {
+            const double regionRadius = roi_processing::regionRadiusFor(board.radius, roiParams);
+            const int outer = cvRound(regionRadius);
+            const int inner = outer - kRegionRimPx;
+            if (inner > 0)
+            {
+                Mat rim = Mat::zeros(redGreenFrame.size(), CV_8UC1);
+                circle(rim, board.center, outer, Scalar(255), FILLED);
+                circle(rim, board.center, inner, Scalar(0), FILLED);
+                const int rimPixels = countNonZero(rim);
+
+                Mat keptGray, kept;
+                cvtColor(redGreenFrame, keptGray, COLOR_BGR2GRAY);
+                threshold(keptGray, kept, 1, 255, THRESH_BINARY);
+                bitwise_and(kept, rim, kept);
+                const int colouredRim = countNonZero(kept);
+
+                const double share = rimPixels > 0 ? (double)colouredRim / (double)rimPixels : 0.0;
+                if (share > kRegionRimColourShare)
+                {
+                    log_warning("Camera " + to_string(cameraIdx + 1) + " drew a region that CUT coloured "
+                                "board: " + to_string(colouredRim) + " of the " + to_string(rimPixels) +
+                                " px on the rim of its own " + to_string(outer) + " px region key as "
+                                "dartboard red or green (" + to_string((int)lround(share * 100.0)) +
+                                "%, and this check allows " +
+                                to_string((int)lround(kRegionRimColourShare * 100.0)) + "%), so the doubles "
+                                "ring fitted below will be fitted out of what survived the cut and every "
+                                "dart on this camera will be measured against a board smaller than the "
+                                "board. The region is " + to_string(roiParams.roiRadiusOfBoardRadius).substr(0, 5) +
+                                "x a red/green span of " + to_string((int)lround(board.radius)) +
+                                " px; see #1378");
+                }
+            }
+        }
+
         // [===STEP 3:===] contour DETECTION using the new contour processing module
         // Note: This step is currently commented out as it is not used in the new pipeline
         // Uncomment if contour processing is needed in the future, for now leave it here for reference
@@ -234,7 +310,10 @@ namespace geometry_calibration
 
         // [===STEP 5:===] Create binary mask for contour processing
         mask_processing::MaskParams maskParams;
-        mask_processing::MaskBundle masks = mask_processing::processMask(redGreenFrame, bullCenter, cameraIdx, debugMode, maskParams);
+        // #1393: the board this camera measured goes down with the bull centre. The bull
+        // carve was a fifteenth of the FRAME and is now a fraction of this; nothing else
+        // about this call moved.
+        mask_processing::MaskBundle masks = mask_processing::processMask(redGreenFrame, bullCenter, bull.boardRadius, cameraIdx, debugMode, maskParams);
 
         // [===STEP 6:===] ELLIPSE DETECTION for dartboard shape
         ellipse_processing::EllipseParams ellipseParams;
