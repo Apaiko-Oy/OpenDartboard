@@ -143,6 +143,33 @@ namespace bull_processing
         // radius, boundary centroid, and the 4%-of-frame refusal -- on the same binary,
         // so a before/after is never a comparison of two builds. testers/i1340_run.sh is
         // what runs it.
+        // #1340's last criterion was a CENSUS rather than a fix: two fraction-of-frame
+        // thresholds had been found by accident -- this one and #1339's -- and a third
+        // was cheaper to look for than to meet. It was swept on 2026-09-19 over the whole
+        // of src/detector/, and there is not one third, there are three. All are FILED
+        // AND NOT FIXED here, because each needs the rig in front of it:
+        //
+        //   #1392  board_look::max_red_green_fraction = 0.12, the ring mask over
+        //          doublesMask.total() -- which is the whole frame, masked or not. It
+        //          REFUSES A WHOLE CAMERA, and ring pixels go as the square of how much
+        //          of the frame the board fills: the board camera #1318 measured at 3.0%
+        //          reads 12.0% if it is mounted at half the distance. The most dangerous
+        //          of the three, because its failure is a refusal and not a fallback.
+        //   #1393  mask_processing's bull carve, min(cols, rows) / 15 -- a fixed 48 px at
+        //          720p where a 50-point bull is 9 px on the mocks and 6 px on the rig.
+        //          5.3x and 8.6x oversized, and worse on the rig whose board is smaller
+        //          in frame, which is this issue's shape exactly.
+        //   #1394  color_processing's centrality, bull's-eye, connectivity and text
+        //          windows, all sized `cols * k`. #1323 moved their ORIGIN onto the
+        //          measured board and left their SCALE a fraction of the frame.
+        //
+        // Two more were looked at and are NOT defects of this kind. dart_processing's
+        // change_percent_threshold = 0.22 is over the whole frame, but #1354 already
+        // made the board the denominator wherever one is fitted and the frame figure is
+        // named in the file as the no-fitted-board fallback. roi_processing's four
+        // hand-fitted frame constants are reachable only under OD_ROI=frame, the way the
+        // 4% floor below is reachable only under OD_BOARD=frame.
+
         double bullRadiusOfBoardRadius = 0.0935; // Outer bull radius / doubles radius
         double minBullRadiusFactor = 0.5;        // Reject below half the ideal radius
         double maxBullRadiusFactor = 3.0;        // Reject above three times the ideal radius
