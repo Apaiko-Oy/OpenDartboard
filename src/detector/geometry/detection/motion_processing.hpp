@@ -121,6 +121,11 @@ namespace motion_processing
         int spike_window_frames = 10;      // Frames to wait for other cameras to join spike
         int stability_frames = 15;         // Consecutive low-motion frames needed for stability
         int max_event_duration_ms = 10000; // Maximum time for dart event (safety timeout)
+        // #1358: this is a floor on how long a QUIET board waits, not a deaf period. A
+        // spike above `spike_threshold` inside it starts its own event immediately --
+        // an event reaches its end only by settling under `low_threshold`, so the
+        // motion this clock exists to ignore is over before the clock starts, and what
+        // it used to ignore was the next throw. See processMotion, case COOLDOWN.
         int cooldown_period_ms = 1000;     // Cooldown after dart detection
     };
 
