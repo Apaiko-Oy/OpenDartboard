@@ -4,6 +4,8 @@
 #include <ctime>
 
 #include "geometry_detector.hpp"
+#include "camera_quorum.hpp"
+#include "calibration/board_look.hpp"
 #include "calibration/geometry_calibration.hpp"
 #include "detection/dart_processing.hpp"
 #include "detection/score_processing.hpp"
@@ -315,11 +317,28 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         // flagged that constant as the thing somebody might want to reverse; #1348
         // reverses its EFFECT without touching it, and the place to argue with that is
         // the floor in DartParams, where the reason is written.
-        const int cameras_that_must_see = 1;
+        //
+        // #1389: and that is what this constant now says. It is `camera_quorum::cameras()`
+        // -- two -- read here, by the dart event's census in motion_processing and by the
+        // state vote's floor in dart_processing, so the three cannot drift apart again.
+        // The value moved from 1 to 2 and nothing about which boards are admitted moved
+        // with it: `voting` is counted inside `sees_board`, so voting >= 2 implies
+        // seeing >= 2, and every board this line now refuses was already refused by the
+        // vote's arithmetic below. That is ADR-0081's "this makes the admission gate say
+        // what the rest of the code already enforces", and it is why the change is safe
+        // to make and worth making -- the gate that decides is the gate that says so.
+        const int cameras_that_must_see = camera_quorum::cameras();
         int seeing = 0;
         int voting = 0;
+        // #1389 / ADR-0081 §3: why each camera cannot vote, in that camera's own slot,
+        // empty where it can. The words are board_look's (#1318, and #1392 after it) and
+        // are not retyped: `NoFrame` sends somebody to the USB bus and to #1319, and a
+        // refused ring sends them to the aim and the lighting. "A message saying only two
+        // of three has told nobody anything."
+        vector<string> why_each_camera;
         for (const auto &calibration : calibrations)
         {
+            const bool can_vote = calibration.sees_board && calibration.ellipses.hasValidDoubles;
             if (calibration.sees_board)
             {
                 seeing++;
@@ -329,6 +348,17 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                     voting++;
                 }
             }
+            string reason = board_look::refusal(calibration.look);
+            if (reason.empty() && !can_vote)
+            {
+                // board_look admitted this camera and the ellipse stage did not fit its
+                // doubles ring, so it has no scale to measure a ratio against and it
+                // abstains from both quorums (#1339, #1354). Saying nothing here would
+                // leave a camera named in the count and absent from the reasons.
+                reason = "is looking at the dartboard but its doubles ring was not fitted, "
+                         "so it has nothing to measure a dart against and abstains";
+            }
+            why_each_camera.push_back(reason);
         }
 
         const int camera_slots = (int)calibrations.size();
@@ -342,7 +372,9 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                 ? string()
                 : dart_processing::whyNoStateChangeIsPossible(camera_slots, voting);
 
-        calibrated = seeing >= cameras_that_must_see && no_event_possible.empty() &&
+        const string too_few_see =
+            camera_quorum::whyTooFewCamerasSee(camera_slots, seeing, cameras_that_must_see);
+        calibrated = too_few_see.empty() && no_event_possible.empty() &&
                      no_state_change_possible.empty();
 
         // #1338: said once, by the thing that decided it, so that Scorer has a census to
@@ -405,16 +437,26 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             initialized = true;
             calibrated = true;
         }
-        else if (seeing < cameras_that_must_see)
+        else if (seeing == 0)
         {
+            // #1389: `seeing == 0` rather than `seeing < cameras_that_must_see`, and the
+            // change is forced rather than cosmetic. With the floor at two, one camera
+            // looking at the dartboard would have been refused HERE, by a sentence saying
+            // "none of the 3 cameras is looking at a dartboard" -- which would be a false
+            // statement about a board with one good camera. This branch keeps the case it
+            // was written for; a board that has SOME sight and not enough of it is
+            // refused below, where the shortfall can be counted and every camera named.
             // #1318: not "the calibration failed" any more -- every camera was
             // calibrated and every one of them was refused, each on its own line above.
+            const string none_named = camera_quorum::namingEachCamera(why_each_camera);
             log_error("Initial calibration failed: none of the " + to_string((int)calibrations.size()) +
-                      " cameras is looking at a dartboard");
+                      " cameras is looking at a dartboard. " + none_named);
             // #1321's sentence, in case the per-camera refusals above recorded nothing
-            // -- they will have, unless every camera produced no frame at all.
+            // -- they will have, unless every camera produced no frame at all. #1389
+            // carries the reasons into the fault detail too, so the vigil's BOARD FAULTED
+            // line says which camera failed on what rather than only how many did.
             board_sight::recordFault("none of the " + to_string((int)calibrations.size()) +
-                                     " cameras is looking at a dartboard");
+                                     " cameras is looking at a dartboard. " + none_named);
             initialized = false;
             calibrated = false;
         }
@@ -431,9 +473,29 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // reason. A board short of the event quorum is short of the vote's too --
             // they are counted off the same population -- so ordering them is a choice
             // about which sentence reads first, and the earlier stage's does.
-            const string &why = !no_event_possible.empty() ? no_event_possible : no_state_change_possible;
-            log_error("Initial calibration failed: " + why);
-            board_sight::recordFault(why);
+            // #1348: two arithmetics, one branch, and the first non-empty one is the
+            // reason. #1389 added a third and reordered them, and the reorder has a
+            // reason rather than a preference. Before #1389 the two thresholds were
+            // different numbers (1 and 2), so on a one-camera board only the vote's
+            // sentence fired and the order never arose. They are now ONE number against
+            // ONE population, so on every board short of the floor all of them fire at
+            // once -- and then the choice is purely which sentence tells the reader more.
+            // The vote's names both consequences, a dart that cannot be called AND a
+            // takeout that cannot be seen; the motion stage's names one. #1348's rule was
+            // "the earlier stage's reads first" and its own reason was that the stages
+            // were different tests; they are not any more.
+            //
+            // `no_event_possible` still wins where it is the three-slot fact, because on
+            // a board that is not three slots the vote's sentence is empty.
+            const string &why = !no_state_change_possible.empty() ? no_state_change_possible
+                                : !no_event_possible.empty()      ? no_event_possible
+                                                                  : too_few_see;
+            // ADR-0081 §3: the count is the less useful half. Every camera is named with
+            // its own board_look reason on the same line, so the refusal sends somebody
+            // to the USB bus or to the aim rather than to a ratio.
+            const string named = camera_quorum::namingEachCamera(why_each_camera);
+            log_error("Initial calibration failed: " + why + ". " + named);
+            board_sight::recordFault(why + ". " + named);
             initialized = false;
             calibrated = false;
         }

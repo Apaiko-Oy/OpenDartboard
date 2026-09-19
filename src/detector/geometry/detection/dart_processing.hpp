@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "detector/geometry/camera_quorum.hpp"
 #include "motion_processing.hpp"
 
 using namespace cv;
@@ -93,7 +94,13 @@ namespace dart_processing
         // At three voters and under that is the shipped 2, which is why nothing either
         // fixture measures moves; above it, it is the half #1355 made reachable, where an
         // absolute 2 is a MINORITY of a four-camera board.
-        int min_cameras_to_move_the_board = 2; // The floor: never one camera's word
+        // #1389: the floor is `camera_quorum::kCameras` and is no longer written here.
+        // It was one of the three copies of this number ADR-0081 §2 is about, and it is
+        // the copy the other two are measured against: everything below it is arithmetic
+        // a board cannot reach. The field is kept so that a tester can still move it
+        // under a fixed board -- #1348's whole argument for it -- and so that
+        // OD_STATE_QUORUM=absolute has something to restore.
+        int min_cameras_to_move_the_board = camera_quorum::cameras(); // The floor: never one camera's word
         // #1348 falsification: the absolute count the vote used before it, restored under
         // a fixed board. Set from OD_STATE_QUORUM=absolute at run time.
         bool absolute_quorum = false;
