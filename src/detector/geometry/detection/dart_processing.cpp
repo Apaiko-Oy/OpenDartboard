@@ -1,4 +1,5 @@
 #include "dart_processing.hpp"
+#include <cstdlib>
 #include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
@@ -78,11 +79,49 @@ namespace dart_processing
         return r;
     }
 
-    // Static state tracking
-    static vector<DartBoardState> previous_states = {
-        DartBoardState::CLEAN,
-        DartBoardState::CLEAN,
-        DartBoardState::CLEAN};
+    // #1358 measurement instrument, off unless asked for. The refused-window account
+    // (#1350/#1345) prints only when the vote changed nothing, so a window that SCORED
+    // says nothing about where its evidence was. OD_WINDOW_CENSUS=1 prints one line per
+    // completed window, scored or refused, carrying each camera's changed pixels inside
+    // its own fitted board -- which is the figure #1358 is measured in, before and
+    // after. It adds no output to an ordinary run.
+    static bool windowCensus()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_WINDOW_CENSUS");
+            return e && std::string(e) == "1";
+        }();
+        return v;
+    }
+
+    // #1348 falsification switch, off unless asked for -- the shape #1339's and #1358's
+    // switches use, so the rule this issue replaced and the one it wrote can be measured
+    // on ONE binary and one fixture rather than on two builds. It restores the vote as it
+    // was before #1348, both halves of it: the absolute count of 2 whatever the voting
+    // population, AND a calibration that never asks the vote's arithmetic -- which is
+    // what let a one-voting-camera board beat READY. Anything else, unset included, is
+    // the majority rule and the gate.
+    //
+    // On a board of three slots the two rules agree on every reachable population, and
+    // that is a measurement rather than an oversight: a majority of 1, 2 or 3 voters
+    // floored at 2 IS 2. So what this switch moves on a fixture is the GATE. The rule's
+    // own difference appears at four voters, which `whyNoEventIsPossible` will not let a
+    // whole-binary run reach, and is measured by driving processDartState directly --
+    // testers/i1348_quorum_check.cpp, the way #1355 measured its fourth camera.
+    bool stateQuorumIsAbsolute()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_STATE_QUORUM");
+            return e && std::string(e) == "absolute";
+        }();
+        return v;
+    }
+
+    // Static state tracking. #1355: no count is written here -- processDartState sizes
+    // it from the frames it was handed, beside the other three per-camera arrays.
+    static vector<DartBoardState> previous_states;
     static DartBoardState best_previous_state = DartBoardState::CLEAN;
     static int stability_frame_count = 0;
     static bool initialized = false;
@@ -91,6 +130,7 @@ namespace dart_processing
     static bool collecting_frames = false;
     static vector<Mat> accumulated_frames; // Pre-computed sum per camera (CV_32F)
     static int frames_collected = 0;       // cycles in the window
+    static bool window_pending = false;    // #1358: an event settled while a window was averaging
     static vector<int> frames_accumulated; // #798: frames each camera really contributed
 
     // Working backgrounds - one per camera
@@ -291,13 +331,35 @@ namespace dart_processing
     {
         DartStateResult result;
 
+        // #1355: every per-camera array is sized from the camera count, in one place.
+        // `previous_states` was a static brace-initialised with exactly THREE CLEANs and
+        // was never sized here beside the other three, while being indexed
+        // `previous_states[i]` per REAL camera at four sites in the loop below and
+        // iterated as the reconciliation's own bound at a fifth. On a four-camera board
+        // the fourth camera was a read and a write past the end, and its state was never
+        // reconciled to the vote. What kept that latent is `detectMotion` refusing to
+        // initialise on any count but three -- a shield in a different translation unit,
+        // which is the kind that disappears in somebody else's unrelated change.
+        //
+        // Sized on every window rather than only on the first, because `initialized` is
+        // set once and never cleared: a count that changed after the first window would
+        // otherwise leave all four arrays at the old size. `resize` rather than `assign`
+        // so the ordinary case -- a count that never changes -- leaves every camera's
+        // state and working background exactly where the last vote put them.
+        if (previous_states.size() != current_frames.size() ||
+            accumulated_frames.size() != current_frames.size() ||
+            frames_accumulated.size() != current_frames.size() ||
+            working_backgrounds.size() != current_frames.size())
+        {
+            previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
+            accumulated_frames.resize(current_frames.size());
+            frames_accumulated.resize(current_frames.size(), 0);
+            working_backgrounds.resize(current_frames.size());
+        }
+
         // Check if we have initialized
         if (!initialized)
         {
-            accumulated_frames.resize(current_frames.size());
-            frames_accumulated.assign(current_frames.size(), 0);
-            working_backgrounds.resize(current_frames.size()); // Initialize working backgrounds
-
 #ifdef DEBUG_VIA_VIDEO_INPUT
             // #812: four more unauthenticated MJPEG listeners on 0.0.0.0. They were
             // behind debug_mode alone, so a release binary run with --debug opened
@@ -317,10 +379,14 @@ namespace dart_processing
             initialized = true;
         }
 
-        // Frame collection state machine
-        if (movement_finished && !collecting_frames)
+        static long cycle_ordinal = 0;
+        static long window_opened_at = 0;
+        cycle_ordinal++;
+
+        auto openWindow = [&]()
         {
             collecting_frames = true;
+            window_opened_at = cycle_ordinal;
             frames_collected = 0;
 
             // Initialize accumulated frames to zero.
@@ -335,7 +401,26 @@ namespace dart_processing
                     accumulated_frames[i] = Mat::zeros(reference.size(), CV_32F);
                 }
             }
-            // log_info("Motion finished - starting frame collection");
+        };
+
+        // Frame collection state machine
+        if (movement_finished && !collecting_frames)
+        {
+            openWindow();
+        }
+        else if (movement_finished)
+        {
+            // #1358: a second event finished while this window was still averaging its
+            // frames, and until now that window was simply DROPPED -- the test above is
+            // the only place `movement_finished` is read, and it is false by the next
+            // cycle. A window averages `stability_frames` cycles; an event can settle in
+            // three. Measured on mocks/rig-20260918: one of the rig's 24 finished events
+            // never became a window, and once a cooldown stops swallowing the next throw
+            // (see motion_processing) a dart landing three cycles behind another is
+            // exactly the case this arm is about. It is remembered rather than served,
+            // because serving it here would throw away the frames the window in flight
+            // has already averaged.
+            window_pending = true;
         }
 
         if (collecting_frames)
@@ -691,6 +776,10 @@ namespace dart_processing
         int moves_up = 0;
         int goes_clean = 0;
         int stays_same = 0;
+        // #1348: the population the two counts below are counts OF, kept as a number
+        // because it is what the quorum is measured against. Every `continue` under it is
+        // a camera that is not in it.
+        int voters = 0;
 
         // Loop through all cameras once
         for (size_t i = 0; i < result.camera_results.size(); i++)
@@ -699,6 +788,7 @@ namespace dart_processing
                 continue; // #798: an abstaining camera is not a vote for anything
             if (result.camera_results[i].abstained_no_board)
                 continue; // #1354: nor is one with no board to have measured against
+            voters++;
 
             if (result.camera_results[i].detected_state == DartBoardState::CLEAN)
             {
@@ -714,15 +804,28 @@ namespace dart_processing
             }
         }
 
+        // #1348: the quorum against the population that was just counted, rather than the
+        // absolute 2 both rules compared against. At three voters and under it IS 2, so
+        // nothing either fixture measures moves; what changes is that a board with fewer
+        // voters than 2 is now a sentence somebody can read instead of a rule silently
+        // out of reach, and a board with more than three -- which #1355 made possible --
+        // takes a majority of them rather than any two.
+        DartParams voting = params;
+        if (stateQuorumIsAbsolute())
+        {
+            voting.absolute_quorum = true;
+        }
+        const int quorum = stateVoteQuorum(voters, voting);
+
         // Pick the winner
         DartBoardState final_state;
-        if (goes_clean >= 2)
+        if (goes_clean >= quorum)
         {
-            final_state = DartBoardState::CLEAN; // Rule 3: 2+ think CLEAN
+            final_state = DartBoardState::CLEAN; // Rule 3: a quorum thinks CLEAN
         }
-        else if (moves_up >= 2)
+        else if (moves_up >= quorum)
         {
-            final_state = static_cast<DartBoardState>(static_cast<int>(best_previous_state) + 1); // Rule 1: 2+ move up
+            final_state = static_cast<DartBoardState>(static_cast<int>(best_previous_state) + 1); // Rule 1: a quorum moves up
         }
         else
         {
@@ -734,8 +837,11 @@ namespace dart_processing
         string b = getDartBoardStateName(final_state);
         log_debug("FINAL State: From: " + a + " -> " + b);
 
-        // Set ALL cameras to the final state
-        for (size_t i = 0; i < previous_states.size(); i++)
+        // Set ALL cameras to the final state.
+        // #1355: bounded by the CAMERA COUNT, not by `previous_states.size()`, which was
+        // three whatever the board was running -- so on a four-camera board the fourth
+        // camera's state was the one thing the vote never reached.
+        for (size_t i = 0; i < result.camera_results.size(); i++)
         {
             previous_states[i] = final_state;
         }
@@ -760,14 +866,43 @@ namespace dart_processing
         result.previous_state = best_previous_state;
         best_previous_state = final_state;
 
+        if (windowCensus())
+        {
+            static int window_ordinal = 0;
+            string line = "WINDOW CENSUS: #" + to_string(++window_ordinal) +
+                          " opened=" + to_string(window_opened_at) + " closed=" + to_string(cycle_ordinal) + " " +
+                          getDartBoardStateName(result.previous_state) + " -> " +
+                          getDartBoardStateName(final_state) + " (" + to_string(moves_up) + " up, " +
+                          to_string(goes_clean) + " clean" +
+                          // #1348: and out of how many, against what. A census that names
+                          // the counts without the population cannot be read for the
+                          // failure this issue is about.
+                          ", " + to_string(voters) + " voted, quorum " + to_string(quorum) + ")";
+            for (size_t i = 0; i < result.camera_results.size(); i++)
+            {
+                const CameraDetectionResult &r = result.camera_results[i];
+                line += " | cam" + to_string(i + 1) + " " + getDartBoardStateName(r.detected_state) +
+                        " board=" + to_string(r.board_changed_pixels) + "/" + to_string(r.board_pixels) +
+                        " fresh=" + to_string(r.fresh_board_pixels) +
+                        " frame=" + to_string(r.total_changed_pixels);
+                if (!r.frame_available)
+                    line += " NOFRAME";
+                if (r.abstained_no_board)
+                    line += " NOBOARD";
+            }
+            log_info(line);
+        }
+
         // #1350: a window whose vote changed nothing used to leave one empty INFO line
         // here, so tonight's failure -- one camera voting a dart and the vote refusing it
         // (#1345) -- was invisible at normal level. The refusal now accounts for itself
         // where the blank line was. A window that scored keeps the blank line instead,
         // byte for byte, because the research chain's controls were extracted from that
         // output and this issue promises not to move it.
+        // #1348: `voting`, not `params` -- the sentence must name the quorum the vote just
+        // used, and under the falsification switch that is the absolute count.
         const string refusal = refusedWindowAccount(result.camera_results, result.previous_state,
-                                                    result.current_state, moves_up, goes_clean, params);
+                                                    result.current_state, moves_up, goes_clean, voting);
         if (!refusal.empty())
         {
             log_info(refusal);
@@ -775,6 +910,15 @@ namespace dart_processing
         else
         {
             log_info(""); // empty line for readability
+        }
+
+        // #1358: the window that settled while this one was averaging, opened now that
+        // the vote it would otherwise have raced has been reconciled and every camera's
+        // working background is what the vote made it.
+        if (window_pending)
+        {
+            window_pending = false;
+            openWindow();
         }
 
         return result;
