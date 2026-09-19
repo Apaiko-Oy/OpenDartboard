@@ -41,10 +41,31 @@ namespace mask_processing
         // the board radius, and that is the furthest a search for RED can reach and
         // still be certain every red pixel it finds belongs to the bull. The annulus
         // between 6.35 mm and 15.9 mm is green on every board, and the first red outside
-        // it is a single segment -- which is what the old carve was eating. 0.0935 is
-        // 2.5x the bull it has to contain, it is the same ratio
-        // bull_processing::BullParams::bullRadiusOfBoardRadius already carries, and it is
-        // derived from the same two millimetre figures. Nothing here is fitted.
+        // it is a single segment. 0.0935 is 2.5x the bull it has to contain, it is the
+        // same ratio bull_processing::BullParams::bullRadiusOfBoardRadius already
+        // carries, and it is derived from the same two millimetre figures. Nothing here
+        // is fitted.
+        //
+        // WHAT THE OLD CARVE WAS ACTUALLY EATING, because the answer is not what the
+        // issue assumed and the next reader should not have to re-measure it: on both
+        // shipped fixtures, almost nothing. Red exists only in the inner bull, the
+        // 25-ring, the treble ring and the doubles ring -- a board's singles are black
+        // and cream -- so between 0.0935 R and the inner edge of the trebles at
+        // 99/170 = 0.582 R there is no red at all. 48 px is 0.165 of the mocks' fitted
+        // doubles semi-axis and 0.152 of the rig's, both inside that empty annulus, and
+        // the red really carved was IDENTICAL under both rules on five of the six
+        // cameras: 364/364/355 px on mocks/cam_*.mp4, 430/425/418 px on the rig against
+        // the frame rule's 430/425/499. The six fitted boards `1331-framing` section 2.5
+        // pins do not move by a pixel either way.
+        //
+        // The fault is real all the same, and it is a fault about FRAMING rather than
+        // about these two rooms. mocks/cam_1.mp4 with the board filling half the frame
+        // -- #1339's scaler, one clip, nothing else moved -- measures a 93 px board: the
+        // carve here follows it to 9 px and the frame rule is still 48, which now reaches
+        // past the empty annulus into the treble ring. Same bull, same 89 doubles
+        // boundary points, and the outer triple contour collapses from 17976 px to
+        // 5319 px with no inner triple fitted at all. testers/phases1393/1393-carve.sh
+        // measures every number in these two paragraphs.
         //
         // The denominator is the board `bull_processing` measured, and NOT the bull it
         // measured, although `BullSighting::radius` is a per-camera reading of the very
