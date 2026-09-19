@@ -50,6 +50,17 @@ namespace board_look
         int outer_points = 0;        // validated outer boundary points, of 120 rays
         int inner_points = 0;        // validated inner boundary points
         bool traced_doubles = false; // the doubles ring was fitted at all
+
+        // #1331 / ADR-0079 §2: whether the whole board is in this camera's frame. The
+        // board is found on the full frame before any region is drawn around it, and if
+        // what the colour stage kept of that frame runs off the frame's own edge then this
+        // camera does not see a whole board -- a fact about where the hardware is bolted,
+        // not about anybody's aim (ADR-0079 §3). `board_edge_gap` is the smallest distance
+        // in pixels from the extremes of that kept colour to any of the four frame edges,
+        // so a refusal carries a number rather than a verdict; a gap of 0 or less is a
+        // board with part of itself outside the picture.
+        bool board_clipped = false;
+        int board_edge_gap = 0;
     };
 
     /**
@@ -93,6 +104,7 @@ namespace board_look
         None,
         NoFrame,
         TooMuchRedGreen,
+        BoardClipped,
         RingNotTraced,
         TooFewPoints
     };
@@ -110,6 +122,16 @@ namespace board_look
         if (redGreenFraction(e) > limits.max_red_green_fraction)
         {
             return Refused::TooMuchRedGreen;
+        }
+        // Asked after the flood and before the ring, and the order is the argument. A
+        // camera pointed at a face is clipped too -- a face runs off the frame -- and
+        // "too much of this picture is dartboard red and green" is the sentence that
+        // sends somebody to the right place. A camera really looking at a board that the
+        // frame cuts is not flooded, so it reaches this, and it must not be told instead
+        // that no ring could be traced: nothing tried to trace one.
+        if (e.board_clipped)
+        {
+            return Refused::BoardClipped;
         }
         if (!e.traced_doubles)
         {
@@ -144,6 +166,13 @@ namespace board_look
                    std::to_string(allowed) +
                    "% -- a board's doubles and trebles are a few per cent of a frame, and skin in warm "
                    "room light is most of one";
+        case Refused::BoardClipped:
+            return "is not looking at a WHOLE dartboard: the coloured region that is its doubles ring "
+                   "comes within " +
+                   std::to_string(e.board_edge_gap) +
+                   " px of the edge of its own frame and a board wholly in shot leaves at least 1 -- so "
+                   "part of this board is outside this camera's picture, which is where the cameras are "
+                   "bolted rather than how they are aimed";
         case Refused::RingNotTraced:
             return "is not looking at the dartboard: no doubles ring could be traced around the bull";
         case Refused::TooFewPoints:

@@ -13,10 +13,17 @@ namespace bull_processing
     {
         // #1320/#1340: the board this stage sizes a candidate against is the one in the
         // same mask the candidates come from -- the largest red/green region, whose outer
-        // boundary is the outside of the doubles ring. Nothing above this stage has
-        // measured the board: the ROI is a fixed 80% of the frame (roi_processing) and
-        // the ring ellipses are not fitted until STEP 6, three stages below here. So the
-        // scale is taken here.
+        // boundary is the outside of the doubles ring. No stage above this one MEASURES a
+        // board of its own -- the ring ellipses are not fitted until STEP 6, three stages
+        // below here -- so the scale is taken here.
+        //
+        // #1331 note: since ADR-0079 calibration makes this same measurement one stage
+        // earlier, by calling measureBoard() below on the FULL frame, and draws the region
+        // around what it found; so the frame this stage is handed is one whose board is
+        // whole by construction. It is the same function and there is no second opinion.
+        // What is measured is unchanged and both rigs read the same numbers either way;
+        // what moved is that they can no longer be numbers about a board a frame-centred
+        // ellipse had already clipped.
         //
         // It is taken from that region's EXTENT and not from the area it fills, and that
         // is #1340's repair. #1320 took the radius a disc of that area would have, which
@@ -105,8 +112,11 @@ namespace bull_processing
         // 250 the coloured arcs reach the outer ring, the board is the board, and the
         // ratio printed beside it falls from 0.154 toward 0.09. If it still reads 151, the
         // colour on that rig stops short of the doubles edge, the honest board is the
-        // fitted ellipse, and that does not exist for three stages yet -- which is #1331's
-        // ordering and not this issue's to fix. The floor holds either way, and that is
+        // fitted ellipse, and that does not exist for three stages yet -- which #1331 was
+        // expected to settle and did NOT. #1331 moved the region and the measurement that
+        // sizes it; the ellipse fit is still STEP 6 and the rig still reads 194, 195 and
+        // 197 px here, unmoved by the reordering. Whichever board that is, it is now
+        // measured on a picture nothing has cut. The floor holds either way, and that is
         // the point of deriving it from resolvability rather than from a board: 64.2 px
         // passes at 108, at 151 and at 250. Nothing here is refitted, and the band between
         // minBullRadiusFactor and maxBullRadiusFactor does not move.
@@ -212,6 +222,46 @@ namespace bull_processing
         string basis;            // What the winner was chosen on, in words and numbers
         string failure;          // Why nothing was chosen; empty when found
     };
+
+    /**
+     * #1331: the board on its own, told from whatever red/green frame it is handed.
+     *
+     * This is the measurement `processBull` has always made at its Step 3.5 -- the
+     * largest outermost region in the mask, sized by the smallest circle enclosing its
+     * boundary (#1320 chose the region, #1340 chose the measure). It is lifted out here
+     * rather than written a second time, because ADR-0079 needs it one stage EARLIER
+     * than the bull: the ROI used to be a frame-centred ellipse of hand-fitted constants
+     * and the colour stage ran inside it, so the only thing in the pipeline that can say
+     * where the board is ran on a picture with the evidence already cut off. Now
+     * calibration finds the board on the full frame with this, builds the ROI around
+     * what it found, and `processBull` calls the same function again on the frame that
+     * comes back. One measurement, two callers; there is no second opinion about where a
+     * board is.
+     *
+     * ADR-0079 §2's question -- is the whole of it in shot -- is deliberately NOT asked
+     * here, and the reason is measured rather than tidy. This region is the largest
+     * outermost one, and when a board is cut by the frame the ring breaks and the largest
+     * surviving region is the INNER part of the board, which touches no edge at all. On
+     * mocks/cam_1.mp4 shifted 430 px right -- a board with a third of it off the picture
+     * -- this measurement reports a whole-looking board of radius 176 px sitting a
+     * comfortable 56 px from the nearest edge, and calibrates from a board 0.6 of the
+     * size of the real one. So the framing question is asked in geometry_calibration, of
+     * everything the colour stage kept and not of the winner alone.
+     */
+    struct BoardSighting
+    {
+        bool found = false;      // A region big enough to size a bull against was there
+        Point center{0, 0};      // The middle of the smallest circle enclosing it
+        double radius = 0.0;     // That circle's radius, in pixels
+        double area = 0.0;       // What its boundary encloses, in pixels
+        string failure;          // Why there is no board here; empty when found
+    };
+
+    // Measure the board in a red/green frame, or say why there is not one.
+    BoardSighting measureBoard(
+        const Mat &redGreenFrame,
+        const Point &frameCenter,
+        const BullParams &params = BullParams());
 
     // Find the bull, or say why there is not one
     BullSighting processBull(

@@ -46,12 +46,136 @@ namespace geometry_calibration
         Point frameCenter = math::calculateFrameCenter(frame);
         calibration.frameCenter = frameCenter;
 
-        // [===STEP 1:===] Create ROI using the clean ROI processing module
-        roi_processing::ROIParams roiParams;
-        Mat roiFrame = roi_processing::processROI(orginalFrame, debugMode, cameraIdx, roiParams);
-
-        // [===STEP 2:===] Detect red-green colors using the CLEAN color detection module
+        // [===STEP 1:===] FIND THE BOARD, on the whole picture, before anything is framed.
+        //
+        // ADR-0079. Until #1331 this stage was an ROI: a frame-centred ellipse of four
+        // hand-fitted constants, drawn before anything had looked at the picture, with the
+        // colour stage running inside it and the board finally MEASURED two stages below
+        // that. So the one thing in the pipeline that can say where a board is was handed
+        // a frame with the evidence already cut off, and a board at the region's edge was
+        // measured as a clipped board -- its radius and its centre both wrong, and wrong
+        // in the direction that makes it look more centred than it is.
+        //
+        // It is a smaller change than it sounds because the ROI has exactly one consumer:
+        // `roiFrame` is read by the colour stage and by nothing else, and STEP 6's ellipse
+        // fitting and STEP 8's wire extraction already read `orginalFrame`. Confirmed on
+        // this tree before it was moved.
+        //
+        // So: colours on the full frame, the board measured from that with
+        // `bull_processing::measureBoard` -- #1320's choice of region and #1340's measure
+        // of it, the same function `processBull` calls, not a second opinion -- and only
+        // then a region, drawn around what was found.
         color_processing::ColorParams colorParams;
+        Mat fullFrameColours = color_processing::processColors(orginalFrame, cameraIdx, false, colorParams);
+
+        bull_processing::BullParams bullParams;
+        const bull_processing::BoardSighting board =
+            bull_processing::measureBoard(fullFrameColours, frameCenter, bullParams);
+
+        // The evidence a refusal below is argued from, taken here because these numbers
+        // exist from this point on whether or not the camera gets any further.
+        //
+        // ADR-0079 §2 is the second of them and it is asked of EVERYTHING the colour stage
+        // kept, not of the board region alone. The board region is the largest outermost
+        // one, and when a board is cut by the frame the doubles ring breaks and the largest
+        // survivor is the INNER part of the board, which touches no edge: mocks/cam_1.mp4
+        // shifted 430 px right -- a third of the board off the picture -- measures as a
+        // tidy board of radius 176 px sitting 56 px clear of the nearest edge and
+        // calibrates, where the union of the kept colour is hard against x=1279. The union
+        // is what "the whole board is visible" means, and it is a gap in pixels rather than
+        // a share of anything, so there is no number for a rig to sit just outside of.
+        //
+        // Both rigs, measured on the full frame: mocks/cam_*.mp4 clear the frame edge by
+        // 121, 148 and 119 px and mocks/rig-20260918 by 75, 39 and 55 px. The same mock
+        // shifted right in 50 px steps reads 122 px at +150, 62 px at +230 and 0 px from
+        // +300, which is where its board really does start leaving the picture.
+        {
+            Mat fullColourGray;
+            cvtColor(fullFrameColours, fullColourGray, COLOR_BGR2GRAY);
+            calibration.look.frame_pixels = static_cast<int>(fullFrameColours.total());
+            calibration.look.red_green_pixels = countNonZero(fullColourGray);
+
+            const Rect kept = boundingRect(fullColourGray);
+            calibration.look.board_edge_gap = min(min(kept.x, kept.y),
+                                                  min(fullColourGray.cols - (kept.x + kept.width),
+                                                      fullColourGray.rows - (kept.y + kept.height)));
+            // Only where there is a board at all: an empty mask has an empty bounding box,
+            // whose gap is zero, and a camera looking at a grey wall is not a camera whose
+            // board is cut off -- it has no board, which the branch below says instead.
+            calibration.look.board_clipped = board.found && calibration.look.board_edge_gap <= 0;
+        }
+
+        // What the full frame says, which is the only picture in this pipeline that has not
+        // been cut down by anything. The edge gap is ADR-0079 §2's whole question and it
+        // is printed whether or not it refuses, so a rig that is close to the edge can be
+        // seen to be close to the edge before it falls off it.
+        if (board.found)
+        {
+            log_debug("Camera " + log_string(cameraIdx + 1) + " board found on the FULL frame: radius " +
+                      log_string((int)board.radius) + " px across its widest, centre (" +
+                      log_string(board.center.x) + "," + log_string(board.center.y) +
+                      "); its boundary encloses " + log_string((int)board.area) +
+                      " px; the colour this camera kept comes within " +
+                      log_string(calibration.look.board_edge_gap) + " px of the nearest frame edge");
+        }
+
+        if (!board.found)
+        {
+            // There is no board here to draw a region around, and going on would fail in
+            // the same words two stages down with a region built around nothing. #1321's
+            // shape: one ERROR, the camera, the stage, the number against the threshold.
+            const board_look::Refused looked = board_look::verdict(calibration.look);
+            const string look = (looked == board_look::Refused::None || looked == board_look::Refused::RingNotTraced)
+                                    ? string("")
+                                    : " This camera " + board_look::refusal(calibration.look) + ".";
+            log_error("Camera " + log_string(cameraIdx + 1) +
+                      " did not calibrate: there is no board in this frame to build a region around -- " +
+                      board.failure + "." + log_string_src(look));
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+                                     " did not calibrate: there is no board in this frame -- " + board.failure);
+            return calibration;
+        }
+
+        // [===STEP 1.5:===] IS THE WHOLE BOARD IN SHOT? ADR-0079 §2, and the only thing
+        // this pipeline now asks about framing. Not a percentage: if the full outermost
+        // red/green region is inside the frame, calibration proceeds; if it is cut off by
+        // the frame's OWN edge, that camera does not see a whole board and #1318's
+        // refusal already knows what to do with it. A percentage was the alternative and
+        // ADR-0079 refuses it for the same reason it refuses widening the old constants
+        // -- any number we picked is one a rig can sit just outside of for no reason a
+        // human can see.
+        //
+        // Nothing here tells anybody to move a camera, because nobody can: the cameras
+        // are fixed to the frame and are not aimed at install (ADR-0079 §3). The one
+        // adjustable degree of freedom is where the board sits in its circle while it is
+        // being mounted, and it closes when the mounting does.
+        //
+        // Only the two questions the evidence so far can answer are asked here, and they
+        // are named rather than taken from `verdict() != None`: at this point no ring has
+        // been traced, because nothing has tried, so the whole verdict would read
+        // `RingNotTraced` and refuse every camera in the building -- measured, on both
+        // rigs, while writing this.
+        const board_look::Refused framing = board_look::verdict(calibration.look);
+        if (framing == board_look::Refused::TooMuchRedGreen || framing == board_look::Refused::BoardClipped)
+        {
+            const string why = board_look::refusal(calibration.look);
+            log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +
+                      log_string_src(why) + ".");
+            board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " did not calibrate: it " + why);
+            return calibration;
+        }
+
+        // [===STEP 2:===] The region, drawn around the board that was found.
+        roi_processing::ROIParams roiParams;
+        Mat roiFrame = roi_processing::processROI(orginalFrame, board.center, board.radius, debugMode, cameraIdx, roiParams);
+
+        // [===STEP 2.5:===] Detect red-green colors using the CLEAN color detection module
+        //
+        // Run again, inside the region, rather than the full-frame result above being
+        // masked: this stage's component filtering is what drops the text, the edge blobs
+        // and the room, and it decides those against the largest region it can see. On a
+        // full frame that largest region competes with whatever else in the room is red.
+        // The second pass costs one bilateral filter per camera, once, at calibration.
         Mat redGreenFrame = color_processing::processColors(roiFrame, cameraIdx, debugMode, colorParams);
 
         // [===STEP 3:===] contour DETECTION using the new contour processing module
@@ -61,7 +185,6 @@ namespace geometry_calibration
         // vector<vector<Point>> contours = contour_processing::processContours(redGreenFrame, orginalFrame, cameraIdx, debugMode, contourParams);
 
         // [===STEP 4:===] BULL dectection using the new bull processing module
-        bull_processing::BullParams bullParams;
         bull_processing::BullSighting bull = bull_processing::processBull(redGreenFrame, frameCenter, cameraIdx, debugMode, bullParams);
         const Point bullCenter = bull.center;
         calibration.bullCenter = bullCenter;
