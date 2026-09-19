@@ -210,6 +210,52 @@ a release binary calibrates on a different frame of the same clip.
 A tester runs from whatever checkout it is in -- no path in `testers/` names a worktree --
 and its run output goes to `runs-<checkout>/` beside the tree.
 
+### Before you merge
+
+Four labels sat red on `main` through 2026-09-19, and three were the same mistake: a slice
+changed behaviour and did not move the tester that pins it. Nothing caught it, because a
+merge can be made without running anything, and three agents each rediscovered the same red
+label separately (#1374).
+
+**This is a discipline rather than a job, and the measurement is why.** Collected from the
+148 tester runs left on this box across the 28 `run_all.sh` labels any of them measured:
+the suite costs **50 minutes at its fastest and 72 at its slowest**, which is where #1335's
+"45 to 70 minutes" comes from. That range is not estimation error. It is load, and one
+tester moves with it by a factor of five:
+
+| label | runs | fastest | slowest | spread |
+| --- | --- | --- | --- | --- |
+| `1323-offaim` | 11 | 66 s | 356 s | **5.4x** |
+| `1338-partial` | 10 | 57 s | 176 s | 3.1x |
+| `1345-figures` | 10 | 110 s | 230 s | 2.1x |
+| `1321-reason` | 14 | 42 s | 85 s | 2.0x |
+| `1339-denominator` | 15 | 350 s | 676 s | 1.9x |
+
+A crowded box does not merely take longer; it measures something else. `1317-partial` passed
+one run in four because a run that fell behind completed a *second* calibration round, and
+the tester counted that round's PnP fit against the first round's census. That is #1335's
+"what it measures depends on which frame a 25-second run lands on", in one concrete instance
+-- a tester bug, repaired in #1374, but the general fact stands: these testers report on the
+box as much as on the tree.
+
+So a hosted runner is the wrong shape. It is a box whose neighbours you cannot see, sold by
+the minute, for a suite that takes an hour and answers differently when it is crowded. What
+to do instead:
+
+1. **Run `testers/run_all.sh` on the merged result**, on a box with nothing else on it --
+   not on the branch, and not while another agent's tester container is up. Once per merge
+   *batch*; once per merge is not affordable. Six slices merged on 2026-09-18 and nothing
+   ran the whole of `testers/` on the result, which is how this started.
+2. **Record the label table** in the merge commit or the pull request. A run nobody wrote
+   down is a run the next person repeats.
+3. **A red label your merge did not cause is filed, not stepped over** -- with the label and
+   the failing assertion's own words. Today's four went unfiled for a day, and each one cost
+   somebody a rediscovery.
+4. **If your slice moves a constant, a threshold or a printed sentence, name the tester that
+   pins it in your own commit message.** #1353 did exactly that -- *"testers/i1338_event_check.cpp
+   moves with its constant"* -- and its label was the one that could be repaired without a
+   bisect. The three that went red are the three that did not.
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.
