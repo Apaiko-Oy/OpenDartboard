@@ -102,6 +102,15 @@ namespace geometry_calibration
             calibration.look.frame_pixels = static_cast<int>(fullFrameColours.total());
             calibration.look.red_green_pixels = countNonZero(fullColourGray);
 
+            // #1392: what those pixels are a share OF, set once, here, because this is
+            // where the only thing in the pipeline that measures a board has just run and
+            // because every later site -- the bull branch, STEP 6.5 -- replaces the
+            // numerator with a mask taken at the same pixel scale. A board that was not
+            // found leaves it at zero: a camera with no board in its picture is refused
+            // by the stage that could not find one, in that stage's own words, and has no
+            // circle to be a share of.
+            calibration.look.board_span_px = board.found ? board.radius : 0.0;
+
             const Rect kept = boundingRect(fullColourGray);
             calibration.look.board_edge_gap = min(min(kept.x, kept.y),
                                                   min(fullColourGray.cols - (kept.x + kept.width),
@@ -125,6 +134,14 @@ namespace geometry_calibration
                       " px; the colour this camera kept comes within " +
                       log_string(calibration.look.board_edge_gap) + " px of the nearest frame edge");
         }
+
+        // #1392: the two shares, side by side, on the FULL frame -- before a region is
+        // drawn, before a bull is looked for and whichever branch this camera takes
+        // below. STEP 6.5 prints the same line again about the mask it decides on. A
+        // camera that moves closer moves the first number and must not move the second,
+        // and that claim is unreadable from a log that prints only the deciding one.
+        log_debug("Camera " + log_string(cameraIdx + 1) + " sight on the full frame: " +
+                  log_string_src(board_look::measured(calibration.look)));
 
         if (!board.found)
         {
@@ -327,6 +344,21 @@ namespace geometry_calibration
         // orientation to whatever they are handed; run on a picture of a room they
         // produce numbers, not errors, and the numbers become a calibration the board
         // scores with. board_look.hpp holds the measurement and the argument.
+        //
+        // #1392: the NUMERATOR is replaced here and the denominator is not. `frame_pixels`
+        // is the region's frame, which is the full frame -- processROI blacks out what is
+        // outside the region rather than cropping it, so a Mat's total() is the whole
+        // picture whether or not anything is masked, and that was the old denominator.
+        // `board_span_px` was set at STEP 1 from the board this camera really measured,
+        // at this same pixel scale, and it is what the mask below is a share of.
+        //
+        // And the mask is not an annulus, which is why the line in Limits is measured
+        // rather than derived from millimetres. `doublesMask` is preprocessMask's output:
+        // the carved red/green mask closed, opened, dilated and reduced to its LARGEST
+        // CONNECTED COMPONENT. On mocks/cam_*.mp4 that component is the doubles ring; on
+        // mocks/rig-20260918 the doubles ring has dropped out of the colour mask
+        // altogether and it is the TREBLE ring (#1378). Both are rings and both are a
+        // small share of the circle they sit in, which is the property this gate is on.
         calibration.look.frame_pixels = masks.doublesMask.empty()
                                             ? 0
                                             : (int)masks.doublesMask.total();
