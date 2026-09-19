@@ -71,7 +71,6 @@ echo "$WORST" > $RUN/worst_disturbance_seconds
 echo "=============== the footage the two arms are built from ==============="
 g++ -std=c++17 -O1 -o $RUN/moved /app/testers/i899_moved_footage.cpp $CVFLAGS || exit 1
 for i in 1 2 3; do
-  /app/build/opendartboard --version > /dev/null 2>&1
   $RUN/moved /app/mocks/cam_$i.mp4 $RUN/held_$i.avi   0  0 0 400 0   || exit 1
   $RUN/moved /app/mocks/cam_$i.mp4 $RUN/later_$i.avi  0  0 0 400 400 || exit 1
   $RUN/moved /app/mocks/cam_$i.mp4 $RUN/nudged_$i.avi 20 15 0 400 400 || exit 1
