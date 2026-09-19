@@ -92,6 +92,7 @@ tester 1394-windows       "bash '$T/i1394_run.sh'"
 # `slow` -- it sits well inside the default 1200 and the number is here rather than in
 # nobody's head, which is how 1317-asan's 1200 got to be wrong.
 tester 1437-fixture       "bash '$T/i1437_run.sh'"
+tester 1441-region        "bash '$T/i1441_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"
