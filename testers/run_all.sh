@@ -45,6 +45,19 @@ LABELS=(); CMDS=()
 tester() { LABELS+=("$1"); shift; CMDS+=("$*"); }
 
 tester address            "bash '$T/check_default_address.sh'"
+
+# The census first, because it is about this list itself and costs no container: a tester
+# this file does not name is outside the gate, which is #1335's own shape one level down
+# (#1371). Then the pure checks -- a compile and a few milliseconds each, so they are the
+# cheapest place for a reader to learn the build is broken.
+tester census             "bash '$T/census.sh'"
+tester 1346-vote          "bash '$T/unit_check.sh' 1346"
+tester 1347-sector        "bash '$T/unit_check.sh' 1347"
+tester 1349-background    "bash '$T/unit_check.sh' 1349"
+tester 1350-vote-line     "bash '$T/unit_check.sh' 1350"
+tester 1351-ledger        "bash '$T/unit_check.sh' 1351"
+tester 1363-anchor        "bash '$T/unit_check.sh' 1363"
+
 tester 1258-choice        "bash '$T/i1258_check.sh'"
 tester 1319-findings      "bash '$T/i1319_run.sh'"
 tester 1320-speck         "bash '$T/i1320_run.sh'"

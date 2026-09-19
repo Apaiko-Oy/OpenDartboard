@@ -1,6 +1,10 @@
 # #1259: start the detector the way a double-click does -- no command line, a console of its
 # own -- from a folder that is NOT the .exe's, and type into that real console from a script.
 #
+# unrun-tester: needs a real Windows console and a Windows build, for i1258_console.ps1's
+# reason and one more -- the thing under test is what a double-click does, which is a
+# Windows shell behaviour. Run by hand on Windows.
+#
 # #1258's i1258_console.ps1 shape (a hidden console of its own, attached by pid, keystrokes as
 # console input events, the screen saved as a person saw it), with two differences a prompted
 # pairing needs:
