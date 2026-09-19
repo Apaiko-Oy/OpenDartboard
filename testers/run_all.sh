@@ -10,7 +10,8 @@
 #   testers/run_all.sh                    build, then every tester
 #   testers/run_all.sh 1320 1317          only the testers whose label contains one of these
 #   OD_SKIP_BUILD=1 testers/run_all.sh    measure the binary already in build/
-#   OD_TESTER_TIMEOUT=1800 …              seconds one tester may take (default 1200)
+#   OD_TESTER_TIMEOUT=1800 …              seconds one tester may take (default 1200), and
+#                                         it governs every tester, `slow` ones included
 #
 # It builds first, and that is not convenience. Every detector tester measures
 # build/opendartboard, and the numbers several of them assert belong to the DEV build:
@@ -41,8 +42,17 @@ fi
 # ---- the testers, in the order a reader would want to see them fail --------------------
 # label                       what runs it. Labels are matched as substrings by the
 # arguments, so 'run_all.sh 1317' runs both of #1317's.
-LABELS=(); CMDS=()
-tester() { LABELS+=("$1"); shift; CMDS+=("$*"); }
+LABELS=(); CMDS=(); LIMITS=()
+tester() { LABELS+=("$1"); LIMITS+=("$TIMEOUT"); shift; CMDS+=("$*"); }
+
+# A tester whose honest cost is more than the default, with the measured number beside it
+# (#1341). Before this, 1317-asan -- the memory-safety check, and the most expensive thing
+# in this file -- was given the same 1200 s as a tester that runs the detector for forty
+# seconds, and on a loaded box it reported `no answer in 1200s`, which is not a finding and
+# reads exactly like one. Write the measurement into the comment beside the call: a number
+# nobody measured is how the 1200 itself got here. OD_TESTER_TIMEOUT still wins where it is
+# set, so a run that wants everything to fail fast still can.
+slow() { [ -n "${OD_TESTER_TIMEOUT:-}" ] || LIMITS[$(( ${#LABELS[@]} - 1 ))]="$1"; }
 
 tester address            "bash '$T/check_default_address.sh'"
 
@@ -127,7 +137,7 @@ if [ "${OD_SKIP_BUILD:-0}" = "1" ]; then
   echo "build:   skipped (OD_SKIP_BUILD=1); measuring whatever is in build/"
 else
   echo "build:   $OD_TREE_ROOT/build/opendartboard, with the dev defines"
-  if ! docker run --rm --name "$(od_name build)" --cpus=4 -e HOME=/root \
+  if ! od_run build --cpus=4 -e HOME=/root \
       -v "$OD_TREE_ROOT":/app -w /app "$OD_IMAGE" bash -c '
         cmake -S /app -B /app/build -DCMAKE_PREFIX_PATH=/usr/local \
           -DCMAKE_CXX_FLAGS="-DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT" \
@@ -140,6 +150,13 @@ else
 fi
 echo
 
+# #1341: run_all is the last thing still alive when a tester is killed outright, so it
+# sweeps this tree's containers on the way out, whichever way it goes out. Installed here
+# rather than at the top because the build above runs under od_run's own traps.
+trap 'od_sweep; trap - TERM; trap - EXIT; kill -TERM $$' TERM
+trap 'od_sweep; trap - INT;  trap - EXIT; kill -INT  $$' INT
+trap 'od_sweep' EXIT
+
 FAILED=()
 PASSED=0
 SUITE0=$(date +%s)
@@ -148,16 +165,21 @@ for i in "${PICK[@]}"; do
   log="$LOGS/$label.log"
   printf '%-22s ' "$label"
   t0=$(date +%s)
-  timeout "$TIMEOUT" bash -c "${CMDS[$i]}" > "$log" 2>&1
+  timeout "${LIMITS[$i]}" bash -c "${CMDS[$i]}" > "$log" 2>&1
   rc=$?
   t1=$(date +%s)
   took=$((t1 - t0))
+  # #1341: a harness reaps its own container however it dies short of SIGKILL, and this is
+  # what catches the SIGKILL. It is also the only place a leak is REPORTED rather than
+  # merely prevented, which matters: a container quietly reaped is a fault nobody learns
+  # about, and this one was met twice by hand before anybody wrote it down.
+  leaked="$(od_sweep)"
   if [ "$rc" = 0 ]; then
     printf 'PASS  %4ds\n' "$took"
     PASSED=$((PASSED + 1))
   else
     if [ "$rc" = 124 ]; then
-      printf 'FAIL  %4ds  (no answer in %ss)  %s\n' "$took" "$TIMEOUT" "$log"
+      printf 'FAIL  %4ds  (no answer in %ss)  %s\n' "$took" "${LIMITS[$i]}" "$log"
     else
       printf 'FAIL  %4ds  (rc=%s)  %s\n' "$took" "$rc" "$log"
     fi
@@ -165,6 +187,10 @@ for i in "${PICK[@]}"; do
     # without opening a file.
     grep -E '^FAIL |^\[ERROR\]' "$log" | head -4 | sed 's/^/                       | /'
     FAILED+=("$label")
+  fi
+  if [ -n "$leaked" ]; then
+    printf '%s\n' "$leaked" >> "$log"
+    printf '%s\n' "$leaked" | sed 's/^/                       | /'
   fi
 done
 SUITE1=$(date +%s)

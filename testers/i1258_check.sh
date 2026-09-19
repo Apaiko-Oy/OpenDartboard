@@ -7,7 +7,7 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 TREE="${1:-$OD_TREE_ROOT}"
-docker run --rm --name "$(od_name "i1258-check")" --network none -v "$TREE":/app -w /app "$OD_IMAGE" bash -c '
+od_run "i1258-check" --network none -v "$TREE":/app -w /app "$OD_IMAGE" bash -c '
   g++ -std=c++17 -Wall -Wextra -I src/utils -I build/_deps/nlohmann_json-src/include \
       testers/i1258_choice_check.cpp -o /tmp/i1258_check || { echo COMPILE_FAILED; exit 2; }
   /tmp/i1258_check < /dev/null

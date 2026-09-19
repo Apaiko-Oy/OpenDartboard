@@ -43,7 +43,7 @@ if [ ! -d "$OD_TREE_ROOT/build/_deps" ]; then
   exit 2
 fi
 
-docker run --rm --name "$(od_name "unit-$NAME")" --network none \
+od_run "unit-$NAME" --network none \
   -v "$OD_TREE_ROOT":/app -w /app "$OD_IMAGE" bash -c '
   set -u
   g++ -std=c++17 -O1 -Wall -Wextra \

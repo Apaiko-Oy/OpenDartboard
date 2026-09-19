@@ -11,7 +11,7 @@ TREE="${1:-$OD_TREE_ROOT}"
 shift || true
 OUT="$OD_RUNS_BASE/1276"
 mkdir -p "$OUT"
-docker run --rm --name "$(od_name "i1276-check")" --cpus=2 --network none -v "$TREE":/app -w /app \
+od_run "i1276-check" --cpus=2 --network none -v "$TREE":/app -w /app \
   -e CHECK_WORK=/tmp/i1276-check -e OD_BIN="${OD_BIN:-/app/build/opendartboard}" "$OD_IMAGE" \
   bash -c 'python3 /app/testers/i1276_takeout_check.py "$@"; rc=$?; mkdir -p /app/build/i1276-check; cp -r /tmp/i1276-check/. /app/build/i1276-check/ 2>/dev/null; exit $rc' _ "$@"
 RC=$?

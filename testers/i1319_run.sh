@@ -38,13 +38,13 @@ IMAGE=${IMAGE:-$OD_IMAGE}
 
 mkdir -p "$BASE"
 if [ -d "$BASE/run" ]; then
-  docker run --rm --name "$(od_name "i1319-clean")" --network none -v "$BASE":/base "$IMAGE" \
+  od_run "i1319-clean" --network none -v "$BASE":/base "$IMAGE" \
     rm -rf /base/run > /dev/null 2>&1
 fi
 rm -rf "$BASE/run" 2>/dev/null
 mkdir -p "$BASE/run/cfg"
 
-docker run --rm --name "$(od_name "i1319-run")" --cpus=2 --network none -e HOME=/root \
+od_run "i1319-run" --cpus=2 --network none -e HOME=/root \
   -v "$APP":/app -v "$BASE/run":/run1319 -v "$BASE/run/cfg":/root/.config \
   -w /run1319 "$IMAGE" bash /app/testers/i1319_inside.sh
 RC=$?

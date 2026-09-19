@@ -23,7 +23,7 @@ BASE="$OD_RUNS_BASE/1330"
 RUN="$BASE/ownership"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name "$(od_name 1330-clean)" --network none -v "$BASE":/base "$OD_IMAGE" \
+  od_run 1330-clean --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf /base/ownership > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -42,7 +42,7 @@ git -C "$HERE" archive "$BASE_COMMIT" | tar -x -C "$RUN/pre-1330"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "$(od_name 1330-ownership)" --cpus=2 --network none -e HOME=/root \
+od_run 1330-ownership --cpus=2 --network none -e HOME=/root \
   -v "$HERE":/app \
   -v "$RUN":/run1330 -v "$RUN/cfg":/root/.config \
   -w /run1330 "$OD_IMAGE" bash /run1330/inside.sh

@@ -14,7 +14,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 TREE="${1:-$OD_TREE_ROOT}"
 MODE="${2:-}"
-docker run --rm --name "$(od_name "i1305-check")" --network none -v "$TREE":/app -w /app -e MODE="$MODE" "$OD_IMAGE" bash -c '
+od_run "i1305-check" --network none -v "$TREE":/app -w /app -e MODE="$MODE" "$OD_IMAGE" bash -c '
   python3 testers/i1305_fixtures.py || { echo FIXTURES_FAILED; exit 2; }
   SRC=/app/src
   if [ "$MODE" = "--mutate" ]; then
