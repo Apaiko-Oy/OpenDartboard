@@ -45,6 +45,19 @@ LABELS=(); CMDS=()
 tester() { LABELS+=("$1"); shift; CMDS+=("$*"); }
 
 tester address            "bash '$T/check_default_address.sh'"
+
+# The census first, because it is about this list itself and costs no container: a tester
+# this file does not name is outside the gate, which is #1335's own shape one level down
+# (#1371). Then the pure checks -- a compile and a few milliseconds each, so they are the
+# cheapest place for a reader to learn the build is broken.
+tester census             "bash '$T/census.sh'"
+tester 1346-vote          "bash '$T/unit_check.sh' 1346"
+tester 1347-sector        "bash '$T/unit_check.sh' 1347"
+tester 1349-background    "bash '$T/unit_check.sh' 1349"
+tester 1350-vote-line     "bash '$T/unit_check.sh' 1350"
+tester 1351-ledger        "bash '$T/unit_check.sh' 1351"
+tester 1363-anchor        "bash '$T/unit_check.sh' 1363"
+
 tester 1258-choice        "bash '$T/i1258_check.sh'"
 tester 1319-findings      "bash '$T/i1319_run.sh'"
 tester 1320-speck         "bash '$T/i1320_run.sh'"
@@ -65,6 +78,7 @@ tester 1348-quorum        "bash '$T/i1348_run.sh'"
 tester 1372-cached        "bash '$T/i1372_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
+tester 1330-ownership     "bash '$T/i1330_run.sh'"
 tester 899-recover        "bash '$T/i899_run.sh'"
 tester 1274-announce      "bash '$T/i1274_run.sh' announce '$T/phases1274/1274-announce.sh'"
 tester 1249-control       "bash '$T/i1249_run.sh' '$T/i1249_control.sh'"
