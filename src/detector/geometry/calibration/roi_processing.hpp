@@ -95,8 +95,16 @@ namespace roi_processing
          * `OD_ROI=frame` still restores the ellipse ADR-0079 §1 retired.
          *
          * Both rigs, measured on the full frame, with the board radius this multiplies:
-         * mocks 291/314/308 px -> 611/659/647 px of region radius; rig-20260918
-         * 194/195/197 px -> 407/410/414 px. The frame keeps whatever of that runs off it.
+         * mocks 291/314/308 px -> 614/663/651 px of region radius; rig-20260918
+         * 194/195/197 px -> 410/412/416 px. The frame keeps whatever of that runs off it,
+         * and on the mocks -- whose boards fill their frames -- most of it does.
+         *
+         * And the board the MOTION stage measures against, which is the OTHER quantity
+         * this pipeline calls "the board" and the one #1378's figures are in: the doubles
+         * ring FITTED at STEP 6, 183859/173006/175444 px on the mocks and
+         * 197117/200385/194335 px on mocks/rig-20260918. `1331-framing` section 2.5 pins
+         * all six, because they have now moved twice under a tester that pinned their
+         * consequence rather than themselves.
          */
         float roiRadiusOfBoardRadius = 2.107f;
     };
