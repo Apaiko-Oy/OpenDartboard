@@ -150,7 +150,10 @@ mutate() { # $1 python file describing the edit
 cat > /run1323/m_frame.py <<'PY'
 p = '/run1323/mutant/src/detector/geometry/calibration/color_processing.cpp'
 s = open(p).read()
-old = '        if (boardIndex >= 0 && boardArea >= frameArea * params.minBoardAreaPercent)'
+# #1394 restructured this line: the floor is applied to the SPAN before the centroid is
+# taken, so the condition is now a named bool. The mutation is unchanged in meaning --
+# the board is never measured, so every window falls back to the frame.
+old = '        if (bigEnough)'
 new = '        if (false) // #1323 mutation: the board is never measured, so every window is back on the frame'
 assert old in s, 'the frame mutation has nothing to replace'
 open(p, 'w').write(s.replace(old, new))
