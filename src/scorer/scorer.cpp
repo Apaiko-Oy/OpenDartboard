@@ -85,20 +85,24 @@ namespace
     // doubles ring changed size by 39%. The disturbance this budget has to outlast is the
     // ellipse fit, not the bull -- `max_radius_change` is the term that fires during
     // ordinary play, and it is the one term in geometry_agreement.hpp with no measured
-    // positive behind it. That is filed separately; it is a tolerance question and this
-    // is a budget.
+    // positive behind it. Across both fixtures it is 44 of the 45 disagreements a rig
+    // nobody touched produced, at a stable ~39% on the shipped mocks and ~64% on the rig,
+    // which is a different RING being fitted rather than a board changing size. That is
+    // #1416; it is a tolerance question and this is a budget, and the budget survives it.
     //
     // THE BUDGET IS A SPAN, AND THE TWO NUMBERS ARE HOW IT IS SPENT. An attempt is not
     // free: it reopens the cameras, reads thirty frames and re-calibrates every camera
     // that was scoring, so the measurements are further apart than the wait alone. That
     // was measured on a running board rather than reasoned about -- the same harness,
     // phase 3, reads the seconds-blind figure each attempt prints, and the four
-    // measurements of a spent budget landed at 11, 15, 19 and 23 seconds blind:
+    // measurements of a spent budget landed at 11, 15, 19, 23 on one run and at 12, 16,
+    // 20, 23 on the next:
     //
-    //     4 measurements, 4 s apart (2 s of wait and 2 s of measuring three cameras)
-    //     = a 12 s span from the first disagreement to the last
+    //     4 measurements, about 4 s apart (2 s of wait, 2 s of measuring three cameras)
+    //     = an 11 to 12 s span from the first disagreement to the last
     //
-    // Twice the longest disturbance measured on either rig, and the margin is deliberate,
+    // Nearly twice the longest disturbance measured on either rig, and the margin is
+    // deliberate,
     // because 6.00 s is the longest disturbance seen in two minutes of footage rather
     // than the longest one there is. The harness asserts the span against the
     // disturbance, in seconds, on every run -- so a slower box, a fourth camera or a
