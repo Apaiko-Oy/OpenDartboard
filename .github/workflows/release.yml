@@ -191,12 +191,43 @@ jobs:
           $expected = "OpenDartboard runtime version: ${{ steps.vars.outputs.VERSION }}"
           if ($printed -ne $expected) { throw "--version printed '$printed', expected '$expected'" }
 
+      # #1303: ADR-0077 §1 made a board's program two files, and this is the only place
+      # both of them exist together on a real Windows. The launcher starts the detector
+      # beside it, so --version proves the whole path: it found the file, it handed the
+      # argument on, the detector answered, and the launcher classified a clean ending and
+      # returned 0. --version is answered before main() opens anything, so there is
+      # nothing for a headless runner to fail on; and the runner's input is not a console,
+      # so the launcher asks nothing and nothing waits -- which is the third criterion's
+      # condition, met here by the runner rather than arranged.
+      - name: The launcher starts the detector beside it and says how it ended
+        shell: pwsh
+        run: |
+          $launcher = 'build-win-static\opendartboard-launcher.exe'
+          if (-not (Test-Path $launcher)) { throw "no $launcher -- the launcher target did not build" }
+          $printed = (& $launcher --version 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          Write-Host $printed
+          Write-Host "launcher exit code: $code"
+          if ($code -ne 0) { throw "the launcher exited $code where the detector ended cleanly" }
+          $wanted = @(
+            "OpenDartboard runtime version: ${{ steps.vars.outputs.VERSION }}",
+            "The program ended cleanly",
+            "Ohjelma"
+          )
+          foreach ($needle in $wanted) {
+            if (-not $printed.Contains($needle)) { throw "the launcher's output did not carry '$needle'" }
+          }
+
       - name: Ask the artefact what it depends on
         shell: cmd
         run: |
           call "%OD_VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           dumpbin /dependents build-win-static\opendartboard.exe > dependents.txt || exit /b 1
           type dependents.txt
+          REM #1303: the second executable is held to the same standard. It links
+          REM KERNEL32 and nothing else, so this is cheap to keep true.
+          dumpbin /dependents build-win-static\opendartboard-launcher.exe > dependents-launcher.txt || exit /b 1
+          type dependents-launcher.txt
 
       # The one-file property was established by hand once. This is CI keeping it.
       # Two questions, because either alone passes something it should not: every DLL
@@ -208,7 +239,7 @@ jobs:
       - name: The artefact is one file, and names only in-box Windows DLLs
         shell: pwsh
         run: |
-          $named = Select-String -Path dependents.txt -Pattern '^\s+(\S+\.dll)\s*$' |
+          $named = Select-String -Path dependents.txt, dependents-launcher.txt -Pattern '^\s+(\S+\.dll)\s*$' |
             ForEach-Object { $_.Matches[0].Groups[1].Value } |
             Sort-Object -Unique
           if (-not $named) { throw "dumpbin named no dependency at all -- this check did not look at anything" }
@@ -235,9 +266,17 @@ jobs:
           $stage = 'dist\windows'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item 'build-win-static\opendartboard.exe' $stage
+          # #1303: a board's program is two files (ADR-0077 §1), and the one a tester
+          # double-clicks is the launcher. A zip carrying only the detector would leave
+          # every failure closing its own window, which is the fault #1303 removed.
+          Copy-Item 'build-win-static\opendartboard-launcher.exe' $stage
           Copy-Item 'LICENSE' $stage
           $info = @(
             "OpenDartboard (Apaiko-Oy fork) - Windows x64, standalone",
+            "",
+            "Double-click opendartboard-launcher.exe. It starts opendartboard.exe beside",
+            "it, hands it whatever arguments it was given, and stays on screen afterwards",
+            "to say whether the board ended cleanly, faulted or was stopped.",
             "",
             "version:    $version",
             "ref:        $env:GITHUB_REF_NAME ($env:GITHUB_REF_TYPE)",
@@ -250,7 +289,7 @@ jobs:
             "The corresponding source is the repository named above at that commit.",
             "",
             "dumpbin /dependents said:"
-          ) + (Get-Content 'dependents.txt')
+          ) + (Get-Content 'dependents.txt') + (Get-Content 'dependents-launcher.txt')
           $info | Set-Content (Join-Path $stage 'BUILD-INFO.txt')
           $zip = "dist\opendartboard-$version-windows-x64.zip"
           Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
