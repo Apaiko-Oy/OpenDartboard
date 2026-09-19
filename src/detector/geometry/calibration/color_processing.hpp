@@ -111,11 +111,13 @@ namespace color_processing
         // not widen them, because a window widened until one case passes is exactly the
         // repair it exists to avoid.
         //
-        // #1394 moved their SIZE too, and these four are kept for `OD_COLOUR_WINDOWS=frame`
-        // alone -- the shape `roi_processing` keeps ADR-0079 SS1's four hand-fitted numbers
-        // in for `OD_ROI=frame`. At 1280 wide they are a fixed 320, 128, 384 and 96 px on
-        // every camera, every rig and every mounting: the same window on a board 150 px
-        // across and on one 400 px across.
+        // #1394 moved their SIZE too, and these THREE are now kept for
+        // `OD_COLOUR_WINDOWS=frame` alone -- the shape `roi_processing` keeps ADR-0079
+        // section 1's four hand-fitted numbers in for `OD_ROI=frame`. The fourth,
+        // `maxDistanceFromCenter` above, is still the live rule and says at length why.
+        // At 1280 wide the four are a fixed 320, 128, 384 and 96 px on every camera,
+        // every rig and every mounting: the same window on a board 150 px across and on
+        // one 400 px across.
         double centralityThreshold = 0.25;    // Distance threshold for central components (25% of image)
         double bullsEyeThreshold = 0.1;       // Distance threshold for bull's eye area (10% of image)
         double connectivityThreshold = 0.075; // Distance threshold for connected components

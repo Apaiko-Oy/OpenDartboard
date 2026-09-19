@@ -539,6 +539,37 @@ namespace color_processing
                       " px on every camera, every rig and every mounting");
         }
 
+        {
+            // #1323's own measurement, reproduced here rather than quoted, because #1394
+            // shrinks the bull's-eye window on the rig and what decides whether that is
+            // safe is how far the point these windows are drawn around sits from the bull.
+            //
+            // The free number is `centroids`, which connectedComponentsWithStats has
+            // already computed for every component: the middle of the coloured PIXELS. A
+            // board whose top rings are broken -- the normal case, it is why SECTION 6.5
+            // exists -- weighs low, so that centroid sinks. #1323 measured it at 148 px
+            // below the bull on one camera and 174 px from it on another and refused it
+            // for a window of 128 px. `boardCenter` is the centroid of the boundary
+            // POLYGON, which does not care which rings inside it are missing.
+            //
+            // Both are printed with the gap between them, so the next reader of these
+            // constants can see on their own footage what #1394 had to take on trust from
+            // a comment.
+            if (boardMeasured && largestIdx > 0)
+            {
+                const Point2f pixels(static_cast<float>(centroids.at<double>(largestIdx, 0)),
+                                     static_cast<float>(centroids.at<double>(largestIdx, 1)));
+                log_debug("Camera " + log_string(camera_idx + 1) +
+                          " board middle: the boundary polygon's centroid is (" +
+                          log_string((int)lround(boardCenter.x)) + "," + log_string((int)lround(boardCenter.y)) +
+                          ") and the free pixel centroid #1323 refused is (" + log_string((int)lround(pixels.x)) +
+                          "," + log_string((int)lround(pixels.y)) + "), " +
+                          log_string((int)lround(norm(pixels - boardCenter))) +
+                          " px away, against a bull's-eye window of " +
+                          log_string((int)lround(bullsEyeWindow)) + " px");
+            }
+        }
+
         // What each window really keeps and drops, counted rather than inferred (#1393's
         // rule: the honest answer to "did this window mask anything" is the thing it took,
         // not the state of the stages below it). For each window, a component is COUNTED

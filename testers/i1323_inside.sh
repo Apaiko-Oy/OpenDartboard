@@ -98,7 +98,12 @@ else say "FAIL off-aimed: the camera did not calibrate" no; fi
 
 echo
 echo "=== 3. the board is measured here, and it is said out loud ==="
-if grep -qE 'Camera 1 board measured from the coloured mask: the largest coloured region encloses [0-9]+ px, [0-9.]+% of the frame, and a board encloses at least 4.00%. Its middle is \(798,424\)' /run1323/plain.txt; then
+# #1394 replaced this stage's floor: it used to refuse a board on the area its boundary
+# encloses -- the quantity #1340 proved collapses when a ring breaks -- and now refuses it
+# on the SPAN, which is BullParams::minBoardRadius() read directly. So the first half of
+# this sentence moved and the half #1323 is about did not: the middle this camera measured
+# is still the board's, still at (798,424), and still not the frame's.
+if grep -qE 'Camera 1 board measured from the coloured mask: the largest coloured region spans [0-9]+ px across its widest, and a board this stage can size a window against spans at least [0-9]+ px \(it encloses [0-9]+ px, [0-9.]+% of the frame\)\. Its middle is \(798,424\)' /run1323/plain.txt; then
   say "OK   the rule names the middle it measured, and it is the board's, not the frame's" ok
 else
   grep -hE 'board measured|no board to measure' /run1323/plain.txt | head -1 | cut -c1-220
