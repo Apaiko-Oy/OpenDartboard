@@ -20,7 +20,7 @@
 // One line per frame, on stdout, prefixed so it can be grepped out of the calibration's
 // own logging:
 //
-//   I1437 clip=<name> frame=<n> doubles=<0|1> wires=<n> kept=<n> wires_ok=<0|1> sees=<0|1>
+//   I1437 clip=<name> frame=<n> doubles=<0|1> wires=<n> kept=<n> wires_ok=<0|1> sees=<0|1> board=<px>
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
@@ -95,6 +95,14 @@ int main(int argc, char **argv)
                   << " kept=" << (int)calib.wires.wireEndpoints.size()
                   << " wires_ok=" << (calib.wires.isValid ? 1 : 0)
                   << " sees=" << (calib.sees_board ? 1 : 0)
+                  // #1378 moved the region the wire stage reads inside, and it moved it
+                  // to stop the fitted board collapsing. So the fitted board is printed
+                  // beside the wire count: the two move in opposite directions under
+                  // OD_ROI_MARGIN, and a reader who sees only the wires would read the
+                  // old margin as a repair.
+                  << " board=" << (int)(calib.ellipses.hasValidDoubles
+                                            ? calib.ellipses.outerDoubleEllipse.size.area()
+                                            : 0)
                   << std::endl;
     }
 
