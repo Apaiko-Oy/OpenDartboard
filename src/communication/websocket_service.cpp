@@ -278,8 +278,6 @@ vector<uint8_t> create_control_frame(uint8_t opcode, const vector<uint8_t> &payl
 // truncate the handle on a 64-bit build and then use the truncated value. On Linux this
 // is `int`, `-1` and `>= 0`, which is exactly what the code below said before, so the
 // Linux half of every line that touches it is unmoved.
-static string describeSeconds(chrono::steady_clock::duration d);
-
 #ifdef _WIN32
 using subscriber_socket_t = SOCKET;
 static const subscriber_socket_t kNoSubscriberSocket = INVALID_SOCKET;
@@ -384,11 +382,13 @@ static subscriber_socket_t findSocketOf(const string &remote_addr, int remote_po
     }
     // What the sweep cost, said in the log rather than argued in a comment: a reader on a
     // board that has grown a large handle table can see the number rather than guess it.
+    const long long swept_us = chrono::duration_cast<chrono::microseconds>(
+                                   chrono::steady_clock::now() - started)
+                                   .count();
     log_debug("score socket: handle sweep for " + remote_addr + ":" + to_string(remote_port) +
               " looked at " + to_string((unsigned long)slots) + " slot(s), found " +
               to_string((unsigned long)sockets_seen) + " connected socket(s) in " +
-              describeSeconds(chrono::steady_clock::now() - started) +
-              (haveSocket(found) ? "" : " and no match"));
+              to_string(swept_us) + " us" + (haveSocket(found) ? "" : " and no match"));
     return found;
 #else
     DIR *dir = opendir("/proc/self/fd");
