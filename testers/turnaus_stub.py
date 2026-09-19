@@ -250,7 +250,8 @@ class Handler(BaseHTTPRequestHandler):
                 state["casual_counted"].append(reference)
                 state["casual_checked_at"] = time.time()
                 record({"event": "casual_counted", "reference": reference, "sector": sector,
-                        "auth_sha256_16": auth_digest, "round": list(state["casual_round"])})
+                        "body": body, "auth_sha256_16": auth_digest,
+                        "round": list(state["casual_round"])})
                 if GIVE_UP_AFTER and state["casual_detections_seen"] >= GIVE_UP_AFTER:
                     # The person at the screen gave the evening up. #887 releases every
                     # board still on it: the token is deleted and the round in hand goes
@@ -351,8 +352,12 @@ class Handler(BaseHTTPRequestHandler):
             # arrival of anything from this board is a check on it.
             state["heard_at"] = time.time()
             state["checked_at"] = time.time()
+            # #1366: the BODY as it arrived, so a transcript can be asked what a push
+            # really carried and not only what this stub chose to name. A position is a
+            # pair of optional keys, and both their presence and their absence are the
+            # assertion -- neither is readable from a field this stub picked out.
             record({"event": "counted", "reference": reference, "sector": sector,
-                    "auth_sha256_16": auth_digest, "round": list(state["round"])})
+                    "body": body, "auth_sha256_16": auth_digest, "round": list(state["round"])})
             if state["detections_seen"] <= FAIL_FIRST:
                 # The dart is counted and then the answer is thrown away, which is the
                 # exact failure ABSORBED exists for: the pub never learns it got through.
