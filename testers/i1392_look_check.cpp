@@ -81,6 +81,7 @@ static board_look::Evidence mountedCloser(const board_look::Evidence &e, double 
 int main()
 {
     const board_look::Limits limits;
+    const bool old_stage = board_look::measuredAgainstTheFrame();
 
     // ---- 1. every board camera this repository measured is admitted -----------------
     //
@@ -118,12 +119,21 @@ int main()
         std::printf("     %.2fx closer: ring is %5.1f%% of its board circle and %5.1f%% of its frame\n",
                     k, board_look::ringFraction(near) * 100.0,
                     (double)near.ring_pixels * 100.0 / (double)near.frame_pixels);
+        // Within a hundredth of a percentage point. Not exactly equal, because the
+        // counts are integers: scaling 43944 px by 1.25^2 lands on 68663 rather than on
+        // 68662.5, and the span by 1.25 on 386.25, so the ratio moves in the last
+        // decimal. A tolerance that admitted a real change would be useless -- the old
+        // measure moves this number by 56% at the same step, which is the line below.
         const double moved = std::fabs(board_look::ringFraction(near) - board_look::ringFraction(far));
-        say(moved < 1e-9, "at " + std::to_string(k).substr(0, 4) +
-                              "x the ring share of its own board circle has not moved at all");
-        say(board_look::seesBoard(near, limits),
-            "at " + std::to_string(k).substr(0, 4) + "x it is still admitted (" +
-                name(board_look::verdict(near, limits)) + ")");
+        say(moved < 0.0001, "at " + std::to_string(k).substr(0, 4) +
+                                "x the ring share of its own board circle has not moved (" +
+                                std::to_string(moved * 100.0).substr(0, 6) + " points)");
+        if (!board_look::measuredAgainstTheFrame())
+        {
+            say(board_look::seesBoard(near, limits),
+                "at " + std::to_string(k).substr(0, 4) + "x it is still admitted (" +
+                    name(board_look::verdict(near, limits)) + ")");
+        }
     }
 
     // ---- 3. the falsifier is held to the old stage's own arithmetic -------------------
@@ -132,7 +142,6 @@ int main()
     // this program twice. Under the old measure the SAME camera loses its whole slot
     // somewhere under 2x, which is the defect in one line.
     std::printf("\n=== 3. what the pre-#1392 measure says about the same six evidences ======\n");
-    const bool old_stage = board_look::measuredAgainstTheFrame();
     std::printf("     OD_LOOK=frame is %s\n", old_stage ? "SET" : "not set");
     int refusedByDistance = 0;
     for (double k : {1.0, 1.5, 2.0, 3.0})
@@ -154,11 +163,16 @@ int main()
             "... and the very same camera, where it is, is admitted -- so the switch is a before/after "
             "and not a refusal machine");
         // The old numbers, to the decimal, on the evidence the old code really had.
+        //
+        // 237036 of 921600 is 25.72%, and the pre-#1392 sentence rounded to a whole
+        // number, so 26% is what the old code really printed -- which is the point of
+        // reproducing it rather than approximating it.
         const board_look::Evidence webcam = board(237036, 237036, 300.0, 60);
-        say(board_look::refusal(webcam, limits).find("25% of its frame keys as dartboard red or green "
+        std::printf("     #1318's webcam: %s\n", board_look::refusal(webcam, limits).substr(0, 110).c_str());
+        say(board_look::refusal(webcam, limits).find("26% of its frame keys as dartboard red or green "
                                                      "and this check allows at most 12%") != std::string::npos,
-            "#1318's own webcam, 237036 mask pixels at 1280x720, is refused in #1318's own words at 25% "
-            "against 12%");
+            "#1318's own webcam, 237036 mask pixels at 1280x720, is refused in #1318's own words -- "
+            "25.7% of a frame, printed as 26%, against 12%");
     }
     else
     {
@@ -173,8 +187,11 @@ int main()
     // fitted ring, so this is the case the ring line exists for, and it is refused at every
     // distance for the same reason it is refused at one.
     std::printf("\n=== 4. a filled shape fills its own circle, and is refused at any distance ===\n");
-    for (double span : {150.0, 300.0, 600.0})
+    for (double span : {100.0, 200.0, 350.0})
     {
+        // The disc has to fit in the 1280x720 frame it is in, or the FLOOD check refuses
+        // it first and this would be measuring that instead. At 350 px of radius it is
+        // 41.8% of the frame, just under the 44.2% a whole board could account for.
         board_look::Evidence blob = board(0, 0, span, 100);
         blob.ring_pixels = (int)std::lround(M_PI * span * span * 0.98);
         blob.red_green_pixels = blob.ring_pixels;
