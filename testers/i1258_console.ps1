@@ -1,5 +1,11 @@
 # #1258: drive the detector's camera question in a REAL Windows console, from a script.
 #
+# unrun-tester: needs a real Windows console and a Windows build of the detector. The rule
+# it tests is that the question is asked ONLY when stdin is a console input buffer, so it
+# cannot be driven from a pipe, and the Linux container every other tester runs in has no
+# console to attach to. It is run by hand on Windows against a Windows build; nothing in
+# this repository can run it, and a stub that could would not be testing the rule.
+#
 # The question is only asked when the program's input is a console input buffer
 # (console_prompt::isInteractiveConsole), so a pipe or a file cannot drive it: that is the
 # rule being tested. This starts the .exe in a new, hidden console window of its own,
