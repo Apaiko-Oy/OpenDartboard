@@ -103,6 +103,7 @@ tester 1305-update       "bash '$T/i1305_run.sh'"
 tester 1305-manifest     "bash '$T/i1305_check.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
+tester 1366-position      "bash '$T/i1366_run.sh'"
 tester 1257-control       "bash '$T/i1257_run.sh' control '$T/i1257_control.sh'"
 tester 1257-resolution    "bash '$T/i1257_run.sh' resolution '$T/i1257_resolution.sh'"
 # Of the five phases under phases1247/, one computes a verdict and four record (#1412).
