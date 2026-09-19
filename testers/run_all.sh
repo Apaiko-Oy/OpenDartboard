@@ -86,9 +86,11 @@ tester 1392-annulus       "bash '$T/i1392_run.sh'"
 tester 1393-carve         "bash '$T/i1393_run.sh'"
 tester 1394-windows       "bash '$T/i1394_run.sh'"
 # #1437: a fixture answers for every clip it holds. It runs the detector once per fixture,
-# once more against a fixture with a clip that sees no dartboard, and then ten times over
-# held frames, so it costs more than the testers above it -- the measurement is beside the
-# `slow` call below.
+# once more against a fixture with a clip that sees no dartboard, then ten times over held
+# frames, and finally calibrates ninety single frames directly. MEASURED 2026-09-20 on the
+# 4-core box, to completion, rc=0: wall 284.8 s at host_busy_pct=60.2, so it takes no
+# `slow` -- it sits well inside the default 1200 and the number is here rather than in
+# nobody's head, which is how 1317-asan's 1200 got to be wrong.
 tester 1437-fixture       "bash '$T/i1437_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
