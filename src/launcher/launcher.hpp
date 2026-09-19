@@ -121,7 +121,18 @@ namespace launcher
         update_check::Fetch fetch_manifest;
         FetchArtefact fetch_artefact;
         Unpack unpack;
-        long long now = 0;
+        /**
+         * What time it is, asked TWICE in one carry -- once before the check and once when
+         * the detector stops -- and therefore a function rather than a number.
+         *
+         * MEASURED RATHER THAN ANTICIPATED. It was a number, and the first run of
+         * testers/i1306_check.sh never made a second request: the moment rule read a
+         * `last_stopped` written by the real clock against a `now` the harness had chosen,
+         * so every launch after the first looked like a restart thirty years early and the
+         * clock-went-backwards guard skipped the check. A board's own clock is consistent
+         * with itself; a harness's was not, and the seam is what makes it so.
+         */
+        std::function<long long()> clock;
         bool forced = false;
         long long quiet_seconds = kQuietSeconds;
     };
@@ -197,8 +208,9 @@ namespace launcher
         State state = readState(surroundings.layout.state_file);
 
         // ADR-0077 §7, evaluated. There is no other path from here to the network.
+        const long long started_at = surroundings.clock();
         const MomentDecision moment =
-            decideMoment(state, surroundings.now, surroundings.forced, surroundings.quiet_seconds);
+            decideMoment(state, started_at, surroundings.forced, surroundings.quiet_seconds);
         report.moment = moment.moment;
         if (moment.may_check)
         {
@@ -226,7 +238,7 @@ namespace launcher
         {
             report.starts = attempt;
             report.ran_version = installedVersion(state, version());
-            state.last_started = surroundings.now;
+            state.last_started = surroundings.clock();
             state.last_ending.clear();
             writeState(surroundings.layout.state_file, state);
 
@@ -236,7 +248,7 @@ namespace launcher
                 std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
 
             const Ending ending = endingOf(outcome);
-            state.last_stopped = wallClock();
+            state.last_stopped = surroundings.clock();
             state.last_ending = endingWord(ending);
 
             if (!failedToStart(ending, ran_for))

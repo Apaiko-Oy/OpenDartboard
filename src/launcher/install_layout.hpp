@@ -390,6 +390,27 @@ namespace launcher
 #endif
     }
 
+    /**
+     * Make a file runnable. A no-op on Windows, where there is no such bit and an .exe is
+     * an .exe; a chmod on POSIX, where there is and a zip need not carry one.
+     *
+     * MEASURED RATHER THAN ANTICIPATED. The first run of testers/i1306_check.sh installed
+     * a release and then reported `did not start (0 s, exit code 13)` -- EACCES, because
+     * Python's ZipFile.extract deliberately drops an entry's mode and the unpacked
+     * detector came out 0644. On Windows tar.exe the question does not arise, so this line
+     * changes nothing that ships; what it removes is a way for the POSIX half of the seam
+     * to make a board look broken for a reason that is not the board's.
+     */
+    inline bool makeExecutable(const std::string &path)
+    {
+#ifdef _WIN32
+        (void)path;
+        return true;
+#else
+        return ::chmod(path.c_str(), 0755) == 0;
+#endif
+    }
+
     /** What the platform said about the last failure, for a line a tester can quote. */
     inline std::string lastFileError()
     {

@@ -369,7 +369,9 @@ namespace launcher
         //    digest mismatch for the commonest way this goes wrong.
         if (static_cast<long long>(response.body.size()) != answer.published_size)
         {
-            Application refused = stoppedAt(Step::WrongLength, std::to_string(response.body.size()) + " of " +
+            // The two numbers, not a sentence: `detail` is read by two languages and a
+            // word joining them in one of them reads as a typo in the other.
+            Application refused = stoppedAt(Step::WrongLength, std::to_string(response.body.size()) + " / " +
                                                                    std::to_string(answer.published_size));
             refused.from_version = application.from_version;
             refused.to_version = application.to_version;
@@ -434,6 +436,7 @@ namespace launcher
             refused.to_version = application.to_version;
             return refused;
         }
+        makeExecutable(staged);
 
         // 9. The version that worked is kept, whole, under its own name. The move is a
         //    RENAME, which is what survives the file being locked by a detector that has
