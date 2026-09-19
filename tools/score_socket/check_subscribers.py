@@ -41,6 +41,23 @@ the flag the check is the 22 it always was.
 
 Python 3.8+, standard library only, Linux (it reads TCP_INFO). The WebSocket client
 is the raw one from tools/board_position, so the bytes read are the bytes on the wire.
+
+#1282 added three options so that the SAME check can be run against a board that is not
+a local Linux process, and specifically against the Windows build. The check itself still
+runs on Linux -- it is the CLIENT that reads TCP_INFO, and its sockets are this machine's
+whatever the board is. Every default is what it was, so a run that passes none of them is
+byte for byte the run this file has always made:
+
+    --host            where the board is. Default 127.0.0.1.
+    --token-file      where the token is, when the board does not keep it beside the run.
+    --detector-arg    passed on to the detector, repeatable (--listen, for one).
+    --cams            a path that is already absolute FOR THE BOARD is left alone. Only
+                      C:\\... is recognised as that, so a POSIX path is resolved exactly
+                      as before.
+
+    WSLENV=OD_MAX_CYCLES python3 tools/score_socket/check_subscribers.py \
+        --binary /mnt/c/od-run/opendartboard.exe --host 172.25.0.1 --detector-arg --listen \
+        --cams 'C:\\od-run\\mocks\\cam_1.mp4,C:\\od-run\\mocks\\cam_2.mp4,C:\\od-run\\mocks\\cam_3.mp4'
 """
 
 import argparse
@@ -190,22 +207,22 @@ class Run:
             return handle.read()
 
 
-def subscribe(port, token, deadline, rcvbuf=None):
+def subscribe(port, token, deadline, rcvbuf=None, host="127.0.0.1"):
     """Connect - retrying while the board is still coming up - or return None."""
     last = None
     while time.time() < deadline:
         try:
             if rcvbuf is None:
-                return RawWebSocket("127.0.0.1", port, token=token)
+                return RawWebSocket(host, port, token=token)
             # A receive buffer the client sets before connecting is the window it
             # advertises; the kernel's floor is a few kilobytes, which is the point.
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
             sock.settimeout(5)
-            sock.connect(("127.0.0.1", port))
+            sock.connect((host, port))
             ws = RawWebSocket.__new__(RawWebSocket)
             ws.sock = sock
-            _upgrade(ws, port, token)
+            _upgrade(ws, port, token, host)
             return ws
         except (OSError, ConnectionError) as error:
             last = error
@@ -214,14 +231,14 @@ def subscribe(port, token, deadline, rcvbuf=None):
     return None
 
 
-def _upgrade(ws, port, token):
+def _upgrade(ws, port, token, host="127.0.0.1"):
     """The upgrade request the raw client sends, on a socket built by the caller."""
     import base64
     import urllib.parse
     path = f"/scores?token={urllib.parse.quote(token, safe='')}"
     key = base64.b64encode(os.urandom(16)).decode()
     request = (
-        f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+        f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n"
         f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
     )
     ws.sock.sendall(request.encode())
@@ -244,16 +261,17 @@ class Reader(threading.Thread):
     the wall-clock time each message was read. `until` stops it early, after that
     many messages, by closing the socket without a word - a phone whose app died."""
 
-    def __init__(self, name, port, token, deadline, until=None, on_first=None):
+    def __init__(self, name, port, token, deadline, until=None, on_first=None, host="127.0.0.1"):
         super().__init__(daemon=True)
         self.label, self.port, self.token, self.deadline, self.until, self.on_first = name, port, token, deadline, until, on_first
+        self.host = host
         self.received = []  # (read_at, message)
         self.connected_at = None
         self.peer = None
         self.closed_by = None
 
     def run(self):
-        ws = subscribe(self.port, self.token, self.deadline)
+        ws = subscribe(self.port, self.token, self.deadline, host=self.host)
         if ws is None:
             return
         self.connected_at = time.time()
@@ -277,9 +295,10 @@ class DeadSubscriber(threading.Thread):
     the kernel's state for the socket so the moment the board closed it is known
     without reading a byte."""
 
-    def __init__(self, port, token, deadline, after):
+    def __init__(self, port, token, deadline, after, host="127.0.0.1"):
         super().__init__(daemon=True)
         self.port, self.token, self.deadline, self.after = port, token, deadline, after
+        self.host = host
         self.connected_at = self.closed_at = None
         self.peer = None
         self.state = None
@@ -287,7 +306,7 @@ class DeadSubscriber(threading.Thread):
 
     def run(self):
         self.after.wait(timeout=max(0.0, self.deadline - time.time()))
-        ws = subscribe(self.port, self.token, self.deadline, rcvbuf=4096)
+        ws = subscribe(self.port, self.token, self.deadline, rcvbuf=4096, host=self.host)
         if ws is None:
             return
         self.connected_at = time.time()
@@ -302,17 +321,17 @@ class DeadSubscriber(threading.Thread):
         ws.sock.close()
 
 
-def probe_capacity(port, token, attempts, wait):
+def probe_capacity(port, token, attempts, wait, host="127.0.0.1"):
     """httplib serves every connection on a thread from a fixed pool, and a subscriber
     keeps its thread for as long as it is subscribed. Opens `attempts` upgrades at once
     and returns (peers, answered at once, answered once those had closed): how many
     subscribers the board admits beside the ones already there, and whether the rest
     are admitted when a thread frees rather than refused."""
-    socks = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(attempts)]
+    socks = [socket.create_connection((host, port), timeout=5) for _ in range(attempts)]
     peers = ["%s:%d" % s.getsockname() for s in socks]
     for s in socks:
         key = base64.b64encode(os.urandom(16)).decode()
-        s.sendall((f"GET /scores?token={token} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+        s.sendall((f"GET /scores?token={token} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n"
                    f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
 
     def answered(pending, seconds):
@@ -370,17 +389,29 @@ def main():
     parser.add_argument("--latency-bound", type=float, default=1.0, help="seconds; A's worst delivery latency while C is stalled")
     parser.add_argument("--turnaus-stub", action="store_true", help="pair each run with #822's stub and assert on what the board pushed")
     parser.add_argument("--stub-port", type=int, default=8899)
+    parser.add_argument("--host", default="127.0.0.1", help="#1282: where the board is, when it is not this process's loopback")
+    parser.add_argument("--token-file", default=None,
+                        help="#1282: read the token here rather than in each run's workdir. A Windows board keeps "
+                             "its token in AppData, not beside the run, so the path has to be said.")
+    parser.add_argument("--detector-arg", action="append", default=[], help="#1282: passed on to the detector, repeatable")
     args = parser.parse_args()
 
     workdir = args.workdir or tempfile.mkdtemp(prefix="subscribers-")
     binary = os.path.abspath(args.binary)
-    cams = ",".join(os.path.abspath(c) for c in args.cams.split(","))
+    # #1282: a path that is already absolute FOR THE BOARD is left alone. Only a drive
+    # letter counts as that, so every POSIX path is resolved exactly as it always was --
+    # os.path.abspath would otherwise glue this process's cwd onto C:\... and hand the
+    # board a name nothing can open.
+    cams = ",".join(c if re.match(r"^[A-Za-z]:[\\/]", c) else os.path.abspath(c) for c in args.cams.split(","))
+    host = args.host
     port = args.port
     reference = REFERENCE if args.cycles >= 1100 else REFERENCE[:8]
 
     print("subscribers check v1")
     print(f"binary   {binary}")
     print(f"cams     {cams}")
+    if host != "127.0.0.1" or args.detector_arg:
+        print(f"board    {host}:{port}   detector args {' '.join(args.detector_arg) or '(none)'}")
     print(f"cycles   {args.cycles}   workdir {workdir}   port {port}   drop bound {DROP_BOUND:.0f} s (ping {PING_INTERVAL:.0f} s + pong {PONG_WAIT:.0f} s)")
 
     results = []
@@ -394,8 +425,8 @@ def main():
     print("run 1: two readers, B reconnects after the first END")
     stub1 = TurnausStub(binary, os.path.join(workdir, "run1"), args.stub_port) if args.turnaus_stub else None
     run = Run(binary, cams, args.width, args.height, os.path.join(workdir, "run1"), args.cycles, "two-readers",
-              stub1.detector_args() if stub1 else ())
-    token = read_token(os.path.join(workdir, "run1", "score_token"), time.time() + args.connect_timeout)
+              list(stub1.detector_args() if stub1 else ()) + args.detector_arg)
+    token = read_token(args.token_file or os.path.join(workdir, "run1", "score_token"), time.time() + args.connect_timeout)
     if token is None:
         print("FAIL: no token, nothing to present")
         run.wait(0)
@@ -403,8 +434,8 @@ def main():
     deadline = time.time() + args.connect_timeout
     first_end = reference.index(("END", -1, -1)) + 1
     first1 = threading.Event()
-    a1 = Reader("A", port, token, deadline, on_first=first1)
-    b1 = Reader("B", port, token, deadline, until=first_end)
+    a1 = Reader("A", port, token, deadline, on_first=first1, host=host)
+    b1 = Reader("B", port, token, deadline, until=first_end, host=host)
     a1.start()
     b1.start()
     # How many subscribers one board holds at once: httplib 0.14.3's pool is
@@ -412,11 +443,11 @@ def main():
     pool = max(8, (os.cpu_count() or 1) - 1)
     probe_peers = []
     if first1.wait(timeout=args.connect_timeout + args.run_timeout):
-        probe_peers, at_once, later = probe_capacity(port, token, pool, 3.0)
+        probe_peers, at_once, later = probe_capacity(port, token, pool, 3.0, host=host)
         record(f"subscribers admitted at once beside A and B (pool of {pool} threads)", pool - 2, at_once)
         record("the ones left waiting are admitted once those close, not refused", 2, later)
     b1.join(timeout=args.run_timeout)
-    b2 = Reader("B'", port, token, time.time() + args.connect_timeout)
+    b2 = Reader("B'", port, token, time.time() + args.connect_timeout, host=host)
     reconnected_at = time.time()
     b2.start()
     exit1 = run.wait(args.run_timeout)
@@ -449,12 +480,12 @@ def main():
     print("run 2: A reads, C accepts the upgrade after A's first message and never reads again")
     stub2 = TurnausStub(binary, os.path.join(workdir, "run2"), args.stub_port) if args.turnaus_stub else None
     run = Run(binary, cams, args.width, args.height, os.path.join(workdir, "run2"), args.cycles, "one-dead",
-              stub2.detector_args() if stub2 else ())
-    token = read_token(os.path.join(workdir, "run2", "score_token"), time.time() + args.connect_timeout)
+              list(stub2.detector_args() if stub2 else ()) + args.detector_arg)
+    token = read_token(args.token_file or os.path.join(workdir, "run2", "score_token"), time.time() + args.connect_timeout)
     deadline = time.time() + args.connect_timeout
     first = threading.Event()
-    a2 = Reader("A", port, token, deadline, on_first=first)
-    c = DeadSubscriber(port, token, deadline + args.run_timeout, after=first)
+    a2 = Reader("A", port, token, deadline, on_first=first, host=host)
+    c = DeadSubscriber(port, token, deadline + args.run_timeout, after=first, host=host)
     a2.start()
     c.start()
     exit2 = run.wait(args.run_timeout)

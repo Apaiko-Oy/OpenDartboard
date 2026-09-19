@@ -76,5 +76,7 @@ call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
 
 "%CMAKE%" --build !BUILD_DIR! --parallel 3 || exit /b 1
 
-echo Built !BUILD_DIR!\opendartboard.exe with OD_DEFS="%OD_DEFS%" OpenCV="!OPENCV_DIR!"
+REM #1303: two executables now. `cmake --build` builds every target, so nothing
+REM above changed; this says both names so a hand build can see both appear.
+echo Built !BUILD_DIR!\opendartboard.exe and !BUILD_DIR!\opendartboard-launcher.exe with OD_DEFS="%OD_DEFS%" OpenCV="!OPENCV_DIR!"
 endlocal

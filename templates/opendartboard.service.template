@@ -1,6 +1,24 @@
 [Unit]
 Description=OpenDartboard 3-cam scorer
-After=network.target
+# Ordered against connectivity rather than against the networking subsystem (#1334).
+# After=network.target only means the stack has been brought up; it says nothing about an
+# address or a route existing, so the detector could start before the board had one. The
+# pair that waits for connectivity is Wants= and After= on network-online.target.
+#
+# Wants= is deliberately weak and stays weak: a board with no network is still a board that
+# can see darts and spool them, so this orders the start and must never block it. Do not
+# promote it to Requires= -- that would make the detector depend on the network, which is a
+# different decision than this one.
+Wants=network-online.target
+After=network-online.target
+# A detector that exits repeatedly must stop and say so, not loop. Five starts inside a
+# minute is a detector that cannot stay up; systemd then refuses the sixth, fails the unit
+# and writes "start request repeated too quickly" to the journal, instead of re-running
+# calibration forever. Written here rather than inherited from DefaultStartLimitIntervalSec
+# and DefaultStartLimitBurst, which belong to whatever image flashed the card and not to
+# this unit.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -9,6 +27,10 @@ ExecStart=/usr/local/bin/opendartboard \
     --width ${WIDTH} --height ${HEIGHT} --fps ${FPS} \
     --model /usr/local/share/opendartboard/models/dart.param
 Restart=always
+# lock_cams.service.template's number, taken unchanged: the convention is already one file
+# over. Without it systemd's default is 100ms, so a crashing detector respawned ten times a
+# second and re-ran calibration on every one of them.
+RestartSec=2
 Nice=-5
 Environment=G_MESSAGES_MIN_LEVEL=3
 StandardOutput=journal

@@ -5,6 +5,12 @@
 # seconds, the container named for the run and reaped by that name alone, --cpus=2,
 # --network none. No credential exists in the run's cfg/, so the client pushes nothing.
 #
+# The name and the run directory both carry the PHASE, and before #1341 neither did: this
+# harness is handed a phase script and ran every one of them as `partial`, so the ASan
+# phase could not start while the partial phase's container was still up (a Docker name
+# conflict, rc=125, four seconds in, reading nothing like the timeout that caused it) and
+# the two phases wrote into one directory, the second wiping the first's output.
+#
 #   testers/i1317_run.sh [container-bash-script-file]
 #
 # The default script is the one this issue is about: a wire stage that found fewer than
@@ -13,12 +19,13 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1317/1317-partial.sh}"
+PHASE="$(od_phase "$SCRIPT")"
 BASE="$OD_RUNS_BASE/1317"
-RUN="$BASE/partial"
+RUN="$BASE/$PHASE"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name "$(od_name "i1317-clean")" --network none -v "$BASE":/base "$OD_IMAGE" \
-    rm -rf /base/partial > /dev/null 2>&1
+  od_run "i1317-clean-$PHASE" --network none -v "$BASE":/base "$OD_IMAGE" \
+    rm -rf "/base/$PHASE" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
@@ -34,7 +41,7 @@ git -C "$OD_TREE_ROOT" archive "$BASE_COMMIT" | tar -x -C "$RUN/base-src"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "$(od_name "i1317-partial")" --cpus=2 --network none -e HOME=/root \
+od_run "i1317-$PHASE" --cpus=2 --network none -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1317 -v "$RUN/cfg":/root/.config \
   -w /run1317 "$OD_IMAGE" bash /run1317/inside.sh
@@ -49,5 +56,5 @@ tot=u+n+s+i+w+q+sq
 print('%.1f' % (100.0*(tot-i-w)/tot) if tot else 'n/a')")
 WALL=$(python3 -c "print('%.1f' % ($T1-$T0))")
 
-echo "RUN=partial rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
+echo "RUN=$PHASE rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
 exit $RC

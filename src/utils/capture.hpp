@@ -539,6 +539,19 @@ namespace camera
 
         // What this camera ended up being, in words, for the log.
         virtual std::string describe(size_t i) const = 0;
+
+        // #1282: every source is a FILE and every one of them has reached its end.
+        //
+        // This is not "the board cannot see". A camera never ends, so this is false for
+        // any source that is a device, always -- #895's fault vigil is about a board whose
+        // cameras have stopped answering and it must go on never exiting. The end of a
+        // clip is a different fact, it can only be true of mock input, and the reason it
+        // is a question the seam answers is that the difference is only visible down here:
+        // above the seam an exhausted file and an unplugged camera are the same empty slot.
+        //
+        // The default is false, so an implementation that has no files to run out of
+        // inherits the behaviour it has today.
+        virtual bool footageEnded() const { return false; }
     };
 
     // The platform's implementation, chosen at build time.

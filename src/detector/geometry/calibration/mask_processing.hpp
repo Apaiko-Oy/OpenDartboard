@@ -16,6 +16,64 @@ namespace mask_processing
         int maskCloseKernelSize = 7;  // Kernel size for morphological closing
         int maskOpenKernelSize = 3;   // Kernel size for morphological opening
         int maskDilateKernelSize = 5; // Kernel size for dilation
+
+        // #1393: how far from the bull centre a red pixel is taken to be the bull's.
+        //
+        // This was `min(cols, rows) / 15` -- a fixed 48 px at 720p on every camera, every
+        // rig and every mounting -- and what it decides is not cosmetic. Everything red
+        // within it becomes `bullMask`, and `bullMask` is carved out of `fullMask` at
+        // processMask's Step 3, so the doubles, triples and outer-bull masks the ellipse
+        // fit at STEP 6 runs on are ALL downstream of this number.
+        //
+        // The board's own millimetres give the fraction, and both figures are already
+        // written down in perspective_processing::DartboardSpec: the 50-point bull is
+        // `bullRadius` 6.35 mm and the doubles ring reaches `outerDoubleRadius` 170 mm,
+        // so a 50-point bull is 6.35/170 = 0.0374 of the board radius. That is the
+        // TARGET, and a search radius is not a measurement. What arrives here has been
+        // through color_processing's blur, bull's-eye dilation and multi-scale closing,
+        // which add pixels to a radius rather than a fraction to a ratio --
+        // bull_processing's own band is 0.5x to 3.0x of its ideal for exactly that
+        // reason, and its file measures the bull at 0.100 to 0.155 of the span it is
+        // sized against where the geometry says 0.0935.
+        //
+        // So the geometry supplies a STOP rather than the target. DartboardSpec's
+        // `bull25Radius` is 15.9 mm, the outer edge of the 25-ring: 15.9/170 = 0.0935 of
+        // the board radius, and that is the furthest a search for RED can reach and
+        // still be certain every red pixel it finds belongs to the bull. The annulus
+        // between 6.35 mm and 15.9 mm is green on every board, and the first red outside
+        // it is a single segment. 0.0935 is 2.5x the bull it has to contain, it is the
+        // same ratio bull_processing::BullParams::bullRadiusOfBoardRadius already
+        // carries, and it is derived from the same two millimetre figures. Nothing here
+        // is fitted.
+        //
+        // WHAT THE OLD CARVE WAS ACTUALLY EATING, because the answer is not what the
+        // issue assumed and the next reader should not have to re-measure it: on both
+        // shipped fixtures, almost nothing. Red exists only in the inner bull, the
+        // 25-ring, the treble ring and the doubles ring -- a board's singles are black
+        // and cream -- so between 0.0935 R and the inner edge of the trebles at
+        // 99/170 = 0.582 R there is no red at all. 48 px is 0.165 of the mocks' fitted
+        // doubles semi-axis and 0.152 of the rig's, both inside that empty annulus, and
+        // the red really carved was IDENTICAL under both rules on five of the six
+        // cameras: 364/364/355 px on mocks/cam_*.mp4, 430/425/418 px on the rig against
+        // the frame rule's 430/425/499. The six fitted boards `1331-framing` section 2.5
+        // pins do not move by a pixel either way.
+        //
+        // The fault is real all the same, and it is a fault about FRAMING rather than
+        // about these two rooms. mocks/cam_1.mp4 with the board filling half the frame
+        // -- #1339's scaler, one clip, nothing else moved -- measures a 93 px board: the
+        // carve here follows it to 9 px and the frame rule is still 48, which now reaches
+        // past the empty annulus into the treble ring. Same bull, same 89 doubles
+        // boundary points, and the outer triple contour collapses from 17976 px to
+        // 5319 px with no inner triple fitted at all. testers/phases1393/1393-carve.sh
+        // measures every number in these two paragraphs.
+        //
+        // The denominator is the board `bull_processing` measured, and NOT the bull it
+        // measured, although `BullSighting::radius` is a per-camera reading of the very
+        // ring this stops at. That radius is accepted anywhere in a 0.5x-3.0x band, so
+        // taking it neat would re-admit a carve three times oversized on the camera where
+        // the band was widest. The board radius is the quantity with a floor under it
+        // (BullParams::minBoardRadius(), 64.2 px).
+        double bullCarveOfBoardRadius = 0.0935;
     };
 
     // Bundle of all masks using proper dartboard terminology
@@ -29,10 +87,17 @@ namespace mask_processing
         bool isValid = false; // Flag if mask generation succeeded
     };
 
-    // Return bundle of masks using dartboard terminology
+    /**
+     * #1393: `boardRadius` is the board this camera measured, in pixels -- the
+     * `BullSighting::boardRadius` the caller is already holding when it calls this. It
+     * is what the bull carve is a fraction of. A board of no radius, which this stage
+     * cannot be reached with today because the bull is refused first, falls back to the
+     * frame rule and says so rather than carving nothing.
+     */
     MaskBundle processMask(
         const Mat &redGreenFrame,
         Point bullCenter,
+        double boardRadius,
         int camera_idx,
         bool debug_mode = false,
         const MaskParams &params = MaskParams());

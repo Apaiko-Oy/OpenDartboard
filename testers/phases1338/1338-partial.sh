@@ -11,6 +11,15 @@ set -u
 # camera is therefore not a board that scores rarely. It is a board in which
 # `cameras_that_spiked` is bounded above by 1 against a threshold of 2.
 #
+# #1353 moved that constant to 1, and #1348 moved the sentence this phase reads. The board
+# phase A builds is unchanged and so is its verdict -- it must not beat READY -- but the
+# arithmetic that refuses it is now the dart-state VOTE's rather than the event quorum's:
+# one camera can vote, moving the board takes two, so it holds CLEAN for ever and cannot
+# see a takeout either. The two quorums are counted off ONE population now (a frame AND a
+# fitted board); #1348's own tester holds the whole of that sentence, and what is asked
+# here is that this board is still refused and still states a count against the threshold
+# it fell short of.
+#
 # Five phases, and the last two are the ones that make the first three mean anything:
 #
 #   A  one camera answering of three. It must not beat READY, and the sentence it beats
@@ -140,16 +149,17 @@ else say "FAIL it never beat ERROR either" no; fi
 
 echo "=== 2. and it says, in one sentence, the count it has and the count it needs ==="
 grep -aE 'Initial calibration failed|BOARD FAULTED: only' /run1338/a.txt | head -2 || true
-if grep -qaE 'Initial calibration failed: only 1 of 3 cameras produced a frame to calibrate on, and a dart event needs a motion spike seen by at least 2 cameras at once' /run1338/a.txt; then
-  say "OK   the refusal names 1 of 3 against the 2 a dart event needs" ok
+if grep -qaE 'Initial calibration failed: only 1 of 3 cameras can vote on what is on the board.*it takes 2 of them to move the board' /run1338/a.txt; then
+  say "OK   the refusal names 1 of 3 against the 2 it takes to move the board (#1348)" ok
 else say "FAIL the refusal does not state the count against its threshold" no; fi
-if grep -qa 'BOARD FAULTED: only 1 of 3 cameras produced a frame' /run1338/a.txt; then
+if grep -qa 'BOARD FAULTED: only 1 of 3 cameras can vote' /run1338/a.txt; then
   say "OK   and the vigil repeats that sentence rather than a choice of two" ok
 else say "FAIL BOARD FAULTED does not carry the reason" no; fi
 # The number printed must be on the wrong side of the threshold printed beside it
 # (#1321's rule): a board refused for having MORE cameras than it needs did not fail here.
-BAD=$(grep -oaE 'only ([0-9]+) of [0-9]+ cameras produced a frame to calibrate on, and a dart event needs a motion spike seen by at least ([0-9]+)' /run1338/a.txt \
-  | awk '{ if ($2 >= $(NF)) print }' | wc -l)
+BAD=$(grep -oaE 'only ([0-9]+) of [0-9]+ cameras can vote on what is on the board.*it takes ([0-9]+) of them' /run1338/a.txt \
+  | sed -E 's/^only ([0-9]+) of.*it takes ([0-9]+) of them.*/\1 \2/' \
+  | awk '{ if ($1 >= $2) print }' | wc -l)
 if [ "$BAD" = "0" ]; then say "OK   every count printed is below the threshold it is printed against" ok
 else say "FAIL $BAD refusals print a count that is not below its own threshold" no; fi
 
