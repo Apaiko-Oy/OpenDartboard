@@ -19,6 +19,10 @@
 //                                must NEVER read as a failure to start
 //   OD_STUB_ARGV_TO=<file>       write argv there, so "the arguments still pass through"
 //                                is a file on disk and not an inference
+//   OD_STUB_LINGER=<ms>          stay alive this long. The fifth criterion needs a
+//                                process that HAS NOT FINISHED EXITING while its own file
+//                                is swapped, and the only way to have one is to hold it
+//                                open on purpose.
 //
 // It prints the same first line the real detector's --version does, so a harness reading
 // a console sees the version that is running rather than the version somebody recorded.
@@ -33,8 +37,11 @@
 #define APP_VERSION "0.0.0-stub"
 #endif
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <csignal>
+#include <unistd.h>
 #endif
 
 static std::string env(const char *name)
@@ -85,6 +92,17 @@ int main(int argc, char **argv)
     }
 
     std::cout << "OpenDartboard runtime version: " << APP_VERSION << std::endl;
+
+    const std::string linger = env("OD_STUB_LINGER");
+    if (!linger.empty())
+    {
+        const long milliseconds = std::strtol(linger.c_str(), NULL, 10);
+#ifdef _WIN32
+        ::Sleep(static_cast<DWORD>(milliseconds));
+#else
+        ::usleep(static_cast<useconds_t>(milliseconds) * 1000);
+#endif
+    }
 
     if (namesMe(env("OD_STUB_BAD")))
     {

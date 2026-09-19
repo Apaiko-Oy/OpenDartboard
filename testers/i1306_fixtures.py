@@ -8,11 +8,16 @@ BUILD-INFO.txt -- around a stub that says which version it is. Nothing here is a
 the digest in every manifest is the SHA-256 of the file on disk, and every signature is
 made by OpenSSL rather than by anything in this tree.
 
-    testers/i1306_fixtures.py <outdir> <stubdir> <version> [<version> ...]
+    testers/i1306_fixtures.py [--use-zips] <outdir> <stubdir> <version> [<version> ...]
 
 <stubdir> holds one compiled stub per version, named `stub-<version>`. For each it
 writes `rel/opendartboard-<version>.zip` and a manifest `stable-<version>.json` signed
 for the stable channel by a key minted on this run.
+
+--use-zips means the archives in `<outdir>/rel` were written by somebody else and are to
+be signed as they stand. That is how testers/i1306_windows.sh gets fixtures around
+archives PowerShell's Compress-Archive really produced, which is what release.yml ships
+and what the in-box tar.exe is then asked to read.
 
 And the four a board must refuse, every one of them well-formed enough to be installed
 by something that does not check:
@@ -106,9 +111,12 @@ def make_executable_in_zip(path, detector_binary, version):
 
 
 def main():
-    if len(sys.argv) < 4:
+    argv = sys.argv[1:]
+    use_zips = "--use-zips" in argv
+    argv = [one for one in argv if one != "--use-zips"]
+    if len(argv) < 3:
         raise SystemExit(__doc__)
-    out, stubs, versions = sys.argv[1], sys.argv[2], sys.argv[3:]
+    out, stubs, versions = argv[0], argv[1], argv[2:]
     releases = os.path.join(out, "rel")
     os.makedirs(releases, exist_ok=True)
 
@@ -118,12 +126,16 @@ def main():
         handle.write(point + "\n")
 
     for version in versions:
-        stub = os.path.join(stubs, "stub-" + version)
-        if not os.path.exists(stub):
-            raise SystemExit("no stub for " + version + " at " + stub)
         name = "opendartboard-" + version + ".zip"
         archive = os.path.join(releases, name)
-        make_executable_in_zip(archive, stub, version)
+        if use_zips:
+            if not os.path.exists(archive):
+                raise SystemExit("--use-zips, but there is no archive at " + archive)
+        else:
+            stub = os.path.join(stubs, "stub-" + version)
+            if not os.path.exists(stub):
+                raise SystemExit("no stub for " + version + " at " + stub)
+            make_executable_in_zip(archive, stub, version)
         raw = open(archive, "rb").read()
         payload = {
             "channel": "stable",
