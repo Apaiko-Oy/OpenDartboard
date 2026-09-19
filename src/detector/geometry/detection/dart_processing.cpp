@@ -95,11 +95,9 @@ namespace dart_processing
         return v;
     }
 
-    // Static state tracking
-    static vector<DartBoardState> previous_states = {
-        DartBoardState::CLEAN,
-        DartBoardState::CLEAN,
-        DartBoardState::CLEAN};
+    // Static state tracking. #1355: no count is written here -- processDartState sizes
+    // it from the frames it was handed, beside the other three per-camera arrays.
+    static vector<DartBoardState> previous_states;
     static DartBoardState best_previous_state = DartBoardState::CLEAN;
     static int stability_frame_count = 0;
     static bool initialized = false;
@@ -309,13 +307,35 @@ namespace dart_processing
     {
         DartStateResult result;
 
+        // #1355: every per-camera array is sized from the camera count, in one place.
+        // `previous_states` was a static brace-initialised with exactly THREE CLEANs and
+        // was never sized here beside the other three, while being indexed
+        // `previous_states[i]` per REAL camera at four sites in the loop below and
+        // iterated as the reconciliation's own bound at a fifth. On a four-camera board
+        // the fourth camera was a read and a write past the end, and its state was never
+        // reconciled to the vote. What kept that latent is `detectMotion` refusing to
+        // initialise on any count but three -- a shield in a different translation unit,
+        // which is the kind that disappears in somebody else's unrelated change.
+        //
+        // Sized on every window rather than only on the first, because `initialized` is
+        // set once and never cleared: a count that changed after the first window would
+        // otherwise leave all four arrays at the old size. `resize` rather than `assign`
+        // so the ordinary case -- a count that never changes -- leaves every camera's
+        // state and working background exactly where the last vote put them.
+        if (previous_states.size() != current_frames.size() ||
+            accumulated_frames.size() != current_frames.size() ||
+            frames_accumulated.size() != current_frames.size() ||
+            working_backgrounds.size() != current_frames.size())
+        {
+            previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
+            accumulated_frames.resize(current_frames.size());
+            frames_accumulated.resize(current_frames.size(), 0);
+            working_backgrounds.resize(current_frames.size());
+        }
+
         // Check if we have initialized
         if (!initialized)
         {
-            accumulated_frames.resize(current_frames.size());
-            frames_accumulated.assign(current_frames.size(), 0);
-            working_backgrounds.resize(current_frames.size()); // Initialize working backgrounds
-
 #ifdef DEBUG_VIA_VIDEO_INPUT
             // #812: four more unauthenticated MJPEG listeners on 0.0.0.0. They were
             // behind debug_mode alone, so a release binary run with --debug opened
@@ -775,8 +795,11 @@ namespace dart_processing
         string b = getDartBoardStateName(final_state);
         log_debug("FINAL State: From: " + a + " -> " + b);
 
-        // Set ALL cameras to the final state
-        for (size_t i = 0; i < previous_states.size(); i++)
+        // Set ALL cameras to the final state.
+        // #1355: bounded by the CAMERA COUNT, not by `previous_states.size()`, which was
+        // three whatever the board was running -- so on a four-camera board the fourth
+        // camera's state was the one thing the vote never reached.
+        for (size_t i = 0; i < result.camera_results.size(); i++)
         {
             previous_states[i] = final_state;
         }
