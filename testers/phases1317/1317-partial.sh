@@ -146,12 +146,35 @@ else say "FAIL $SEEING seeing and $BLIND refused does not account for three came
 if [ "$REFUSED" -ge 1 ] && [ "$BLIND" -ge "$REFUSED" ]; then
   say "OK   $REFUSED of the $BLIND cameras the census refused fell short on the wire count" ok
 else say "FAIL the census refused $BLIND cameras and $REFUSED of them on the wire count" no; fi
-PNP=$(grep -c 'PnP calibration successful' /run1317/partial_dbg.txt || true)
-SEEING_DBG=$(grep -oE 'CAMERAS: [0-9]+ of 3' /run1317/partial_dbg.txt | head -1 | awk '{print $2}')
-SEEING_DBG=${SEEING_DBG:-x}
-if [ "$PNP" = "$SEEING_DBG" ]; then
-  say "OK   $PNP PnP fits for $SEEING_DBG camera(s) that saw the board, and none for the rest" ok
-else say "FAIL $PNP PnP fits against $SEEING_DBG cameras that saw the board" no; fi
+# #1374: both halves of this comparison are taken from ONE calibration round, and until
+# now they were not. The census was the FIRST `CAMERAS: n of 3` line; the PnP count was
+# EVERY `PnP calibration successful` in the whole log. A board that calibrates one camera
+# of three does not stop -- #895's vigil keeps it looking -- so the detector rounds again,
+# and a later round's fit was counted against the first round's census.
+#
+# Measured on the run directories other testers left on this box: i1335, i1338, i1388 and
+# i1389 each printed one census and one fit, and passed; i1392 printed one census at line
+# 430 and fits at lines 407 AND 1248, and failed `2 PnP fits against 1 cameras that saw
+# the board`. That is the whole of the intermittency -- some runs get far enough to round
+# a second time, and nothing about the tree under test decides which.
+#
+# The scoping is structural rather than lucky. calibrateMultipleCameras() fits every
+# camera inside its loop, each fit logging `PnP calibration successful` from
+# perspective_processing, and prints the census ONCE after the loop closes. So every fit
+# belonging to a round precedes that round's own census line, always; counting the fits
+# above that line counts the round the census is about and no other.
+CENSUS_AT=$(grep -nE 'CAMERAS: [0-9]+ of 3' /run1317/partial_dbg.txt | head -1 | cut -d: -f1)
+if [ -z "${CENSUS_AT:-}" ]; then
+  say "FAIL the debug run printed no camera census, so there is no round to count PnP fits within" no
+else
+  PNP=$(head -n "$CENSUS_AT" /run1317/partial_dbg.txt | grep -c 'PnP calibration successful' || true)
+  SEEING_DBG=$(sed -n "${CENSUS_AT}p" /run1317/partial_dbg.txt | grep -oE 'CAMERAS: [0-9]+ of 3' | awk '{print $2}')
+  LATER=$(tail -n "+$((CENSUS_AT + 1))" /run1317/partial_dbg.txt | grep -c 'PnP calibration successful' || true)
+  echo "census at line $CENSUS_AT: $PNP PnP fits in its own round, $LATER in later rounds it does not describe"
+  if [ "$PNP" = "$SEEING_DBG" ]; then
+    say "OK   $PNP PnP fits for $SEEING_DBG camera(s) that saw the board, and none for the rest" ok
+  else say "FAIL $PNP PnP fits against $SEEING_DBG cameras that saw the board, within one round" no; fi
+fi
 
 echo "=== 3d. a board on which nothing calibrated says so ==="
 # #1335: this required all three cameras to come up short at once, which is what second 6
