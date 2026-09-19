@@ -95,6 +95,10 @@ $res = Join-Path $WorkDir "$Label.result.txt"
 Remove-Item $out,$err,$res -ErrorAction SilentlyContinue
 $p = Start-Process -FilePath $Exe -ArgumentList @("--cams", $Cams, "--width", "1280", "--height", "720") `
       -WorkingDirectory $WorkDir -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru
+# Reading .Handle is what makes .ExitCode readable afterwards: Start-Process -PassThru
+# hands back a Process the caller has not opened, and without this the field comes back
+# empty on a process that really did exit with a code.
+$null = $p.Handle
 "PID=$($p.Id)" | Out-File -Encoding ascii $res
 # The deadline is held against the pid, and the verdict says which of the two happened:
 # a board that cannot calibrate never exits, so "it stopped" and "we stopped it" are not
@@ -122,6 +126,7 @@ else
   OUT="$STAGE_UNIX/run/eof/eof.out"
   BYTES=$(sed -n 's/^STDOUT_BYTES=//p' "$RES")
   grep -q "ENDED_BY=itself" "$RES"; note $? "the run ended on its own rather than on the deadline"
+  grep -q "EXIT_CODE=0" "$RES"; note $? "  and ended cleanly"
   [ "${BYTES:-0}" -lt 2000000 ]; note $? "  and wrote under 2 MB of stdout ($BYTES bytes; the run this issue was filed about wrote about 200 MB)"
   [ "$(grep -c 'END OF FOOTAGE cam=' "$OUT")" = 3 ]; note $? "each of the three clips said its own end, once"
   grep -q 'END OF FOOTAGE: every file source has reached its end' "$OUT"
