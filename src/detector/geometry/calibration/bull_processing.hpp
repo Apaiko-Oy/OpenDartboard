@@ -155,6 +155,12 @@ namespace bull_processing
         //          of the frame the board fills: the board camera #1318 measured at 3.0%
         //          reads 12.0% if it is mounted at half the distance. The most dangerous
         //          of the three, because its failure is a refusal and not a fallback.
+        //          FIXED. The ring is now asked about the circle the board spans and the
+        //          flood about a ceiling derived from the frame's own shape; both are in
+        //          board_look.hpp with the measurement, and OD_LOOK=frame restores this
+        //          line. The census above is why the ring share had to be measured rather
+        //          than derived from millimetres: the span is 0.78 to 1.34 of the board,
+        //          so one ring reads 11.1% to 26.9% of its own circle across two fixtures.
         //   #1393  mask_processing's bull carve, min(cols, rows) / 15 -- a fixed 48 px at
         //          720p where a 50-point bull is 9 px on the mocks and 6 px on the rig.
         //          5.3x and 8.6x oversized, and worse on the rig whose board is smaller
