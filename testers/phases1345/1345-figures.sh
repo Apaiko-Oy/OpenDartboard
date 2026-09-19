@@ -72,12 +72,38 @@ done
 # was the player pulling the darts out. #1353 let a throw form an event, #1354 moved the
 # deciding figure onto the board and #1358 stopped a cooldown swallowing the next throw,
 # and the rig now opens a window per throw and refuses almost none. The observation
-# #1345 shipped is unchanged and still asserted above and below; what is asserted here
-# is the thing that must stay true either way -- every window that was refused accounts
-# for itself, and a refusal is possible at all.
-if [ "$(votes rig)" -le "$(windows rig)" ]; then
-  say "OK   the rig refuses no more windows than it opened ($(votes rig) of $(windows rig))" ok
-else say "FAIL the rig printed $(votes rig) refusals over $(windows rig) windows" no; fi
+# #1345 shipped is unchanged and still asserted above and below.
+#
+# #1419: and what was put here in the census's place did not keep up with that argument.
+# It was `votes rig <= windows rig` -- the loop three lines above minus its `W > 0` half,
+# strictly weaker than an iteration that had already run, unable to go red unless that
+# one had. Its comment claimed it held the half of the sentence the loop does NOT hold:
+# that a refusal is possible at all. It did not. `V = 0` passes `V <= W`, and `V = 0` is
+# what the rig produces on main -- `rig: 0 of 23 completed windows were refused`, in
+# runs-attrib-main/run_all/1345-figures.log -- so the line read as a check on precisely
+# the tree it was blindest to.
+#
+# The property is worth holding, so it is said about footage that can still produce a
+# refusal, and that is the CONTROL rather than the rig. The rig's refusal census is at
+# zero by design since #1358 and testers/phases1358/1358-window.sh is what holds it
+# there -- it has no assertion that a refusal is possible at all, in either direction,
+# and asserting one about the rig here would be the retired census coming back under a
+# new name. The shipped mocks still refuse: 7 of 16 on main, 4 of 19 on this tree.
+#
+# Measured both ways on this tree, with src/ reverted afterwards. (a) A tree that cannot
+# refuse -- every completed window forced to change state -- prints not one STATE VOTE
+# line on either rig, and the line this replaces passes it green: `OK   the rig refuses
+# no more windows than it opened (0 of 29)`, as does the loop above. This one goes red.
+# (b) A tree where a window is still refused but stops accounting for itself (#1350's
+# regression, refusedWindowAccount returning "" for every window) leaves
+# testers/phases1358/1358-window.sh green throughout, rc=0 -- that file reads WINDOW
+# CENSUS and never STATE VOTE, so it holds nothing about this -- and turns this one red.
+# Section 3's figure census goes red under both as well, but says "a figure was printed
+# with nowhere", which names a defect neither tree has.
+MV=$(votes mocks)
+if [ "$MV" -ge 1 ]; then
+  say "OK   a refusal is possible at all: the control refused $MV of $(windows mocks) windows" ok
+else say "FAIL the control refused none of its $(windows mocks) windows, so nothing here shows a window can be refused and account for itself" no; fi
 
 echo
 echo "=== 3. every refused camera's figure says how much of it was on the board ==="
