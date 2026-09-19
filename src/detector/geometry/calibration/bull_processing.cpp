@@ -3,6 +3,7 @@
 #include "color_processing.hpp"
 #include "utils.hpp"
 #include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 
@@ -25,6 +26,33 @@ namespace bull_processing
         double discRadius(double area)
         {
             return sqrt(max(0.0, area) / CV_PI);
+        }
+
+        /**
+         * #1340's falsification, in the shape OD_ROI and OD_ROI_MARGIN established one
+         * stage above: one binary, the measurement chosen at run time, so "different
+         * build" is never a confound in a before/after.
+         *
+         * OD_BOARD=frame restores exactly what this stage did before #1340 -- the board's
+         * radius from the area its boundary encloses, its centre from that boundary's
+         * centroid, and the refusal a floor of minBoardAreaPercent of the FRAME. It is
+         * how the 4% floor can be made to refuse a camera again on the very binary that
+         * calibrates it, and how the two measures can be printed side by side on one
+         * fixture without rebuilding anything.
+         *
+         * Anything other than the exact word `frame` is ignored rather than obeyed,
+         * which is the same rule OD_ROI_MARGIN applies to a value it cannot read: a
+         * half-understood spelling must not quietly select a measurement nobody asked
+         * for.
+         */
+        bool boardMeasuredAgainstTheFrame()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_BOARD");
+                return e && string(e) == "frame";
+            }();
+            return v;
         }
 
         /** Why a candidate is not the bull. Empty means it is still in the running. */
@@ -58,6 +86,7 @@ namespace bull_processing
         BoardSighting measureBoardFrom(const vector<vector<Point>> &contours,
                                        const vector<Vec4i> &hierarchy,
                                        const Point &frameCenter,
+                                       const Size &frameSize,
                                        const BullParams &params)
         {
             BoardSighting board;
@@ -95,6 +124,42 @@ namespace bull_processing
             }
 
             board.area = boardArea;
+
+            // The stage as it stood before #1340, kept whole and reachable at run time.
+            // Nothing below this branch is shared with it on purpose: the radius, the
+            // centre AND the refusal all moved, and a falsifier that restored one of the
+            // three would be measuring a state this repository never shipped.
+            if (boardMeasuredAgainstTheFrame())
+            {
+                // The retired constant, kept HERE and only for this branch, the way
+                // roi_processing keeps ADR-0079 §1's four hand-fitted numbers for
+                // OD_ROI=frame. It is deliberately NOT back on BullParams: color_processing
+                // still carries a floor of this name and this value for a different
+                // question, and #1340's whole point is that the two stages parted company.
+                // A twin on BullParams would be a number somebody would try to keep in
+                // step with it.
+                const double retiredMinBoardAreaPercent = 0.04;
+                const double frameArea = static_cast<double>(frameSize.width) * frameSize.height;
+                const double minBoardArea = frameArea * retiredMinBoardAreaPercent;
+                if (boardIndex < 0 || boardArea < minBoardArea)
+                {
+                    board.failure = "OD_BOARD=frame, so the board cannot be measured: the largest "
+                                    "red/green region encloses " +
+                                    to_string(static_cast<long>(boardArea)) + " pixels and a board this stage can " +
+                                    "size a bull against has to enclose at least " + to_string(static_cast<long>(minBoardArea)) +
+                                    " (" + decimals(retiredMinBoardAreaPercent * 100.0, 1) + "% of the frame)";
+                    return board;
+                }
+                board.found = true;
+                board.radius = discRadius(boardArea);
+                const Moments boardMoments = moments(contours[boardIndex]);
+                board.center = (boardMoments.m00 > 0)
+                                   ? Point(static_cast<int>(boardMoments.m10 / boardMoments.m00),
+                                           static_cast<int>(boardMoments.m01 / boardMoments.m00))
+                                   : frameCenter;
+                return board;
+            }
+
             const double minBoardRadius = params.minBoardRadius();
             const double smallestBullOfBoard = params.bullRadiusOfBoardRadius * params.minBullRadiusFactor;
             if (boardIndex < 0 || boardSpan < minBoardRadius)
@@ -134,7 +199,7 @@ namespace bull_processing
         vector<Vec4i> hierarchy;
         findContours(binaryMask, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
 
-        return measureBoardFrom(contours, hierarchy, frameCenter, params);
+        return measureBoardFrom(contours, hierarchy, frameCenter, redGreenFrame.size(), params);
     }
 
     BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
@@ -176,7 +241,7 @@ namespace bull_processing
         // nothing has yet had a chance to cut a board's edge off. This call is the same
         // measurement on the frame that came back out of the region calibration then drew
         // around what it found, so a board that reaches this stage is a whole one.
-        const BoardSighting board = measureBoardFrom(contours, hierarchy, frameCenter, params);
+        const BoardSighting board = measureBoardFrom(contours, hierarchy, frameCenter, redGreenFrame.size(), params);
         const double boardArea = board.area;
         if (!board.found)
         {
