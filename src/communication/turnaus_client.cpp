@@ -3,6 +3,8 @@
 #include "../utils/od_paths.hpp"
 #include <nlohmann/json.hpp>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <random>
 #include <fstream>
 #include <sstream>
@@ -18,6 +20,38 @@ namespace
      * measured about it.
      */
     const uint64_t kStalenessHorizonMs = 15ULL * 60ULL * 1000ULL;
+
+    /**
+     * #1366: `v` at `places` decimal places, as the double whose shortest round-trip
+     * spelling IS those places.
+     *
+     * That second half is the point and it is why this is not cosmetic. nlohmann prints a
+     * double as the shortest decimal that reads back as the same double, so a float
+     * promoted straight into a body prints its whole binary truth: 0.1f becomes
+     * 0.10000000149011612, and the three floats immediately below 360 become
+     * 359.99996948242188 and up -- past `kMaxAngle`, and a 422 that costs the dart. A
+     * value with four decimal places and seven significant digits has exactly one nearest
+     * double, and division here is correctly rounded, so the double this answers prints
+     * back as the four places it was asked for and compares equal to the same four places
+     * parsed on the server.
+     */
+    double atPlaces(double v, int places)
+    {
+        double scale = 1.0;
+        for (int i = 0; i < places; i++)
+        {
+            scale *= 10.0;
+        }
+        return std::round(v * scale) / scale;
+    }
+
+    /** The same four places as a string, for a log line that must name what it refused. */
+    std::string sayPlaces(double v, int places)
+    {
+        char buffer[64];
+        std::snprintf(buffer, sizeof(buffer), "%.*f", places, v);
+        return std::string(buffer);
+    }
 
     /**
      * A ULID, because #821 validates `reference` with Laravel's `ulid` rule: 26
@@ -552,6 +586,97 @@ std::string TurnausClient::newIdempotencyKey()
     return makeUlid();
 }
 
+TurnausClient::DetectionBody TurnausClient::detectionBody(const std::string &reference,
+                                                          const DetectorResult &result)
+{
+    DetectionBody out;
+
+    // The detector publishes MISS where #821's Sector grammar spells None -- measured in a
+    // 1100-cycle run at the mock footage: two of them, refused and uncounted before that
+    // translation -- and it publishes BULL and OUTER where the grammar spells Bull and 25,
+    // which #1347 found the same way by reading: every bull was dropped on the line below.
+    // postableSector is the one seam for all of it.
+    const std::string sector = postableSector(result.score);
+    if (sector.empty())
+    {
+        return out; // no body at all; offer() drops it and counts it
+    }
+
+    json body;
+    body["reference"] = reference;
+    body["sector"] = sector;
+    body["bounced_out"] = false;
+
+    const bool a_miss = sector == "None";
+    const bool whole = result.board_radius_known && result.board_angle_known;
+
+    if (a_miss)
+    {
+        // A miss has no place on the board, by the API's own contract and by #1186's.
+        // Said here rather than assumed of the geometry, because this is the side of the
+        // wire where getting it wrong writes a place into somebody's evening.
+        if (result.board_radius_known || result.board_angle_known)
+        {
+            out.position_withheld = "a miss has no place on the board, so the position this "
+                                    "detection arrived with is not sent";
+        }
+    }
+    else if (whole)
+    {
+        double radius = atPlaces((double)result.board_radius, kPositionPlaces);
+        double angle = atPlaces((double)result.board_angle, kPositionPlaces);
+        if (angle >= 360.0)
+        {
+            // 360 degrees is 0 degrees, and #1365 asks a detector whose arithmetic lands
+            // there to send 0. Reached by rounding rather than by the geometry: the wedge
+            // loop already normalises into [0, 360), but the three floats just below 360
+            // round INTO 360.0000 at the precision that is really kept.
+            angle -= 360.0;
+        }
+        // A rounded -0.0 is a real double and prints with its sign. It validates fine and
+        // reads like a mistake, so it is spelled the way the bull and the 20 are.
+        radius = radius == 0.0 ? std::fabs(radius) : radius;
+        angle = angle == 0.0 ? std::fabs(angle) : angle;
+
+        if (radius >= kMinRadius && radius <= kMaxRadius && angle >= kMinAngle && angle <= kMaxAngle)
+        {
+            body["board_radius"] = radius;
+            body["board_angle"] = angle;
+            out.carries_position = true;
+        }
+        else
+        {
+            // Nothing in today's geometry reaches here -- score_processing answers MISS and
+            // clears the board fields before the radial ruler is read for a tip outside the
+            // double, and the angle is normalised -- so this is the door held open for the
+            // next change to that code. It costs the position and never the dart: a body
+            // the door refuses is a 422, and deliver() drops a 422 rather than retrying it.
+            out.position_out_of_bounds = true;
+            out.position_withheld =
+                "the door admits a radius in [" + sayPlaces(kMinRadius, 1) + ", " + sayPlaces(kMaxRadius, 1) +
+                "] and an angle in [" + sayPlaces(kMinAngle, 1) + ", " + sayPlaces(kMaxAngle, kPositionPlaces) +
+                "], and this dart reads radius=" + sayPlaces(radius, kPositionPlaces) +
+                " angle=" + sayPlaces(angle, kPositionPlaces) +
+                ". Sending it would be a 422, which is not retried -- so the dart goes without it";
+        }
+    }
+    else if (result.board_radius_known || result.board_angle_known)
+    {
+        // Half a polar position is not a position. `PushedPosition::rules()` is
+        // `required_with` beside `nullable`, so a radius with a null angle is refused
+        // exactly as a radius with the angle key missing is -- there is no "send what is
+        // known" here. This is an ordinary state rather than a fault: a bull scored on a
+        // camera with no measured orientation has a radius and no wedge to place it in.
+        out.position_withheld =
+            std::string("only the ") + (result.board_radius_known ? "radius" : "angle") +
+            " is known, and half a polar position is refused by the door as surely as none "
+            "is, so this dart goes without a position";
+    }
+
+    out.json = body.dump();
+    return out;
+}
+
 bool TurnausClient::offer(const DetectorResult &result)
 {
     if (!paired_ || !running_)
@@ -630,26 +755,36 @@ bool TurnausClient::offer(const DetectorResult &result)
     }
     else
     {
-        // The detector publishes MISS where #821's Sector grammar spells None -- measured
-        // in a 1100-cycle run at the mock footage: two of them, refused and uncounted
-        // before that translation -- and it publishes BULL and OUTER where the grammar
-        // spells Bull and 25, which #1347 found the same way by reading: every bull was
-        // dropped on the line below. postableSector is the one seam for all of it.
-        std::string sector = postableSector(result.score);
-        if (sector.empty())
+        // #1366: every byte of the body is decided in detectionBody(), which is pure and
+        // is where the board position goes in. It has to be built HERE and not at the
+        // POST, because #822 rule 3 posts these same bytes for ever -- a field added at
+        // the POST is a field every spooled dart loses.
+        const std::string reference = newIdempotencyKey();
+        const DetectionBody built = detectionBody(reference, result);
+        if (built.json.empty())
         {
             // A 422 is not something a retry improves, so it does not enter the queue.
             dropped_++;
             log_warning("TURNAUS: not posting an unpostable sector '" + result.score + "'");
             return false;
         }
-        json body;
-        body["reference"] = newIdempotencyKey();
-        body["sector"] = sector;
-        body["bounced_out"] = false;
-        item.idempotency_key = body["reference"];
+        if (!built.position_withheld.empty())
+        {
+            // Out of bounds is a surprise and is said out loud; a half-known position is
+            // an ordinary reading of an ordinary board and would be noise at every bull
+            // scored without a measured orientation.
+            if (built.position_out_of_bounds)
+            {
+                log_warning("TURNAUS: " + built.position_withheld);
+            }
+            else
+            {
+                log_debug("TURNAUS: " + built.position_withheld);
+            }
+        }
+        item.idempotency_key = reference;
         item.path = detectionsPath(item.binding);
-        item.body = body.dump();
+        item.body = built.json;
     }
 
     {
