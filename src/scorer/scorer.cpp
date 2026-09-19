@@ -192,7 +192,18 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
 
     // Acquire the frames the detector calibrates on. The detector is handed frames; it is
     // not handed the capture.
+    //
+    // #1445: and a way to be handed another one, which is the same sentence rather than an
+    // exception to it. `capture` stays here; what crosses the boundary is a function that
+    // answers with frames of the type the line below already produces, and a detector can
+    // do nothing with it but ask for another picture -- it cannot open, close, re-aim or
+    // even name a camera. The offer is made before `initialize` because looking again is
+    // part of calibrating, not something that happens to a calibrated board: nothing may
+    // reach for this once the geometry is sealed, and `lookAgainAtRefusedCameras` refuses
+    // to run if anything tries (ADR-0080 §2).
     log_info("Capturing frames for calibration...");
+    detector->offerFurtherLooks([this]
+                                { return capture->read(); });
     vector<camera::Frame> calibration_frames = capture->readAveraged(30);
 
     // Initialize detector

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <functional>
 #include <vector>
 #include "../detector_interface.hpp"
 #include "calibration/geometry_calibration.hpp"
@@ -31,6 +32,14 @@ public:
     // #1338: the census this detector decided, for whoever has to print it.
     virtual string scoringWith() const override { return scoring_with; }
 
+    // #1445: where another look comes from, for a camera the averaged frame refused.
+    // Held, not called, until `initialize` has been through its first pass -- and never
+    // called at all once the geometry is sealed. See `lookAgainAtRefusedCameras`.
+    virtual void offerFurtherLooks(function<vector<camera::Frame>()> look) override
+    {
+        further_look = std::move(look);
+    }
+
     // #1388: empty while `calibrations` is still what `initialize` sealed, or the two
     // lines that differ. See detector_interface.hpp for why anything asks.
     virtual string geometryBreach() const override;
@@ -39,6 +48,25 @@ protected:
     // #1363: apply OD_CAMERA_WEDGES -- the operator's stated orientation anchors -- to
     // the calibrations this start holds. Called on both the fresh and the cached path.
     void applyConfiguredAnchors();
+
+    /**
+     * #1445: look again at the cameras this start's averaged frame refused, and fill a
+     * slot that is still empty.
+     *
+     * Called from `initialize`, on the measuring path only, between
+     * `calibrateMultipleCameras` and the gate that counts what it produced -- which is to
+     * say BEFORE `sealed_geometry` is taken. That position is the whole argument that
+     * this is not the adoption ADR-0080 §2 refuses, and it is checked rather than
+     * asserted: the function refuses to run at all once the seal exists.
+     *
+     * IT ONLY EVER FILLS AN EMPTY SLOT. A camera whose `sees_board` is true is not looked
+     * at, is not re-read and cannot be overwritten, so the geometry this board ends up
+     * sealing contains every measurement the first pass made, unchanged, plus measurements
+     * for cameras that had none. A first calibration for a camera that never calibrated is
+     * a different act from re-calibrating one that did, and this is where that sentence is
+     * enforced rather than promised.
+     */
+    void lookAgainAtRefusedCameras();
 
     bool initialized;
     bool calibrated;
@@ -64,6 +92,11 @@ protected:
     // Empty means `initialize` has not finished. A detector that never sealed cannot be
     // in breach, because it has not been given anything to depart from.
     string sealed_geometry;
+
+    // #1445: the offer from whoever owns the cameras, or nothing. A detector handed no
+    // offer -- every unit test, and any caller that calibrates from a still -- looks once
+    // and behaves exactly as it did before this issue.
+    function<vector<camera::Frame>()> further_look;
 
     // #1339: each camera's board, in that camera's slot, as the motion stage wants it.
     // Derived from `calibrations` rather than stored beside it, so there is one answer
