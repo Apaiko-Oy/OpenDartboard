@@ -313,28 +313,31 @@ namespace color_processing
         // `boardCenter` is the centroid of. It is the span and not the board, and which
         // ring it lands on is known rather than assumed -- `roi_processing::ROIParams`
         // measured it on both fixtures and it is the doubles ring on one and the treble
-        // ring on the other. That is why the three OUTER windows are drawn against
-        // `boardSpan * boardRadiusOfBoardSpan` and the inner one against the span itself;
-        // the header carries the argument for each.
+        // ring on the other. THREE of the four windows move; the outer cutoff is left on
+        // the frame because that ambiguity breaks it in both directions at once, and
+        // `ColorParams::maxDistanceFromCenter` carries the measurement that says so.
         //
         // Where no board could be measured, the windows are the frame's, exactly as they
         // were before this issue -- the same fallback, and the same sentence in the log,
         // that #1323 established for the centre they are drawn around.
         double bullsEyeWindow = 0.0, centralityWindow = 0.0, farWindow = 0.0, connectivityWindow = 0.0;
         bool windowsOnBoard = boardMeasured && boardSpan > 0.0f && !windowsDrawnOnTheFrame();
+        // The outer cutoff is on the frame under BOTH rules and always has been: it is the
+        // one window of the four whose board-radii stop cannot be converted into this
+        // stage's only length without breaking one fixture or the other, and
+        // `ColorParams::maxDistanceFromCenter` carries both sets of numbers.
+        farWindow = enhancedMask.cols * params.maxDistanceFromCenter / 2;
         if (windowsOnBoard)
         {
             const double boardRadius = boardSpan * params.boardRadiusOfBoardSpan;
             bullsEyeWindow = boardSpan * params.bullsEyeOfBoardSpan;
             centralityWindow = boardRadius * params.centralityOfBoardRadius;
-            farWindow = boardRadius * params.maxDistanceOfBoardRadius;
             connectivityWindow = boardRadius * params.connectivityOfBoardRadius;
         }
         else
         {
             bullsEyeWindow = enhancedMask.cols * params.bullsEyeThreshold;
             centralityWindow = enhancedMask.cols * params.centralityThreshold;
-            farWindow = enhancedMask.cols * params.maxDistanceFromCenter / 2;
             connectivityWindow = enhancedMask.cols * params.connectivityThreshold;
         }
 
@@ -370,6 +373,11 @@ namespace color_processing
         // window doing the work says which components and how many pixels.
         int decidesN[4] = {0, 0, 0, 0}, decidesPx[4] = {0, 0, 0, 0};
         int admitsN[4] = {0, 0, 0, 0}, admitsPx[4] = {0, 0, 0, 0};
+        // WHERE the decided components are, which is the half of the census that says
+        // whether a widened window admits ring or room. A distance in spans is the only
+        // reading that means the same thing on two rigs: `boardSpan` is the radius of the
+        // smallest circle around everything this camera sees as one coloured region.
+        vector<string> decided[4];
 
         for (int i = 1; i < nLabels; i++)
         {
@@ -462,6 +470,27 @@ namespace color_processing
                             admitsN[k]++;
                             admitsPx[k] += area;
                         }
+                        // The big ones by name. A 5791 px blob admitted at 1.3 spans is a
+                        // finding; forty 60 px specks are the noise floor this stage exists
+                        // to remove, and listing them would bury it.
+                        if (area >= 400 && decided[k].size() < 8)
+                        {
+                            string verdict = "DROPPED";
+                            if (keep)
+                            {
+                                verdict = "kept";
+                            }
+                            string spans = "n/a";
+                            if (boardSpan > 0.0f)
+                            {
+                                spans = decimals(distToCenter / boardSpan, 2);
+                            }
+                            decided[k].push_back(verdict + " " + to_string(area) + " px at (" +
+                                                 to_string((int)lround(componentCenter.x)) + "," +
+                                                 to_string((int)lround(componentCenter.y)) + "), " +
+                                                 to_string((int)lround(distToCenter)) + " px out = " +
+                                                 spans + " spans");
+                        }
                     }
                 }
             }
@@ -501,6 +530,10 @@ namespace color_processing
                           to_string(decidesN[k]) + " of " + to_string(nLabels - 1) + " components (" +
                           to_string(decidesPx[k]) + " px), keeping " + to_string(admitsN[k]) + " of them (" +
                           to_string(admitsPx[k]) + " px)";
+                for (size_t d = 0; d < decided[k].size(); d++)
+                {
+                    census += " [" + decided[k][d] + "]";
+                }
             }
             log_debug("Camera " + log_string(camera_idx + 1) + " colour windows kept " +
                       log_string(countNonZero(filteredMask)) + " px of " +
