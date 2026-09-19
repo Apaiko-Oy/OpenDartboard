@@ -189,7 +189,27 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     // operator does ask, the board says on that start that it did not look at the picture
     // and how old the geometry it is scoring with is.
     calibrations = cache::geometry::load(initial_frames);
-    if (!calibrations.empty())
+
+    // #1372: WHERE THE GEOMETRY CAME FROM IS THE ONLY THING THIS FLAG DECIDES.
+    //
+    // Until #1372 the branch below was a second, shorter `initialize`: it loaded the file,
+    // applied the anchors, set `calibrated = true` and RETURNED -- so a board that came up
+    // on a cached calibration was asked neither of the two arithmetics further down. Not
+    // whyNoEventIsPossible (#1338, as amended by #1348), and not whyNoStateChangeIsPossible
+    // (#1348). A board restarted on a cache could therefore beat READY while unable to
+    // score a single dart, which is the exact state #1338 exists to refuse, and nothing in
+    // the program would have said a word about it.
+    //
+    // The repair is structural rather than a copy of the gate into this branch, and that is
+    // the point of the issue rather than a preference. A copied rule is two rules that
+    // agree today: #1353 moved `min_cameras_for_event` and #1348 had to chase the
+    // consequence one stage on, and a second copy of the census here is exactly what that
+    // chase would have missed. So this branch now produces `calibrations` and nothing else,
+    // which is all the measuring branch below it produces either, and BOTH fall into one
+    // gate that counts the cameras, asks both arithmetics, writes `scoring_with` and
+    // records the fault. There is one `calibrated =` in this function.
+    const bool from_cache = !calibrations.empty();
+    if (from_cache)
     {
         uint64_t written = 0;
         for (const auto &calibration : calibrations)
@@ -207,25 +227,81 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
         // Load background frames
         background_frames = cache::geometry::loadBackgroundFrames();
 
+        // #1372: a cached calibration for a camera that produced no frame THIS start is a
+        // camera that did not calibrate this start, and it is written down as one here so
+        // that the census below can be asked of `calibrations` alone -- the same question,
+        // off the same field, whichever branch filled it in.
+        //
+        // The measuring branch gets this for free: calibrateMultipleCameras leaves
+        // `sees_board` false for an empty frame and says so by name. The file cannot,
+        // because it was written on a start where that camera was answering. Left alone it
+        // is the one way the two populations could differ: a silent camera would carry a
+        // cached board into `voting`, and both quorums would be measured against a camera
+        // that can never spike and never vote, which is the very over-count #1348 separated
+        // the three populations to stop.
+        //
+        // NOTE for a reviewer, and it is the thing to argue with: this writes a camera off
+        // for the life of the run on the strength of the calibration frames, exactly as the
+        // measuring branch does. A camera that is unplugged at start and plugged back in
+        // during the evening is therefore not counted here -- #899's review is what brings
+        // a board back, not this function.
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            if (!calibrations[i].sees_board)
+            {
+                continue;
+            }
+            if (i >= initial_frames.size() || initial_frames[i].empty())
+            {
+                log_warning("Camera " + to_string(i + 1) + " produced no frame this start, so the "
+                            "cached calibration for it cannot be scored with; that camera abstains");
+                calibrations[i].sees_board = false;
+            }
+        }
+
         // #1363: the operator's anchors apply to a cached calibration exactly as to a
         // fresh one -- the cache holds measurement, the statement lives in configuration.
         applyConfiguredAnchors();
 
-        // set initialized and calibrated
-        initialized = true;
-        calibrated = true;
-        return true;
+        // ---- #1372 instrumentation, and NOT a feature. The same shape as OD_DROP_CAM and
+        // OD_BLIND_AFTER, and named so that nobody can read it as a choice an operator has
+        // to make. It restores this branch to exactly what it was before this issue: the
+        // board admitted on the strength of the file, with neither arithmetic asked.
+        //
+        // #1348 had a real flag to falsify against, OD_STATE_QUORUM. There is no real flag
+        // here -- what #1372 changed is a control-flow fact, not a rule with a constant --
+        // so the only way to show that the gate is what refuses the board is to make the
+        // gate unreachable on this path and watch the same binary, on the same footage,
+        // beat READY again. Without this, the harness's refusal is a claim about a build.
+        const char *skip = getenv("OD_CACHE_SKIPS_THE_GATE");
+        if (skip && string(skip) == "1")
+        {
+            log_warning("OD_CACHE_SKIPS_THE_GATE is set: this start is admitted on the cached "
+                        "calibration alone, as it was before #1372, and no arithmetic has been "
+                        "asked about whether it can score");
+            initialized = true;
+            calibrated = true;
+            return true;
+        }
     }
 
-    if (camera::validCount(calibration_frames) > 0)
+    // #1372: one gate, two sources. `from_cache` short-circuits the frame count because a
+    // cache that loaded at all was already checked against this run's frames in
+    // cache::geometry::load -- the camera count and every answering camera's resolution --
+    // and the board it describes is a thing this board can be refused for, which is what
+    // the gate is for.
+    if (from_cache || camera::validCount(calibration_frames) > 0)
     {
-        log_info("Performing immediate calibration...");
+        if (!from_cache)
+        {
+            log_info("Performing immediate calibration...");
 
-        calibrations = geometry_calibration::calibrateMultipleCameras(
-            initial_frames,
-            debug_mode,
-            target_width,
-            target_height);
+            calibrations = geometry_calibration::calibrateMultipleCameras(
+                initial_frames,
+                debug_mode,
+                target_width,
+                target_height);
+        }
 
         // #1318, standing on 74be46f rather than reverting it. That commit replaced
         // `calibrated = !calibrations.empty()` -- one object per non-empty frame counted
@@ -386,15 +462,33 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                                    ? " (" + to_string(camera_slots - seeing) + " not looking at the dartboard)"
                                    : ""));
 
+        // #1372: the two refusals below are the same refusal, and they name their subject
+        // so that an operator reading a log knows whether to go and look at the cameras or
+        // to delete cache/. `board_sight::recordFault` is handed the arithmetic sentence
+        // alone either way, so BOARD FAULTED reads identically on both paths -- the reason
+        // a board cannot score is a fact about the board, not about where its numbers came
+        // from.
+        const string refusal_opening = from_cache
+                                           ? "The cached calibration cannot be scored with: "
+                                           : "Initial calibration failed: ";
+
         if (calibrated)
         {
-            // Save frames as background (for dart detection)
-            background_frames.clear();
-            for (const auto &frame : initial_frames)
-                background_frames.push_back(frame.clone());
+            if (!from_cache)
+            {
+                // Save frames as background (for dart detection). #1372: the cached branch
+                // already has its backgrounds out of the file, and the frames this start
+                // took are not the frames its geometry was measured on.
+                background_frames.clear();
+                for (const auto &frame : initial_frames)
+                    background_frames.push_back(frame.clone());
+            }
 
-            log_info("Initial calibration completed successfully on " + to_string(seeing) +
-                     " of " + to_string((int)calibrations.size()) + " cameras");
+            // #1372: the same verdict, named for where the geometry came from, because an
+            // operator who passed --reuse-calibration needs to know that the board he is
+            // about to throw at was admitted on a measurement no camera took tonight.
+            log_info(string(from_cache ? "Cached calibration accepted on " : "Initial calibration completed successfully on ") +
+                     to_string(seeing) + " of " + to_string((int)calibrations.size()) + " cameras");
 
             // #1338: a board that is scoring with fewer cameras than it has says so once,
             // here, where the number was decided. It is a WARN rather than an ERROR
@@ -418,21 +512,30 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                             to_string(dart_processing::stateVoteQuorum(voting)) + " of them");
             }
 
-            // Save calibration for future use
-            if (cache::geometry::save(calibrations))
+            // #1372: the file is written by the start that measured it and by no other.
+            // A cached start writing itself back would restamp geometry it never took --
+            // and, since the loop above may have set `sees_board` false on a camera that
+            // was merely quiet tonight, would write that camera off in the file too.
+            if (!from_cache)
             {
-                log_debug("Saved calibration");
-            }
+                // Save calibration for future use
+                if (cache::geometry::save(calibrations))
+                {
+                    log_debug("Saved calibration");
+                }
 
-            // Save background frames for dart detection
-            if (cache::geometry::saveBackgroundFrames(background_frames))
-            {
-                log_debug("Saved background frames");
-            }
+                // Save background frames for dart detection
+                if (cache::geometry::saveBackgroundFrames(background_frames))
+                {
+                    log_debug("Saved background frames");
+                }
 
-            // #1363: after the save, so the cache keeps pure measurement and every
-            // start re-applies the operator's statement from configuration.
-            applyConfiguredAnchors();
+                // #1363: after the save, so the cache keeps pure measurement and every
+                // start re-applies the operator's statement from configuration. The cached
+                // branch applied them before this gate, off the same configuration; the
+                // anchors decide orientation and no part of the census above.
+                applyConfiguredAnchors();
+            }
 
             initialized = true;
             calibrated = true;
@@ -449,7 +552,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // #1318: not "the calibration failed" any more -- every camera was
             // calibrated and every one of them was refused, each on its own line above.
             const string none_named = camera_quorum::namingEachCamera(why_each_camera);
-            log_error("Initial calibration failed: none of the " + to_string((int)calibrations.size()) +
+            // #1372's opening, #1389's naming: the two are about different halves of the
+            // same sentence. Where the numbers came from is #1372's subject, and which
+            // camera failed on what is #1389's, so the refusal carries both.
+            log_error(refusal_opening + "none of the " + to_string((int)calibrations.size()) +
                       " cameras is looking at a dartboard. " + none_named);
             // #1321's sentence, in case the per-camera refusals above recorded nothing
             // -- they will have, unless every camera produced no frame at all. #1389
@@ -494,7 +600,12 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // its own board_look reason on the same line, so the refusal sends somebody
             // to the USB bus or to the aim rather than to a ratio.
             const string named = camera_quorum::namingEachCamera(why_each_camera);
-            log_error("Initial calibration failed: " + why + ". " + named);
+            // #1372's opening again. `recordFault` is deliberately NOT given it: the
+            // reason a board cannot score is a fact about the board, not about whether
+            // its numbers came out of cache/, so BOARD FAULTED reads identically on both
+            // paths. #1389's per-camera naming does go into the fault detail, because
+            // that IS a fact about the board.
+            log_error(refusal_opening + why + ". " + named);
             board_sight::recordFault(why + ". " + named);
             initialized = false;
             calibrated = false;
