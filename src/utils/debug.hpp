@@ -92,6 +92,11 @@ namespace debug
         std::cout << "  --reuse-calibration  Score on the calibration cache/ holds from a previous start instead of\n";
         std::cout << "                       calibrating, saving about eight and a half seconds. Only say this if the\n";
         std::cout << "                       cameras have not been touched since; nothing can check that for you\n";
+        std::cout << "  --clear-geometry-fault\n";
+        std::cout << "                       Clear the recorded geometry fault and exit. A board whose cameras came\n";
+        std::cout << "                       back measuring a rig somewhere other than where it was calibrated -- and\n";
+        std::cout << "                       went on measuring it there -- records that, refuses to calibrate on every\n";
+        std::cout << "                       start afterwards, and says so. Say this once the frame has been looked at\n";
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
         std::cout << "  --log-file <path>    Also append the log to a file (off unless asked for; --debug implies debug_frames/opendartboard.log)\n";

@@ -1,6 +1,7 @@
 #include "scorer/scorer.hpp"
 #include "utils/args.hpp"
 #include "utils/cache.hpp"
+#include "utils/geometry_fault.hpp"
 #include "utils/debug.hpp"
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
@@ -91,6 +92,35 @@ int main(int argc, char **argv)
   // nudged since it was written would score through a perspective that is wrong and looks
   // right. utils/cache.hpp holds the measurement.
   cache::geometry::allowReuse(hasFlag(argc, argv, "--reuse-calibration"));
+
+  // #1388 / ADR-0080 section 4: the operator has looked at the rig. This is the ONLY
+  // thing that clears a recorded geometry fault -- not a restart, not a successful
+  // calibration, not time -- because a frame that has shifted on its bolts is a physical
+  // fault and a board that cleared its own record would be a board deciding it had been
+  // fixed. It exits rather than going on to score, so that what happens next is a start
+  // somebody watched.
+  if (hasFlag(argc, argv, "--clear-geometry-fault"))
+  {
+    const std::string was = geometry_fault::held();
+    if (was.empty())
+    {
+      std::cout << "No geometry fault is recorded at " << geometry_fault::path()
+                << "; there was nothing to clear." << std::endl;
+      return 0;
+    }
+    if (!geometry_fault::clear())
+    {
+      std::cerr << "Could not clear the geometry fault at " << geometry_fault::path()
+                << "; it is still held and this board will still refuse to calibrate."
+                << std::endl;
+      return 1;
+    }
+    std::cout << "Cleared the geometry fault recorded at " << geometry_fault::path()
+              << ". It said: " << was << std::endl;
+    std::cout << "This board will calibrate on the rig as it is now at the next start."
+              << std::endl;
+    return 0;
+  }
   int width = getArg(argc, argv, "--width", 1280);
   int height = getArg(argc, argv, "--height", 720);
   int fps = getArg(argc, argv, "--fps", 15);
