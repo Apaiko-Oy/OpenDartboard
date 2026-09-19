@@ -118,7 +118,7 @@ fi
 echo
 echo "=== B. the budget, against the longest run of consecutive refused looks ==="
 printf "  %-30s %5s %7s %7s %9s\n" clip avg "answers" "of" "worst-run"
-WORST=0; WORST_WHO=""; SILENT=""; RESCUED=0; RESCUABLE=0
+WORST=0; WORST_WHO=""; SILENT=""; RESCUABLE=0
 for f in $FIXTURES; do
   i=-1
   for c in $(clips_of "$f"); do
@@ -142,13 +142,19 @@ for f in $FIXTURES; do
     # The run that a budget has to outlast is measured on cameras that CAN be calibrated,
     # which is the population a retry is spent on.
     [ "$R" -le "$WORST" ] || { WORST="$R"; WORST_WHO="$f/$(basename "$c")"; }
-    if [ "${O:-1}" = 0 ]; then
-      RESCUABLE=$((RESCUABLE + 1))
-      RESCUED=$((RESCUED + 1))
-    fi
+    [ "${O:-1}" = 0 ] && RESCUABLE=$((RESCUABLE + 1))
   done
 done
+# #1388's assertion shape: the budget is a SPAN, and a span is what a disturbance is
+# measured in. A look costs one frame read and one calibration, so the span the budget
+# really covers is looks x spacing frames, and both are converted through the stream's own
+# frame rate rather than through --fps.
+FPS="$(sed -n 's/.*I1445 .* fps=\([0-9.]*\) .*/\1/p' /run1445/a_subject.txt | head -1)"
+FPS="${FPS:-30}"
+WORST_S="$(awk -v r="$WORST" -v s="$SPACING" -v f="$FPS" 'BEGIN{printf "%.2f", (f>0)? r*s/f : 0}')"
+SPAN_S="$(awk -v l="$LOOKS" -v s="$SPACING" -v f="$FPS" 'BEGIN{printf "%.2f", (f>0)? l*s/f : 0}')"
 echo "  the longest run of consecutive refused looks on any camera that answers: $WORST (${WORST_WHO:-none})"
+echo "  at $FPS fps and $SPACING cycles a look, that run is ${WORST_S}s and the whole budget spans ${SPAN_S}s"
 echo "  cameras whose AVERAGED frame is refused while single frames answer: $RESCUABLE"
 if [ -n "$SILENT" ]; then
   echo "  clips that answered at no look in the window (not a budget question, #1437's):$SILENT"
@@ -158,7 +164,7 @@ if [ "$RESCUABLE" = 0 ]; then
 elif [ "$LOOKS" -le "$WORST" ]; then
   say "FAIL the budget is $LOOKS looks and the longest run of consecutive refused looks measured here is $WORST ($WORST_WHO); a budget that does not outlast the observed disturbance is a camera set aside for the evening" no
 else
-  say "OK   $LOOKS looks against a longest observed run of $WORST ($WORST_WHO) -- the budget outlasts the disturbance it was sized against, with $((LOOKS - WORST)) to spare" ok
+  say "OK   $LOOKS looks (${SPAN_S}s) against a longest observed run of $WORST (${WORST_S}s, $WORST_WHO) -- the budget outlasts the disturbance it was sized against, with $((LOOKS - WORST)) looks to spare" ok
 fi
 
 # ---- the detector runs ----------------------------------------------------------------
