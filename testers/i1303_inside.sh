@@ -19,11 +19,15 @@ PY
   SRC=/tmp/mutated
 fi
 
-g++ -O1 -std=c++17 -Wall -Wextra -I "$SRC" \
+# #1306 gave the launcher a manifest to read and a network to read it over, so it now
+# shares nlohmann and httplib with the detector. They come from the worktree's own CMake
+# build, as #1305's check already took them.
+DEPS="-I /app/build/_deps/nlohmann_json-src/include -I /app/build/_deps/httplib-src"
+g++ -O1 -std=c++17 -Wall -Wextra -I "$SRC" $DEPS \
     /app/testers/i1303_launcher_check.cpp -o "$WORK/check" || { echo COMPILE_FAILED; exit 2; }
 g++ -O1 -std=c++17 -Wall -Wextra \
     /app/testers/i1303_stub.cpp -o "$WORK/stub" || { echo COMPILE_FAILED; exit 2; }
-g++ -O1 -std=c++17 -Wall -Wextra -I "$SRC" \
+g++ -O1 -std=c++17 -Wall -Wextra -I "$SRC" $DEPS \
     "$SRC/launcher/main.cpp" -o "$WORK/launcher" || { echo COMPILE_FAILED; exit 2; }
 
 FAILURES=0

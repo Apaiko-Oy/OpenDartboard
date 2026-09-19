@@ -143,13 +143,28 @@ if(MSVC)
 endif()
 
 target_compile_features(opendartboard PRIVATE cxx_std_17)
-# ---------------------------------------------------------- the launcher (#1303)
+# ---------------------------------------------------------- the launcher (#1303, #1306)
 # ADR-0077 §1: a board's program is two files. This is the small one -- what a shortcut
-# points at, what a tester double-clicks, and what stays on screen to say why the
-# detector stopped. It links nothing at all: no OpenCV, no httplib, no json, nothing but
-# what the CRT already brings. So it builds in seconds, it cannot be broken by a change
-# to the detector's dependencies, and it keeps the one-file property #1299 asserts --
-# there is no second DLL to put beside it.
+# points at, what a tester double-clicks, what stays on screen to say why the detector
+# stopped, and, since #1306, what applies an update and can go back to the version that
+# worked.
+#
+# WHAT IT LINKS, AND WHAT THAT COST. #1303 wrote here that it links nothing at all: no
+# OpenCV, no httplib, no json. #1306 had to reach the network and verify a signature, so
+# it now carries three things and no OpenCV:
+#
+#   nlohmann_json   header-only, already fetched for the detector. Nothing is linked.
+#   winhttp.lib     the transport the detector already uses on Windows. winhttp.dll is an
+#                   in-box Windows DLL, so TLS still costs the artefact nothing.
+#   bcrypt.lib      ECDSA P-256 through CNG (ADR-0077 §2), which is why this fork vendors
+#                   no cryptography. bcrypt.dll is in-box too.
+#
+# The property #1299 asserts is therefore untouched: `dumpbin /dependents` on the launcher
+# names only DLLs that ship with Windows, there is still no second file to put beside it,
+# and release.yml's census already reads the launcher as well as the detector. What is
+# genuinely gone is "it cannot be broken by a change to the detector's dependencies" --
+# it now shares nlohmann with it, which is the price of reading the same manifest the
+# detector's --check-update reads, from the same header, with the same refusals.
 #
 # `cmake --build` builds every target, so scripts\build-windows.bat produces both
 # executables with no change to how it is called.
@@ -173,6 +188,14 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
         NOMINMAX
         _CRT_SECURE_NO_WARNINGS
+    )
+
+    # #1306. nlohmann is the detector's own dependency and is linked as an interface
+    # target, so nothing is compiled twice; winhttp and bcrypt are in-box Windows DLLs.
+    target_link_libraries(opendartboard-launcher PRIVATE
+        nlohmann_json::nlohmann_json
+        winhttp
+        bcrypt
     )
 
     target_compile_features(opendartboard-launcher PRIVATE cxx_std_17)
