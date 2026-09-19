@@ -2,13 +2,15 @@
 
 #include <cmath>
 #include <string>
+#include <vector>
 
 #include "geometry_calibration.hpp"
 
 // #899: whether the board in front of a camera now is the board that camera was
 // calibrated on.
 //
-// This file holds one comparison and no policy. The policy -- what a board does about a
+// #1388 added a second comparison of the same kind, `fingerprint`, and its docblock says
+// what it is for. This file still holds comparisons and no policy. The policy -- what a board does about a
 // camera that stopped answering -- is in scorer.cpp, where the lifecycle is. What is
 // here is the only question that lifecycle cannot answer for itself: a camera has come
 // back, a fresh calibration has been taken from it, and somebody has to say whether the
@@ -143,6 +145,62 @@ namespace geometry_agreement
         }
 
         return movement;
+    }
+
+    /**
+     * #1388: the geometry the board is scoring with, reduced to one line.
+     *
+     * The second question this file answers, and it is the same KIND of question as the
+     * first -- two calibrations, are they the same rig -- asked of a different pair.
+     * `measure` above compares the held calibration against a fresh one taken from the
+     * camera; this compares the held calibration against ITSELF as it was when the board
+     * was calibrated. It is a comparison and not a policy: what a board does about a
+     * geometry that changed under it is scorer.cpp's, like everything else in the
+     * lifecycle.
+     *
+     * WHY IT EXISTS. ADR-0080 keeps #899's whole protection -- a board never scores on
+     * geometry that has not been confirmed -- while making a `Moved` verdict survivable.
+     * That is one sentence in the ADR and a standing obligation in the code: after #1388
+     * a board recovers from a disagreement and goes on scoring, so "it resumed on the
+     * geometry it held" stopped being obvious from the control flow and became something
+     * that has to be checked. A test can only check it if there is something to read,
+     * and this is it: seal the line at the end of `initialize`, read it on every cycle,
+     * and a board scoring on anything but the calibration it started with says so by
+     * name instead of scoring quietly.
+     *
+     * WHAT IS IN IT. Every field a dart's score is derived from and nothing else -- the
+     * bull the score is measured from, the angle the wedges are counted from, the size of
+     * the ring the radius is taken as a fraction of, the slot's own camera index, and
+     * whether the slot is scoring at all. Those are exactly the fields `measure` reads,
+     * which is not a coincidence: a change this cannot see is a change that could not put
+     * a dart in the wrong wedge either. It is deliberately NOT a hash of the struct's
+     * bytes: `DartboardCalibration` carries debug-only members and a capture timestamp,
+     * and a line that changes when the timestamp does would be a guard nobody could keep
+     * green.
+     */
+    inline std::string fingerprint(const std::vector<DartboardCalibration> &held)
+    {
+        auto twoPlaces = [](double v)
+        {
+            std::string s = std::to_string(v);
+            const std::string::size_type dot = s.find('.');
+            return dot == std::string::npos ? s : s.substr(0, dot + 3);
+        };
+
+        std::string line;
+        for (size_t i = 0; i < held.size(); i++)
+        {
+            const DartboardCalibration &calibration = held[i];
+            line += (line.empty() ? "" : " | ") + std::string("camera ") + std::to_string(i + 1) +
+                    " index=" + std::to_string(calibration.camera_index) +
+                    " scoring=" + (calibration.sees_board ? "1" : "0") +
+                    " bull=" + std::to_string(calibration.bullCenter.x) + "," +
+                    std::to_string(calibration.bullCenter.y) +
+                    " star=" + (calibration.orientation.isStarCamera ? "1" : "0") +
+                    " angle=" + twoPlaces((double)calibration.orientation.angleOffsetFromSouth) +
+                    " radius=" + twoPlaces(meanRadius(calibration));
+        }
+        return line.empty() ? std::string("no camera holds a calibration") : line;
     }
 
     /** Whether this movement is past any of the tolerances it can be judged against. */

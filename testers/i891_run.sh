@@ -14,7 +14,7 @@ RUN="$BASE/$LABEL"
 # cannot remove them. Reap the directory from a container instead, and never leave a
 # previous run's cache or spool where this one would read it.
 if [ -d "$RUN" ]; then
-  docker run --rm --name "$(od_name "891-clean-$LABEL")" -v "$BASE":/base "$OD_IMAGE" \
+  od_run "891-clean-$LABEL" -v "$BASE":/base "$OD_IMAGE" \
     rm -rf "/base/$LABEL" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -25,7 +25,7 @@ cp "$SCRIPT" "$RUN/inside.sh"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "$(od_name "891-$LABEL")" --cpus=3 -e HOME=/root \
+od_run "891-$LABEL" --cpus=3 -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run891 -v "$RUN/cfg":/root/.config \
   -w /run891 "$OD_IMAGE" bash /run891/inside.sh

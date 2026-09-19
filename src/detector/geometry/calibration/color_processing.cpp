@@ -1,5 +1,7 @@
 #include "color_processing.hpp"
+#include "bull_processing.hpp"
 #include "logging.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -10,6 +12,52 @@ using namespace std;
 
 namespace color_processing
 {
+    namespace
+    {
+        /**
+         * #1394's falsification, in the shape OD_ROI, OD_ROI_MARGIN, OD_BOARD and
+         * OD_BULL_CARVE established: one binary, the rule chosen at run time, so
+         * "different build" is never a confound.
+         *
+         * OD_COLOUR_WINDOWS=frame puts back the four fractions of the FRAME WIDTH this
+         * issue moved -- centralityThreshold, bullsEyeThreshold, maxDistanceFromCenter
+         * and connectivityThreshold, exactly as #1323 left them -- on the same binary
+         * that sizes them off the board. Anything but that exact word is ignored.
+         */
+        /**
+         * #1394's second falsification, the same shape again: OD_BOARD_FLOOR=area puts
+         * back `minBoardAreaPercent`, the 4%-of-the-frame floor this issue replaced, on
+         * the same binary that runs the span floor.
+         */
+        bool boardFlooredOnArea()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_BOARD_FLOOR");
+                return e && std::string(e) == "area";
+            }();
+            return v;
+        }
+
+        bool windowsDrawnOnTheFrame()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_COLOUR_WINDOWS");
+                return e && std::string(e) == "frame";
+            }();
+            return v;
+        }
+
+        /** Two decimals, for a log line that has to carry a ratio. */
+        string decimals(double v, int places)
+        {
+            ostringstream o;
+            o << fixed << setprecision(places) << v;
+            return o.str();
+        }
+    }
+
     Mat processColors(
         const Mat &roiFrame,
         int camera_idx,
@@ -99,6 +147,7 @@ namespace color_processing
 
         // ===== SECTION 5: BULL'S EYE ENHANCEMENT =====
         // After detecting red and green
+        Mat redBeforeSection5 = redMask.clone(); // #1394: what this section ADDS, measured below
         Mat bullsEyeMask = redMask.clone();
         Rect centerRegion(
             roiFrame.cols / 2 - roiFrame.cols / params.bullsEyeRegionSize,
@@ -110,6 +159,8 @@ namespace color_processing
         bullsEyeMask = bullsEyeMask & centerMask;
         dilate(bullsEyeMask, bullsEyeMask, getStructuringElement(MORPH_ELLIPSE, Size(params.bullsEyeDilateKernel, params.bullsEyeDilateKernel)));
         redMask = redMask | bullsEyeMask;
+        Mat section5Added;
+        bitwise_and(redMask, ~redBeforeSection5, section5Added);
 
         // ===== SECTION 6: COMBINE COLORS & INITIAL CLEANING =====
         Mat redGreenMask = redMask | greenMask;
@@ -129,8 +180,10 @@ namespace color_processing
         }
 
         // ===== SECTION 6.5: RING CONNECTION ENHANCEMENT =====
+        Mat beforeSection65;
         {
             // Apply stronger closing to top half where rings are often broken
+            beforeSection65 = enhancedMask.clone(); // #1394: what this repair reaches, measured below
             int topHeight = enhancedMask.rows / 2;
             Rect topRegion(0, 0, enhancedMask.cols, topHeight);
             Mat topMask = enhancedMask(topRegion).clone();
@@ -202,11 +255,53 @@ namespace color_processing
         // and falls back to the middle of the frame, which is the behaviour that shipped
         // before this issue.
         //
-        // What is NOT moved: SECTION 5's bull's-eye enhancement is a frame-centred
-        // window too, and it runs before anything here has measured anything. It only
-        // ever ADDS pixels to the red mask, so it cannot drop a bull, and its dilation
-        // is part of what #1320's bull-to-board ratios were measured through -- moving
-        // it would move the ground those constants stand on for a gain no camera needs.
+        // WHAT IS NOT MOVED, and #1394's measured reason for each. Three things in this
+        // file are keyed to the frame and stay keyed to the frame: SECTION 2's red ramp
+        // over frame rows, SECTION 5's bull's-eye rectangle at the frame's middle and
+        // SECTION 6.5's ring repair over the frame's top half. All three run BEFORE this
+        // block, so none of them can be moved onto the board without measuring the board
+        // a second time, earlier, from a different mask -- and a second opinion about
+        // where the board is, in the file whose whole subject is where the board is, is
+        // the thing #1320, #1323 and #1340 each spent a slice not introducing. SECTION
+        // 7.15 counts what each of them really does, per camera, so these are numbers
+        // rather than positions.
+        //
+        // SECTION 5's rectangle. It only ever ADDS pixels to the red mask, which is the
+        // reason #1323 gave, and #1394 measured whether the pixels it adds are in the
+        // right place: 1133 to 1555 px of red per camera on both shipped fixtures, and
+        // ZERO of it off the board on any of the six. On #1323's own off-aimed fixture --
+        // the mocks shifted 180 right and 90 low, so the board's middle is 170 px from
+        // the frame's -- it adds 1299 px on the board and 160 px off it, 11% of the add,
+        // and that camera still finds its bull at (796,373) and traces 98 outer points.
+        // Its dilation is also part of what #1320's bull-to-board ratios were measured
+        // through, so moving it would move the ground those constants stand on.
+        //
+        // SECTION 6.5's ring repair. This is the one #1394 tried to move and REVERTED,
+        // and the reason is the strongest measurement in this slice. The miss is real: on
+        // the off-aimed camera 5183 px of the board's own upper half lies below the
+        // frame's middle and is never reached, against 436 px on mocks camera 2. But
+        // moving the repair onto the board needs the board measured before the repair,
+        // and THE REPAIR IS WHAT MAKES THE BOARD MEASURABLE. With this block lifted above
+        // SECTION 6.5 -- the only change needed, nothing else touches `enhancedMask` in
+        // between -- mocks camera 1's largest outermost contour spans 171 px instead of
+        // 289, because the 9x9 closing is what joins its board into one region at all.
+        // On that degraded measurement the mocks fall to 2 of 3 cameras with 4 ERROR/WARN
+        // lines, camera 3 loses its bull outright, camera 2's fitted board moves 173006 px
+        // to 175972, and the off-aimed camera's bull moves from (796,373) to (792,370).
+        // So the repair stays where it is and over the frame's top half, and the 5183 px
+        // is the cost of that, written down rather than argued away.
+        //
+        // SECTION 2's red ramp. It reaches full strength at frame row 0 and #1394
+        // measured how much of its range is actually spent across the board: 62.3%, 69.2%
+        // and 67.6% on the mocks, 41.0% and 41.9% on mocks/rig-20260918, 68.7% on the
+        // off-aimed camera. So on the rig -- the fixture whose board sits smaller in
+        // frame, which is where every constant in this family runs out first -- three
+        // fifths of the ramp is spent on the room. It is also the only one of the three
+        // that cannot be moved even in principle without reordering the stage, because it
+        // builds the red mask the board would have to be measured from. What limits the
+        // damage is what the ramp DOES: it widens the red range, so its cost is extra
+        // candidate blobs, and judging those is the job of the windows above, which are
+        // now drawn on the board.
         const double frameArea = static_cast<double>(enhancedMask.cols) * enhancedMask.rows;
 
         vector<vector<Point>> boardContours;
@@ -225,7 +320,34 @@ namespace color_processing
 
         Point2f boardCenter = imageCenter;
         bool boardMeasured = false;
-        if (boardIndex >= 0 && boardArea >= frameArea * params.minBoardAreaPercent)
+        float boardSpan = 0.0f;
+
+        // #1394: the SPAN of the boundary, measured before it is judged, the way
+        // `bull_processing::measureBoard` measures it one stage later -- the smallest
+        // circle around that contour -- and not in a second way. It is the only length
+        // this stage has: the windows below are fractions of it, and so is the floor that
+        // decides whether there is a board here at all.
+        const double minSpan = bull_processing::BullParams().minBoardRadius();
+        if (boardIndex >= 0)
+        {
+            Point2f spanCentre;
+            minEnclosingCircle(boardContours[boardIndex], spanCentre, boardSpan);
+        }
+
+        bool bigEnough = false;
+        if (boardIndex >= 0)
+        {
+            if (boardFlooredOnArea())
+            {
+                bigEnough = (boardArea >= frameArea * params.minBoardAreaPercent);
+            }
+            else
+            {
+                bigEnough = (boardSpan >= minSpan);
+            }
+        }
+
+        if (bigEnough)
         {
             const Moments boardMoments = moments(boardContours[boardIndex]);
             if (boardMoments.m00 > 0)
@@ -240,8 +362,21 @@ namespace color_processing
             ostringstream share, least;
             share << fixed << setprecision(2) << (frameArea > 0 ? (100.0 * boardArea / frameArea) : 0.0);
             least << fixed << setprecision(2) << (params.minBoardAreaPercent * 100.0);
-            const string where = " the largest coloured region encloses " + to_string(static_cast<long>(boardArea)) +
-                                 " px, " + share.str() + "% of the frame, and a board encloses at least " + least.str() + "%";
+            // #1394: the floor that really decided, with its own two numbers. The area
+            // sentence is kept beside it under both rules, because it is the sentence
+            // #1323's tester reads and because a reader comparing the two floors on one
+            // camera should not have to run the binary twice to see both.
+            string where = " the largest coloured region spans " + to_string((int)lround(boardSpan)) +
+                           " px across its widest, and a board this stage can size a window against spans at least " +
+                           to_string((int)lround(minSpan)) + " px (it encloses " +
+                           to_string(static_cast<long>(boardArea)) + " px, " + share.str() + "% of the frame)";
+            if (boardFlooredOnArea())
+            {
+                where = " OD_BOARD_FLOOR=area, so the largest coloured region encloses " +
+                        to_string(static_cast<long>(boardArea)) + " px, " + share.str() +
+                        "% of the frame, and a board encloses at least " + least.str() + "% (it spans " +
+                        to_string((int)lround(boardSpan)) + " px)";
+            }
             if (boardMeasured)
             {
                 log_debug("Camera " + log_string(camera_idx + 1) + " board measured from the coloured mask:" +
@@ -260,6 +395,195 @@ namespace color_processing
             }
         }
 
+        // ===== SECTION 7.15 (#1394): THE THREE SITES THAT ARE NOT WINDOWS =====
+        //
+        // SECTION 2's red ramp, SECTION 5's bull's-eye rectangle and SECTION 6.5's ring
+        // repair are all keyed to the FRAME -- its rows, its middle, its top half -- and
+        // all three run before anything here has measured anything, so none of them can be
+        // MOVED onto the board without a second board measurement earlier in this
+        // function. What they can be is counted, here, where the board is known: the issue
+        // asks for each of them to be moved or given a measured reason, and a reason is a
+        // number. Nothing below changes a pixel.
+        if (boardMeasured && boardSpan > 0.0f)
+        {
+            Mat onBoard = Mat::zeros(enhancedMask.size(), CV_8UC1);
+            circle(onBoard, Point(cvRound(boardCenter.x), cvRound(boardCenter.y)), cvRound(boardSpan),
+                   Scalar(255), FILLED);
+
+            Mat addedOn, addedOff;
+            bitwise_and(section5Added, onBoard, addedOn);
+            bitwise_and(section5Added, ~onBoard, addedOff);
+
+            // SECTION 6.5 rewrites the top half of the FRAME. Two numbers say what that
+            // costs on this camera: how much of what it changed was not board at all, and
+            // how much of the BOARD's own top half sits below the frame's middle and is
+            // therefore never reached.
+            int repairedOffBoard = 0, boardTopUnrepaired = 0;
+            if (!beforeSection65.empty())
+            {
+                Mat changed;
+                bitwise_xor(enhancedMask, beforeSection65, changed);
+                Mat off;
+                bitwise_and(changed, ~onBoard, off);
+                repairedOffBoard = countNonZero(off);
+
+                Mat boardTop = Mat::zeros(enhancedMask.size(), CV_8UC1);
+                const int top = max(0, cvRound(boardCenter.y - boardSpan));
+                const int mid = cvRound(boardCenter.y);
+                const int half = enhancedMask.rows / 2;
+                if (mid > half)
+                {
+                    Rect unreached(0, max(half, top), enhancedMask.cols,
+                                   min(mid, enhancedMask.rows) - max(half, top));
+                    if (unreached.height > 0)
+                    {
+                        rectangle(boardTop, unreached, Scalar(255), FILLED);
+                        Mat missed;
+                        bitwise_and(boardTop, onBoard, missed);
+                        bitwise_and(missed, beforeSection65, missed);
+                        boardTopUnrepaired = countNonZero(missed);
+                    }
+                }
+            }
+
+            // SECTION 2's ramp runs over the frame's rows and reaches full strength at
+            // frame row 0. What matters is how much of its range is spent ACROSS the
+            // board, which is the only place the lighting gradient it compensates for is
+            // a gradient over a dartboard.
+            auto ramp = [&](int y)
+            {
+                float f = static_cast<float>(enhancedMask.rows - y) / enhancedMask.rows;
+                if (f > 0.5f)
+                {
+                    f = 0.5f + pow(f - 0.5f, 0.8f) * 0.5f;
+                }
+                return f;
+            };
+            const int boardTopRow = max(0, cvRound(boardCenter.y - boardSpan));
+            const int boardBottomRow = min(enhancedMask.rows - 1, cvRound(boardCenter.y + boardSpan));
+            const double rampTop = ramp(boardTopRow), rampBottom = ramp(boardBottomRow);
+
+            log_debug("Camera " + log_string(camera_idx + 1) + " frame-keyed stages, measured against the board: " +
+                      log_string_src(string("SECTION 5's rectangle adds ")) + log_string(countNonZero(addedOn)) +
+                      " px of red on the board and " + log_string(countNonZero(addedOff)) +
+                      " px off it; SECTION 6.5's repair changed " + log_string(repairedOffBoard) +
+                      " px that are not board and left " + log_string(boardTopUnrepaired) +
+                      " px of the board's own upper half below the frame's middle unreached; SECTION 2's ramp runs " +
+                      log_string_src(decimals(rampBottom, 3)) + " to " + log_string_src(decimals(rampTop, 3)) +
+                      " across board rows " + log_string(boardBottomRow) + " to " + log_string(boardTopRow) +
+                      ", which is " + log_string_src(decimals(100.0 * (rampTop - rampBottom), 1)) +
+                      "% of the range it spends on the whole frame");
+        }
+
+        // ===== SECTION 7.2 (#1394): HOW BIG THE WINDOWS ARE =====
+        //
+        // #1323 moved the four distances below onto the board and deliberately left their
+        // SIZE a fraction of the frame's width. A fraction of the frame answers a question
+        // about the lens; every one of these four asks a question about the BOARD -- is
+        // this blob the bull, is it a ring, is it a number or the room -- which is a
+        // distance in board radii. `ColorParams` holds the derivations.
+        //
+        // The length is `boardSpan`: the smallest circle around the same boundary
+        // `boardCenter` is the centroid of. It is the span and not the board, and which
+        // ring it lands on is known rather than assumed -- `roi_processing::ROIParams`
+        // measured it on both fixtures and it is the doubles ring on one and the treble
+        // ring on the other. THREE of the four windows move; the outer cutoff is left on
+        // the frame because that ambiguity breaks it in both directions at once, and
+        // `ColorParams::maxDistanceFromCenter` carries the measurement that says so.
+        //
+        // Where no board could be measured, the windows are the frame's, exactly as they
+        // were before this issue -- the same fallback, and the same sentence in the log,
+        // that #1323 established for the centre they are drawn around.
+        double bullsEyeWindow = 0.0, centralityWindow = 0.0, farWindow = 0.0, connectivityWindow = 0.0;
+        bool windowsOnBoard = boardMeasured && boardSpan > 0.0f && !windowsDrawnOnTheFrame();
+        // The outer cutoff is on the frame under BOTH rules and always has been: it is the
+        // one window of the four whose board-radii stop cannot be converted into this
+        // stage's only length without breaking one fixture or the other, and
+        // `ColorParams::maxDistanceFromCenter` carries both sets of numbers.
+        farWindow = enhancedMask.cols * params.maxDistanceFromCenter / 2;
+        if (windowsOnBoard)
+        {
+            const double boardRadius = boardSpan * params.boardRadiusOfBoardSpan;
+            bullsEyeWindow = boardSpan * params.bullsEyeOfBoardSpan;
+            centralityWindow = boardRadius * params.centralityOfBoardRadius;
+            connectivityWindow = boardRadius * params.connectivityOfBoardRadius;
+        }
+        else
+        {
+            bullsEyeWindow = enhancedMask.cols * params.bullsEyeThreshold;
+            centralityWindow = enhancedMask.cols * params.centralityThreshold;
+            connectivityWindow = enhancedMask.cols * params.connectivityThreshold;
+        }
+
+        {
+            // Both rules on the line whichever chose, because until #1394 nothing anywhere
+            // printed either, and the four numbers a camera really used are the only way to
+            // read the census below. No ternary reaches log_string_src: `+` binds tighter
+            // than `?:`, so a ternary handed to that macro is pointer arithmetic on a string
+            // literal and always takes its first branch (#1393 shipped one and caught it).
+            string rule = "the FRAME's width";
+            if (windowsOnBoard)
+            {
+                rule = "a board spanning " + to_string((int)lround(boardSpan)) + " px";
+            }
+            log_debug("Camera " + log_string(camera_idx + 1) + " colour windows off " + log_string_src(rule) +
+                      ": bull's-eye " + log_string((int)lround(bullsEyeWindow)) + " px, centrality " +
+                      log_string((int)lround(centralityWindow)) + " px, outer cutoff " +
+                      log_string((int)lround(farWindow)) + " px, connectivity " +
+                      log_string((int)lround(connectivityWindow)) +
+                      " px; under the frame rule they are " +
+                      log_string((int)lround(enhancedMask.cols * params.bullsEyeThreshold)) + ", " +
+                      log_string((int)lround(enhancedMask.cols * params.centralityThreshold)) + ", " +
+                      log_string((int)lround(enhancedMask.cols * params.maxDistanceFromCenter / 2)) + " and " +
+                      log_string((int)lround(enhancedMask.cols * params.connectivityThreshold)) +
+                      " px on every camera, every rig and every mounting");
+        }
+
+        {
+            // #1323's own measurement, reproduced here rather than quoted, because #1394
+            // shrinks the bull's-eye window on the rig and what decides whether that is
+            // safe is how far the point these windows are drawn around sits from the bull.
+            //
+            // The free number is `centroids`, which connectedComponentsWithStats has
+            // already computed for every component: the middle of the coloured PIXELS. A
+            // board whose top rings are broken -- the normal case, it is why SECTION 6.5
+            // exists -- weighs low, so that centroid sinks. #1323 measured it at 148 px
+            // below the bull on one camera and 174 px from it on another and refused it
+            // for a window of 128 px. `boardCenter` is the centroid of the boundary
+            // POLYGON, which does not care which rings inside it are missing.
+            //
+            // Both are printed with the gap between them, so the next reader of these
+            // constants can see on their own footage what #1394 had to take on trust from
+            // a comment.
+            if (boardMeasured && largestIdx > 0)
+            {
+                const Point2f pixels(static_cast<float>(centroids.at<double>(largestIdx, 0)),
+                                     static_cast<float>(centroids.at<double>(largestIdx, 1)));
+                log_debug("Camera " + log_string(camera_idx + 1) +
+                          " board middle: the boundary polygon's centroid is (" +
+                          log_string((int)lround(boardCenter.x)) + "," + log_string((int)lround(boardCenter.y)) +
+                          ") and the free pixel centroid #1323 refused is (" + log_string((int)lround(pixels.x)) +
+                          "," + log_string((int)lround(pixels.y)) + "), " +
+                          log_string((int)lround(norm(pixels - boardCenter))) +
+                          " px away, against a bull's-eye window of " +
+                          log_string((int)lround(bullsEyeWindow)) + " px");
+            }
+        }
+
+        // What each window really keeps and drops, counted rather than inferred (#1393's
+        // rule: the honest answer to "did this window mask anything" is the thing it took,
+        // not the state of the stages below it). For each window, a component is COUNTED
+        // when the final keep/drop decision flips as that window alone is forced open and
+        // forced shut -- so a window that decides nothing on this camera says zero, and a
+        // window doing the work says which components and how many pixels.
+        int decidesN[4] = {0, 0, 0, 0}, decidesPx[4] = {0, 0, 0, 0};
+        int admitsN[4] = {0, 0, 0, 0}, admitsPx[4] = {0, 0, 0, 0};
+        // WHERE the decided components are, which is the half of the census that says
+        // whether a widened window admits ring or room. A distance in spans is the only
+        // reading that means the same thing on two rigs: `boardSpan` is the radius of the
+        // smallest circle around everything this camera sees as one coloured region.
+        vector<string> decided[4];
+
         for (int i = 1; i < nLabels; i++)
         {
             int area = stats.at<int>(i, CC_STAT_AREA);
@@ -267,8 +591,8 @@ namespace color_processing
 
             bool isSizeOK = (area > max(params.minLargeComponentSize, largestArea / params.largestAreaDivisor));
             double distToCenter = norm(componentCenter - boardCenter);
-            bool isCentral = (distToCenter < enhancedMask.cols * params.centralityThreshold);
-            bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);
+            bool isCentral = (distToCenter < centralityWindow);
+            bool isBullsEyeArea = (distToCenter < bullsEyeWindow);
 
             // Enhanced text filter - specifically target edge text blobs
             int left = stats.at<int>(i, CC_STAT_LEFT);
@@ -292,7 +616,7 @@ namespace color_processing
             bool isPositionalText = (isBottomLeftText || isTopRightText) && area < params.positionalTextMaxArea;
 
             bool isTooSmall = (area < params.minBlobArea);
-            bool isTooFarFromCenter = (distToCenter > (enhancedMask.cols * params.maxDistanceFromCenter / 2));
+            bool isTooFarFromCenter = (distToCenter > farWindow);
 
             // Connectivity check (keep this - it helps with inner rings)
             bool isConnected = false;
@@ -304,7 +628,7 @@ namespace color_processing
                     {
                         Point2f otherCenter(centroids.at<double>(j, 0), centroids.at<double>(j, 1));
                         double dist = norm(componentCenter - otherCenter);
-                        if (dist < enhancedMask.cols * params.connectivityThreshold)
+                        if (dist < connectivityWindow)
                         {
                             isConnected = true;
                             break;
@@ -313,12 +637,71 @@ namespace color_processing
                 }
             }
 
+            // #1394: the whole keep/drop decision as one expression, so each window can be
+            // asked what it alone decides by forcing it open and forcing it shut. The four
+            // arguments are the four windows in the order the census below prints them.
+            auto keptWith = [&](bool central, bool bullsEye, bool tooFar, bool connected)
+            {
+                return !isEdgeText && !isPositionalText &&
+                       (i == largestIdx ||
+                        (area > largestArea / params.largestAreaRatio && central && !isLikelyText && !isTooSmall) ||
+                        (isSizeOK && connected && !tooFar) ||
+                        bullsEye);
+            };
+            const bool keep = keptWith(isCentral, isBullsEyeArea, isTooFarFromCenter, isConnected);
+            {
+                // A window can only be forced open where it is asked at all: a component
+                // under `minConnectedArea` is never tested for connectivity, so counting it
+                // as decided BY connectivity would be a number about the area floor.
+                const bool connectable = (area > params.minConnectedArea);
+                const bool openShut[4][2] = {
+                    {keptWith(true, isBullsEyeArea, isTooFarFromCenter, isConnected),
+                     keptWith(false, isBullsEyeArea, isTooFarFromCenter, isConnected)},
+                    {keptWith(isCentral, true, isTooFarFromCenter, isConnected),
+                     keptWith(isCentral, false, isTooFarFromCenter, isConnected)},
+                    {keptWith(isCentral, isBullsEyeArea, false, isConnected),
+                     keptWith(isCentral, isBullsEyeArea, true, isConnected)},
+                    {keptWith(isCentral, isBullsEyeArea, isTooFarFromCenter, connectable),
+                     keptWith(isCentral, isBullsEyeArea, isTooFarFromCenter, false)},
+                };
+                for (int k = 0; k < 4; k++)
+                {
+                    if (openShut[k][0] != openShut[k][1])
+                    {
+                        decidesN[k]++;
+                        decidesPx[k] += area;
+                        if (keep)
+                        {
+                            admitsN[k]++;
+                            admitsPx[k] += area;
+                        }
+                        // The big ones by name. A 5791 px blob admitted at 1.3 spans is a
+                        // finding; forty 60 px specks are the noise floor this stage exists
+                        // to remove, and listing them would bury it.
+                        if (area >= 400 && decided[k].size() < 8)
+                        {
+                            string verdict = "DROPPED";
+                            if (keep)
+                            {
+                                verdict = "kept";
+                            }
+                            string spans = "n/a";
+                            if (boardSpan > 0.0f)
+                            {
+                                spans = decimals(distToCenter / boardSpan, 2);
+                            }
+                            decided[k].push_back(verdict + " " + to_string(area) + " px at (" +
+                                                 to_string((int)lround(componentCenter.x)) + "," +
+                                                 to_string((int)lround(componentCenter.y)) + "), " +
+                                                 to_string((int)lround(distToCenter)) + " px out = " +
+                                                 spans + " spans");
+                        }
+                    }
+                }
+            }
+
             // KEEP COMPONENT if it's good dartboard stuff, REJECT if it's obvious text
-            if (!isEdgeText && !isPositionalText &&
-                (i == largestIdx ||
-                 (area > largestArea / params.largestAreaRatio && isCentral && !isLikelyText && !isTooSmall) ||
-                 (isSizeOK && isConnected && !isTooFarFromCenter) ||
-                 isBullsEyeArea))
+            if (keep)
             {
                 // Copy component to filtered mask
                 for (int y = top; y < top + height; y++)
@@ -333,6 +716,33 @@ namespace color_processing
                     }
                 }
             }
+        }
+
+        {
+            // The census #1394 is argued from. A window reading "0 of 0" on both fixtures
+            // decides nothing there and its size is a claim about footage nobody has shot;
+            // one reading "3 kept of 5 decided" is doing the work the issue is about.
+            static const char *names[4] = {"centrality", "bull's-eye", "outer cutoff", "connectivity"};
+            const double windowPx[4] = {centralityWindow, bullsEyeWindow, farWindow, connectivityWindow};
+            string census;
+            for (int k = 0; k < 4; k++)
+            {
+                if (k > 0)
+                {
+                    census += "; ";
+                }
+                census += string(names[k]) + " at " + to_string((int)lround(windowPx[k])) + " px decides " +
+                          to_string(decidesN[k]) + " of " + to_string(nLabels - 1) + " components (" +
+                          to_string(decidesPx[k]) + " px), keeping " + to_string(admitsN[k]) + " of them (" +
+                          to_string(admitsPx[k]) + " px)";
+                for (size_t d = 0; d < decided[k].size(); d++)
+                {
+                    census += " [" + decided[k][d] + "]";
+                }
+            }
+            log_debug("Camera " + log_string(camera_idx + 1) + " colour windows kept " +
+                      log_string(countNonZero(filteredMask)) + " px of " +
+                      log_string(countNonZero(enhancedMask)) + ": " + log_string_src(census));
         }
 
         // ===== FINAL SECTION: CREATE COLORED OUTPUT =====
