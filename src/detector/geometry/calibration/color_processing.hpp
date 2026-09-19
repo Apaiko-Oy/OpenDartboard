@@ -80,9 +80,128 @@ namespace color_processing
         // cannot. The windows themselves are untouched: this issue MOVED them, it did
         // not widen them, because a window widened until one case passes is exactly the
         // repair it exists to avoid.
+        //
+        // #1394 moved their SIZE too, and these four are kept for `OD_COLOUR_WINDOWS=frame`
+        // alone -- the shape `roi_processing` keeps ADR-0079 SS1's four hand-fitted numbers
+        // in for `OD_ROI=frame`. At 1280 wide they are a fixed 320, 128, 384 and 96 px on
+        // every camera, every rig and every mounting: the same window on a board 150 px
+        // across and on one 400 px across.
         double centralityThreshold = 0.25;    // Distance threshold for central components (25% of image)
         double bullsEyeThreshold = 0.1;       // Distance threshold for bull's eye area (10% of image)
         double connectivityThreshold = 0.075; // Distance threshold for connected components
+
+        // #1394: the same four windows, in board radii, which is the unit the question
+        // each of them asks is really in -- is this blob the bull, is it a ring, is it a
+        // number or the room? All four KEEP: a window too small drops real board, and one
+        // too large lets a number or the room through to `bull_processing`. So each is
+        // derived as a STOP rather than as a measurement -- #1393's rule, one stage over:
+        // the furthest a search can reach and still be certain what it finds is the thing
+        // it is looking for. Every millimetre below is quoted from
+        // `perspective_processing::DartboardSpec`.
+        //
+        // WHAT THE LENGTH IS, AND WHAT IT IS NOT. The stage measures one length: the
+        // smallest circle around the largest outermost contour of its own mask, the same
+        // quantity `bull_processing::measureBoard` takes one stage later. That is a SPAN
+        // and it is not the board. `roi_processing::ROIParams` measured which ring it
+        // lands on, on both fixtures, against the doubles ellipse finally fitted at STEP 6:
+        // 0.99, 0.90 and 0.92 of the board on mocks/cam_*.mp4, where the span IS the
+        // doubles ring, and 1.63, 1.63 and 1.60 on mocks/rig-20260918, where the doubles
+        // ring is not in the colour mask at all and the span is the TREBLE ring. So one
+        // span means the board on one rig and 107/170 of it on the other, and no stage
+        // here can tell which -- the same uncertainty, and the same measurement, that
+        // `roiRadiusOfBoardRadius = 2.107` is built out of.
+        //
+        // The three OUTER windows therefore multiply `boardSpan * boardRadiusOfBoardSpan`,
+        // which is the largest board a span can mean, because erring small on any of the
+        // three drops coloured board. The INNER one multiplies the span itself, and that
+        // is not an inconsistency: see `bullsEyeOfBoardSpan`.
+
+        /**
+         * The largest board a span can be, and the same arithmetic
+         * `roi_processing::roiRadiusOfBoardRadius` is built from carried one ring less
+         * far. A treble's outer wire is at `outerTripleRadius` 107 mm where a double's is
+         * at `outerDoubleRadius` 170 mm, so a span that has landed on the treble ring is
+         * 107/170 of the board and the board is 170/107 = 1.589 of the span. A span that
+         * really is the doubles ring reads 1.589x too large, which is slack in the
+         * direction that keeps board rather than the direction that drops it; the tester
+         * says what that slack actually admits on both fixtures.
+         */
+        double boardRadiusOfBoardSpan = 1.589; // outerDoubleRadius / outerTripleRadius
+
+        /**
+         * The bull's-eye window, and the one window drawn against the SPAN rather than
+         * against the board the span implies.
+         *
+         * What it does is unusual and worth saying: `isBullsEyeArea` is the last clause of
+         * the keep, so anything inside it survives the text, edge, size and position
+         * filters outright. It is a search for the bull and the 25-ring, and it is not a
+         * measurement of either -- #1393's distinction, and here the gap is enormous. The
+         * bull is `bullRadius` 6.35 mm of a 170 mm board, 0.037; the 25-ring reaches
+         * `bull25Radius` 15.9 mm, 0.0935. A window of 0.0935 would find nothing, because
+         * the point it is drawn around is not the bull: it is the centroid of the board's
+         * outer boundary, and #1323 measured that sitting 21 to 68 px from the bull on the
+         * five cameras where it can be measured at all.
+         *
+         * So the geometry supplies a stop. Between the 25-ring at 15.9 mm and the inner
+         * edge of the trebles at `innerTripleRadius` 99 mm a dartboard is black and cream:
+         * there is no red and no green in that annulus on any board, which is the same
+         * fact `mask_processing::bullCarveOfBoardRadius` is argued from. 99/170 = 0.582 is
+         * therefore the furthest this search can reach and still be certain that whatever
+         * coloured thing it finds is the bull's or the 25-ring's.
+         *
+         * It multiplies the SPAN and not `boardSpan * boardRadiusOfBoardSpan` because the
+         * stop then holds under BOTH readings of the span, which is the only window here
+         * of which that is true: 0.582 of a span that is the doubles ring is 0.582 R, and
+         * 0.582 of a span that is the treble ring is 0.366 R. Both land inside the empty
+         * annulus (0.0935 R to 0.582 R), so the window is never wrong about what it is
+         * admitting -- it is only more conservative on the rig, where it comes out at
+         * 0.366 R and still clears #1323's 68 px worst case with room to spare. Taking the
+         * larger reading here would put the stop at 0.925 R on the mocks, which is inside
+         * the TREBLE ring and would admit treble fragments to a window that bypasses every
+         * other filter.
+         */
+        double bullsEyeOfBoardSpan = 0.582; // innerTripleRadius / outerDoubleRadius
+
+        /**
+         * The centrality window: is this LARGE blob -- a third of the largest, or more --
+         * part of the board?
+         *
+         * The last coloured thing on a dartboard is the outer wire of the doubles ring at
+         * `outerDoubleRadius`, so a coloured component that belongs to a board has its
+         * centroid inside 1.0 board radii and one that does not, does not. The stop is the
+         * board's own coloured edge, which is why this one is 1.0 rather than a number.
+         */
+        double centralityOfBoardRadius = 1.0; // outerDoubleRadius / outerDoubleRadius
+
+        /**
+         * The outer cutoff: how far a MEDIUM blob joined to a neighbour may sit and still
+         * be board.
+         *
+         * Wider than `centralityOfBoardRadius` for the reason the two clauses differ: this
+         * one admits a fragment, and a fragment of the doubles ring has been through the
+         * blur, dilation and closing above, which add pixels to a radius. The stop is the
+         * board's RIM -- `roi_processing::ROIParams` quotes it as 225.5 mm against a
+         * `outerDoubleRadius` of 170, the same two figures `roiRadiusOfBoardRadius` uses --
+         * because the rim is where a dartboard stops being a dartboard. Between the doubles
+         * and the rim lie the number ring and the wire ends, which is exactly the clutter
+         * `textMaxArea`, `edgeTextThreshold` and the two positional filters were written
+         * for; this window is not asked to do their job and is not sized to.
+         */
+        double maxDistanceOfBoardRadius = 1.326; // 225.5 mm rim / outerDoubleRadius
+
+        /**
+         * The connectivity window: how close another substantial blob has to be before
+         * this one counts as joined to it.
+         *
+         * The thing it is really measuring is the gap between two adjacent fragments of
+         * one ring, and the widest-spaced fragments on a board are the doubles': 20
+         * segments on an annulus whose middle is (`innerDoubleRadius` 162 +
+         * `outerDoubleRadius` 170)/2 = 166 mm, so two adjacent centroids are
+         * 2 * 166 * sin(pi/20) = 51.9 mm apart, 0.306 of the board radius. Anything
+         * narrower would leave a broken doubles ring reading as twenty unconnected blobs,
+         * which is the case SECTION 6.5 exists for.
+         */
+        double connectivityOfBoardRadius = 0.306; // 2*(162+170)/2*sin(pi/20) / 170
         int minConnectedArea = 80;            // Minimum area to check for connectivity
         int minConnectedNeighborArea = 100;   // Minimum neighbor area for connectivity
         int largestAreaDivisor = 10;          // Divisor for largest area comparison (area > largest/10)

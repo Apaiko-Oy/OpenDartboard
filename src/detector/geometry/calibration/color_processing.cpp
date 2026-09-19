@@ -1,5 +1,6 @@
 #include "color_processing.hpp"
 #include "logging.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -10,6 +11,37 @@ using namespace std;
 
 namespace color_processing
 {
+    namespace
+    {
+        /**
+         * #1394's falsification, in the shape OD_ROI, OD_ROI_MARGIN, OD_BOARD and
+         * OD_BULL_CARVE established: one binary, the rule chosen at run time, so
+         * "different build" is never a confound.
+         *
+         * OD_COLOUR_WINDOWS=frame puts back the four fractions of the FRAME WIDTH this
+         * issue moved -- centralityThreshold, bullsEyeThreshold, maxDistanceFromCenter
+         * and connectivityThreshold, exactly as #1323 left them -- on the same binary
+         * that sizes them off the board. Anything but that exact word is ignored.
+         */
+        bool windowsDrawnOnTheFrame()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_COLOUR_WINDOWS");
+                return e && std::string(e) == "frame";
+            }();
+            return v;
+        }
+
+        /** Two decimals, for a log line that has to carry a ratio. */
+        string decimals(double v, int places)
+        {
+            ostringstream o;
+            o << fixed << setprecision(places) << v;
+            return o.str();
+        }
+    }
+
     Mat processColors(
         const Mat &roiFrame,
         int camera_idx,
@@ -225,6 +257,7 @@ namespace color_processing
 
         Point2f boardCenter = imageCenter;
         bool boardMeasured = false;
+        float boardSpan = 0.0f;
         if (boardIndex >= 0 && boardArea >= frameArea * params.minBoardAreaPercent)
         {
             const Moments boardMoments = moments(boardContours[boardIndex]);
@@ -233,6 +266,14 @@ namespace color_processing
                 boardCenter = Point2f(static_cast<float>(boardMoments.m10 / boardMoments.m00),
                                       static_cast<float>(boardMoments.m01 / boardMoments.m00));
                 boardMeasured = true;
+
+                // #1394: the SPAN of the same boundary the middle came from, measured the
+                // way `bull_processing::measureBoard` measures it one stage later -- the
+                // smallest circle around that contour -- rather than in a second way. It
+                // is the only length this stage has, and every window below is a fraction
+                // of it instead of a fraction of the frame's width.
+                Point2f spanCentre;
+                minEnclosingCircle(boardContours[boardIndex], spanCentre, boardSpan);
             }
         }
 
@@ -260,6 +301,76 @@ namespace color_processing
             }
         }
 
+        // ===== SECTION 7.2 (#1394): HOW BIG THE WINDOWS ARE =====
+        //
+        // #1323 moved the four distances below onto the board and deliberately left their
+        // SIZE a fraction of the frame's width. A fraction of the frame answers a question
+        // about the lens; every one of these four asks a question about the BOARD -- is
+        // this blob the bull, is it a ring, is it a number or the room -- which is a
+        // distance in board radii. `ColorParams` holds the derivations.
+        //
+        // The length is `boardSpan`: the smallest circle around the same boundary
+        // `boardCenter` is the centroid of. It is the span and not the board, and which
+        // ring it lands on is known rather than assumed -- `roi_processing::ROIParams`
+        // measured it on both fixtures and it is the doubles ring on one and the treble
+        // ring on the other. That is why the three OUTER windows are drawn against
+        // `boardSpan * boardRadiusOfBoardSpan` and the inner one against the span itself;
+        // the header carries the argument for each.
+        //
+        // Where no board could be measured, the windows are the frame's, exactly as they
+        // were before this issue -- the same fallback, and the same sentence in the log,
+        // that #1323 established for the centre they are drawn around.
+        double bullsEyeWindow = 0.0, centralityWindow = 0.0, farWindow = 0.0, connectivityWindow = 0.0;
+        bool windowsOnBoard = boardMeasured && boardSpan > 0.0f && !windowsDrawnOnTheFrame();
+        if (windowsOnBoard)
+        {
+            const double boardRadius = boardSpan * params.boardRadiusOfBoardSpan;
+            bullsEyeWindow = boardSpan * params.bullsEyeOfBoardSpan;
+            centralityWindow = boardRadius * params.centralityOfBoardRadius;
+            farWindow = boardRadius * params.maxDistanceOfBoardRadius;
+            connectivityWindow = boardRadius * params.connectivityOfBoardRadius;
+        }
+        else
+        {
+            bullsEyeWindow = enhancedMask.cols * params.bullsEyeThreshold;
+            centralityWindow = enhancedMask.cols * params.centralityThreshold;
+            farWindow = enhancedMask.cols * params.maxDistanceFromCenter / 2;
+            connectivityWindow = enhancedMask.cols * params.connectivityThreshold;
+        }
+
+        {
+            // Both rules on the line whichever chose, because until #1394 nothing anywhere
+            // printed either, and the four numbers a camera really used are the only way to
+            // read the census below. No ternary reaches log_string_src: `+` binds tighter
+            // than `?:`, so a ternary handed to that macro is pointer arithmetic on a string
+            // literal and always takes its first branch (#1393 shipped one and caught it).
+            string rule = "the FRAME's width";
+            if (windowsOnBoard)
+            {
+                rule = "a board spanning " + to_string((int)lround(boardSpan)) + " px";
+            }
+            log_debug("Camera " + log_string(camera_idx + 1) + " colour windows off " + log_string_src(rule) +
+                      ": bull's-eye " + log_string((int)lround(bullsEyeWindow)) + " px, centrality " +
+                      log_string((int)lround(centralityWindow)) + " px, outer cutoff " +
+                      log_string((int)lround(farWindow)) + " px, connectivity " +
+                      log_string((int)lround(connectivityWindow)) +
+                      " px; under the frame rule they are " +
+                      log_string((int)lround(enhancedMask.cols * params.bullsEyeThreshold)) + ", " +
+                      log_string((int)lround(enhancedMask.cols * params.centralityThreshold)) + ", " +
+                      log_string((int)lround(enhancedMask.cols * params.maxDistanceFromCenter / 2)) + " and " +
+                      log_string((int)lround(enhancedMask.cols * params.connectivityThreshold)) +
+                      " px on every camera, every rig and every mounting");
+        }
+
+        // What each window really keeps and drops, counted rather than inferred (#1393's
+        // rule: the honest answer to "did this window mask anything" is the thing it took,
+        // not the state of the stages below it). For each window, a component is COUNTED
+        // when the final keep/drop decision flips as that window alone is forced open and
+        // forced shut -- so a window that decides nothing on this camera says zero, and a
+        // window doing the work says which components and how many pixels.
+        int decidesN[4] = {0, 0, 0, 0}, decidesPx[4] = {0, 0, 0, 0};
+        int admitsN[4] = {0, 0, 0, 0}, admitsPx[4] = {0, 0, 0, 0};
+
         for (int i = 1; i < nLabels; i++)
         {
             int area = stats.at<int>(i, CC_STAT_AREA);
@@ -267,8 +378,8 @@ namespace color_processing
 
             bool isSizeOK = (area > max(params.minLargeComponentSize, largestArea / params.largestAreaDivisor));
             double distToCenter = norm(componentCenter - boardCenter);
-            bool isCentral = (distToCenter < enhancedMask.cols * params.centralityThreshold);
-            bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);
+            bool isCentral = (distToCenter < centralityWindow);
+            bool isBullsEyeArea = (distToCenter < bullsEyeWindow);
 
             // Enhanced text filter - specifically target edge text blobs
             int left = stats.at<int>(i, CC_STAT_LEFT);
@@ -292,7 +403,7 @@ namespace color_processing
             bool isPositionalText = (isBottomLeftText || isTopRightText) && area < params.positionalTextMaxArea;
 
             bool isTooSmall = (area < params.minBlobArea);
-            bool isTooFarFromCenter = (distToCenter > (enhancedMask.cols * params.maxDistanceFromCenter / 2));
+            bool isTooFarFromCenter = (distToCenter > farWindow);
 
             // Connectivity check (keep this - it helps with inner rings)
             bool isConnected = false;
@@ -304,7 +415,7 @@ namespace color_processing
                     {
                         Point2f otherCenter(centroids.at<double>(j, 0), centroids.at<double>(j, 1));
                         double dist = norm(componentCenter - otherCenter);
-                        if (dist < enhancedMask.cols * params.connectivityThreshold)
+                        if (dist < connectivityWindow)
                         {
                             isConnected = true;
                             break;
@@ -313,12 +424,50 @@ namespace color_processing
                 }
             }
 
+            // #1394: the whole keep/drop decision as one expression, so each window can be
+            // asked what it alone decides by forcing it open and forcing it shut. The four
+            // arguments are the four windows in the order the census below prints them.
+            auto keptWith = [&](bool central, bool bullsEye, bool tooFar, bool connected)
+            {
+                return !isEdgeText && !isPositionalText &&
+                       (i == largestIdx ||
+                        (area > largestArea / params.largestAreaRatio && central && !isLikelyText && !isTooSmall) ||
+                        (isSizeOK && connected && !tooFar) ||
+                        bullsEye);
+            };
+            const bool keep = keptWith(isCentral, isBullsEyeArea, isTooFarFromCenter, isConnected);
+            {
+                // A window can only be forced open where it is asked at all: a component
+                // under `minConnectedArea` is never tested for connectivity, so counting it
+                // as decided BY connectivity would be a number about the area floor.
+                const bool connectable = (area > params.minConnectedArea);
+                const bool openShut[4][2] = {
+                    {keptWith(true, isBullsEyeArea, isTooFarFromCenter, isConnected),
+                     keptWith(false, isBullsEyeArea, isTooFarFromCenter, isConnected)},
+                    {keptWith(isCentral, true, isTooFarFromCenter, isConnected),
+                     keptWith(isCentral, false, isTooFarFromCenter, isConnected)},
+                    {keptWith(isCentral, isBullsEyeArea, false, isConnected),
+                     keptWith(isCentral, isBullsEyeArea, true, isConnected)},
+                    {keptWith(isCentral, isBullsEyeArea, isTooFarFromCenter, connectable),
+                     keptWith(isCentral, isBullsEyeArea, isTooFarFromCenter, false)},
+                };
+                for (int k = 0; k < 4; k++)
+                {
+                    if (openShut[k][0] != openShut[k][1])
+                    {
+                        decidesN[k]++;
+                        decidesPx[k] += area;
+                        if (keep)
+                        {
+                            admitsN[k]++;
+                            admitsPx[k] += area;
+                        }
+                    }
+                }
+            }
+
             // KEEP COMPONENT if it's good dartboard stuff, REJECT if it's obvious text
-            if (!isEdgeText && !isPositionalText &&
-                (i == largestIdx ||
-                 (area > largestArea / params.largestAreaRatio && isCentral && !isLikelyText && !isTooSmall) ||
-                 (isSizeOK && isConnected && !isTooFarFromCenter) ||
-                 isBullsEyeArea))
+            if (keep)
             {
                 // Copy component to filtered mask
                 for (int y = top; y < top + height; y++)
@@ -333,6 +482,29 @@ namespace color_processing
                     }
                 }
             }
+        }
+
+        {
+            // The census #1394 is argued from. A window reading "0 of 0" on both fixtures
+            // decides nothing there and its size is a claim about footage nobody has shot;
+            // one reading "3 kept of 5 decided" is doing the work the issue is about.
+            static const char *names[4] = {"centrality", "bull's-eye", "outer cutoff", "connectivity"};
+            const double windowPx[4] = {centralityWindow, bullsEyeWindow, farWindow, connectivityWindow};
+            string census;
+            for (int k = 0; k < 4; k++)
+            {
+                if (k > 0)
+                {
+                    census += "; ";
+                }
+                census += string(names[k]) + " at " + to_string((int)lround(windowPx[k])) + " px decides " +
+                          to_string(decidesN[k]) + " of " + to_string(nLabels - 1) + " components (" +
+                          to_string(decidesPx[k]) + " px), keeping " + to_string(admitsN[k]) + " of them (" +
+                          to_string(admitsPx[k]) + " px)";
+            }
+            log_debug("Camera " + log_string(camera_idx + 1) + " colour windows kept " +
+                      log_string(countNonZero(filteredMask)) + " px of " +
+                      log_string(countNonZero(enhancedMask)) + ": " + log_string_src(census));
         }
 
         // ===== FINAL SECTION: CREATE COLORED OUTPUT =====
