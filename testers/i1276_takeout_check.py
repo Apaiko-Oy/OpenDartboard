@@ -13,11 +13,15 @@ asked (a redirected start asks nothing) and every credential here is written by 
 case asserts both what the board SAID and what it SENT.
 
 Cases:
-  givenup      the evening ends with a round in hand: the takeout that follows the release
-               is DROPPED, not sent to the club. The stub records no Organisation takeout
-               closing nothing; the log says so once; the counters count it.
-               Controls in the same run: the darts thrown after the release DO reach the
-               club, and the round they open IS closed there.
+  givenup      the evening ends mid-run, end to end through the real detector: the binding
+               is released once, nothing reaches either Casual door afterwards, and the
+               darts thrown after the release DO reach the club with the round they open
+               closed there. What it deliberately no longer asserts is the DROP -- #1374
+               says why, at the assertion.
+  released     the drop itself, arranged rather than hoped for: a round opened at the
+               Casual door, the evening given up, the binding seen to be gone, and only
+               then the round's takeout. Dropped exactly once, naming the Contest, counted,
+               and with the club's own next round delivered beside it as the control.
   organisation a board with only a club binding: every round it begins is taken out at the
                Organisation door, with a Visit identifier back.
   casual       a board on a live Contest: the round is taken out at the Casual door, under
@@ -186,13 +190,40 @@ def full_takeouts(events):
     return [e for e in events if e.get("closed")]
 
 
-def case_givenup():
-    """#891's give-up, and the takeout that follows it.
+def compile_round_check(board, case):
+    """#1276's client harness, built against this tree's own client.
 
-    The stub gives the evening up at the third dart, which is the last dart of the round in
-    hand; it beats every two seconds, so the refusal is met by the beat before the round's
-    takeout is published. That is #891's `givenup2` ordering, deterministic here rather than
-    raced: the release lands between the round's last dart and its END.
+    Two cases drive the client directly rather than the program -- `noround` and #1374's
+    `released` -- so the compile line lives here rather than in either of them. Answers the
+    binary's path, or None having already said by name that it would not compile.
+    """
+    binary = os.path.join(board.dir, "i1276_round_check")
+    compile_line = (
+        "g++ -std=c++17 -I {app}/src -I {app}/src/utils "
+        "-I {app}/build/_deps/nlohmann_json-src/include -I {app}/build/_deps/httplib-src "
+        "$(pkg-config --cflags opencv4 2>/dev/null) "
+        "{app}/testers/i1276_round_check.cpp {app}/src/communication/turnaus_client.cpp -o {bin} "
+        "$(pkg-config --libs opencv4 2>/dev/null) -lpthread"
+    ).format(app=APP, bin=binary)
+    built = subprocess.run(compile_line, shell=True, capture_output=True, text=True, timeout=900)
+    if not check(built.returncode == 0, "%s: the round harness compiles (%s)"
+                 % (case, built.stderr.strip().splitlines()[-1:] or "no output")):
+        return None
+    return binary
+
+
+def case_givenup():
+    """#891's give-up, end to end through the real detector.
+
+    The stub gives the evening up at the third dart and beats every two seconds, so the
+    refusal is met within one beat of it. What happens NEXT is the footage's business and
+    not this case's: whether the third dart is a round's last (and the next publish is that
+    round's takeout) or its first (and the next publish is another dart) is a reading of
+    mocks/cam_*.mp4. It used to be the last -- which is what #1276 built the case on, in a
+    docstring that called the ordering deterministic -- and since #1353/#1354 it is the
+    first. So the takeout #1276 is about is asserted in `released`, where it is arranged;
+    what is asked here is everything an end-to-end run really settles, and the door the
+    evening closed behind it.
     """
     port = 18921
     stub = Stub("givenup", port, STUB_GIVE_UP_AFTER=3)
@@ -211,19 +242,37 @@ def case_givenup():
     check(board.text.count(RELEASE_LINE) == 1,
           "givenup: the binding was released once (%d)" % board.text.count(RELEASE_LINE))
 
-    # THE ISSUE. The takeout that ends a round begun inside the Contest is dropped.
     drops = [l for l in board.text.splitlines() if DROP_LINE in l]
-    check(len(drops) == 1, "givenup: the takeout is said to be dropped exactly once (%d)" % len(drops))
-    check(drops and ("Casual Contest %d" % CONTEST_ID) in drops[0],
-          "givenup: and the line names the Contest the round was begun under: %s"
-          % (drops[0].strip() if drops else None))
 
+    # #1374: WHAT THIS RUN CAN PROMISE, AND WHAT IT CANNOT.
+    #
+    # It cannot promise the drop, and asserting it here asserted a coincidence. The takeout
+    # #1276 is about is published only when the release lands between a round's LAST dart
+    # and its END -- and which dart is a round's last is a reading of mocks/cam_*.mp4, not
+    # anything this case arranges. When the case was written the footage's first three
+    # darts were one round, so STUB_GIVE_UP_AFTER=3 named the last of them and the ordering
+    # fell out of the coincidence; the docstring above called it deterministic and it never
+    # was. #1353 and #1354 changed what the detector reads off those same three files --
+    # the first round is two darts and a takeout now (S12 S17, then S1 opening the second)
+    # -- so the release lands mid-round, the next dart re-opens the round at the club by
+    # #1276's own narrowness, and nothing is dropped. Nothing about the client moved.
+    #
+    # The drop is arranged in `released` instead, where the client is driven directly and
+    # no reading of any video can move the order. What is left here is what an end-to-end
+    # run really shows, which is the DOOR: once the evening has ended this board sends
+    # nothing to it again. That is what the last sentence below always said -- and never
+    # measured, because it swept the whole transcript, so a round delivered legitimately
+    # BEFORE the give-up counted against it.
     club_takeouts = stub.events("takeout")
     check(empty_takeouts(club_takeouts) == [],
           "givenup: the club is sent no takeout closing nothing (%d of %d)"
           % (len(empty_takeouts(club_takeouts)), len(club_takeouts)))
-    check(not [e for e in stub.events("casual_takeout")],
-          "givenup: and nothing reached the Casual takeout door after the evening ended")
+    ended_at = given_up[0]["at"] if given_up else 0
+    after = [e for e in stub.events() if e["at"] >= ended_at
+             and e["event"] in ("casual_counted", "casual_takeout", "casual_absorbed")]
+    check(after == [],
+          "givenup: and nothing reached a Casual door after the evening ended (%s)"
+          % [e["event"] for e in after])
 
     # The fall-back, in the same run: the club is still this board's binding and still works.
     club_counted = stub.events("counted")
@@ -245,6 +294,81 @@ def case_givenup():
     check(summary.get("dropped") == str(abandoned + len(drops)),
           "givenup: dropped=%s is the %d abandoned at the release plus the %d takeout"
           % (summary.get("dropped"), abandoned, len(drops)))
+    stub.stop()
+
+
+def case_released():
+    """#1374: the takeout of a round begun on an evening that has ended, ARRANGED.
+
+    #1276's rule needs three things in one order -- a round opened at the Casual door, the
+    evening given up and the binding let go, and only THEN that round's takeout. A scripted
+    run of the real detector cannot be made to produce that order: whether the next thing
+    published after the release is a takeout or another dart is a reading of the mock
+    footage, and #1353/#1354 changed it. `givenup` above inherited that order from the
+    footage and lost it; here every step is waited for by the harness that takes it, so
+    nothing about any video can move it again.
+
+    The client is driven directly, by `noround`'s harness in its `released` mode, at the
+    same stub over the same HTTP. The evening is given up on the FIRST casual dart, and the
+    second dart is what meets the refusal -- #891's `deliver()` 401, the same verdict the
+    beat reaches, and the one a harness can wait on.
+    """
+    port = 18926
+    stub = Stub("released", port, STUB_GIVE_UP_AFTER=1)
+    board = Board("released", port)
+    check(board.pair("--pair", CLUB) == 0, "released: the board pairs to its club")
+    check(board.pair("--pair-contest", CASUAL) == 0, "released: and to the evening's Contest")
+
+    binary = compile_round_check(board, "released")
+    if binary is None:
+        stub.stop()
+        return
+
+    ran = subprocess.run([binary, "http://127.0.0.1:%d" % port, board.credentials, "released"],
+                         cwd=board.cwd, env=dict(board.env), capture_output=True, text=True,
+                         timeout=300)
+    board.text = ANSI.sub("", ran.stdout + ran.stderr)
+    with open(os.path.join(board.dir, "harness.out"), "w") as fh:
+        fh.write(board.text)
+
+    check(ran.returncode == 0, "released: the harness ran clean (rc=%s)" % ran.returncode)
+
+    # The premise, proved rather than assumed: the evening really ended, with this board's
+    # round in hand at the Casual door, before the takeout was ever offered.
+    given_up = stub.events("casual_given_up")
+    check(len(given_up) == 1, "released: the stub gave the evening up once (%d)" % len(given_up))
+    counted = stub.events("casual_counted")
+    check(len(counted) == 1 and counted[0]["round"] == ["S20"],
+          "released: on a Contest holding the round this board had just begun (%s)"
+          % [e.get("round") for e in counted])
+    check("RELEASED contest=0" in board.text,
+          "released: and the binding was gone before the takeout was offered (%s)"
+          % [l for l in board.text.splitlines() if l.startswith("RELEASED")])
+
+    # THE ISSUE. The takeout that ends a round begun inside the Contest is dropped.
+    drops = [l for l in board.text.splitlines() if DROP_LINE in l]
+    check(len(drops) == 1, "released: the takeout is said to be dropped exactly once (%d)" % len(drops))
+    check(bool(drops) and ("Casual Contest %d" % CONTEST_ID) in drops[0],
+          "released: and the line names the Contest the round was begun under: %s"
+          % (drops[0].strip() if drops else None))
+    accounted = re.search(r"GIVENUP accepted=(\d+) dropped=(\d+) \(was (\d+)\)", board.text)
+    check(accounted is not None and accounted.group(1) == "0"
+          and int(accounted.group(2)) == int(accounted.group(3)) + 1,
+          "released: offer() refused it and counted exactly one more drop (%s)"
+          % (str(accounted.groups()) if accounted else "no GIVENUP line at all"))
+    check(not stub.events("casual_takeout"),
+          "released: nothing reached the Casual takeout door after the evening ended")
+
+    # THE CONTROL, in the same process and the same client: the next dart begins a fresh
+    # round at the club and its takeout closes it there. #1276 is narrow, and this is its
+    # edge -- a client that dropped this one would have stopped closing rounds at all.
+    club_takeouts = stub.events("takeout")
+    check(len(club_takeouts) == 1 and club_takeouts[0].get("closed") == ["S20"]
+          and club_takeouts[0].get("visitId"),
+          "released: the next round is begun and closed at the club, with a Visit identifier (%s)"
+          % [(e.get("closed"), e.get("visitId")) for e in club_takeouts])
+    check(empty_takeouts(club_takeouts) == [],
+          "released: and no takeout closing nothing was sent to the club")
     stub.stop()
 
 
@@ -382,17 +506,8 @@ def case_noround():
     with urllib.request.urlopen(seed, timeout=10) as answer:
         check(answer.status == 202, "noround: the previous process's dart is counted at the club")
 
-    binary = os.path.join(board.dir, "i1276_round_check")
-    compile_line = (
-        "g++ -std=c++17 -I {app}/src -I {app}/src/utils "
-        "-I {app}/build/_deps/nlohmann_json-src/include -I {app}/build/_deps/httplib-src "
-        "$(pkg-config --cflags opencv4 2>/dev/null) "
-        "{app}/testers/i1276_round_check.cpp {app}/src/communication/turnaus_client.cpp -o {bin} "
-        "$(pkg-config --libs opencv4 2>/dev/null) -lpthread"
-    ).format(app=APP, bin=binary)
-    built = subprocess.run(compile_line, shell=True, capture_output=True, text=True, timeout=900)
-    if not check(built.returncode == 0, "noround: the round harness compiles (%s)"
-                 % built.stderr.strip().splitlines()[-1:] or "no output"):
+    binary = compile_round_check(board, "noround")
+    if binary is None:
         stub.stop()
         return
 
@@ -422,7 +537,7 @@ def case_noround():
     stub.stop()
 
 
-CASES = {"givenup": case_givenup, "organisation": case_organisation,
+CASES = {"givenup": case_givenup, "released": case_released, "organisation": case_organisation,
          "casual": case_casual, "spool": case_spool, "noround": case_noround}
 
 if __name__ == "__main__":

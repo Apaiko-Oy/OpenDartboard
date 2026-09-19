@@ -14,10 +14,22 @@
 // asserted twice over -- by the counters this prints and by the stub's own transcript,
 // which testers/i1276_takeout_check.py reads.
 //
-//   i1276_round_check <base-url> <credentials-path>
+// #1374 gives it a SECOND case for the opposite reason. `released` is the state the
+// detector CAN reach and cannot be made to reach on cue: a takeout ending a round begun on
+// an evening that has since been given up. #1276's `givenup` case arranged it by counting
+// darts at the stub -- the third dart of the mock footage used to be the last dart of the
+// first round, so the release landed between that dart and its END. #1353 and #1354 changed
+// what the detector reads off those same three files (the first round is two darts and a
+// takeout now, not three darts), the third dart became the FIRST dart of the second round,
+// and the ordering the case was built on stopped happening. It was never arranged: it was
+// a coincidence of the footage that a dart counter happened to name. Here the ordering IS
+// arranged -- one round opened at the Casual door, the evening given up, the binding seen
+// to be gone, and only then the takeout -- so no reading of any video can move it.
 //
-// Compiled and run by testers/i1276_takeout_check.py's `noround` case, which is where the
-// compile line lives.
+//   i1276_round_check <base-url> <credentials-path> [noround|released]
+//
+// Compiled and run by testers/i1276_takeout_check.py's `noround` and `released` cases,
+// which is where the compile line lives.
 
 #include "communication/turnaus_client.hpp"
 
@@ -61,13 +73,93 @@ namespace
         }
         return false;
     }
+
+    /** Wait until the Contest binding is gone -- `contestId()` is 0 -- or give up. */
+    bool contestBindingReleased(const TurnausClient &client, int seconds)
+    {
+        for (int i = 0; i < seconds * 10; i++)
+        {
+            if (client.contestId() == 0)
+            {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        return false;
+    }
+
+    /**
+     * #1374's case. The three events #1276 is about, in the one order that makes it the
+     * issue it is, and every one of them waited for rather than hoped for.
+     */
+    int released(TurnausClient &client)
+    {
+        bool well = true;
+
+        // A round is begun at the Casual door: this dart is what opens it, and the door it
+        // goes out of is what the round remembers.
+        client.offer(aDart("S20"));
+        if (!deliveredAtLeast(client, 1, 15))
+        {
+            std::printf("FAIL the dart that opens the round never reached the Casual door\n");
+            well = false;
+        }
+
+        // The stub gave the evening up on that dart (STUB_GIVE_UP_AFTER=1), and the BEAT is
+        // what meets the refusal -- #891 says so itself: the beat goes every interval while
+        // a dart goes only when somebody throws, so it is what usually reaches a Given Up
+        // Contest first. Nothing is offered while it is awaited, and that is the whole
+        // point of this case: #1276 is narrow, so ANY dart offered between the release and
+        // the takeout re-opens the round at the club and there is nothing left to drop.
+        // Offering one here was this harness's own first mistake, and it read exactly like
+        // the bug it is supposed to catch.
+        const bool released_now = contestBindingReleased(client, 30);
+        std::printf("RELEASED contest=%lld dropped=%llu\n", (long long)client.contestId(),
+                    (unsigned long long)client.dropped());
+        if (!released_now)
+        {
+            std::printf("FAIL the evening was given up and the binding is still held\n");
+            client.stop();
+            return 1;
+        }
+
+        // THE CASE. The takeout that ends the round begun above. The board is on its club
+        // binding now, and this takeout belongs to neither door: to the Casual one because
+        // the evening is over, to the club's because the club never saw the round begin.
+        const uint64_t dropped_before = client.dropped();
+        const bool accepted = client.offer(aTakeout());
+        std::printf("GIVENUP accepted=%d dropped=%llu (was %llu)\n", accepted ? 1 : 0,
+                    (unsigned long long)client.dropped(), (unsigned long long)dropped_before);
+
+        // THE CONTROL, in the same process: the next dart begins a fresh round at the club
+        // and its takeout closes it there. #1276 is narrow, and this is the edge of it.
+        client.offer(aDart("S20"));
+        client.offer(aTakeout());
+        const bool both = deliveredAtLeast(client, 3, 15);
+        std::printf("CONTROL delivered=%llu dropped=%llu\n", (unsigned long long)client.delivered(),
+                    (unsigned long long)client.dropped());
+        if (!both)
+        {
+            std::printf("FAIL the club's own dart and takeout were not both delivered\n");
+            well = false;
+        }
+
+        client.stop();
+        return well ? 0 : 1;
+    }
 }
 
 int main(int argc, char **argv)
 {
     if (argc < 3)
     {
-        std::printf("USAGE i1276_round_check <base-url> <credentials-path>\n");
+        std::printf("USAGE i1276_round_check <base-url> <credentials-path> [noround|released]\n");
+        return 2;
+    }
+    const std::string mode = argc > 3 ? argv[3] : "noround";
+    if (mode != "noround" && mode != "released")
+    {
+        std::printf("USAGE i1276_round_check <base-url> <credentials-path> [noround|released]\n");
         return 2;
     }
 
@@ -85,6 +177,11 @@ int main(int argc, char **argv)
         return 2;
     }
     client.start();
+
+    if (mode == "released")
+    {
+        return released(client);
+    }
 
     // THE CASE. A takeout with no round begun in this process -- the darts it ends were
     // pushed by somebody else, which is what the caller has just planted at the stub.
