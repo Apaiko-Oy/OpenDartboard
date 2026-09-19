@@ -130,6 +130,15 @@ namespace motion_processing
         // two quorums; this field is the trigger and nothing else, and 1 is the number
         // the rig census above measured. Raising it to two would stop a healthy
         // three-camera board scoring at all.
+        // camera-quorum-exempt: this is the per-window SPIKE TRIGGER and not the camera
+        // quorum -- how many cameras must spike together inside one window, which #1353
+        // measured on the rig at one. ADR-0081 §2 lists it among the three quorums; the
+        // half of it that really counted cameras is whyNoEventIsPossible's census, and
+        // that half now reads camera_quorum::cameras(). Moving this number to two would
+        // stop a HEALTHY three-camera board forming any event at all, which is a worse
+        // failure than the one ADR-0081 is about. If this marker is ever removed, the
+        // number beside it has to become camera_quorum::cameras() and the rig census in
+        // #1353 has to be re-measured first.
         int min_cameras_for_event = 1;     // Cameras whose own board must spike TOGETHER in one window
         int spike_window_frames = 10;      // Frames to wait for other cameras to join spike
         int stability_frames = 15;         // Consecutive low-motion frames needed for stability

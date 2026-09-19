@@ -138,6 +138,7 @@ namespace camera_quorum
         }
         return "only " + std::to_string(cameras_that_see) + " of " +
                std::to_string(camera_slots) + " cameras " +
+               // camera-quorum-exempt: English, not arithmetic -- one camera takes "is"
                (cameras_that_see == 1 ? "is" : "are") +
                " looking at the dartboard and this board needs " + std::to_string(quorum) +
                " before it may score -- below that the state vote can never be reached, so "
