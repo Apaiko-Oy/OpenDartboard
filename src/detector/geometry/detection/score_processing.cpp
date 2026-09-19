@@ -189,11 +189,23 @@ namespace score_processing
         // A camera with no frame is exactly that case -- calibrateMultipleCameras keeps a
         // blank slot for it on purpose (#1318) and scoreDarts reads calibrations[i] for
         // every camera -- so this now refuses on a real calibration in a real run.
-        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < (size_t)wire_processing::kWiresRequired)
+        //
+        // #1442: and the half of it that STILL could not fire is repaired the same way
+        // perspective_processing's twin is. `wireEndpoints.size() < kWiresRequired` reads
+        // a store bounded at kWiresRequired, so it catches a short ring and can never
+        // catch a long one; a camera proposing twenty-two filled that store to twenty and
+        // arrived here indistinguishable from a clean board. And it is exactly this
+        // function that the difference matters in: findWedgeSlot below walks the ring by
+        // ORDINAL and indexes dartboard_numbers with it, so the twenty kept out of
+        // twenty-two -- the twenty smallest angles, the last two dropped, a double-width
+        // gap left behind -- give every wedge past that gap a different number, reported
+        // with the confidence of a whole ring. That is the same fault the sentence above
+        // describes for nineteen wires, reached from the other side.
+        if (!calib.ellipses.hasValidDoubles || !calib.wires.wholeRing())
         {
             log_debug("SCORE: Invalid calibration data: camera " + log_string(calib.camera_index + 1) +
-                      " has " + log_string(calib.wires.wireEndpoints.size()) + " of the " +
-                      log_string(wire_processing::kWiresRequired) + " wire boundaries scoring needs" +
+                      " has " + log_string(calib.wires.wiresDetected) + " wire boundaries where scoring needs the " +
+                      log_string(wire_processing::kWiresRequired) + " a board has" +
                       string(calib.ellipses.hasValidDoubles ? "" : ", and no fitted doubles ring"));
             return out;
         }

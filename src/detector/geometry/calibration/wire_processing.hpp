@@ -35,8 +35,55 @@ namespace wire_processing
      * anybody had reasoned about; it was a tolerance written beside a tautology, and PnP
      * needs four points, not sixteen. Restoring a looser number for the perspective fit is
      * one edit here, and it should be argued for rather than inherited.
+     *
+     * #1442: TWENTY IS ALSO A CEILING, AND THE ARGUMENT IS THE ONE ABOVE READ THE OTHER
+     * WAY ROUND. Until that issue this number was asked one-sidedly everywhere it was
+     * asked -- `== 20` here over a store bounded at 20, `< 20` in perspective_processing
+     * and `< 20` in score_processing -- so a camera proposing TWENTY-TWO filled the store
+     * to twenty, had the rest refused by `WireEndpoints::add`, and passed all three.
+     *
+     * What makes that the same defect rather than a lesser one is the ORDER. The ensemble
+     * sorts its candidates by angle around the bull before returning them
+     * (findWiresByEnsemble, "Sort by angle"), so "the first twenty" are the twenty of
+     * twenty-two with the smallest atan2 -- a CONTIGUOUS ARC of twenty twenty-seconds of
+     * the board, the last two dropped, and a double-width gap left between the twentieth
+     * and the first. `score_processing::findWedgeSlot` then walks `(start + i) % wires`
+     * around that twenty-long ring and indexes `dartboard_numbers` with the ordinal it
+     * lands on, and `score_processing` reports the angle as `18.0f * slot`, which assumes
+     * every slot is one wedge. So the truncation does not keep twenty of a board's wires:
+     * it MANUFACTURES the ring-with-a-gap the lower bound exists to refuse, and then hides
+     * it by making `.size()` read twenty.
+     *
+     * Hence the guard is `== kWiresRequired` against what was FOUND, and the count that
+     * decides is `WireData::wiresDetected` rather than what the store could hold. A
+     * healthy camera proposes twenty-two too -- #1441 measured it on already-passing
+     * frames of a repaired board -- and that is a fact about how OFTEN this happens, not
+     * about whether the twenty kept are the board's twenty. They are not, and there is no
+     * ordering anybody chose that says which twenty of the twenty-two would be.
+     *
+     * The two sides get different sentences because they are different faults and have
+     * different remedies: too few is a board partly unread -- occlusion, a dull wire, a
+     * shadow -- and too many is the camera reading structure a board does not have, which
+     * on this rig has been the number ring, a wire's far end and the wall beyond (#1437).
      */
     constexpr int kWiresRequired = 20;
+
+    /**
+     * Whether a count of proposed wire boundaries is a board's whole ring.
+     *
+     * One question in one place, asked by the wire stage and by both guards standing
+     * between a calibration and a score. #1317 put the NUMBER in one place and left the
+     * COMPARISON written out three times, which is how it came to be spelled `== 20` in
+     * one file and `< 20` in two others and how all three came to be one-sided; #1442 puts
+     * the comparison there too, so a later slice cannot move one of them alone.
+     *
+     * OD_WIRE_COUNT=atleast restores the one-sided test -- `>= kWiresRequired`, which is
+     * what every commit before #1442 asked -- on the same binary, so "a different build"
+     * is never a confound. Anything but that exact word is ignored rather than obeyed, the
+     * way OD_WIRE_REGION's is, so a typo reads in the behaviour this stage is measured in
+     * rather than silently in the one it was broken in.
+     */
+    bool isAWholeRing(int wiresProposed);
 
     // Configuration for wire detection methods
     struct WireDetectionConfig
@@ -114,11 +161,35 @@ namespace wire_processing
          * mocks/rig-20260918 returns twenty-one -- and those beyond the twentieth are
          * dropped as they were before this issue. Keeping the two numbers apart is what
          * lets "Found 21 wire boundaries, keeping the first 20" be said at all.
+         *
+         * #1442: it is also THE NUMBER THAT DECIDES, and until that issue it decided
+         * nothing. It was said once at DEBUG and read by no guard, so the two numbers were
+         * kept apart and then only the lesser one was ever asked -- which is precisely how
+         * twenty-two came to read as a clean twenty. `wholeRing()` below is the decision
+         * and it is taken on this field; `wireEndpoints` is the EVIDENCE, kept as it
+         * always was so the debug picture and the log have something to show, and it is
+         * deliberately not what anything asks a question of.
+         *
+         * It survives the calibration cache, which matters beyond tidiness: a calibration
+         * fwritten by a binary older than #1442 carries twenty endpoints and `isValid`
+         * true with this field reading twenty-two, and the two guards downstream ask
+         * `wholeRing()`, so `--reuse-calibration` cannot bring a truncated ring back in
+         * through a door the wire stage is no longer standing at.
          */
         int wiresDetected = 0;
 
         int camera_index = -1;
         bool isValid = false;
+
+        /**
+         * Whether this reading is a board's whole ring -- what `isValid` is set from, and
+         * what the perspective and scoring guards ask of a calibration that reached them
+         * some other way (the cache, a blank slot, a future caller). Asking it rather than
+         * `wireEndpoints.size()` is the whole of #1442 at those two call sites: the store
+         * is bounded at kWiresRequired, so its size can be too small and never too large,
+         * and a guard asking it can only ever be one-sided however it is spelled.
+         */
+        bool wholeRing() const { return isAWholeRing(wiresDetected); }
     };
 
     // DartboardCalibration is written to the calibration cache with a raw fwrite of

@@ -66,6 +66,37 @@ namespace wire_processing
             }();
             return (asked > 0.0 && asked <= kRegionPastTheRim) ? asked : stated;
         }
+
+        /**
+         * #1442's falsification, in the same shape as OD_WIRE_REGION above: one binary,
+         * the test chosen at run time.
+         *
+         * OD_WIRE_COUNT=atleast restores the one-sided test every commit before #1442
+         * asked -- a count of kWiresRequired OR MORE is a whole ring -- so the population
+         * this issue is about can be counted twice on one binary and the difference is
+         * this comparison and nothing else. Anything but that exact word is ignored, so a
+         * typo reads two-sided rather than silently reading in the behaviour the issue was
+         * filed on. There is deliberately no word for the reverse: the two-sided test is
+         * what this stage IS, not a mode it is in.
+         */
+        bool anyCountFromTwentyUpIsAWholeRing()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_WIRE_COUNT");
+                return e && std::string(e) == "atleast";
+            }();
+            return v;
+        }
+    }
+
+    bool isAWholeRing(int wiresProposed)
+    {
+        // The whole of #1442 is the second half of this line. kWiresRequired carries why
+        // twenty-two is the same fault as nineteen rather than a milder one.
+        return anyCountFromTwentyUpIsAWholeRing()
+                   ? wiresProposed >= kWiresRequired
+                   : wiresProposed == kWiresRequired;
     }
 
     RotatedRect regionOf(const DartboardCalibration &calib, const WireRegionParams &params)
@@ -751,17 +782,28 @@ namespace wire_processing
             }
         }
 
-        // The one threshold, read from the one place it is stated. This is the guard whose
-        // old spelling -- `result.wireEndpoints.size() == 20` over a std::array<Point2f,20>
-        // -- was a tautology with `// Allow some tolerance` written beside it.
-        result.isValid = (result.wireEndpoints.size() == (size_t)kWiresRequired);
+        // The one threshold, read from the one place it is stated, asked of the count that
+        // was FOUND. Two things were wrong with the spelling this replaces, a merge apart.
+        // #1317 repaired the first: `result.wireEndpoints.size() == 20` over a
+        // std::array<Point2f,20> was a tautology, with `// Allow some tolerance` beside it.
+        // #1442 repairs the second: with a real `.size()` the question was still asked of
+        // a store BOUNDED at twenty, which can read short and can never read long, so
+        // twenty-two filled it to twenty and passed. `isAWholeRing` asks wiresDetected.
+        result.isValid = result.wholeRing();
 
-        // #1317: what was found, not what the array can hold. On the rig this issue was
+        // #1317: what was found, not what the array can hold. On the rig that issue was
         // filed from, the line above this one said "Selected 9 averaged wires" and this
         // one said twenty.
+        //
+        // #1442: and when it says more than twenty it now says what became of the rest.
+        // "keeping the first 20" was true and read as bookkeeping; the endpoints past the
+        // twentieth are still dropped, but they are dropped from a reading this stage is
+        // about to refuse, and the log should not be the only place that knows there were
+        // twenty-two.
         log_debug("Found " + log_string(result.wiresDetected) + " wire boundaries using ensemble" +
                   (result.wiresDetected > kWiresRequired
-                       ? ", keeping the first " + log_string(kWiresRequired)
+                       ? ", which is more than a board has; the first " + log_string(kWiresRequired) +
+                             " are kept for the picture and this camera is refused on the count"
                        : ""));
         if (result.isValid)
         {
@@ -773,7 +815,9 @@ namespace wire_processing
             // camera's failure, and it names the camera and this count. #1321's rule --
             // a reader told three times learns nothing the first telling did not say.
             log_debug("Wire detection did not complete: " + log_string(result.wiresDetected) +
-                      " of the " + log_string(kWiresRequired) + " wire boundaries a board has");
+                      (result.wiresDetected > kWiresRequired
+                           ? " wire boundaries where a board has " + log_string(kWiresRequired)
+                           : " of the " + log_string(kWiresRequired) + " wire boundaries a board has"));
         }
 
         // Handle debug output internally
