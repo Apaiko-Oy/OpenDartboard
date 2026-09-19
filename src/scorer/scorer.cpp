@@ -88,7 +88,14 @@ namespace
     // positive behind it. Across both fixtures it is 44 of the 45 disagreements a rig
     // nobody touched produced, at a stable ~39% on the shipped mocks and ~64% on the rig,
     // which is a different RING being fitted rather than a board changing size. That is
-    // #1416; it is a tolerance question and this is a budget, and the budget survives it.
+    // #1416 -- which measured it, and it is NOT a tolerance question. Two witnesses that
+    // are not the radius (the fitted ring against the 50-bull, and the ring's own width as
+    // a fraction of its own radius) name all 44 as the ellipse stage having fitted a
+    // different ring, none as a camera; and no sample on either fixture has a radius
+    // change anywhere between 3.29% and 38.26%, so every tolerance in that band returns
+    // the same verdict and there is nothing in this constant to fit. It is #1423's
+    // ground -- nothing in the calibration path can tell the doubles ring from the treble
+    // -- and this is a budget, and the budget survives it either way.
     //
     // THE BUDGET IS A SPAN, AND THE TWO NUMBERS ARE HOW IT IS SPENT. An attempt is not
     // free: it reopens the cameras, reads thirty frames and re-calibrates every camera

@@ -42,6 +42,8 @@
 #include <string>
 #include <vector>
 
+#include "board_look.hpp"
+#include "wire_processing.hpp"
 #include "geometry_calibration.hpp"
 #include "geometry_agreement.hpp"
 
@@ -98,6 +100,130 @@ namespace
         snprintf(buffer, sizeof(buffer), "%.2f", v);
         return std::string(buffer);
     }
+
+    // #1416: WHICH RING THE STAGE FITTED, asked of the calibration itself.
+    //
+    // `geometry_agreement::measure` compares the mean radius of one camera's
+    // `outerDoubleEllipse` against the same camera's earlier one, and calls the
+    // difference a camera that moved along its own axis. That reading is only available
+    // while both pictures fitted the SAME physical ring. `mask_processing::processMask`
+    // hands the ray trace the largest connected component of the red/green mask, so when
+    // the doubles ring survives the colour stage the ray trace fits the doubles ring, and
+    // when it does not the largest surviving annulus is the TREBLE ring and the ray trace
+    // fits that -- under the same name, with no flag anywhere saying which happened
+    // (#1423).
+    //
+    // Two witnesses are taken, and neither of them is the radius:
+    //
+    //   the ring's own width, as a fraction of its own outer radius. A doubles ring runs
+    //   162 -> 170 mm and a treble 99 -> 107 mm: both 8 mm wide, but 0.047 and 0.075 of
+    //   their own outer radius. It is scale-free, it is internal to the doubles fit
+    //   alone, and it is the ratio #1423 names first. It is only meaningful when the
+    //   inner ellipse was really fitted -- `validInnerPoints > 0`; the stage falls back
+    //   to 0.92x the outer ellipse otherwise, which would read 0.080 for every picture
+    //   and name the treble every time.
+    //
+    //   the ring measured against the bull, `outer / innerBullEllipse`. The 50-bull is
+    //   carved out of the red by radius and fitted separately, so it is the one length in
+    //   this struct that the doubles ray trace did not produce. This is the witness that
+    //   separates the two explanations outright, and it does so WITHOUT needing the bull
+    //   fit to be accurate: a camera really pushed along its own axis scales every ring
+    //   in the picture by one factor, so the RATIO is invariant and only the radius moves;
+    //   a ray trace that fitted a different ring moves the ratio by the same factor it
+    //   moved the radius by. Equal movement in both means a different ring. Movement in
+    //   the radius alone means a camera.
+    struct RingEvidence
+    {
+        double outer = -1.0;          // mean semi-axis of outerDoubleEllipse, px
+        double inner = -1.0;          // mean semi-axis of innerDoubleEllipse, px
+        double width_fraction = -1.0; // (outer - inner) / outer
+        int inner_points = 0;         // 0 means innerDoubleEllipse is the 0.92x fallback
+        double bull = -1.0;           // mean semi-axis of innerBullEllipse, px
+        double outer_over_bull = -1.0;
+        double triple = -1.0; // mean semi-axis of outerTripleEllipse, px
+    };
+
+    double meanSemiAxis(const cv::RotatedRect &ellipse)
+    {
+        if (ellipse.size.width <= 0.0f || ellipse.size.height <= 0.0f)
+        {
+            return -1.0;
+        }
+        return ((double)ellipse.size.width + (double)ellipse.size.height) / 4.0;
+    }
+
+    RingEvidence ringEvidence(const DartboardCalibration &calibration)
+    {
+        RingEvidence evidence;
+        if (calibration.ellipses.hasValidDoubles)
+        {
+            evidence.outer = meanSemiAxis(calibration.ellipses.outerDoubleEllipse);
+            evidence.inner = meanSemiAxis(calibration.ellipses.innerDoubleEllipse);
+            evidence.inner_points = calibration.ellipses.validInnerPoints;
+            if (evidence.outer > 0.0 && evidence.inner > 0.0)
+            {
+                evidence.width_fraction = (evidence.outer - evidence.inner) / evidence.outer;
+            }
+        }
+        evidence.bull = meanSemiAxis(calibration.ellipses.innerBullEllipse);
+        evidence.triple = meanSemiAxis(calibration.ellipses.outerTripleEllipse);
+        if (evidence.outer > 0.0 && evidence.bull > 0.0)
+        {
+            evidence.outer_over_bull = evidence.outer / evidence.bull;
+        }
+        return evidence;
+    }
+
+    /**
+     * Why a calibration abstained, from whichever stage really refused it.
+     *
+     * `board_look::refusal` answers for the sight gate and returns an EMPTY string when
+     * that gate is content, so printing it alone puts a blank reason beside a camera that
+     * was refused somewhere else -- measured on this tree, where
+     * mocks/rig-20260918/cam_2.mp4 abstains with a doubles ring cleanly fitted and the
+     * sight gate saying nothing. `geometry_calibration` refuses a camera in two places
+     * and the second is the wire stage (#1317), which has its own count and its own
+     * threshold; a reader given the first reason for the second refusal looks in the
+     * wrong half of the pipeline.
+     */
+    std::string whyItAbstained(const DartboardCalibration &calibration)
+    {
+        const std::string sight = board_look::refusal(calibration.look);
+        if (!sight.empty())
+        {
+            return sight;
+        }
+        if (!calibration.wires.isValid)
+        {
+            return "was refused by the wire stage, not by the sight gate: it found " +
+                   std::to_string(calibration.wires.wiresDetected) + " of the " +
+                   std::to_string(wire_processing::kWiresRequired) +
+                   " wire boundaries a board has";
+        }
+        return "no stage this instrument can read says why";
+    }
+
+    /** The evidence as log fields, with a `-` wherever a length was not produced. */
+    std::string ringFields(const RingEvidence &evidence)
+    {
+        auto orDash = [](double v, int places)
+        {
+            if (v < 0.0)
+            {
+                return std::string("-");
+            }
+            char buffer[64];
+            snprintf(buffer, sizeof(buffer), places == 4 ? "%.4f" : "%.2f", v);
+            return std::string(buffer);
+        };
+        return " outer_px=" + orDash(evidence.outer, 2) +
+               " inner_px=" + orDash(evidence.inner, 2) +
+               " inner_points=" + std::to_string(evidence.inner_points) +
+               " width_fraction=" + orDash(evidence.width_fraction, 4) +
+               " bull_r_px=" + orDash(evidence.bull, 2) +
+               " triple_px=" + orDash(evidence.triple, 2) +
+               " outer_over_bull=" + orDash(evidence.outer_over_bull, 2);
+    }
 }
 
 int main(int argc, char **argv)
@@ -144,20 +270,36 @@ int main(int argc, char **argv)
     }
     const DartboardCalibration held =
         geometry_calibration::calibrateSingleCamera(held_image, camera_index, false);
+    const RingEvidence held_ring = ringEvidence(held);
     std::cout << "CLIP " << clip_path << " camera=" << (camera_index + 1)
               << " fps=" << twoPlaces(fps) << " held_at=" << hold_at
               << " held_sees_board=" << (held.sees_board ? 1 : 0)
-              << " held_bull=" << held.bullCenter.x << "," << held.bullCenter.y << std::endl;
+              << " held_bull=" << held.bullCenter.x << "," << held.bullCenter.y
+              << ringFields(held_ring) << std::endl;
     if (!held.sees_board)
     {
+        // #1416: with the reason, because the reason is the finding. A held calibration
+        // that abstains takes its whole clip out of the census silently otherwise -- the
+        // summary line is never printed, and a harness reading `longest_disagreeing_run`
+        // out of a missing line reads 0 and calls the clip clean.
         std::cerr << "the held calibration does not see a board; nothing can be compared to it"
                   << std::endl;
+        std::cout << "HELD REFUSED clip=" << clip_path << " at=" << hold_at
+                  << ringFields(held_ring)
+                  << " because: " << whyItAbstained(held) << std::endl;
         return 1;
     }
 
     const geometry_agreement::Limits limits;
     int disagreed = 0;
     int unreadable = 0;
+    // #1416: of the disagreements, how many are a ring the stage renamed rather than a
+    // camera that moved. The ratio is invariant under a camera pushed along its own axis
+    // and moves with the radius when a different ring was fitted, so the two arms are
+    // counted apart instead of being summed into one figure called movement.
+    int radius_only = 0;
+    int ring_changed = 0;
+    int ring_not_measurable = 0;
     int longest_run = 0;
     int run = 0;
     int longest_run_ends_at = -1;
@@ -184,11 +326,48 @@ int main(int argc, char **argv)
             run = 0;
             std::cout << "SAMPLE " << s << " frame=" << from
                       << " second=" << twoPlaces(from / fps) << " NO BOARD IN THE PICTURE"
-                      << std::endl;
+                      << ringFields(ringEvidence(fresh))
+                      << " because: " << whyItAbstained(fresh) << std::endl;
             continue;
         }
         const geometry_agreement::Movement movement = geometry_agreement::measure(held, fresh);
         const bool moved = geometry_agreement::hasMoved(movement, limits);
+        const RingEvidence fresh_ring = ringEvidence(fresh);
+
+        // The same difference the radius term takes, taken of the RATIO instead.
+        double ratio_change = -1.0;
+        if (held_ring.outer_over_bull > 0.0 && fresh_ring.outer_over_bull > 0.0)
+        {
+            ratio_change = std::fabs(fresh_ring.outer_over_bull - held_ring.outer_over_bull) /
+                           held_ring.outer_over_bull;
+        }
+
+        // A verdict about the ring, and only where the radius term is what produced the
+        // disagreement. `kRingMoved` is not a tolerance anything is judged against: it is
+        // the reading threshold for a printed account, set an order of magnitude above
+        // the ratio's own re-measurement noise and an order below the 0.37/0.59 a ring
+        // rename produces, so which side a sample falls on is never a close call.
+        const double kRingMoved = 0.05;
+        std::string ring_verdict = "-";
+        if (moved && movement.radius_comparable && movement.radius_change > limits.max_radius_change)
+        {
+            if (ratio_change < 0.0)
+            {
+                ring_verdict = "NOT_MEASURABLE";
+                ring_not_measurable++;
+            }
+            else if (ratio_change > kRingMoved)
+            {
+                ring_verdict = "DIFFERENT_RING";
+                ring_changed++;
+            }
+            else
+            {
+                ring_verdict = "SAME_RING";
+                radius_only++;
+            }
+        }
+
         if (moved)
         {
             disagreed++;
@@ -208,7 +387,10 @@ int main(int argc, char **argv)
                   << " bull_px=" << twoPlaces(movement.bull_shift_px)
                   << " angle_deg=" << (movement.angle_comparable ? twoPlaces(movement.angle_shift_deg) : std::string("-"))
                   << " radius_pct=" << (movement.radius_comparable ? twoPlaces(movement.radius_change * 100.0) : std::string("-"))
-                  << " verdict=" << (moved ? "MOVED" : "UNCHANGED") << std::endl;
+                  << " verdict=" << (moved ? "MOVED" : "UNCHANGED")
+                  << ringFields(fresh_ring)
+                  << " ratio_change_pct=" << (ratio_change < 0.0 ? std::string("-") : twoPlaces(ratio_change * 100.0))
+                  << " ring=" << ring_verdict << std::endl;
     }
 
     const double seconds_per_sample = sample_every / fps;
@@ -219,6 +401,9 @@ int main(int argc, char **argv)
               << " longest_disagreeing_run=" << longest_run
               << " samples_of=" << twoPlaces(seconds_per_sample) << "s"
               << " = " << twoPlaces(longest_run * seconds_per_sample) << "s"
-              << " ending_at_frame=" << longest_run_ends_at << std::endl;
+              << " ending_at_frame=" << longest_run_ends_at
+              << " radius_disagreements_on_a_different_ring=" << ring_changed
+              << " radius_disagreements_on_the_same_ring=" << radius_only
+              << " radius_disagreements_unmeasurable=" << ring_not_measurable << std::endl;
     return 0;
 }
