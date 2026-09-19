@@ -278,12 +278,21 @@ def case_spool():
 def case_rig():
     """mocks/rig-20260918, the real binary, and the BOARD lines held to what was pushed.
 
-    One BOARD line is printed for every result score_processing publishes, and every one
-    of those is offered, so the two sequences are the same sequence read at two ends of
-    the program. What is asked of each pair is #1366's whole contract: a known position
-    reaches the body at four places, an unknown one reaches it as NO KEY AT ALL rather
-    than as a nought, a MISS carries none whatever it knew, and half a position is never
-    sent.
+    score_processing prints one BOARD line for every result A CAMERA WON THE VOTE FOR,
+    and publishes a MISS with no line at all when none did -- `choice.camera >= 0` is what
+    gates it, and the else below sets MISS with the board fields untouched. So the two
+    sequences line up over the darts and the misses are the remainder, which is why this
+    run reads 9 BOARD lines against 11 pushes rather than a mismatch.
+
+    What is asked of each pair is #1366's whole contract: a known position reaches the
+    body at four places, an unknown one reaches it as NO KEY AT ALL rather than as a
+    nought, half a position is never sent, and a miss carries none.
+
+    This footage is a better fixture for that than it looks. Of its nine scored darts,
+    THREE have an angle and no radius -- the radial ruler finds no outer mark along that
+    ray, and score_processing sets `has_radius` alone. Sent as half a position those three
+    would each be a 422, which deliver() drops rather than retries: three darts lost out
+    of nine, on real footage, from the rule this slice had to get right.
     """
     port = 18662
     stub = Stub("rig", port)
@@ -294,32 +303,34 @@ def case_rig():
 
     lines = [m.groupdict() for m in BOARD_LINE.finditer(board.text)]
     counted = stub.events("counted")
-    print("rig: %d BOARD lines, %d pushed detections" % (len(lines), len(counted)), flush=True)
+    scored = [e for e in counted if e["sector"] != "None"]
+    missed = [e for e in counted if e["sector"] == "None"]
+    print("rig: %d BOARD lines, %d pushed detections (%d scored, %d misses)"
+          % (len(lines), len(counted), len(scored), len(missed)), flush=True)
     for line in lines:
         print("   BOARD ring=%(ring)s segment=%(segment)s radius=%(radius)s angle=%(angle)s" % line,
               flush=True)
     for event in counted:
         print("   PUSH  " + json.dumps(event["body"], sort_keys=True), flush=True)
 
-    if not check(len(lines) > 0 and len(counted) > 0,
+    if not check(len(lines) > 0 and len(scored) > 0,
                  "rig: the footage scored at least one dart and at least one was pushed "
-                 "(%d BOARD lines, %d pushes)" % (len(lines), len(counted))):
+                 "(%d BOARD lines, %d scored pushes)" % (len(lines), len(scored))):
         stub.stop()
         return
-    if not check(len(lines) == len(counted),
-                 "rig: one BOARD line per pushed detection -- the two ends of the same sequence "
-                 "(%d and %d)" % (len(lines), len(counted))):
+    if not check(len(lines) == len(scored),
+                 "rig: one BOARD line per pushed dart -- the two ends of the same sequence, "
+                 "with the misses that printed no line as the remainder (%d and %d)"
+                 % (len(lines), len(scored))):
         stub.stop()
         return
 
     matched = 0
     absent = 0
-    for line, event in zip(lines, counted):
-        body = event["body"]
-        got = position_in(body)
-        a_miss = event["sector"] == "None"
+    for line, event in zip(lines, scored):
+        got = position_in(event["body"])
         knows_both = line["radius"] != "none" and line["angle"] != "none"
-        if knows_both and not a_miss:
+        if knows_both:
             expected = (at_places(line["radius"]), at_places(line["angle"]))
             check(got == expected,
                   "rig: %s was pushed at the place its BOARD line printed (%s vs %s)"
@@ -327,14 +338,21 @@ def case_rig():
             matched += 1
         else:
             check(got is None,
-                  "rig: %s knew %s, so it was pushed with NEITHER key rather than a nought (%s)"
-                  % (event["sector"], "nothing" if not knows_both else "a place it may not send", got))
+                  "rig: %s knew %s of a position, so it was pushed with NEITHER key rather "
+                  "than a nought (%s)"
+                  % (event["sector"], "the angle" if line["radius"] == "none" else "the radius", got))
             absent += 1
+
+    check(matched > 0 and absent > 0,
+          "rig: this footage really exercises both halves of the rule -- %d whole positions "
+          "and %d half ones it had to refuse to send" % (matched, absent))
     check(all(position_in(e["body"]) != "half" for e in counted),
-          "rig: nothing was pushed with half a position, which the door refuses with 422")
-    check(all(position_in(e["body"]) is None for e in counted if e["sector"] == "None"),
-          "rig: every MISS was pushed without a place on the board")
-    print("rig: %d pushes carried a position, %d carried none" % (matched, absent), flush=True)
+          "rig: nothing at all was pushed with half a position, which the door refuses with 422")
+    check(missed and all(position_in(e["body"]) is None for e in missed),
+          "rig: the footage's own misses are the live control, and every one was pushed "
+          "without a place on the board (%d)" % len(missed))
+    print("rig: %d pushes carried a position, %d carried none" % (matched, len(counted) - matched),
+          flush=True)
     stub.stop()
 
 
