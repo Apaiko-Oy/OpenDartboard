@@ -102,9 +102,8 @@ namespace
     //     = an 11 to 12 s span from the first disagreement to the last
     //
     // Nearly twice the longest disturbance measured on either rig, and the margin is
-    // deliberate,
-    // because 6.00 s is the longest disturbance seen in two minutes of footage rather
-    // than the longest one there is. The harness asserts the span against the
+    // deliberate, because 6.00 s is the longest disturbance seen in two minutes of
+    // footage rather than the longest one there is. The harness asserts the span against the
     // disturbance, in seconds, on every run -- so a slower box, a fourth camera or a
     // moved constant fails here rather than in a pub.
     //
