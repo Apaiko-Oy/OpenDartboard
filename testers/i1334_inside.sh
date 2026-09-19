@@ -15,8 +15,16 @@ FAILED=0
 fail() { echo "FAIL $*"; FAILED=1; }
 ok() { echo "ok   $*"; }
 
-echo "--- interfaces this board has ---"
-ip -o addr show 2>/dev/null | awk '{print "     " $2, $3, $4}'
+# The premise, asserted rather than decorated. This read /proc/net/dev from the first run:
+# `ip -o addr show` printed nothing at all in $OD_IMAGE, which has no ip(8), and a line
+# that says nothing is worse here than no line -- it reads as "no interfaces" whatever the
+# container was given.
+echo "--- the interfaces this board has ---"
+IFACES=$(awk 'NR > 2 { sub(/:$/, "", $1); print $1 }' /proc/net/dev | sort | tr '\n' ' ')
+echo "     $IFACES"
+[ "$(echo "$IFACES" | xargs)" = "lo" ] \
+  && ok "there really is no network: loopback and nothing else" \
+  || fail "this container has more than loopback ($IFACES), so nothing below is about a board with no network"
 
 echo
 echo "--- phase 1: paired at the club, while there is something to pair with ---"
