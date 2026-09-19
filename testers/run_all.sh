@@ -45,6 +45,19 @@ LABELS=(); CMDS=()
 tester() { LABELS+=("$1"); shift; CMDS+=("$*"); }
 
 tester address            "bash '$T/check_default_address.sh'"
+
+# The census first, because it is about this list itself and costs no container: a tester
+# this file does not name is outside the gate, which is #1335's own shape one level down
+# (#1371). Then the pure checks -- a compile and a few milliseconds each, so they are the
+# cheapest place for a reader to learn the build is broken.
+tester census             "bash '$T/census.sh'"
+tester 1346-vote          "bash '$T/unit_check.sh' 1346"
+tester 1347-sector        "bash '$T/unit_check.sh' 1347"
+tester 1349-background    "bash '$T/unit_check.sh' 1349"
+tester 1350-vote-line     "bash '$T/unit_check.sh' 1350"
+tester 1351-ledger        "bash '$T/unit_check.sh' 1351"
+tester 1363-anchor        "bash '$T/unit_check.sh' 1363"
+
 tester 1258-choice        "bash '$T/i1258_check.sh'"
 tester 1319-findings      "bash '$T/i1319_run.sh'"
 tester 1320-speck         "bash '$T/i1320_run.sh'"
@@ -56,6 +69,7 @@ tester 1331-framing       "bash '$T/i1331_run.sh'"
 tester 1339-denominator   "bash '$T/i1339_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
+tester 1330-ownership     "bash '$T/i1330_run.sh'"
 tester 899-recover        "bash '$T/i899_run.sh'"
 tester 1274-announce      "bash '$T/i1274_run.sh' announce '$T/phases1274/1274-announce.sh'"
 tester 1249-control       "bash '$T/i1249_run.sh' '$T/i1249_control.sh'"
@@ -68,6 +82,13 @@ tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1257-control       "bash '$T/i1257_run.sh' control '$T/i1257_control.sh'"
 tester 1257-resolution    "bash '$T/i1257_run.sh' resolution '$T/i1257_resolution.sh'"
+# Of the five phases under phases1247/, one computes a verdict and four record (#1412).
+# 1188-subscribers runs check_subscribers.py, which exits 0 when every check held and 1
+# when one did not -- until #1412 the phase script ended on `echo "CHECK_RC=$?"`, so the
+# container exited 0 whatever the check said and this label could not go red. The other
+# four run the detector through a situation and leave a transcript for a reader; they
+# assert nothing, so a PASS beside them means "it ran to the end" and not "it held". Each
+# says so in its own first lines, including what its exit status does and does not carry.
 tester 1188-subscribers   "bash '$T/i1247_run.sh' subscribers '$T/phases1247/1188-subscribers.sh' /runs"
 tester 822-unreachable    "NET=bridge bash '$T/i1247_run.sh' unreachable '$T/phases1247/822-unreachable.sh' /run822"
 tester 892-control        "bash '$T/i1247_run.sh' control '$T/phases1247/892-control.sh' /run892"
