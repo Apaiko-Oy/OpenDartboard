@@ -20,78 +20,70 @@ namespace wire_processing
          * OD_BULL_CARVE and OD_COLOUR_WINDOWS established: one binary, the region chosen
          * at run time, so "different build" is never a confound.
          *
-         * OD_WIRE_REGION=roi hands the wire stage the board finder's region again -- the
-         * colour mask `geometry_calibration` already computed inside
-         * `roi_processing::processROI` -- which is what every commit before this issue
-         * did. Anything but that exact word is ignored, so a typo reads inside the wire
-         * stage's own region rather than silently inside somebody else's.
+         * OD_WIRE_REGION=doubles draws this stage's region at the fitted doubles ellipse
+         * itself, which is what every commit before this issue read, and is row 1.00 of
+         * the sweep in the header. Anything but that exact word is ignored, so a typo
+         * reads inside the region this stage was measured in rather than silently inside
+         * the one it was broken in.
          */
-        bool wireReadsInsideTheROI()
+        bool wireReadsOutToTheDoubles()
         {
             static bool v = []
             {
                 const char *e = std::getenv("OD_WIRE_REGION");
-                return e && std::string(e) == "roi";
+                return e && std::string(e) == "doubles";
             }();
             return v;
         }
 
         /**
-         * OD_WIRE_REGION_MARGIN=<x> moves the region's margin on one binary, the way
-         * OD_ROI_MARGIN moves the board finder's. Zero or less, or anything atof cannot
-         * read, is ignored rather than obeyed: a region of no radius is a black frame,
-         * and the wire stage would then refuse every camera while naming a wire count.
+         * OD_WIRE_REGION_MARGIN=<x> moves the region on one binary, the way
+         * OD_ROI_MARGIN moves the board finder's, and is how the header's sweep was
+         * taken. A value this cannot use is ignored rather than obeyed, and there are
+         * two ways to be unusable:
+         *
+         *   zero or less, or anything atof cannot read -- a region of no radius is a
+         *   black frame, and this stage would then refuse every camera on a wire count
+         *   while the reason is a region nobody printed;
+         *
+         *   past the board's rim. A board is 225.5 mm to its rim and 170 mm to the outer
+         *   doubles wire, so 1.33 of this ellipse is the whole board and there is
+         *   nothing further out for a stage that intersects every endpoint it returns
+         *   with the doubles ellipse. A value beyond it names no region on any board.
+         *
+         * Both are ignored rather than clamped: a clamp obeys a value nobody meant by
+         * quietly turning it into one that was never asked for, which is how #1378 was
+         * invisible for nineteen merges.
          */
-        double wireMarginAsked(double stated)
+        constexpr double kRegionPastTheRim = 225.5 / 170.0;
+
+        double wireRegionAsked(double stated)
         {
             static double asked = []
             {
                 const char *e = std::getenv("OD_WIRE_REGION_MARGIN");
                 return e ? std::atof(e) : 0.0;
             }();
-            return asked > 0.0 ? asked : stated;
+            return (asked > 0.0 && asked <= kRegionPastTheRim) ? asked : stated;
         }
+    }
+
+    bool readsOutToTheDoublesRing()
+    {
+        return wireReadsOutToTheDoubles();
     }
 
     RotatedRect regionOf(const DartboardCalibration &calib, const WireRegionParams &params)
     {
-        // OD_WIRE_REGION=roi restores the whole of the old behaviour, region included:
-        // the stage's masks were the fitted doubles ellipse itself, which is scale 1.0.
-        const float scale = wireReadsInsideTheROI()
+        // OD_WIRE_REGION=doubles restores the pre-#1441 region whole: the stage's masks
+        // were the fitted doubles ellipse itself, which is a scale of 1.0.
+        const float scale = wireReadsOutToTheDoubles()
                                 ? 1.0f
-                                : (float)wireMarginAsked(params.regionOfDoublesEllipse);
+                                : (float)wireRegionAsked(params.regionOfDoublesEllipse);
         RotatedRect region = calib.ellipses.outerDoubleEllipse;
         region.size.width *= scale;
         region.size.height *= scale;
         return region;
-    }
-
-    bool readsInsideTheBoardFindersRegion()
-    {
-        return wireReadsInsideTheROI();
-    }
-
-    Mat regionFor(const Mat &frame, const DartboardCalibration &calib, const WireRegionParams &params)
-    {
-        if (frame.empty() || !calib.ellipses.hasValidDoubles)
-        {
-            // No fitted ring, so there is no region derived from one. The caller is the
-            // pipeline, which already refuses this camera at STEP 6.5.
-            return Mat();
-        }
-
-        const RotatedRect region = regionOf(calib, params);
-        Mat mask = Mat::zeros(frame.size(), CV_8UC1);
-        ellipse(mask, region, Scalar(255), -1);
-
-        log_debug("Camera " + log_string(calib.camera_index + 1) + " wire region: " +
-                  log_string((int)region.size.width) + "x" + log_string((int)region.size.height) +
-                  " px around the doubles ring fitted at (" + log_string((int)region.center.x) + "," +
-                  log_string((int)region.center.y) + "), and not the board finder's search region");
-
-        Mat regionFrame;
-        frame.copyTo(regionFrame, mask);
-        return regionFrame;
     }
 
     Mat detectMetalWires(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib)

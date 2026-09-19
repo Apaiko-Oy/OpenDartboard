@@ -137,77 +137,99 @@ namespace wire_processing
 
     // Public interfaces - using global DartboardCalibration
     /**
-     * #1441: the wire stage's OWN region, and why it is not the board finder's.
+     * #1441: the wire stage's OWN region, and why the doubles ring is outside it.
      *
-     * `roi_processing` draws a region around a board that has NOT been found yet: its
-     * input is `bull_processing::measureBoard`'s smallest circle around the largest
-     * red/green contour, which #1378 measured landing on the TREBLE ring on a dull board,
-     * so its margin has to carry the board's whole rim -- 225.5/107 = 2.107 -- for the
-     * colour stage to reach the doubles ring at all. That is a search radius, and it is
-     * correct for the consumer it was sized for.
+     * WHAT THIS STAGE READS. `detectMetalWires` keeps the dark, red and green pixels
+     * inside the fitted doubles ellipse, subtracts the colour stage's green from them,
+     * and hands the surviving blobs to `findWiresByColorTransitions`, which takes each
+     * blob's angular extent and intersects the two edges with `outerDoubleEllipse`. So
+     * the blobs are the board's WEDGES, and one intact wedge is two wire endpoints. Ten
+     * wedges surviving as ten blobs is the twenty `kWiresRequired` wants.
      *
-     * The wire stage asks a different question. It runs after STEP 6, so the doubles
-     * ellipse has already been FITTED, and every wire it can ever return is an endpoint
-     * ON that ellipse: `findWiresByColorTransitions` intersects each segment's angular
-     * extent with `outerDoubleEllipse` and `detectMetalWires` masks its own work to
-     * 1.05x it and then to 0.95x it. So the region it wants is the thing it is looking
-     * inside, at the buffer it already states.
+     * WHY THE RING BREAKS THEM. The doubles ring is a coloured annulus across the outer
+     * end of every wedge. Where the region reaches it, the green half of the ring is
+     * subtracted and the red half is not, so a wedge is cut into an inner piece and an
+     * outer one at some angles and left whole at others. The angular grouping downstream
+     * then returns 21 and 22 as readily as 17 and 18 -- which is exactly the two-sided
+     * error #1441 was filed on, and a board does not grow wires.
      *
-     * Until this issue nobody drew that region: the wire stage was handed the colour
-     * stage's output, which is computed inside the board finder's region, and #1378
-     * widening that region from 243 px to 410 px on mocks/rig-20260918 put the number
-     * ring, the wire ends and the wall into the mask the wire stage subtracts its green
-     * from. `mocks/rig-20260918/cam_2.mp4` went from 1 refusal in 15 held frames to 8,
-     * two-sided -- 17, 18 and 19 wires, and 21 and 22 -- and no value of the one margin
-     * buys both halves: #1437 swept it on one binary and the board is repaired from 1.60
-     * up while the wire stage is intact only at 1.25.
+     * WHY IT DID NOT BREAK THEM BEFORE #1378, WHICH IS THE PART WORTH READING. The
+     * region has always been drawn from `ellipses.outerDoubleEllipse`, and that ellipse
+     * is downstream of the board finder's region: on mocks/rig-20260918 the colour stage
+     * measures the TREBLE ring (#1378), so at the old margin of 1.25 the search region
+     * cut the doubles ring and the fit COLLAPSED onto what was left -- 91,849 px against
+     * the 258,582 px it really is. The wire stage was therefore reading inside a circle
+     * the size of the treble ring, nowhere near the doubles, and it found twenty wires
+     * because of a defect rather than in spite of one. #1378 repaired the fit, and this
+     * stage read out to a real doubles ring for the first time.
      *
-     * `regionFor` is the repair: the frame with everything outside the FITTED doubles
-     * ellipse blacked out, at the frame's own size, so the colour stage's frame-relative
-     * windows still mean what they meant. The margin is 1.05 because that is not a new
-     * number -- it is `detectMetalWires`'s own buffered ring, said once here instead of
-     * twice there, and it is the outermost thing this stage ever reads.
-     *
-     * `OD_WIRE_REGION=roi` hands the wire stage the board finder's region again, which is
-     * the behaviour every commit before this one had, on the same binary. Anything else
-     * -- including an empty value or a word this does not know -- is ignored rather than
-     * obeyed, because a region nobody can name is not a region and a silent fallback is
-     * what #1378 was invisible behind.
+     * So the two stages were never sharing a region; they were sharing a MISTAKE, and
+     * repairing it downstream is what exposed this one. #1437 measured the pair on one
+     * binary and no value of the board finder's margin buys both: the board is repaired
+     * from 1.60 up and mocks/rig-20260918/cam_2.mp4 refuses 1 held frame in 15 only at
+     * 1.25, where the board is collapsed. The wire stage needs its own number, and it is
+     * this one.
      */
     struct WireRegionParams
     {
         /**
-         * How much wider than the FITTED doubles ellipse the wire stage's region is.
+         * How much of the FITTED doubles ellipse the wire stage's region is.
          *
-         * 1.05 is `detectMetalWires`'s `bufferedRing`, which has been the outer edge of
-         * everything this stage reads since long before this issue; the region is drawn
-         * at the same place so that nothing the stage can read is outside the region the
-         * stage was measured in. `OD_WIRE_REGION_MARGIN=<x>` moves it at run time on one
-         * binary. A value of zero or less, or anything atof cannot read, is ignored
-         * rather than obeyed -- a region of no radius is a black frame, and a wire stage
-         * handed one returns nothing while naming a count rather than a region.
+         * Derived, not fitted. `detectMetalWires` buffers this region by 5% before its
+         * morphology, so the outermost thing the stage can read is 1.05 of it, and what
+         * that must not reach is the doubles ring's INNER edge. A board's doubles ring
+         * is 162 mm inside and 170 mm outside, so the ring's inner edge is 162/170 =
+         * 0.9529 of the ellipse that is fitted to its outer edge, and
+         *
+         *     0.9529 / 1.05 = 0.9076
+         *
+         * is the region whose own buffer stops there. Nothing is fitted to a rig: the
+         * arithmetic is the board's millimetres, the way #1378's 2.107 is 225.5/107.
+         *
+         * Measured on the two fixtures, refusals over #1437's fifteen-frame window, one
+         * binary, `OD_WIRE_REGION_MARGIN` sweeping this number:
+         *
+         *   scale   mocks 1,2,3   rig 1,2,3          rig cam_2's fitted board
+         *   0.78    0, 3, 6       4, 11, 2           258,582 px throughout: this
+         *   0.80    2, 3, 6       3,  7, 3           number cannot move the fit, which
+         *   0.82    1, 3, 6       4,  1, 3           is the whole point of splitting it
+         *   0.84    0, 3, 6       4,  0, 3           off the board finder's margin
+         *   0.86    0, 3, 6       4,  0, 3
+         *   0.88    0, 3, 6       4,  0, 3
+         *   0.9076  0, 3, 6       3,  0, 3   <-- every clip at its pre-#1378 count
+         *   0.92    3, 3, 6       4,  0, 3
+         *   0.94    0, 3, 6       4,  0, 3
+         *   0.96    0, 3, 6       4,  0, 3
+         *   0.98    0, 3, 6       3,  4, 3
+         *   1.00    0, 3, 6       3,  8, 3   <-- the region before this issue, exactly
+         *
+         * The repair is the PLATEAU and not the row: rig cam_2 is whole from 0.84 to
+         * 0.96, thirteen points wide, and the cliffs at 0.80 and 0.98 are the region
+         * failing to clear the ring on one side and losing the wedge on the other. The
+         * +-1 wobble on the other five clips is a frame or two tipping between 19 and 20
+         * or 20 and 21 and is jitter rather than structure -- it is written down here
+         * because a reader who sees 0.9076 alone holding all six would reasonably suspect
+         * the number of having been chosen for it, and it was not: it was computed from
+         * the millimetres above before this sweep was run.
+         *
+         * `OD_WIRE_REGION_MARGIN=<x>` moves it at run time on one binary.
+         * `OD_WIRE_REGION=doubles` puts the region back at the doubles ellipse itself,
+         * which is row 1.00 and is what every commit before this one read.
          */
-        float regionOfDoublesEllipse = 1.0f;
+        float regionOfDoublesEllipse = 0.9076f;
     };
 
-    /** True when OD_WIRE_REGION=roi put the board finder's region back. */
-    bool readsInsideTheBoardFindersRegion();
+    /** True when OD_WIRE_REGION=doubles put the pre-#1441 region back. */
+    bool readsOutToTheDoublesRing();
 
     /**
-     * The wire stage's region, drawn around the doubles ellipse fitted at STEP 6.
+     * The wire stage's region, as an ellipse: a fraction of the doubles ring fitted at
+     * STEP 6, which is what both of `detectMetalWires`'s own masks are drawn from.
      *
-     * The result is the frame with everything outside that ellipse blacked out, at the
-     * frame's own size -- the same shape `roi_processing::processROI` returns, and for
-     * the same reason: the colour stage's own windows are frame-relative.
-     *
-     * A camera whose doubles ring was never fitted has no region: the caller is handed
-     * an empty Mat and must not go on, which is the state `processWires` already declines
-     * to run in.
+     * It is asked of the calibration rather than stored on it because the calibration is
+     * fwritten to the cache byte for byte (utils/cache.hpp) and a second ellipse in it
+     * would be a second thing to keep true of the first.
      */
-    Mat regionFor(const Mat &frame, const DartboardCalibration &calib,
-                  const WireRegionParams &params = WireRegionParams());
-
-    /** The region as an ellipse, which is what this stage's own masks are drawn from. */
     RotatedRect regionOf(const DartboardCalibration &calib,
                          const WireRegionParams &params = WireRegionParams());
 
