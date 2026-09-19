@@ -44,7 +44,8 @@
 # read only out of comments; a call is code and is read only out of code. Prose can no
 # longer speak for either. Comments are stripped per language before the search -- `#`
 # and a Python docstring, `//` and `/* */`, `<# #>`, `<!-- -->` -- by od_code below, which
-# blanks them in place so nothing else about the file moves.
+# blanks them in place so nothing else about the file moves. It costs 2.5 s: this check
+# was 18.4 s over 144 files and is 20.9 s, against run_all.sh's 1200 s budget for it.
 #
 # Three things that decision does, two of them on purpose and one of them a price:
 #
