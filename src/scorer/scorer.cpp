@@ -320,6 +320,33 @@ void Scorer::run()
         }
         const bool saw_something = camera::validCount(frames) > 0;
 
+        // ---- #1282: the footage ended, which is not the board going blind ----
+        //
+        // Every source is a file and every one of them has run out. Only mock input can
+        // reach this; a rig cannot, because a camera does not end (camera::CaptureSource
+        // ::footageEnded is false for any source that is a device). So this is NOT #895's
+        // vigil and does not touch it: a board that cannot see still suspends scoring,
+        // still retries for ever and still never exits.
+        //
+        // Before this the run fell through to the blind path instead, and two things
+        // happened. Its first three seconds wrote four ERROR lines per iteration with
+        // nothing pacing them -- about 200 MB of stdout in one Windows release run -- and
+        // then attemptRecovery() reopened the sources, which rewinds a file to frame 0, so
+        // the clip played again and the whole thing repeated for as long as anybody let it.
+        if (capture->footageEnded())
+        {
+            auto loop_ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - loop_started).count();
+            log_info("END OF FOOTAGE: every file source has reached its end after " +
+                     to_string(cycles) + " cycles (" + to_string(loop_ms) +
+                     " ms). This board was given recordings, and a recording ends; the run ends with it.");
+            for (size_t c = 0; c < last_pos_ms.size(); c++)
+            {
+                log_info("END OF FOOTAGE cam " + to_string(c) + " last pos_ms=" + to_string(last_pos_ms[c]));
+            }
+            running = false;
+            break;
+        }
+
         // #899: a camera answering again is not permission to score. While the board is
         // suspended it reads frames and does nothing with them -- it does not process
         // them, it does not send a result, and it does not count the cycle towards

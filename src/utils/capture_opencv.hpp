@@ -147,6 +147,11 @@ namespace camera
     // negotiates MJPEG; a path that looks like a video file is opened with OpenCV's
     // default backend. A Windows implementation is a sibling of this class and nothing
     // above the seam changes when it arrives.
+    // #1282: how many consecutive refusals from an already-delivering file source are
+    // read as its end rather than as a bad frame. Three, because a real end never
+    // recovers and the cost of being wrong for two more cycles is two more ERROR lines.
+    static const int kEndOfFootageFailures = 3;
+
     class OpenCvCaptureSource : public CaptureSource
     {
     public:
@@ -169,6 +174,10 @@ namespace camera
             anchors_.clear();
             anchored_.clear();
             descriptions_.clear();
+            is_file_.clear();
+            delivered_.clear();
+            failures_.clear();
+            ended_.clear();
             nominal_fps_ = static_cast<double>(fps);
 
             log_info("Initializing " + log_string(sources.size()) + " cameras...");
@@ -349,6 +358,13 @@ namespace camera
                 clocks_.push_back(clock);
                 anchors_.push_back(0);
                 anchored_.push_back(false);
+                // #1282. Reopening is how #899's recovery gets its sight back, and it
+                // rewinds a file to frame 0 -- so an end recorded before the reopen is
+                // not true of the capture that comes out of it.
+                is_file_.push_back(isVideoFile(sources[i]));
+                delivered_.push_back(false);
+                failures_.push_back(0);
+                ended_.push_back(false);
                 log_info("Camera/video " + log_string(i + 1) + " initialized successfully");
             }
 
@@ -368,6 +384,21 @@ namespace camera
         std::string describe(size_t i) const override
         {
             return i < descriptions_.size() ? descriptions_[i] : std::string("");
+        }
+
+        // #1282: true only when there is at least one source, every one of them is a
+        // file, and every one of them has reached its end. One device among the sources
+        // makes this false for ever, which is the point: a rig does not end.
+        bool footageEnded() const override
+        {
+            if (captures_.empty())
+                return false;
+            for (size_t i = 0; i < captures_.size(); i++)
+            {
+                if (i >= is_file_.size() || !is_file_[i] || !ended_[i])
+                    return false;
+            }
+            return true;
         }
 
         std::vector<Frame> read() override
@@ -510,11 +541,57 @@ namespace camera
                     frames[i].pos_ms = pos_ms;
                     frames[i].anchor_ns = anchors_[i];
                     frames[i].returned_ns = now_ns;
+                    // #1282: this source has now handed over a frame, so a later refusal
+                    // is a refusal to CONTINUE rather than a refusal to start.
+                    delivered_[i] = true;
+                    failures_[i] = 0;
+                    ended_[i] = false;
                 }
                 else
                 {
+                    // ---- #1282: the end of a clip, told from a camera that stopped ----
+                    //
+                    // read() answers false for both, and before this it was logged as the
+                    // same thing: one ERROR line per camera per cycle, for ever, at
+                    // whatever rate the loop runs -- about 200 MB of stdout in one Windows
+                    // release run after the three mocks finished.
+                    //
+                    // Four things have to be true before a failure is called an end, and
+                    // each one refuses a state that is NOT the end of a clip:
+                    //
+                    //   is_file_[i]      a device is never exhausted. A camera does not
+                    //                    end, so a rig can never reach this branch at all.
+                    //   not injected     #895's blind and #798's drop injection force
+                    //                    success=false on whatever sources are configured,
+                    //                    mocks included. A board made blind on purpose is
+                    //                    the vigil's subject, not a finished clip.
+                    //   delivered_[i]    a file that never gave a frame did not END, it
+                    //                    failed to start -- a missing or unreadable clip,
+                    //                    which stays the ERROR it is today.
+                    //   isOpened()       a capture the backend has torn down is a fault.
+                    //
+                    // And then it must hold for kEndOfFootageFailures consecutive cycles,
+                    // so one undecodable frame in the middle of a clip is not mistaken for
+                    // its end. A real end never recovers; a decode hiccup does.
+                    const bool injected = (od_inject && od_named) || od_blind;
+                    if (!injected && i < is_file_.size() && is_file_[i] && delivered_[i] &&
+                        captures_[i].isOpened())
+                    {
+                        if (!ended_[i] && ++failures_[i] >= kEndOfFootageFailures)
+                        {
+                            ended_[i] = true;
+                            log_info("END OF FOOTAGE cam=" + std::to_string(i + 1) +
+                                     " cycle=" + std::to_string(od_cycle) +
+                                     " last_pos_ms=" + std::to_string((long)pos_ms) +
+                                     " source=" + describe(i) +
+                                     " — the clip has run out. A camera never does this.");
+                        }
+                    }
                     // The slot stays, marked, so that a camera's position never changes.
-                    log_error("Failed to capture frame from camera " + log_string(i + 1) + " - slot marked unavailable");
+                    if (!ended_[i])
+                    {
+                        log_error("Failed to capture frame from camera " + log_string(i + 1) + " - slot marked unavailable");
+                    }
                     frames[i].pos_ms = pos_ms;
                     frames[i].returned_ns = now_ns;
                 }
@@ -527,7 +604,17 @@ namespace camera
                 for (size_t i = 0; i < frames.size(); i++)
                     pos += (i ? "," : "") + std::to_string((long)frames[i].pos_ms);
                 const size_t have = validCount(frames);
-                if (have != captures_.size())
+                // #1282: a slot whose clip has ended is not a slot that was dropped, and
+                // reporting it as one is the other half of the unbounded output. While
+                // nothing has ended this is `captures_.size()` and every line below is
+                // the line that was printed before.
+                size_t expected = captures_.size();
+                for (size_t i = 0; i < captures_.size() && i < ended_.size(); i++)
+                {
+                    if (ended_[i])
+                        expected--;
+                }
+                if (have != expected)
                 {
                     od_short_cycles++;
                     log_error("CAPDROP cycle=" + std::to_string(od_cycle) + " returned=" + std::to_string(have) + "/" + std::to_string(captures_.size()) + " pos_ms=[" + pos + "]");
@@ -709,6 +796,12 @@ namespace camera
         std::vector<int64_t> anchors_;
         std::vector<bool> anchored_;
         std::vector<std::string> descriptions_;
+        // #1282: the four things it takes to tell the end of a clip from a camera that
+        // has stopped answering. See the read() docblock for what each one refuses.
+        std::vector<bool> is_file_;
+        std::vector<bool> delivered_;  // this source has handed over at least one frame
+        std::vector<int> failures_;    // consecutive failed reads, reset by any success
+        std::vector<bool> ended_;      // this file has reached its end and said so once
         double nominal_fps_ = 0.0;
     };
 

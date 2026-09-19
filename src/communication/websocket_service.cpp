@@ -273,10 +273,25 @@ vector<uint8_t> create_control_frame(uint8_t opcode, const vector<uint8_t> &payl
 // connection's thread - the one httplib runs the content provider on - and it is the
 // only thread that ever writes to that socket, which also removes the race the shipped
 // code had between the broadcast write and the ping written from the provider.
+// #1282: what a socket is called on each platform. A Winsock SOCKET is a UINT_PTR and
+// does not fit in an int -- storing one in the `int fd` this struct used to carry would
+// truncate the handle on a 64-bit build and then use the truncated value. On Linux this
+// is `int`, `-1` and `>= 0`, which is exactly what the code below said before, so the
+// Linux half of every line that touches it is unmoved.
+#ifdef _WIN32
+using subscriber_socket_t = SOCKET;
+static const subscriber_socket_t kNoSubscriberSocket = INVALID_SOCKET;
+static inline bool haveSocket(subscriber_socket_t s) { return s != INVALID_SOCKET; }
+#else
+using subscriber_socket_t = int;
+static const subscriber_socket_t kNoSubscriberSocket = -1;
+static inline bool haveSocket(subscriber_socket_t s) { return s >= 0; }
+#endif
+
 struct Subscriber
 {
     string peer;                   // address:port, for the log
-    int fd = -1;                   // the socket, resolved from the peer; -1 when it could not be
+    subscriber_socket_t fd = kNoSubscriberSocket; // the socket, resolved from the peer
     mutex m;
     condition_variable cv;
     deque<vector<uint8_t>> outbox; // frames not yet handed to the kernel, in publication order
@@ -298,19 +313,83 @@ static const chrono::seconds kWriteWait{5};
 
 // httplib 0.14.3 hands a handler the peer's address and port and not the socket, and
 // its DataSink only writes, so nothing ever read what a subscriber sent back - a pong,
-// a close frame, or the end of the stream. On Linux every open descriptor is listed
-// under /proc/self/fd, and the one whose peer is this request's peer is this request's
-// socket. -1 when it is not found (an IPv6 peer, or no /proc), in which case the
-// subscriber is held to the write bound alone and the log says so.
-static int findSocketOf(const string &remote_addr, int remote_port, int local_port)
+// a close frame, or the end of the stream. The question this answers is not a Linux
+// idiom: it is "enumerate the descriptors THIS process owns, ask each one who it is
+// connected to, and take the one whose peer is this request's peer and whose local port
+// is the port this request arrived on". Both platforms are asked exactly that, with the
+// same two calls in the same order, matched on the same three numbers. Not found is
+// kNoSubscriberSocket, in which case the subscriber is held to the write bound alone and
+// the log says so.
+//
+// #1282 -- WHAT THE TWO CANDIDATE SETS ARE, AND WHERE THE EQUIVALENCE STOPS.
+//
+//   Linux  /proc/self/fd IS the descriptor table. The walk is exact, finite, and lists
+//          every descriptor and no others.
+//
+//   Windows a Winsock socket is a kernel handle, and the handles a process owns live in
+//          its handle table. Handle values are multiples of four, so the table is
+//          sweepable by value; getpeername() on a value that is not a socket this process
+//          owns answers WSAENOTSOCK and touches nothing. So the candidate set is the
+//          handle table, asked the same two questions.
+//
+// The difference is that Windows publishes no enumeration of that table outside ntdll's
+// NtQuerySystemInformation, which allocates the SYSTEM-WIDE handle list to answer a
+// question about one process. So this walk has a CEILING rather than an end: the table
+// is swept from the bottom up to a bound taken from the live handle count -- handles are
+// reused, so the table stays a small multiple of what is open at once -- with a floor so
+// a quiet process is still swept properly.
+//
+// Falling off the ceiling returns kNoSubscriberSocket, which is precisely the answer this
+// function already gave when /proc held no match. So the failure mode of the Windows half
+// is the behaviour Windows has today -- held to the write bound, and the connect line
+// says so -- and never anything worse.
+static subscriber_socket_t findSocketOf(const string &remote_addr, int remote_port, int local_port)
 {
 #ifdef _WIN32
-    // #1249: no /proc on Windows, so the socket is never found and a subscriber is held
-    // to the write bound alone - the not-found path above, which the log already names.
-    (void)remote_addr;
-    (void)remote_port;
-    (void)local_port;
-    return -1;
+    // How far up the handle table to sweep. A handle value is a multiple of four, so
+    // slot n is handle 4n. The live count is what is open now; the table does not shrink,
+    // so eight times it is a generous allowance for slots freed earlier, and the floor
+    // covers a board with a handful of handles whose table is still a page.
+    DWORD live = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &live))
+        live = 0;
+    DWORD slots = (live > 512) ? live * 8 : 4096;
+    if (slots > 65536)
+        slots = 65536;
+
+    const auto started = chrono::steady_clock::now();
+    subscriber_socket_t found = kNoSubscriberSocket;
+    DWORD sockets_seen = 0;
+    for (DWORD slot = 1; slot <= slots; slot++)
+    {
+        const SOCKET candidate = (SOCKET)(ULONG_PTR)(slot * 4);
+        sockaddr_in peer{};
+        int len = (int)sizeof(peer);
+        if (getpeername(candidate, (sockaddr *)&peer, &len) != 0 || peer.sin_family != AF_INET)
+            continue;
+        sockets_seen++;
+        char text[INET_ADDRSTRLEN];
+        if (!inet_ntop(AF_INET, &peer.sin_addr, text, sizeof(text)))
+            continue;
+        if (remote_addr != text || ntohs(peer.sin_port) != remote_port)
+            continue;
+        sockaddr_in local{};
+        len = (int)sizeof(local);
+        if (getsockname(candidate, (sockaddr *)&local, &len) != 0 || ntohs(local.sin_port) != local_port)
+            continue;
+        found = candidate;
+        break;
+    }
+    // What the sweep cost, said in the log rather than argued in a comment: a reader on a
+    // board that has grown a large handle table can see the number rather than guess it.
+    const long long swept_us = chrono::duration_cast<chrono::microseconds>(
+                                   chrono::steady_clock::now() - started)
+                                   .count();
+    log_debug("score socket: handle sweep for " + remote_addr + ":" + to_string(remote_port) +
+              " looked at " + to_string((unsigned long)slots) + " slot(s), found " +
+              to_string((unsigned long)sockets_seen) + " connected socket(s) in " +
+              to_string(swept_us) + " us" + (haveSocket(found) ? "" : " and no match"));
+    return found;
 #else
     DIR *dir = opendir("/proc/self/fd");
     if (!dir)
@@ -537,7 +616,7 @@ void WebSocketService::run()
                 
                 // #1188: the subscriber's socket, so its pongs and its close can be read.
                 const string peer = req.remote_addr + ":" + to_string(req.remote_port);
-                const int fd = findSocketOf(req.remote_addr, req.remote_port, req.local_port);
+                const subscriber_socket_t fd = findSocketOf(req.remote_addr, req.remote_port, req.local_port);
 
                 // The subscriber's own writer and reader, on httplib's thread for this
                 // connection. It drains the outbox in order, reads what the subscriber
@@ -553,7 +632,7 @@ void WebSocketService::run()
                             subscribers.push_back(subscriber);
                         }
                         log_info("score socket: subscriber " + peer + " connected" +
-                                 (fd < 0 ? " (its socket was not found; held to the write bound only)" : ""));
+                                 (haveSocket(fd) ? "" : " (its socket was not found; held to the write bound only)"));
 
                         const auto connected = chrono::steady_clock::now();
                         auto last_ping = connected;
@@ -600,9 +679,46 @@ void WebSocketService::run()
                             }
 
                             // 2. what the subscriber sent back: a pong, a ping, a close, or nothing more
-                            if (fd >= 0) {
-#ifndef _WIN32
-                                // #1249: fd is -1 on Windows (findSocketOf), so this read is Linux's alone.
+                            if (haveSocket(fd)) {
+#ifdef _WIN32
+                                // #1282: the same drain, with the one call Windows has for
+                                // it. There is no MSG_DONTWAIT here, and ioctlsocket(FIONBIO)
+                                // is not an option: this socket is httplib's and httplib
+                                // writes to it, blocking, on this very thread -- putting it
+                                // in non-blocking mode would change how the board's own
+                                // frames are written. select() with a zero timeout asks
+                                // whether a recv would block without altering the socket at
+                                // all, so nothing but this loop can tell the difference.
+                                char buf[4096];
+                                for (;;) {
+                                    fd_set readable;
+                                    FD_ZERO(&readable);
+                                    FD_SET(fd, &readable);
+                                    timeval nowait{0, 0};
+                                    const int ready = select(0, &readable, nullptr, nullptr, &nowait);
+                                    if (ready == 0) {
+                                        break; // nothing waiting; ask again next pass
+                                    }
+                                    if (ready < 0) {
+                                        ended = "the connection failed: select reported Winsock error " +
+                                                to_string(WSAGetLastError());
+                                        break;
+                                    }
+                                    const int n = recv(fd, buf, (int)sizeof(buf), 0);
+                                    if (n > 0) {
+                                        inbound.insert(inbound.end(), (const uint8_t *)buf, (const uint8_t *)buf + n);
+                                        continue;
+                                    }
+                                    if (n == 0) {
+                                        ended = "the subscriber closed the connection";
+                                    } else {
+                                        const int error = WSAGetLastError();
+                                        if (error != WSAEWOULDBLOCK && error != WSAEINTR)
+                                            ended = "the connection failed: Winsock error " + to_string(error);
+                                    }
+                                    break;
+                                }
+#else
                                 uint8_t buf[4096];
                                 for (;;) {
                                     const ssize_t n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
@@ -647,7 +763,7 @@ void WebSocketService::run()
                                 if (!write_frame(create_control_frame(0x9, {})))
                                     break;
                                 last_ping = now;
-                                if (fd >= 0)
+                                if (haveSocket(fd))
                                     ping_unanswered = now;
                             }
                         }
