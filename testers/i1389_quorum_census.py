@@ -59,15 +59,19 @@ MARKER = "camera-quorum-exempt:"
 READERS = {
     "calibration admission": (
         "src/detector/geometry/geometry_detector.cpp",
-        re.compile(r"cameras_that_must_see\s*=\s*camera_quorum::cameras\(\)"),
+        re.compile(r"cameras_that_must_see\s*=[^;]*camera_quorum::cameras\(\)", re.S),
     ),
     "the dart event's board census": (
         "src/detector/geometry/detection/motion_processing.hpp",
-        re.compile(r"int\s+quorum\s*=\s*camera_quorum::cameras\(\)"),
+        re.compile(r"int\s+quorum\s*=[^;)]*camera_quorum::cameras\(\)", re.S),
     ),
     "the state vote's floor": (
         "src/detector/geometry/detection/dart_processing.hpp",
-        re.compile(r"min_cameras_to_move_the_board\s*=\s*camera_quorum::cameras\(\)"),
+        # `[^;]*` and DOTALL rather than an exact spelling, because the floor is allowed to
+        # be written through OD_STATE_FLOOR's pin -- what may not happen is the quorum
+        # dropping out of the expression. This pattern was an exact match for one commit
+        # and the pin broke it, which is the census catching its own author.
+        re.compile(r"min_cameras_to_move_the_board\s*=[^;]*camera_quorum::cameras\(\)", re.S),
     ),
 }
 HOME = "src/detector/geometry/camera_quorum.hpp"
