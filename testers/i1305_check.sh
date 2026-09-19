@@ -14,7 +14,12 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 TREE="${1:-$OD_TREE_ROOT}"
 MODE="${2:-}"
-od_run "i1305-check" --network none -v "$TREE":/app -w /app -e MODE="$MODE" "$OD_IMAGE" bash -c '
+# The two modes are two phases and they may not share a container name (#1341): a --mutate
+# run left over from a kill would otherwise block the ordinary one, and the conflict would
+# arrive as Docker's rc=125 rather than as anything about this check.
+PHASE="check"
+[ "$MODE" = "--mutate" ] && PHASE="check-mutate"
+od_run "i1305-$PHASE" --network none -v "$TREE":/app -w /app -e MODE="$MODE" "$OD_IMAGE" bash -c '
   python3 testers/i1305_fixtures.py || { echo FIXTURES_FAILED; exit 2; }
   SRC=/app/src
   if [ "$MODE" = "--mutate" ]; then

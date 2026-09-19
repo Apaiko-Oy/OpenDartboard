@@ -12,12 +12,13 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1338/1338-partial.sh}"
+PHASE="$(od_phase "$SCRIPT")"
 BASE="$OD_RUNS_BASE/1338"
-RUN="$BASE/partial"
+RUN="$BASE/$PHASE"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  od_run "i1338-clean" --network none -v "$BASE":/base "$OD_IMAGE" \
-    rm -rf /base/partial > /dev/null 2>&1
+  od_run "i1338-clean-$PHASE" --network none -v "$BASE":/base "$OD_IMAGE" \
+    rm -rf "/base/$PHASE" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
@@ -26,7 +27,7 @@ cp "$SCRIPT" "$RUN/inside.sh"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-od_run "i1338-partial" --cpus=2 --network none -e HOME=/root \
+od_run "i1338-$PHASE" --cpus=2 --network none -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1338 -v "$RUN/cfg":/root/.config \
   -w /run1338 "$OD_IMAGE" bash /run1338/inside.sh
@@ -41,7 +42,7 @@ tot=u+n+s+i+w+q+sq
 print('%.1f' % (100.0*(tot-i-w)/tot) if tot else 'n/a')")
 WALL=$(python3 -c "print('%.1f' % ($T1-$T0))")
 
-echo "RUN=partial rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
+echo "RUN=$PHASE rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
 # The harness must exit on what it measured: run_all.sh reads the exit code and nothing
 # else, and an echo returns 0 whatever it printed (#1335).
 exit $RC

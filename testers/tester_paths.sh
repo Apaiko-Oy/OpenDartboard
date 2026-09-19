@@ -53,17 +53,21 @@ od_still() {
 # the two phases wrote into one run directory, so the ASan run wiped the partial run's
 # output and the summary line said RUN=partial about both.
 #
-#   od_phase testers/phases1317/1317-asan.sh   ->  asan
-#   od_phase testers/phases891/givenup-nobeat.sh -> givenup-nobeat
+#   od_phase testers/phases1317/1317-asan.sh     ->  asan
+#   od_phase testers/i1249_control.sh             ->  control
+#   od_phase testers/phases891/givenup-nobeat.sh  ->  givenup-nobeat
 #
-# The leading issue number goes, because the harness's own name already carries it and
-# od-i1341-i1317-1317-asan reads like a mistake. A phase script that does not start with
-# one keeps its whole name.
+# A leading issue number goes, in either of the two spellings this directory uses for one,
+# because the harness's own name already carries it and od-i1341-i1317-1317-asan reads like
+# a mistake. A phase script that starts with neither keeps its whole name. The stripping is
+# not cosmetic either: it is what makes every harness converted to od_phase keep the exact
+# container name and run directory it had, so this is a change of derivation and not a
+# change of behaviour.
 od_phase() {
   local b
   b="$(basename "$1")"
   b="${b%.sh}"
-  b="$(echo "$b" | sed 's/^[0-9][0-9]*-//')"
+  b="$(echo "$b" | sed -e 's/^[0-9][0-9]*-//' -e 's/^i[0-9][0-9]*_//')"
   b="${b//[^A-Za-z0-9_.-]/-}"
   echo "$b"
 }
@@ -111,6 +115,7 @@ od_phase() {
 # is interruptible and the trap fires at once.
 
 OD_GUARDED=""                       # container names this shell has claimed, not yet let go
+OD_CLIENTS=""                       # the `docker run` clients that are creating them
 OD_GUARD_DIR="$OD_RUNS_BASE/guards" # where a watchdog leaves its pid so it can be called off
 OD_GUARD_MAX_S="${OD_GUARD_MAX_S:-7200}"   # a watchdog never outlives this, whatever happens
 
@@ -120,7 +125,12 @@ od_reap() { docker rm -f "$1" > /dev/null 2>&1; }
 # Reap everything this shell still holds, and call off the watchdogs that were holding it
 # for us. Idempotent: the EXIT trap and a signal trap may both reach it.
 od_reap_guarded() {
-  local n w
+  local n w c
+  # The client first. It is what CREATES the container, so a harness killed in the second
+  # between od_run starting and the container existing would otherwise be reaped before
+  # there was anything to reap, and the orphaned client would make one afterwards.
+  for c in $OD_CLIENTS; do kill -9 "$c" > /dev/null 2>&1; done
+  OD_CLIENTS=""
   for n in $OD_GUARDED; do
     w="$OD_GUARD_DIR/$n.watch"
     if [ -f "$w" ]; then
@@ -159,6 +169,10 @@ od_watchdog() {
       if [ "$(date +%s)" -gt "$end" ]; then rm -f "$flag"; exit 0; fi
     done
     docker rm -f "$name" > /dev/null 2>&1
+    # Twice, three seconds apart: the client outlives the harness, so a container it was
+    # in the middle of creating can appear after the first reap.
+    sleep 3
+    docker rm -f "$name" > /dev/null 2>&1
     rm -f "$flag"
   ' od-watchdog "$name" "$$" "$OD_GUARD_DIR/$name.watch" "$OD_GUARD_MAX_S" \
     < /dev/null > /dev/null 2>&1 &
@@ -192,8 +206,10 @@ od_run() {
   od_watchdog "$name"
   docker run --rm --name "$name" "$@" &
   cli=$!
+  OD_CLIENTS="$OD_CLIENTS $cli"
   wait "$cli"
   rc=$?
+  OD_CLIENTS="${OD_CLIENTS% $cli}"
   # Let this one go: the trap must not reap a name a later phase is about to take.
   local kept="" n
   for n in $OD_GUARDED; do [ "$n" = "$name" ] || kept="$kept $n"; done

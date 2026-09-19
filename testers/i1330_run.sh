@@ -19,12 +19,13 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 HERE="$OD_TREE_ROOT"
 SCRIPT="${1:-$HERE/testers/phases1330/1330-ownership.sh}"
+PHASE="$(od_phase "$SCRIPT")"
 BASE="$OD_RUNS_BASE/1330"
-RUN="$BASE/ownership"
+RUN="$BASE/$PHASE"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  od_run 1330-clean --network none -v "$BASE":/base "$OD_IMAGE" \
-    rm -rf /base/ownership > /dev/null 2>&1
+  od_run "1330-clean-$PHASE" --network none -v "$BASE":/base "$OD_IMAGE" \
+    rm -rf "/base/$PHASE" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
@@ -42,7 +43,7 @@ git -C "$HERE" archive "$BASE_COMMIT" | tar -x -C "$RUN/pre-1330"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-od_run 1330-ownership --cpus=2 --network none -e HOME=/root \
+od_run "1330-$PHASE" --cpus=2 --network none -e HOME=/root \
   -v "$HERE":/app \
   -v "$RUN":/run1330 -v "$RUN/cfg":/root/.config \
   -w /run1330 "$OD_IMAGE" bash /run1330/inside.sh
@@ -57,5 +58,5 @@ tot=u+n+s+i+w+q+sq
 print('%.1f' % (100.0*(tot-i-w)/tot) if tot else 'n/a')")
 WALL=$(python3 -c "print('%.1f' % ($T1-$T0))")
 
-echo "RUN=ownership rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
+echo "RUN=$PHASE rc=$RC wall_s=$WALL host_busy_pct=$BUSY dir=$RUN"
 exit $RC

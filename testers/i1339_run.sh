@@ -11,24 +11,25 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1339/1339-denominator.sh}"
+PHASE="$(od_phase "$SCRIPT")"
 BASE="$OD_RUNS_BASE/1339"
-RUN="$BASE/denominator"
+RUN="$BASE/$PHASE"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  od_run "i1339-clean" --network none -v "$BASE":/base "$OD_IMAGE" \
-    rm -rf /base/denominator > /dev/null 2>&1
+  od_run "i1339-clean-$PHASE" --network none -v "$BASE":/base "$OD_IMAGE" \
+    rm -rf "/base/$PHASE" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN/cfg"
 cp "$SCRIPT" "$RUN/inside.sh"
 
 T0=$(date +%s)
-od_run "i1339-denominator" --cpus=2 --network none -e HOME=/root \
+od_run "i1339-$PHASE" --cpus=2 --network none -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1339 -v "$RUN/cfg":/root/.config \
   -w /run1339 "$OD_IMAGE" bash /run1339/inside.sh
 RC=$?
 T1=$(date +%s)
 
-echo "RUN=denominator rc=$RC wall_s=$((T1 - T0)) dir=$RUN"
+echo "RUN=$PHASE rc=$RC wall_s=$((T1 - T0)) dir=$RUN"
 exit $RC

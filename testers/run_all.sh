@@ -61,6 +61,10 @@ tester address            "bash '$T/check_default_address.sh'"
 # (#1371). Then the pure checks -- a compile and a few milliseconds each, so they are the
 # cheapest place for a reader to learn the build is broken.
 tester census             "bash '$T/census.sh'"
+# Then the leak check, for the same reason and with the same cost: it starts containers but
+# every one of them is `sleep`, and what it measures -- that a killed harness leaves nothing
+# behind -- is a property of every tester below it (#1341).
+tester leaks              "bash '$T/leak_check.sh'"
 tester 1346-vote          "bash '$T/unit_check.sh' 1346"
 tester 1347-sector        "bash '$T/unit_check.sh' 1347"
 tester 1349-background    "bash '$T/unit_check.sh' 1349"
