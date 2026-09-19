@@ -446,16 +446,22 @@ namespace board_look
         // outer_points < 50` is unreachable while the two numbers are equal, and it was
         // kept on the argument that this is where a STRICTER floor would be raised.
         //
-        // There is no stricter floor to raise it to that is not fitted. The board cameras
-        // this repository has ever measured score 68, 70, 95, 96, 97, 103, 104, 105, 109
-        // and 110 of 120 rays, so a floor that can fire has to sit in 51..67, and the only
-        // evidence anywhere near that window is a real board camera at 68 and another at
-        // 70 -- mocks/rig-20260918's camera 1 at 0.6 scale, in this issue's own tester.
-        // Worse, #1340's fixture -- a doubles ring painted out over 150 degrees, which is
-        // 50 of the 120 rays -- is deliberately refused by the WIRE stage, the one that
-        // can see the damage, and a floor in the sixties would take that refusal away from
-        // it. A number nothing has ever produced, chosen so that a guard can be said to
-        // fire, is exactly #1322.
+        // There is no stricter floor to raise it to that is not fitted, and #1392's census
+        // is what settles it rather than the argument above. Measured on one binary on
+        // 2026-09-19, the board cameras that CALIBRATE score
+        //
+        //   61  64  70  88  95  96  97  103  104  105  107  109   of 120 rays
+        //
+        // and the 61 and the 64 are mocks/rig-20260918's own cameras 1 and 3, on the
+        // fixture as it ships. So a floor anywhere above 60 refuses a shipped fixture
+        // outright -- which is the failure this file exists to prevent, committed by the
+        // guard meant to prevent it -- and the only window left for a floor that can fire
+        // at all is 51..60, where nothing this repository has ever measured has landed.
+        // Worse again, #1340's fixture -- a doubles ring painted out over 150 degrees,
+        // which is 50 of the 120 rays -- is deliberately refused by the WIRE stage, the
+        // one that can see the damage, and a floor in the sixties would take that refusal
+        // away from it. A number nothing has ever produced, chosen so that a guard can be
+        // said to fire, is exactly #1322.
         //
         // So the floor lives in one place, `EllipseParams::minValidRays`, enforced where
         // the fit happens and printed there with its own count. `outer_points` is still
