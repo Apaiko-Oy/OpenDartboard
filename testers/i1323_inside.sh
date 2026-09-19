@@ -98,7 +98,12 @@ else say "FAIL off-aimed: the camera did not calibrate" no; fi
 
 echo
 echo "=== 3. the board is measured here, and it is said out loud ==="
-if grep -qE 'Camera 1 board measured from the coloured mask: the largest coloured region encloses [0-9]+ px, [0-9.]+% of the frame, and a board encloses at least 4.00%. Its middle is \(798,424\)' /run1323/plain.txt; then
+# #1394 replaced this stage's floor: it used to refuse a board on the area its boundary
+# encloses -- the quantity #1340 proved collapses when a ring breaks -- and now refuses it
+# on the SPAN, which is BullParams::minBoardRadius() read directly. So the first half of
+# this sentence moved and the half #1323 is about did not: the middle this camera measured
+# is still the board's, still at (798,424), and still not the frame's.
+if grep -qE 'Camera 1 board measured from the coloured mask: the largest coloured region spans [0-9]+ px across its widest, and a board this stage can size a window against spans at least [0-9]+ px \(it encloses [0-9]+ px, [0-9.]+% of the frame\)\. Its middle is \(798,424\)' /run1323/plain.txt; then
   say "OK   the rule names the middle it measured, and it is the board's, not the frame's" ok
 else
   grep -hE 'board measured|no board to measure' /run1323/plain.txt | head -1 | cut -c1-220
@@ -128,6 +133,12 @@ cmake -S /run1323/mutant -B /run1323/mutant/build -DCMAKE_PREFIX_PATH=/usr/local
   -DFETCHCONTENT_SOURCE_DIR_HTTPLIB=/app/build/_deps/httplib-src > /run1323/mcmake.log 2>&1 \
   || { tail -20 /run1323/mcmake.log; exit 1; }
 
+# #1394 sized these windows off the board and the three lines below therefore changed
+# shape: `enhancedMask.cols * params.centralityThreshold` became `centralityWindow`, a
+# length in pixels computed before the loop. The mutations are the same three mutations --
+# the window always keeps, the window always drops, the board is never measured -- and
+# each still asserts its own anchor is present, so a fourth rewrite of these lines fails
+# here by name rather than silently mutating nothing.
 mutate() { # $1 python file describing the edit
   cp /app/src/detector/geometry/calibration/color_processing.cpp \
      /run1323/mutant/src/detector/geometry/calibration/color_processing.cpp
@@ -139,7 +150,10 @@ mutate() { # $1 python file describing the edit
 cat > /run1323/m_frame.py <<'PY'
 p = '/run1323/mutant/src/detector/geometry/calibration/color_processing.cpp'
 s = open(p).read()
-old = '        if (boardIndex >= 0 && boardArea >= frameArea * params.minBoardAreaPercent)'
+# #1394 restructured this line: the floor is applied to the SPAN before the centroid is
+# taken, so the condition is now a named bool. The mutation is unchanged in meaning --
+# the board is never measured, so every window falls back to the frame.
+old = '        if (bigEnough)'
 new = '        if (false) // #1323 mutation: the board is never measured, so every window is back on the frame'
 assert old in s, 'the frame mutation has nothing to replace'
 open(p, 'w').write(s.replace(old, new))
@@ -157,7 +171,7 @@ echo "=== 5b. FALSIFY: a window that always keeps ==="
 cat > /run1323/m_keep.py <<'PY'
 p = '/run1323/mutant/src/detector/geometry/calibration/color_processing.cpp'
 s = open(p).read()
-old = '            bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);'
+old = '            bool isBullsEyeArea = (distToCenter < bullsEyeWindow);'
 new = '            bool isBullsEyeArea = true; // #1323 mutation: the window always keeps'
 assert old in s, 'the always-keep mutation has nothing to replace'
 open(p, 'w').write(s.replace(old, new))
@@ -180,11 +194,11 @@ cat > /run1323/m_drop.py <<'PY'
 p = '/run1323/mutant/src/detector/geometry/calibration/color_processing.cpp'
 s = open(p).read()
 edits = [
-    ('            bool isCentral = (distToCenter < enhancedMask.cols * params.centralityThreshold);',
+    ('            bool isCentral = (distToCenter < centralityWindow);',
      '            bool isCentral = false; // #1323 mutation: the window always drops'),
-    ('            bool isBullsEyeArea = (distToCenter < enhancedMask.cols * params.bullsEyeThreshold);',
+    ('            bool isBullsEyeArea = (distToCenter < bullsEyeWindow);',
      '            bool isBullsEyeArea = false; // #1323 mutation: the window always drops'),
-    ('            bool isTooFarFromCenter = (distToCenter > (enhancedMask.cols * params.maxDistanceFromCenter / 2));',
+    ('            bool isTooFarFromCenter = (distToCenter > farWindow);',
      '            bool isTooFarFromCenter = true; // #1323 mutation: the window always drops'),
 ]
 for old, new in edits:

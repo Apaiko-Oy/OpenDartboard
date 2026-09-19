@@ -65,6 +65,36 @@ namespace color_processing
         // Component size filtering
         int minLargeComponentSize = 100;    // Minimum area for large dartboard components
         int minBlobArea = 80;               // Minimum area for any blob to be considered
+        /**
+         * The outer cutoff: how far a MEDIUM blob joined to a neighbour may sit and still
+         * be board. #1394 left this one a fraction of the FRAME's width, alone of the four,
+         * and the reason is measured rather than argued.
+         *
+         * Its stop in board radii is not in doubt. A coloured part of a dartboard lies
+         * inside the outer wire of the doubles ring, so the stop is 1.0 R; everything
+         * between the doubles and the rim is the number ring and the wire ends, which are
+         * not coloured and are what `textMaxArea`, `edgeTextThreshold` and the two
+         * positional filters are for. In board radii the two fixtures separate cleanly by
+         * a factor of 2.25 around it: the real board this window must keep sits at 0.74 R
+         * (rig camera 2's 23345 px at (611,80)) and 0.76 R (rig camera 3's 4664 px at
+         * (634,91)), and the room it must drop sits at 1.71 R (mocks camera 3's 8158 px at
+         * (1151,444)) and 1.76 R (mocks camera 2's 5791 px at (150,472)).
+         *
+         * What fails is the conversion, and it fails in both directions at once. 1.0 R is
+         * 1.0 span under one reading and 1.589 spans under the other. At 1.0 span the rig
+         * loses both of those real components. At 1.589 spans the window lands at 496 and
+         * 486 px on mocks cameras 2 and 3 where the room blobs sit at 497 and 486 px --
+         * one pixel of margin on one camera and a tie on the other. A constant that sits
+         * exactly on a measured blob is not a constant, and at the rim ratio in between
+         * there is no derivation left: 225.5/170 applied to a span is numerology, not
+         * geometry, and this file has enough numbers in it that were chosen that way.
+         *
+         * So it stays on the frame, which is not right either -- it is a fixed 384 px on a
+         * 150 px board and on a 400 px one -- and it is the only one of the four whose
+         * repair needs something this stage does not have: which ring the span landed on.
+         * That is #1378's open problem and not this issue's. `OD_COLOUR_WINDOWS=frame`
+         * therefore moves three windows and not four, deliberately.
+         */
         double maxDistanceFromCenter = 0.6; // Maximum distance from center as ratio of image width
 
         // Text detection and filtering
@@ -80,9 +110,140 @@ namespace color_processing
         // cannot. The windows themselves are untouched: this issue MOVED them, it did
         // not widen them, because a window widened until one case passes is exactly the
         // repair it exists to avoid.
+        //
+        // #1394 moved their SIZE too, and these THREE are now kept for
+        // `OD_COLOUR_WINDOWS=frame` alone -- the shape `roi_processing` keeps ADR-0079
+        // section 1's four hand-fitted numbers in for `OD_ROI=frame`. The fourth,
+        // `maxDistanceFromCenter` above, is still the live rule and says at length why.
+        // At 1280 wide the four are a fixed 320, 128, 384 and 96 px on every camera,
+        // every rig and every mounting: the same window on a board 150 px across and on
+        // one 400 px across.
         double centralityThreshold = 0.25;    // Distance threshold for central components (25% of image)
         double bullsEyeThreshold = 0.1;       // Distance threshold for bull's eye area (10% of image)
         double connectivityThreshold = 0.075; // Distance threshold for connected components
+
+        // #1394: THREE of those four windows are now fractions of the board, which is the
+        // unit the question each of them asks is really in -- is this blob the bull, is it
+        // a ring, is it a number or the room? Every millimetre below is quoted from
+        // `perspective_processing::DartboardSpec`, and every window is derived as a STOP
+        // rather than as a measurement: #1393's rule, one stage over. A stop is the
+        // furthest a search can reach and still be certain what it finds is the thing it
+        // is looking for, which is not the same number as where the thing actually is.
+        //
+        // THE LENGTH THEY MULTIPLY, AND WHY IT IS THE HARD PART. The stage measures
+        // exactly one length: `boardSpan`, the radius of the smallest circle around the
+        // largest outermost contour of its own mask -- the same contour whose centroid
+        // #1323 made these windows' origin, and the same quantity
+        // `bull_processing::measureBoard` takes one stage later. It is a SPAN and it is
+        // not the board. `roi_processing::ROIParams` measured which ring it lands on, on
+        // both fixtures, against the doubles ellipse finally fitted at STEP 6: 0.99, 0.90
+        // and 0.92 of the board on mocks/cam_*.mp4, where the span IS the doubles ring,
+        // and 1.63, 1.63 and 1.60 on mocks/rig-20260918, where the doubles ring is not in
+        // the colour mask at all and the span is the TREBLE ring. So a stop of f board
+        // radii is somewhere between f spans and 1.589 f spans, and nothing at this stage
+        // can tell which.
+        //
+        // `roi_processing` meets the same ambiguity and answers it by taking the worst
+        // case, because its failure is one-sided: a region too large is free, the frame
+        // clips it. HERE IT IS TWO-SIDED -- a window too small drops coloured board, one
+        // too large admits the room -- so #1394 took the worst case and then MEASURED what
+        // it costs, window by window, on both fixtures, with the stage printing what each
+        // window really keeps and drops rather than the ellipse two stages down being read
+        // as a proxy for it. For three of the four it costs nothing and they are below.
+        // For the fourth it does not, and `maxDistanceFromCenter` says so where it stands.
+
+        /**
+         * The largest board a span can be: the same arithmetic
+         * `roi_processing::roiRadiusOfBoardRadius` is built from, carried one ring less
+         * far. A treble's outer wire is at `outerTripleRadius` 107 mm where a double's is
+         * at `outerDoubleRadius` 170 mm, so a span that has landed on the treble ring is
+         * 107/170 of the board and the board is 170/107 = 1.589 of the span.
+         *
+         * A span that really is the doubles ring reads 1.589x too large, which is slack in
+         * the direction that keeps board rather than the direction that drops it. Taking
+         * the span neat instead is not the safe alternative and the measurement is the
+         * reason: with all four windows drawn against the span itself, rig camera 2 loses
+         * a 23345 px component at (611,80) -- 234 px out, 1.22 spans, 0.74 of that camera's
+         * own fitted board, which is the upper board SECTION 6.5 exists to repair -- and
+         * rig camera 3 loses a 4664 px fragment at (634,91), 0.76 of its board. Neither
+         * loss moves the bull or the fitted ring on the footage we have, which is exactly
+         * why it had to be counted here rather than inferred from down there.
+         */
+        double boardRadiusOfBoardSpan = 1.589; // outerDoubleRadius / outerTripleRadius
+
+        /**
+         * The bull's-eye window, and the one of the three drawn against the SPAN rather
+         * than against the board the span implies.
+         *
+         * What it does is unusual and worth saying: `isBullsEyeArea` is the last clause of
+         * the keep, so anything inside it survives the text, edge, size and position
+         * filters outright. It is a search for the bull and the 25-ring and it is not a
+         * measurement of either -- and here the gap is enormous. The bull is `bullRadius`
+         * 6.35 mm of a 170 mm board, 0.037; the 25-ring reaches `bull25Radius` 15.9 mm,
+         * 0.0935. A window of 0.0935 would find nothing, because the point it is drawn
+         * around is not the bull: it is the centroid of the board's outer boundary, and
+         * #1323 measured that sitting 21 to 68 px from the bull on the five cameras where
+         * it can be measured at all.
+         *
+         * So the geometry supplies a stop. Between the 25-ring at 15.9 mm and the inner
+         * edge of the trebles at `innerTripleRadius` 99 mm a dartboard is black and cream:
+         * there is no red and no green in that annulus on any board, which is the same
+         * fact `mask_processing::bullCarveOfBoardRadius` is argued from. 99/170 = 0.582 is
+         * the furthest this search can reach and still be certain that whatever coloured
+         * thing it finds is the bull's or the 25-ring's.
+         *
+         * It multiplies the span and takes no correction because the stop then holds under
+         * BOTH readings, which is true of this window alone: 0.582 of a span that is the
+         * doubles ring is 0.582 R, and 0.582 of a span that is the treble ring is 0.366 R.
+         * Both land inside the empty annulus, so the window is never wrong about what it
+         * admits -- only more conservative on the rig, where it comes out at 112 and 113 px
+         * and still clears #1323's 68 px worst case by 44. Taking the correction instead
+         * would put it at 0.925 R on the mocks, inside the TREBLE ring, feeding treble
+         * fragments to the one clause that bypasses every other filter.
+         *
+         * This is the one window of the four that decides anything on either shipped
+         * fixture: 13 to 51 components per camera, where the other three decide 0 to 3.
+         */
+        double bullsEyeOfBoardSpan = 0.582; // innerTripleRadius / outerDoubleRadius
+
+        /**
+         * The centrality window: is this LARGE blob -- a third of the largest, or more --
+         * part of the board?
+         *
+         * The last coloured thing on a dartboard is the outer wire of the doubles ring at
+         * `outerDoubleRadius`, so the stop is the board's own coloured edge and the number
+         * is 1.0 rather than a constant anybody chose. It takes `boardRadiusOfBoardSpan`,
+         * and measured on both fixtures that costs nothing: at 459, 496 and 486 px on the
+         * mocks it decides NOTHING at all -- 0 of 46, 0 of 24, 0 of 21 components -- and
+         * at 305 and 309 px on the rig it keeps the two upper-board components the span
+         * neat would have dropped. The clause's own area floor is what makes the slack
+         * free: the span is drawn around the LARGEST outermost contour, so a blob of at
+         * least a third of it sitting outside that circle would have to be a second large
+         * coloured region, and the room is not one.
+         */
+        double centralityOfBoardRadius = 1.0; // outerDoubleRadius / outerDoubleRadius
+
+        /**
+         * The connectivity window: how close another substantial blob has to be before
+         * this one counts as joined to it.
+         *
+         * What it really measures is the gap between two adjacent fragments of ONE ring,
+         * and the widest-spaced fragments on a board are the doubles': 20 segments on an
+         * annulus whose middle is (`innerDoubleRadius` 162 + `outerDoubleRadius` 170)/2 =
+         * 166 mm, so two adjacent centroids are 2 * 166 * sin(pi/20) = 51.9 mm apart,
+         * 0.306 of the board radius. Anything narrower leaves a broken doubles ring reading
+         * as twenty unconnected blobs, which is the case SECTION 6.5 exists for.
+         *
+         * It takes `boardRadiusOfBoardSpan`, and the reason is a measurement that refuted
+         * the tidier argument. The tidier argument is that a ring's segment spacing scales
+         * with that ring's own radius, so 0.306 of a span that is the treble ring would be
+         * the trebles' own spacing and the ambiguity would cancel. On the rig it does not:
+         * the fragments that need joining there sit at 0.74 and 0.76 of the fitted board,
+         * OUTSIDE the treble span, and at 0.306 spans -- 59 px -- both are dropped. At
+         * 0.486 spans they are kept, and on the mocks the same 140 to 152 px joins three
+         * more components on camera 1 and keeps none of them.
+         */
+        double connectivityOfBoardRadius = 0.306; // 2*(162+170)/2*sin(pi/20) / outerDoubleRadius
         int minConnectedArea = 80;            // Minimum area to check for connectivity
         int minConnectedNeighborArea = 100;   // Minimum neighbor area for connectivity
         int largestAreaDivisor = 10;          // Divisor for largest area comparison (area > largest/10)
@@ -124,6 +285,54 @@ namespace color_processing
         //
         // If it is ever changed, it is changed against the rig and not against this
         // comment. bull_processing no longer holds a twin of it to keep in step.
+        //
+        // #1394 CHANGED IT, against the rig, and this is what it decided and why.
+        //
+        // What this floor is asked of is the area ENCLOSED by the largest outermost
+        // contour of this stage's own mask, before any of its filtering and before any
+        // blur. That is the one place in the pipeline where a dartboard's ring is least
+        // closed, and #1340 has already written down what happens to that number when a
+        // ring breaks: it collapses, while the board does not move. The evidence was
+        // always in this comment -- 2.45% and 7.61% are one board, one mounting, one
+        // distance -- and #1394 measured the other half of it. mocks/rig-20260918's
+        // camera 1 encloses 22540 px here and is refused; the same camera, one stage
+        // later, through `measureBoard`'s own 7x7 Gaussian, encloses 71959 px and measures
+        // a 194 px board. The board was always there. This floor could not see it, and
+        // what it was really measuring was the blur.
+        //
+        // #1340 met exactly this in bull_processing and replaced the twin of this floor
+        // with `BullParams::minBoardRadius()`: 64.2 px of SPAN, derived from the smallest
+        // bull that survives that stage's own 7x7 kernel (3 px, over a
+        // bullRadiusOfBoardRadius * minBullRadiusFactor of 0.047). A span cannot collapse
+        // when a ring breaks -- half a ring gives its own radius back, a third gives 0.87
+        // of it -- and #1394 is what makes that number available HERE, because these
+        // windows now need a length and the length they need is the same span.
+        //
+        // So this stage floors on the span too, and the two stages are back in step on the
+        // REPAIRED rule rather than the broken one. That is the opposite of the twin this
+        // comment warned about: it is not a second copy of a constant to keep aligned, it
+        // is `BullParams().minBoardRadius()` read directly, so there is one number.
+        //
+        // Measured, on both fixtures, with `OD_BOARD_FLOOR=area` putting this constant
+        // back on the same binary:
+        //
+        //   rig camera 1   refused at 2.45%  ->  a board spanning 314 px
+        //                  bull unchanged at (671,309), 3 of 3, no ERROR or WARN,
+        //                  and its kept colour goes 50863 px to 50876
+        //   everything else on both fixtures  identical, to the pixel
+        //   mocks at 0.5x (#1339's scaler)    refused at 1.84% -> a board spanning 91 px,
+        //                  and the windows go from the frame's 128/320/96 to 53/144/44
+        //
+        // #1320's speck still cannot pass it: 205 px of area is 8.1 px of disc radius and
+        // at most 16 px of extent if every pixel of it lay on one circle, against 64.2.
+        //
+        // WHAT IT COSTS, named. The smallest circle around a broken ring cannot collapse
+        // but it CAN over-measure, which is #1340's own sentence, and rig camera 1 spans
+        // 314 px where its two siblings 30 cm from the same board span 192 and 194. Here
+        // that direction is the safe one and it is safe by construction rather than by
+        // luck: every window this length sizes is a window that KEEPS, so an over-measured
+        // board widens them, and the measurement above says what the widening admitted on
+        // that camera -- thirteen pixels.
         double minBoardAreaPercent = 0.04; // Area enclosed by the board, as a share of the frame
 
         // Specific text filtering (targeting known problem areas)
