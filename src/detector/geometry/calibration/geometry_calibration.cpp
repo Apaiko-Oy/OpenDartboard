@@ -23,6 +23,13 @@ using namespace std;
 
 namespace geometry_calibration
 {
+    // #1378, and both are stated here rather than inline so that a test can move them and
+    // watch the answer move. `kRegionRimPx` is three pixels because the colour stage's own
+    // 7x7 blur and dilation already spread a boundary by about that much, so a rim thinner
+    // than it would be measuring the blur rather than the board.
+    static constexpr int kRegionRimPx = 3;
+    static constexpr double kRegionRimColourShare = 0.01;
+
     // This function orchestrates the entire calibration pipeline for one camera
     DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode)
     {
@@ -93,7 +100,18 @@ namespace geometry_calibration
             Mat fullColourGray;
             cvtColor(fullFrameColours, fullColourGray, COLOR_BGR2GRAY);
             calibration.look.frame_pixels = static_cast<int>(fullFrameColours.total());
+            calibration.look.frame_cols = fullFrameColours.cols;
+            calibration.look.frame_rows = fullFrameColours.rows;
             calibration.look.red_green_pixels = countNonZero(fullColourGray);
+
+            // #1392: what those pixels are a share OF, set once, here, because this is
+            // where the only thing in the pipeline that measures a board has just run and
+            // because every later site -- the bull branch, STEP 6.5 -- replaces the
+            // numerator with a mask taken at the same pixel scale. A board that was not
+            // found leaves it at zero: a camera with no board in its picture is refused
+            // by the stage that could not find one, in that stage's own words, and has no
+            // circle to be a share of.
+            calibration.look.board_span_px = board.found ? board.radius : 0.0;
 
             const Rect kept = boundingRect(fullColourGray);
             calibration.look.board_edge_gap = min(min(kept.x, kept.y),
@@ -118,6 +136,14 @@ namespace geometry_calibration
                       " px; the colour this camera kept comes within " +
                       log_string(calibration.look.board_edge_gap) + " px of the nearest frame edge");
         }
+
+        // #1392: the two shares, side by side, on the FULL frame -- before a region is
+        // drawn, before a bull is looked for and whichever branch this camera takes
+        // below. STEP 6.5 prints the same line again about the mask it decides on. A
+        // camera that moves closer moves the first number and must not move the second,
+        // and that claim is unreadable from a log that prints only the deciding one.
+        log_debug("Camera " + log_string(cameraIdx + 1) + " sight on the full frame: " +
+                  log_string_src(board_look::measuredOnTheFullFrame(calibration.look)));
 
         if (!board.found)
         {
@@ -156,7 +182,9 @@ namespace geometry_calibration
         // `RingNotTraced` and refuse every camera in the building -- measured, on both
         // rigs, while writing this.
         const board_look::Refused framing = board_look::verdict(calibration.look);
-        if (framing == board_look::Refused::TooMuchRedGreen || framing == board_look::Refused::BoardClipped)
+        if (framing == board_look::Refused::FloodedFrame ||
+            framing == board_look::Refused::TooMuchRedGreen || // OD_LOOK=frame's single test
+            framing == board_look::Refused::BoardClipped)
         {
             const string why = board_look::refusal(calibration.look);
             log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +
@@ -177,6 +205,75 @@ namespace geometry_calibration
         // full frame that largest region competes with whatever else in the room is red.
         // The second pass costs one bilateral filter per camera, once, at calibration.
         Mat redGreenFrame = color_processing::processColors(roiFrame, cameraIdx, debugMode, colorParams);
+
+
+        // [===STEP 2.6:===] #1378: DID THE REGION CUT COLOURED BOARD?
+        //
+        // This is the line whose absence cost eight darts. The region is drawn from a
+        // COLOUR measurement -- `measureBoard`'s smallest circle around the largest
+        // red/green contour -- and on a board whose doubles ring has dropped out of that
+        // mask, that circle is the TREBLE ring (ROIParams). Under #1331's 1.25 margin
+        // mocks/rig-20260918 therefore drew a 243 px region around a 316 px board, the
+        // ray tracer four stages down fitted a doubles ring out of the arcs that survived
+        // it, and the fit did not fail: it succeeded, smaller. The board every stage below
+        // measures darts against went 197117/200385/194335 px to 72171/72374/72531 -- and
+        // not one line of any log, at any level, said a region had clipped anything.
+        //
+        // Asking the FITTED ring whether it reached the region's edge does not work, and
+        // it is worth writing down because it is the obvious check: the collapsed ring
+        // sits at 199 px inside a 243 px region, comfortably clear of the boundary it was
+        // cut by. What is hard against that boundary is the COLOUR. So the question is
+        // asked here, of the rim of the region itself, one stage after it was drawn:
+        //
+        //   mocks/rig-20260918 at 1.25   13.5%, 10.2%, 8.7% of the region's rim is coloured
+        //   mocks/rig-20260918 at 2.107   0.0%,  0.3%, 0.0%
+        //   mocks/cam_*.mp4 at either     0.0%,  0.0%, 0.0%
+        //
+        // 1% sits two orders of magnitude from the broken readings and three times the
+        // largest innocent one, which is a room's own red touching a rim that no longer
+        // touches the board. The denominator is the rim this camera really has rather than
+        // 2*pi*r: the region is intersected with the frame, so on a board near an edge
+        // part of its rim does not exist, and a share of a rim that was never drawn would
+        // read high for the one reason this check must not fire on.
+        //
+        // A WARNING and not an ERROR: the camera calibrated, and the board it hands down
+        // is still a board -- a smaller one, measured against a ring somebody cut. That is
+        // a thing to go and look at, not a reason to refuse a rig mid-evening. #1321's
+        // rule on the sentence: both numbers, against each other, in one line.
+        {
+            const double regionRadius = roi_processing::regionRadiusFor(board.radius, roiParams);
+            const int outer = cvRound(regionRadius);
+            const int inner = outer - kRegionRimPx;
+            if (inner > 0)
+            {
+                Mat rim = Mat::zeros(redGreenFrame.size(), CV_8UC1);
+                circle(rim, board.center, outer, Scalar(255), FILLED);
+                circle(rim, board.center, inner, Scalar(0), FILLED);
+                const int rimPixels = countNonZero(rim);
+
+                Mat keptGray, kept;
+                cvtColor(redGreenFrame, keptGray, COLOR_BGR2GRAY);
+                threshold(keptGray, kept, 1, 255, THRESH_BINARY);
+                bitwise_and(kept, rim, kept);
+                const int colouredRim = countNonZero(kept);
+
+                const double share = rimPixels > 0 ? (double)colouredRim / (double)rimPixels : 0.0;
+                if (share > kRegionRimColourShare)
+                {
+                    log_warning("Camera " + to_string(cameraIdx + 1) + " drew a region that CUT coloured "
+                                "board: " + to_string(colouredRim) + " of the " + to_string(rimPixels) +
+                                " px on the rim of its own " + to_string(outer) + " px region key as "
+                                "dartboard red or green (" + to_string((int)lround(share * 100.0)) +
+                                "%, and this check allows " +
+                                to_string((int)lround(kRegionRimColourShare * 100.0)) + "%), so the doubles "
+                                "ring fitted below will be fitted out of what survived the cut and every "
+                                "dart on this camera will be measured against a board smaller than the "
+                                "board. The region is " + to_string(roiParams.roiRadiusOfBoardRadius).substr(0, 5) +
+                                "x a red/green span of " + to_string((int)lround(board.radius)) +
+                                " px; see #1378");
+                }
+            }
+        }
 
         // [===STEP 3:===] contour DETECTION using the new contour processing module
         // Note: This step is currently commented out as it is not used in the new pipeline
@@ -204,10 +301,16 @@ namespace geometry_calibration
             // from, and the ERROR carries whichever sentence says more. A dark board
             // reads as RingNotTraced, which says nothing this line has not, so it is
             // left off -- #1321's rule that one refused camera is one ERROR.
+            //
+            // #1392: this goes into `ring_pixels` and NOT over the full frame's flood
+            // count, which STEP 1 took and which nothing below it may overwrite. It is
+            // the colour inside the region and it is not a ring -- nothing has traced one
+            // -- so `ringWasTraced` is false and the ring gate is not asked of it. It is
+            // set because OD_LOOK=frame's single test is asked of exactly this numerator
+            // over exactly this denominator, which is what the code did here before.
             Mat redGreenGray;
             cvtColor(redGreenFrame, redGreenGray, COLOR_BGR2GRAY);
-            calibration.look.frame_pixels = static_cast<int>(redGreenFrame.total());
-            calibration.look.red_green_pixels = countNonZero(redGreenGray);
+            calibration.look.ring_pixels = countNonZero(redGreenGray);
             calibration.look.traced_doubles = false;
             calibration.look.outer_points = 0;
             calibration.look.inner_points = 0;
@@ -251,12 +354,24 @@ namespace geometry_calibration
         // orientation to whatever they are handed; run on a picture of a room they
         // produce numbers, not errors, and the numbers become a calibration the board
         // scores with. board_look.hpp holds the measurement and the argument.
-        calibration.look.frame_pixels = masks.doublesMask.empty()
-                                            ? 0
-                                            : (int)masks.doublesMask.total();
-        calibration.look.red_green_pixels = masks.doublesMask.empty()
-                                                ? 0
-                                                : countNonZero(masks.doublesMask);
+        //
+        // #1392: the NUMERATOR is replaced here and the denominator is not. `frame_pixels`
+        // is the region's frame, which is the full frame -- processROI blacks out what is
+        // outside the region rather than cropping it, so a Mat's total() is the whole
+        // picture whether or not anything is masked, and that was the old denominator.
+        // `board_span_px` was set at STEP 1 from the board this camera really measured,
+        // at this same pixel scale, and it is what the mask below is a share of.
+        //
+        // And the mask is not an annulus, which is why the line in Limits is measured
+        // rather than derived from millimetres. `doublesMask` is preprocessMask's output:
+        // the carved red/green mask closed, opened, dilated and reduced to its LARGEST
+        // CONNECTED COMPONENT. On mocks/cam_*.mp4 that component is the doubles ring; on
+        // mocks/rig-20260918 the doubles ring has dropped out of the colour mask
+        // altogether and it is the TREBLE ring (#1378). Both are rings and both are a
+        // small share of the circle they sit in, which is the property this gate is on.
+        calibration.look.ring_pixels = masks.doublesMask.empty()
+                                           ? 0
+                                           : countNonZero(masks.doublesMask);
         calibration.look.traced_doubles = ellipseData.hasValidDoubles;
         calibration.look.outer_points = ellipseData.validOuterPoints;
         calibration.look.inner_points = ellipseData.validInnerPoints;
