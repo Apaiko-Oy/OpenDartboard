@@ -11,6 +11,8 @@
 #include "utils/camera_choice.hpp"
 #include "communication/score_token.hpp"
 #include "communication/announce.hpp"
+// #1473: one board per host, claimed on a lock before anything opens.
+#include "communication/one_board.hpp"
 #include "utils/setup_view.hpp"
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
@@ -258,6 +260,38 @@ int main(int argc, char **argv)
     TurnausClient client(turnaus_config);
     return client.pairContest(contest_code) ? 0 : 1;
   }
+
+  // #1473: this host runs one board, and the second one declines here.
+  //
+  // httplib asks for SO_REUSEPORT and not SO_REUSEADDR, so two boards on one host BOTH
+  // bind 13520 successfully and the kernel shares the arriving connections between them:
+  // nothing fails, nothing is logged, and a phone subscribing to the score stream sees
+  // roughly half the darts. #1295 made a board that cannot listen refuse to announce
+  // itself, and that refusal is untouched and still the right one for the other-program
+  // case -- but it never fires here, because this bind succeeds.
+  //
+  // So the claim is taken on a lock instead, and one_board.hpp says why it is a lock and
+  // not the flag. It is taken HERE, which is early on purpose:
+  //
+  //   * above the cameras and the calibration, so the second board is refused in the
+  //     window a restarting board overlaps its predecessor in -- between process start
+  //     and listen() -- rather than tens of seconds later;
+  //   * below every flag that pairs, prints or asks and then exits (--version, --help,
+  //     --setup, --show-token, --check-update, --clear-geometry-fault, --pair,
+  //     --pair-contest), because none of those opens a socket and pairing a second board
+  //     while the first one scores must go on working;
+  //   * below the logging setup, so the refusal is a log line and not a silence.
+  //
+  // The claim is declared above the Scorer, so it is released after ~Scorer has given the
+  // socket up rather than before.
+  one_board::Claim one_board_claim;
+  if (!one_board_claim.take(ScoreSocketSettings().port))
+  {
+    log_error(one_board::refusedBecause(one_board_claim, ScoreSocketSettings().port));
+    log_error(one_board::refusalRemedy(one_board_claim));
+    return 1;
+  }
+  log_info("one board per host: " + one_board_claim.detail());
 
   // #1259: the client is built here, before a camera opens, so an interactive start with no
   // credential can be paired from the console and go straight on. It is still STARTED where

@@ -17,6 +17,27 @@ FetchContent_Declare(
 )
 
 # Fetch cpp-httplib (MIT licensed)
+#
+# BEFORE YOU MOVE THIS TAG, READ THIS (#1473).
+#
+# httplib::detail::default_socket_options sets SO_REUSEPORT and NOT SO_REUSEADDR on Linux.
+# That is upstream's default and this repository deliberately does NOT override it. Two
+# consequences, both measured, both load-bearing:
+#
+#   1  Two opendartboard processes on one host BOTH bind 13520 and the kernel shares the
+#      arriving connections between them. Nothing fails and nothing is logged; a phone
+#      subscribing to the score stream sees roughly half the darts. #1473 refuses the
+#      second board on a lock instead -- src/communication/one_board.hpp -- precisely so
+#      that this file's behaviour is not what stands between a club and that failure. If
+#      an upgrade changes the flag in either direction, the lock still holds and nothing
+#      here has to move.
+#   2  The board cannot bind over a socket in TIME_WAIT, which is the same choice seen
+#      from the other side. testers/phases1295/1295-socket.sh has to let its probe close
+#      first (SO_LINGER 0, a RST) for that reason; testers/phases1473/1473-lock.sh
+#      inherits it.
+#
+# So: do not "fix" the socket options here or in websocket_service.cpp on the way past. If
+# a version bump changes them, testers/run_all.sh 1295 1473 is what says what moved.
 FetchContent_Declare(
     httplib
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git

@@ -497,6 +497,14 @@ void WebSocketService::start()
     // #816: shipped code constructs server_ inside the worker thread and reads the
     // same pointer from the main thread's stop(). Constructing it here makes the
     // write happen-before the thread that reads it.
+    //
+    // #1473: and this Server binds with SO_REUSEPORT and without SO_REUSEADDR, because
+    // that is httplib::detail::default_socket_options and this repository deliberately
+    // leaves it alone. It means two boards on one host both bind 13520 and silently share
+    // the darts, which is refused a long way above here -- one_board::Claim in main(),
+    // see src/communication/one_board.hpp and the note beside the httplib tag in
+    // CMakeLists.txt. Do not set socket options here to "fix" it: the lock is what holds,
+    // whatever an httplib upgrade does to the default.
     if (od_fix::shutdownFix())
     {
         server_ = make_unique<httplib::Server>();
