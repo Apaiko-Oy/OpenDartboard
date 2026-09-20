@@ -278,6 +278,12 @@ reads as good news: `gh pr list` returns `[]`, which looks exactly like "there a
 pull requests" rather than like "you asked the wrong repository". Measured on 2026-09-20 in
 `/home/mikko/opendartboard/fork`, where six PRs were open at the time.
 
+**And issues are not in this repository at all.** `gh issue create --repo Apaiko-Oy/OpenDartboard`
+fails with *"the 'Apaiko-Oy/OpenDartboard' repository has disabled issues."* Detector issues
+live in **`Apaiko-Oy/turnaus`** -- #1437 through #1453 are all there. So a `gh` call about this
+repository needs `--repo Apaiko-Oy/OpenDartboard` for a pull request and `--repo Apaiko-Oy/turnaus`
+for an issue, and neither default is right.
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.
