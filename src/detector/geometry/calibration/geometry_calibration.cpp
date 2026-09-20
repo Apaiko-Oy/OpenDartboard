@@ -31,9 +31,86 @@ namespace geometry_calibration
     static constexpr double kRegionRimColourShare = 0.01;
 
     // This function orchestrates the entire calibration pipeline for one camera
-    DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode)
+    // WHAT A REPEAT LOOK SAYS, AND WHERE (#1457).
+    //
+    // THE RULE IS: a further look (#1445) does not RE-say what has already been said. It
+    // is not "a repeat look is silent", and the difference is the one decision in this
+    // change that could have gone the other way.
+    //
+    // Its REFUSAL has been said. The pass that refused this camera said it once, aloud,
+    // naming the camera, the stage and the count against the threshold (#1321) -- and the
+    // picture is the only thing that changed between that call and this one. Its
+    // NARRATION has been said too: `LOOK AGAIN` announced, before the first look, which
+    // cameras are being looked at again and how many times, so "Calibrating camera 1"
+    // twelve more times is the same mistake one level quieter. Both go to DEBUG, word for
+    // word, through the macros below.
+    //
+    // A CAUTION HAS NOT BEEN SAID, and that is why `log_warning` is not routed through
+    // them. #1378's rim check is a measurement of THIS frame, and what it warns about --
+    // a doubles ring fitted out of what survived the cut, every dart on this camera
+    // measured against a board smaller than the board -- is a property of the geometry
+    // this board will SEAL if this look is the one that calibrates. Whether it is cannot
+    // be known here: the warning is emitted three stages above the verdict. Quieting it
+    // would be the one thing worse than noise, which is deleting the only evidence a live
+    // condition ever had; a camera rescued on look 4 would seal a cut region and say so
+    // nowhere. So a camera refused on every look still leaves up to twelve of these, and
+    // that residue is named rather than hidden: the honest repair for it is for the retry
+    // to say which look it ADOPTED and what that look measured, which is the question
+    // #1456 was filed to decide and is not this change's to answer.
+    //
+    // A look that finds a board is still announced out loud by its caller, and so is a
+    // budget that runs out; both are news, and neither is said here.
+    //
+    // ONE REFUSAL, SAID AT THE LEVEL THE CALLER SAYS IT IS WORTH. It reads the enclosing
+    // function's own `voice` parameter, which is `RefusalIs::News` for every caller but
+    // #1445's further looks -- the header holds the whole argument -- and the sentence is
+    // identical either way. It is #undef'd at the end of that function, so there is
+    // nowhere else it can be read from and no second `voice` it could pick up.
+    //
+    // WHY A MACRO AND NOT A FUNCTION. Every log line's module, the [GEOMETRY_CALIBRATION]
+    // that testers/phases1318, phases1321, phases1392 and phases1317 all grep for, is
+    // parsed out of __PRETTY_FUNCTION__ where the logging macro expands (utils/logging.hpp
+    // -- LOG_ERROR passes OD_FUNCTION_SIGNATURE). A refusal announced from inside a helper
+    // function or a lambda would therefore file itself under that helper's name and every
+    // one of those assertions would stop matching, silently, on a line that still reads
+    // right in a terminal. Expanded here it is calibrateSingleCamera's own module, which
+    // is what it has always been.
+#define log_refusal(message)                  \
+    do                                        \
+    {                                         \
+        if (voice == RefusalIs::News)         \
+        {                                     \
+            log_error(message);               \
+        }                                     \
+        else                                  \
+        {                                     \
+            log_debug(message);               \
+        }                                     \
+    } while (0)
+
+// The same rule for the lines that are not refusals: what this look measured about a
+// camera it is repeating a look at. Same reason for a macro, same `voice`, same #undef.
+#define log_narration(message)                \
+    do                                        \
+    {                                         \
+        if (voice == RefusalIs::News)         \
+        {                                     \
+            log_info(message);                \
+        }                                     \
+        else                                  \
+        {                                     \
+            log_debug(message);               \
+        }                                     \
+    } while (0)
+
+    DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode, RefusalIs voice)
     {
-        log_info("Calibrating camera " + log_string(cameraIdx + 1));
+        // A further look is not a new attempt to be announced: the LOOK AGAIN line has
+        // already said which cameras are being looked at again and how many times. ERROR
+        // is where the cost was, but "Calibrating camera 1" twelve more times is the same
+        // mistake one level quieter.
+        log_narration("Calibrating camera " + log_string(cameraIdx + 1) +
+                      (voice == RefusalIs::News ? "" : " again"));
 
         if (frame.empty())
         {
@@ -154,9 +231,9 @@ namespace geometry_calibration
             const string look = (looked == board_look::Refused::None || looked == board_look::Refused::RingNotTraced)
                                     ? string("")
                                     : " This camera " + board_look::refusal(calibration.look) + ".";
-            log_error("Camera " + log_string(cameraIdx + 1) +
-                      " did not calibrate: there is no board in this frame to build a region around -- " +
-                      board.failure + "." + log_string_src(look));
+            log_refusal("Camera " + log_string(cameraIdx + 1) +
+                        " did not calibrate: there is no board in this frame to build a region around -- " +
+                        board.failure + "." + log_string_src(look));
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: there is no board in this frame -- " + board.failure);
             return calibration;
@@ -187,8 +264,8 @@ namespace geometry_calibration
             framing == board_look::Refused::BoardClipped)
         {
             const string why = board_look::refusal(calibration.look);
-            log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +
-                      log_string_src(why) + ".");
+            log_refusal("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +
+                        log_string_src(why) + ".");
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " did not calibrate: it " + why);
             return calibration;
         }
@@ -320,10 +397,10 @@ namespace geometry_calibration
                                     ? string("")
                                     : " This camera " + board_look::refusal(calibration.look) + ".";
 
-            log_error("Camera " + log_string(cameraIdx + 1) +
-                      " did not calibrate: the bull could not be found, so there is no centre to "
-                      "build the doubles mask around or to trace the rays from -- " +
-                      bull.failure + "." + look);
+            log_refusal("Camera " + log_string(cameraIdx + 1) +
+                        " did not calibrate: the bull could not be found, so there is no centre to "
+                        "build the doubles mask around or to trace the rays from -- " +
+                        bull.failure + "." + look);
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: the bull could not be found -- " + bull.failure);
             return calibration; // ellipses.hasValidDoubles stays false, so the board fails
@@ -332,8 +409,13 @@ namespace geometry_calibration
         // What the winner was chosen on, where a reader sees it without --debug and
         // without opening a debug image. #1320's speck won on circularity alone, and the
         // only place that was ever written down was a JPEG nobody opens until afterwards.
-        log_info("Camera " + log_string(cameraIdx + 1) + " bull at (" + log_string(bullCenter.x) + "," +
-                 log_string(bullCenter.y) + "), chosen on " + log_string_src(bull.basis));
+        // The one INFO line below the bull stage, so it is the one line a camera refused at
+        // the DOUBLES or WIRE stage would otherwise repeat once per look -- twelve nearly
+        // identical bull positions for a camera that is being set aside. It is a real
+        // measurement of a real frame rather than a repeated sentence, which is why it is
+        // written and not dropped; it is just not news about a camera already refused.
+        log_narration("Camera " + log_string(cameraIdx + 1) + " bull at (" + log_string(bullCenter.x) + "," +
+                      log_string(bullCenter.y) + "), chosen on " + log_string_src(bull.basis));
 
         // [===STEP 5:===] Create binary mask for contour processing
         mask_processing::MaskParams maskParams;
@@ -401,10 +483,10 @@ namespace geometry_calibration
             const string look = refused == board_look::Refused::RingNotTraced
                                     ? string("")
                                     : " This camera " + board_look::refusal(calibration.look) + ".";
-            log_error("Camera " + log_string(cameraIdx + 1) +
-                      " did not calibrate: the doubles ring could not be fitted, so wire "
-                      "detection and perspective correction cannot run -- " +
-                      reason + "." + log_string_src(look));
+            log_refusal("Camera " + log_string(cameraIdx + 1) +
+                        " did not calibrate: the doubles ring could not be fitted, so wire "
+                        "detection and perspective correction cannot run -- " +
+                        reason + "." + log_string_src(look));
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: the doubles ring could not be fitted -- " + reason);
         }
@@ -415,7 +497,7 @@ namespace geometry_calibration
             // filed about. Same shape, same rule -- the index, and the count said
             // against the threshold that refused it.
             const string why = board_look::refusal(calibration.look);
-            log_error("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(why) + ".");
+            log_refusal("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(why) + ".");
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " " + why);
         }
 
@@ -478,7 +560,7 @@ namespace geometry_calibration
                           " of those " + count + " are the board's; this camera cannot be scored with."
                     : "the wire stage found " + count + " wire boundaries and all " + needed +
                           " are needed to tell one wedge from the next, so this camera cannot be scored with.";
-            log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: " + log_string_src(why));
+            log_refusal("Camera " + log_string(cameraIdx + 1) + " did not calibrate: " + log_string_src(why));
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: the wire stage found " + count +
                                      (moreThanABoardHas
@@ -500,6 +582,9 @@ namespace geometry_calibration
 
         return calibration;
     }
+
+#undef log_refusal
+#undef log_narration
 
     // #1445: which cameras are looking at the dartboard, said once, by whoever last
     // changed the answer. Lifted out of `calibrateMultipleCameras` unedited -- every word

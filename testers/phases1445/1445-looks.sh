@@ -237,6 +237,38 @@ for f in $FIXTURES; do
 done
 
 echo
+echo "=== C2. a look is quiet, and a look is not silent ==="
+# The two halves of what a further look may say, measured on the transcripts phase C
+# already produced, with no extra run.
+#
+# #1445's first version said every look out loud (#1457): `calibrateSingleCamera` announces each
+# refusal it reaches as an ERROR, and a further look reaches the same ones, so a camera
+# refused on the averaged frame and on all twelve looks wrote fourteen lines -- thirteen
+# byte-identical refusals plus the summary saying it had been asked more than once --
+# where before the retry an operator read one. phases1318 and phases1392 hold the count
+# from the other side, on a board with a camera refused for good and no --debug.
+#
+# What is asserted here is the half those cannot see. Every run below is a --debug run, so
+# a look that was quieted by being DELETED and a look that was quieted by being written at
+# DEBUG look identical in a log without --debug and different in one with it. A retry
+# nobody can debug is not worth having.
+QUIET=""
+for f in $FIXTURES; do
+  t="/run1445/c_${f}_on.txt"
+  grep -aqE "LOOK AGAIN: camera\(s\) [0-9, ]+ were refused on this start's averaged frame" "$t" || continue
+  AGAIN="$(grep -acE '^\[DEBUG\]\[GEOMETRY_CALIBRATION\] - Calibrating camera [0-9]+ again' "$t" || true)"
+  DUP="$(grep -aE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' "$t" | sort | uniq -d | wc -l | tr -d ' ')"
+  echo "  $f: $AGAIN further look(s) written at DEBUG, $DUP calibration ERROR sentence(s) said more than once"
+  [ "$AGAIN" -ge 1 ] || QUIET="$QUIET $f(no look is audible even under --debug)"
+  [ "$DUP" = 0 ] || QUIET="$QUIET $f($DUP repeated ERROR sentence(s))"
+done
+if [ -z "$QUIET" ]; then
+  say "OK   every look this board took is in its --debug transcript, and no refusal is said twice at ERROR" ok
+else
+  say "FAIL:$QUIET" no
+fi
+
+echo
 echo "=== D1. every look falls before the seal, and there is one seal ==="
 BAD=""
 for f in $FIXTURES; do

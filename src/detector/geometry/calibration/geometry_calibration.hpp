@@ -93,11 +93,45 @@ static_assert(std::is_standard_layout<DartboardCalibration>::value,
 // NAMESPACE WITH UTILITY FUNCTIONS
 namespace geometry_calibration
 {
+    /**
+     * WHETHER THIS CALL'S REFUSAL IS NEWS (#1457), which is a question only #1445 made
+     * askable.
+     *
+     * Before #1445 a camera was calibrated once per start, so a refusal was said once by
+     * construction and nothing had to decide anything. A further look calls this function
+     * again on a fresh picture of a camera that has already been refused -- up to
+     * `kFurtherLooks` more times -- and every one of those calls reaches the same refusal
+     * sites and printed the same ERROR. One dead camera therefore wrote FOURTEEN lines
+     * where an operator used to read one: thirteen byte-identical refusals and the
+     * summary that says they happened, in the log where noise costs most.
+     *
+     * The picture is what changed between those calls. The refusal is not.
+     *
+     * So a caller says which kind of call this is. `News` is the default and is every
+     * caller but one -- the refusal has not been said yet, and it is said out loud as one
+     * ERROR naming the camera, the stage, and the count against the threshold that
+     * refused it (#1321's shape). `ARepeat` is a further look: the same sentences, word
+     * for word, are written at DEBUG instead, so `--debug` still holds every word of
+     * every look -- a retry nobody can debug is not worth having -- while a log without
+     * it holds the refusal once and the exhaustion line that closes it.
+     *
+     * It changes the LEVEL of those lines and nothing else. What this function measures,
+     * what it returns, and the fault it records through `board_sight` are identical
+     * either way; a look that finds a board still calibrates the camera, and a look that
+     * does not still refuses it.
+     */
+    enum class RefusalIs
+    {
+        News,
+        ARepeat,
+    };
+
     // Calibrate one camera. Declared since #1318, because the probe that decides which
     // cameras a start with no --cams opens calls it on one candidate at a time -- the
     // real calibration rather than a cheaper imitation of it, so that a camera accepted
     // by the probe is one that has already calibrated.
-    DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode);
+    DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode,
+                                               RefusalIs voice = RefusalIs::News);
 
     // Calibrate multiple cameras at once
     // #1445: the CAMERAS census, said by whoever last changed the answer. It used to be

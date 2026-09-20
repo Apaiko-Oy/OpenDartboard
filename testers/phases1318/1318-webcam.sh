@@ -92,6 +92,22 @@ echo "=== 2. exactly one ERROR per refused camera, and none for the two that are
 ERRS=$(grep -cE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1318/a.txt || true)
 if [ "$ERRS" = "1" ]; then say "OK   one calibration ERROR, for the one camera that earned it" ok
 else say "FAIL $ERRS calibration ERROR lines for one refused camera" no; fi
+# THE POSITIVE CONTROL FOR THE LINE ABOVE, and #1445 is why it is now needed (#1457). This camera
+# is calibrated thirteen times in this run -- once on the averaged frame and once per
+# further look -- and each of those calls reaches the same refusal. So "one ERROR" is only
+# worth something while the other twelve calls really happened: with the retry deleted, or
+# never reached, the count above is 1 for a reason that has nothing to do with what this
+# section is about. It read 13 for the whole life of the retry's first version.
+if grep -qE "LOOK AGAIN: camera\(s\) [0-9, ]+ were refused on this start's averaged frame" /run1318/a.txt; then
+  say "OK   and the camera really was looked at again, so the single ERROR is one refusal said once rather than one attempt made once" ok
+else say "FAIL nothing looked at the refused camera again in this run, so the ERROR count above is not about a refusal being said once" no; fi
+# The shape the defect had, asserted as itself: the same sentence, byte for byte, more
+# than once. A count of 1 already forbids it here; this names it when a future run has
+# more than one refused camera and the count is legitimately higher.
+DUP=$(grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1318/a.txt | sort | uniq -d | wc -l)
+if [ "$DUP" = "0" ]; then say "OK   no calibration ERROR is printed twice" ok
+else grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1318/a.txt | sort | uniq -dc | head -3
+     say "FAIL $DUP calibration ERROR sentence(s) are printed more than once" no; fi
 
 echo "=== 3. the board does not fail for that one camera, and says who was fine ==="
 grep -E 'CAMERAS: [0-9]+ of|Initial calibration' /run1318/a.txt || true

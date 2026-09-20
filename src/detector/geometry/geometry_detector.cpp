@@ -178,6 +178,17 @@ void GeometryDetector::lookAgainAtRefusedCameras()
         return;
     }
 
+    // #1457: A LOOK IS NOT AN ATTEMPT TO BE REPORTED, and there are two channels where
+    // that has to be said. This one is the fault record; the other is the log, and it is
+    // said at the call below with `RefusalIs::ARepeat`.
+    //
+    // The log was the channel #1445 shipped without: `calibrateSingleCamera` announces
+    // every refusal it reaches as an ERROR, so a camera refused on the averaged frame and
+    // on all twelve looks wrote FOURTEEN lines -- thirteen byte-identical refusals and
+    // the summary below saying so -- where before #1445 an operator read one. A retry's
+    // cost is supposed to be start-up seconds on a board already in trouble; it is not
+    // supposed to be the log of the evening it is in trouble on.
+    //
     // #1445: a look is not a fault, and the fault record is where that has to be said.
     //
     // `board_sight::recordFault` is first-fault-wins and `calibrateSingleCamera` calls it
@@ -222,7 +233,12 @@ void GeometryDetector::lookAgainAtRefusedCameras()
                 continue;
             }
 
-            DartboardCalibration fresh = geometry_calibration::calibrateSingleCamera(images[i], (int)i, false);
+            // `ARepeat`: this camera's refusal was said out loud once already, on the
+            // averaged frame, and saying it again is the only thing a further look can
+            // add that nobody wants. The sentence itself is unchanged and is still
+            // written -- at DEBUG -- so `--debug` holds every word of every look.
+            DartboardCalibration fresh = geometry_calibration::calibrateSingleCamera(
+                images[i], (int)i, false, geometry_calibration::RefusalIs::ARepeat);
             if (!fresh.sees_board)
             {
                 carried.push_back(i);
@@ -252,13 +268,19 @@ void GeometryDetector::lookAgainAtRefusedCameras()
             left += (left.empty() ? "" : ", ") + to_string((int)i + 1);
         }
         // #1389: the count is the less useful half, and the reason each camera was refused
-        // is already on that camera's own ERROR line from every look it was given. What
-        // this adds is the one thing those lines cannot say -- that it was asked more than
-        // once and answered the same way, which is what tells a transient from a camera to
-        // go and look at.
+        // is already on that camera's own ERROR line. What this adds is the one thing that
+        // line cannot say -- that it was asked more than once and answered the same way,
+        // which is what tells a transient from a camera to go and look at.
+        //
+        // "each camera's own line above" is now true of exactly one line per camera, and
+        // it did not use to be: this sentence was written for the log #1445 meant to
+        // produce and shipped into one where each camera had thirteen of them. Where
+        // those twelve went is said out loud, because a reader who needs a look-by-look
+        // account should not have to guess that it exists.
         log_error("LOOK AGAIN: camera(s) " + left + " were refused on the averaged frame and on all " +
                   to_string(looks_spent) + " further looks, so they are set aside for this run; "
-                  "the reason is on each camera's own line above and is the thing to act on");
+                  "the reason is on each camera's own line above and is the thing to act on. "
+                  "What each further look measured is at DEBUG, under --debug");
     }
 }
 
