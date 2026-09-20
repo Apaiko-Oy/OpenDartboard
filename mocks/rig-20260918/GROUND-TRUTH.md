@@ -38,9 +38,19 @@ the clip, not an arbitrary window — a comparison that starts anywhere else is 
 nothing. This is not hypothetical: the first comparison written into this file matched the
 detector's four visits against visits 3–6 and had to be redone.
 
-**A miss is not nothing.** A dart outside the scoring area publishes as `OUTER`, so the two
-misses above should appear as `OUTER` and their absence is as much a finding as a wrong
+**A miss is not nothing.** A dart outside the scoring area publishes as `MISS`, so the two
+misses above should appear as `MISS` and their absence is as much a finding as a wrong
 wedge.
+
+**`OUTER` is not that, and this file said it was until #1485.** `OUTER` is the OUTER BULL --
+the 25 ring, the green ring around the bullseye. `score_processing::scorePoint` sets it for
+a point inside `outerBullEllipse` and outside `innerBullEllipse`, and
+`turnaus_client::postableSector` posts it to Turnaus as a score of **25**. The vocabulary is
+in `docs/api.md`: `S1`-`D20`, `BULL`, `OUTER`, `MISS`, `END`. Nobody threw at the 25 ring in
+this footage, so every `OUTER` in the table below is a dart on the board published as a 25 --
+which is a much worse reading than "off the board" and points at the opposite fault. The
+sentence that was here sent #1485 looking for a radial scale that reads a dart FURTHER out
+than it is; the measurement is that they are read NEARER the bull, by up to 5.9x.
 
 **Three trebles are in here** — T13, T14 and T20 — and they are the only evidence in this
 repository about whether a treble can be read at all. A treble published as a single is a
@@ -61,18 +71,43 @@ measuring three sevenths of the footage and calling it all of it.
 | 4 | `OUTER` (895,139) · `S20` (484,368) | 19 · 20 · *miss* |
 
 **Eight of eleven detected darts published `OUTER`, and only one miss was thrown in those
-four visits.** So at least seven real darts are read as off the board entirely — an
+four visits.** So at least seven real darts were published as a score of **25** — an
 entire visit of three among them.
 
-That is the shape a wrong **radial scale** makes, and #1423 measured that cause on this
-fixture: the colour stage measuring the **treble** ring while believing it had the board,
-so a dart at true radius *r* reads at *r* × 170/107 = **1.589r** and falls off the edge.
+**#1485 found the cause and it is not the one this paragraph guessed.** The guess was a
+radial scale reading a dart at *r* × 170/107 = 1.589r and off the edge, after #1423's
+finding that the colour stage measures the treble ring on this rig. Measured instead: the
+three cameras' ray-traced doubles ellipses here are **316.05, 317.98 and 315.29 px**, the
+real doubles ring, agreeing within 0.85%. What is wrong is the ellipse named the **25
+ring**, fitted by `ellipse_processing`'s contour stage at **0.9733, 0.6112 and 0.3401** of
+the board where the millimetres put it at 15.9/170 = **0.0935**. `scorePoint` tests the bull
+ellipses first, so a dart anywhere inside that contour is a 25.
+
 The three `S20`s are all at confidence 0.5 — `by_default`, meaning **no camera measured a
 wedge** and #1346's fallback asserted the 20. None of those throws was a 20.
 
 **Not one score is correct.** Two distinct faults are visible at once and must not be
-conflated: a **scale** error putting darts off the board, and an **anchor** failure meaning
-the wedge is asserted rather than read.
+conflated: a **ring** error publishing darts on the board as a 25, and an **anchor**
+failure meaning the wedge is asserted rather than read.
+
+## Measured again on the whole of the footage, at `OD_MAX_CYCLES=6000` (#1485)
+
+The cap that stopped the run above at four visits is not a property of the footage. Raised,
+the same binary reaches the end of all three clips and publishes **19 darts over seven
+visits** — every dart thrown that hit the board, and neither miss. Before #1485's repair and
+after it, on one binary, the fix selected at run time with `OD_RINGS`:
+
+| | darts | published `OUTER` (a 25) | wedge measured |
+| --- | --- | --- | --- |
+| `OD_RINGS=asfitted` (before) | 19 | **8** | 0 of 19 |
+| this tree | 19 | **0** | 0 of 19 |
+
+The same darts, in the same order, with the same tip positions: only the **ring** moved. The
+three trebles are still published as singles — the treble ellipses on this rig sit at
+0.533/0.607 and 0.529/0.610 of the board where the millimetres put them at 0.582/0.629, so a
+treble reads about 8% short — and **every** dart is still the asserted 20, which is the
+anchor failure and a different issue. So this footage still scores 0 of 19 correct; what
+changed is that the ring is now a near miss rather than a 25.
 
 ## What this file is not
 
