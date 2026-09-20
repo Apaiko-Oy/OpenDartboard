@@ -150,6 +150,18 @@ tester 1449-anchoring     "bash '$T/i1449_run.sh'"
 # MEASURED 2026-09-20 on the 4-core box, to completion, rc=0: see the line below for the
 # number, recorded here rather than left in nobody's head (how 1317-asan's 1200 got wrong).
 tester 1451-scoring       "bash '$T/i1451_run.sh'"
+# #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
+# shipped the server half -- Turnaus stores the census and the marking page draws it -- and
+# no board ever posted it, so the feature was live and inert and every board read as
+# unknown. Four detector runs on one binary: a board whose cameras never open (the census
+# must be ABSENT, never three noughts), the same binary under OD_BEAT_CAMERAS=0 (the
+# pre-#1474 body, which is both the falsifier and the fleet mid-upgrade), the shipped mocks
+# (scoring equals fitted) and mocks/rig-20260918 (fewer scoring than fitted, because #1442
+# refuses cameras 1 and 3). Every assertion reads the BODY that arrived at the stub, which
+# models App\Autoscoring\CameraReport to the comparison -- a 422 there would cost the club
+# the board's condition as well as its count.
+# MEASURED 2026-09-20 on the 4-core box: see the recorded line in the pull request.
+tester 1474-beat-census   "bash '$T/i1474_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
