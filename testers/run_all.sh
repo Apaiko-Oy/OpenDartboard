@@ -181,6 +181,16 @@ tester 1449-anchoring     "bash '$T/i1449_run.sh'"
 # MEASURED 2026-09-20 on the 4-core box, to completion, rc=0: see the line below for the
 # number, recorded here rather than left in nobody's head (how 1317-asan's 1200 got wrong).
 tester 1451-scoring       "bash '$T/i1451_run.sh'"
+# #1485: which ring a fitted contour really is, and what radius a dart is therefore
+# judged against. On mocks/rig-20260918 the ellipse named the 25 ring was fitted at 0.97,
+# 0.61 and 0.34 of the board where the millimetres put it at 0.0935, so eight of nineteen
+# darts on that footage were published OUTER -- a score of 25 at the Turnaus door. Six
+# sections: the ring census on both fixtures, the departure as a factor, the scoring
+# sweep, OD_RINGS=asfitted as the falsifier, two whole-footage detector runs, and a
+# planted band that cannot refuse. Sections 1-4 and 6 need no detector binary; section 5
+# runs build/opendartboard over the rig footage twice at OD_MAX_CYCLES=6000, which is what
+# reaches all seven visits -- 1200 reached four and the truncation was invisible.
+tester 1485-rings         "bash '$T/i1485_run.sh'"
 # #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
 # shipped the server half -- Turnaus stores the census and the marking page draws it -- and
 # no board ever posted it, so the feature was live and inert and every board read as
