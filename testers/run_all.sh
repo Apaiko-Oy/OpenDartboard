@@ -202,8 +202,11 @@ tester 1474-beat-census   "bash '$T/i1474_run.sh'"
 # accuracy half can be asked of, and the shipped mocks under a cycle budget, whose figures
 # carry #1478's caveat and whose run is where the truncation notice is proved to fire.
 # It asserts NOTHING about the numbers (#1322) and fails on a run it could not read.
-# MEASURED 2026-09-21 on the 4-core box: see the label's own line in the pull request; it
-# sits inside the default 1200 and takes no `slow`.
+# MEASURED 2026-09-21 on the 4-core box, to completion, rc=0: wall 112.6 s at
+# host_busy_pct=71.5 and load_at_end=7.05 -- a CONTENDED box, with another agent's tester
+# container up alongside it throughout. So it takes no `slow`: it sits well inside the
+# default 1200 even there, and the number is here rather than in nobody's head, which is
+# how 1317-asan's 1200 got to be wrong.
 tester 1484-confidence    "bash '$T/i1484_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
