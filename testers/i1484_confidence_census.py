@@ -125,7 +125,14 @@ def read_run(path):
 
 
 def read_lengths(path):
-    """clip -> duration_ms, as testers/i1484_clip_length.cpp printed them."""
+    """clip -> duration_ms, as testers/i1484_clip_length.cpp printed them.
+
+    Keyed by the WHOLE path and never by the basename, which is not a detail here: both
+    fixtures in this repository call their clips cam_1.mp4, cam_2.mp4, cam_3.mp4, so a
+    basename key silently reports the rig's 60 seconds against the shipped mocks' 143 and
+    prints a share of a clip that was never played. Measured, on the first run of this
+    harness: the rig read "0.0% of cam_1.mp4" against a length belonging to mocks/.
+    """
     lengths = {}
     if not path or not os.path.exists(path):
         return lengths
@@ -133,7 +140,7 @@ def read_lengths(path):
         parts = line.split()
         if len(parts) >= 4:
             try:
-                lengths[os.path.basename(parts[0])] = float(parts[3])
+                lengths[parts[0]] = float(parts[3])
             except ValueError:
                 pass
     return lengths
@@ -237,15 +244,27 @@ def main():
         print("    unknown share of it.")
     if stop["loop_ms"] is not None:
         print("    loop_ms=%s" % stop["loop_ms"])
+    # The stream position each camera stopped on. At the END of the footage the detector's
+    # own number is 0 or -1 and that is not a camera that played nothing: the position is
+    # taken from the read that FAILED, which is how the loop learned the file had ended. So
+    # the two stops are reported differently, because the same number means two things.
     for index in sorted(stop["pos_ms"]):
         pos = stop["pos_ms"][index]
         clip = clips[index] if index < len(clips) else ""
-        total = lengths.get(os.path.basename(clip))
+        total = lengths.get(clip)
+        name = os.path.basename(clip) if clip else "camera %d" % index
+        if stop["how"] == "end-of-footage" and pos <= 0:
+            if total:
+                print("    cam %d played %s to its end, all %d ms of it" % (index, name, total))
+            else:
+                print("    cam %d played %s to its end (its length was not measured)" % (index, name))
+            continue
         if total:
             print("    cam %d stopped at %8d ms of %8d ms  (%5.1f%% of %s)"
-                  % (index, pos, total, 100.0 * pos / total, os.path.basename(clip)))
+                  % (index, pos, total, 100.0 * pos / total, name))
         else:
-            print("    cam %d stopped at %8d ms  (clip length unknown)" % (index, pos))
+            print("    cam %d stopped at %8d ms  (the length of %s is not known here)"
+                  % (index, pos, name))
     if not stop["pos_ms"]:
         print("    no camera reported a stream position, so the share consumed is unknown")
 
@@ -273,9 +292,27 @@ def main():
     print("    visits: %d seen, %d closed by an END line" % (len(visits), closed))
     print("    cross-check, from the BOARD line beside each dart:")
     print("        darts whose wedge the board itself called 'by default'    %4d" % len(by_default_board))
-    if len(by_default_board) != len(five_default):
-        print("        -- which is NOT the 0.5 count above. The confidence and the board's own")
-        print("           word about the same dart disagree; one of the two is lying.")
+    # The BOARD line is the independent witness, logged for the SAME camera and the same
+    # decision the score string came from. A dart published at 0.7 or 0.9 -- confidences
+    # whose whole meaning is "a camera MEASURED a wedge" -- whose board line says the wedge
+    # was not measured is not a rounding difference between two numbers. It is the two
+    # halves of one decision disagreeing about what was read, and a reader taking the
+    # confidence as a statement about the anchor would be reading it wrong.
+    unmeasured_high = [d for d in (nine + seven) if d.wedge == "by default"]
+    if unmeasured_high:
+        print("        of the %d darts at 0.7 or 0.9, %d carry a board line saying the wedge"
+              % (len(nine) + len(seven), len(unmeasured_high)))
+        print("        was NOT measured. Those two confidences mean 'a camera measured a")
+        print("        wedge', so on those darts they do not mean what they say:")
+        kinds = {}
+        for d in unmeasured_high:
+            kinds[d.score] = kinds.get(d.score, 0) + 1
+        for score in sorted(kinds):
+            print("            %-8s %4d  at %s" % (score, kinds[score],
+                  ", ".join(sorted(set("%.1f" % d.confidence for d in unmeasured_high if d.score == score)))))
+    elif len(by_default_board) != len(five_default):
+        print("        -- which is NOT the 0.5 count above, and the two are counted off the")
+        print("           same darts. One of the two is saying something the other does not.")
 
     print()
     print("--- every dart, in the order it was published ---")
