@@ -56,6 +56,15 @@ slow() { [ -n "${OD_TESTER_TIMEOUT:-}" ] || LIMITS[$(( ${#LABELS[@]} - 1 ))]="$1
 
 tester address            "bash '$T/check_default_address.sh'"
 
+# #1452: and this one is about release.yml rather than about the detector, so it costs no
+# container and no build either. It asks whether a pull request can still reach the Windows
+# job and still publish nothing when it does -- both of which can stop being true with no
+# diff to the trigger, because GitHub skips a job whose `needs` was skipped and says so in
+# grey. It compiles nothing and reads no C++: #1452 rejected a lint for nonstandard
+# identifiers on the grounds that a check which looks like a Windows build and is not one
+# is worse than none, and this is not that check.
+tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
+
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
 # (#1371). Then the pure checks -- a compile and a few milliseconds each, so they are the
