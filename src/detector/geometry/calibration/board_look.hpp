@@ -106,6 +106,26 @@
 namespace board_look
 {
     /**
+     * Pi, named here rather than taken from the POSIX `M_PI`.
+     *
+     * `M_PI` is a POSIX extension, not standard C++. GCC and Clang define it from
+     * `<cmath>` anyway, so #1392 compiled on Linux and on the Pi and nothing said a word
+     * -- and MSVC does not, unless `_USE_MATH_DEFINES` is set before the first `<cmath>`
+     * in the translation unit. The Windows job of `release.yml` therefore broke at
+     * `error C2065` on the two lines below, on the first build after #1392 landed, while
+     * the arm64 `.deb` in the same run built clean. #1299's two independent jobs are why
+     * that was visible as one failure rather than none.
+     *
+     * The fix is deliberately a constant in this header rather than `_USE_MATH_DEFINES`
+     * in `CMakeLists.txt`. That define would work, and it would put the thing this header
+     * needs in a different file, where an unrelated edit removes it and the failure comes
+     * back on the one platform nobody here builds by hand. That is the
+     * shield-in-another-translation-unit shape #1355 was filed about. This header is the
+     * only user of pi in `src/`, so it owns it.
+     */
+    inline constexpr double kPi = 3.14159265358979323846;
+
+    /**
      * #1392's falsification, in the shape od_fix, #1339, #1340 and #1378 established:
      * one binary, the measure chosen at run time, so "different build" is never a
      * confound.
@@ -268,7 +288,7 @@ namespace board_look
     /** The area of the circle the board was measured out to, in pixels. */
     inline double boardDiscPixels(const Evidence &e)
     {
-        return M_PI * e.board_span_px * e.board_span_px;
+        return kPi * e.board_span_px * e.board_span_px;
     }
 
     /** A share as a percentage with one decimal, because 5.7 and 6 are different claims. */
@@ -306,7 +326,7 @@ namespace board_look
             return 1.0; // nothing is known about this frame, so nothing is refused on it
         }
         const double shortest = w < h ? w : h;
-        return M_PI * shortest * shortest / (4.0 * w * h);
+        return kPi * shortest * shortest / (4.0 * w * h);
     }
 
     /** Where the flood line sits: that far along the gap from the ceiling to all of it. */
