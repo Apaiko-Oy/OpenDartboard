@@ -193,6 +193,18 @@ tester 1451-scoring       "bash '$T/i1451_run.sh'"
 # the board's condition as well as its count.
 # MEASURED 2026-09-20 on the 4-core box: see the recorded line in the pull request.
 tester 1474-beat-census   "bash '$T/i1474_run.sh'"
+# #1484: HOW a run's darts were scored, not only what they scored. chooseScore has
+# published the distinction since #1346 -- 0.9 two or more cameras measured a wedge and
+# agreed, 0.7 measured with no two agreeing, 0.5 no camera measured a wedge at all -- and
+# nothing read it, so a wrong score and no anchor at all were indistinguishable from
+# outside. Two detector runs on one binary: mocks/rig-20260918 to the END OF ITS FOOTAGE,
+# which is the only footage here whose real darts are recorded and so the only one the
+# accuracy half can be asked of, and the shipped mocks under a cycle budget, whose figures
+# carry #1478's caveat and whose run is where the truncation notice is proved to fire.
+# It asserts NOTHING about the numbers (#1322) and fails on a run it could not read.
+# MEASURED 2026-09-21 on the 4-core box: see the label's own line in the pull request; it
+# sits inside the default 1200 and takes no `slow`.
+tester 1484-confidence    "bash '$T/i1484_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
