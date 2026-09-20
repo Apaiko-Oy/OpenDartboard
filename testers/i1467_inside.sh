@@ -72,10 +72,30 @@ WITH=$(grep '^I1467 ' /run1467/model.txt | grep -c ' doubles=1 ')
 NODOUBLES=$((ROWS - WITH))
 OK20=$(grep '^I1467 ' /run1467/model.txt | grep ' doubles=1 ' | grep -c ' wires=20 ok=1 ')
 say "     $WITH of $ROWS looks fitted a doubles ellipse; $NODOUBLES did not and are outside this model by construction" ok
-if [ "$WITH" -gt 0 ] && [ "$OK20" -eq "$WITH" ]; then
-  say "OK   $OK20 of $WITH looks with a ring returned a TRUSTED twenty" ok
+
+# THE PRECONDITION, ASKED RATHER THAN ASSUMED (#1295). The model's conic has to BE the
+# doubles ring, and `wire_processing::conicOfDoublesFor` is the stage's own verdict on
+# that -- it holds the ray tracer's ellipse against #1423's ring identity and the census
+# prints `conic=1` where the two agree. A look where they do not agree has a collapsed
+# ellipse fit, which is #1378's own failure and is on mocks/cam_1 in this tree, and is a
+# camera this stage should refuse on its own terms. So the two populations are counted
+# apart and the refusal of the second is asserted rather than waved through. This is not
+# a grandfather list: the partition is a measurement the tree makes, printed per row, and
+# a tree that stopped making it would fail the first branch instead.
+SOUND=$(grep '^I1467 ' /run1467/model.txt | grep ' doubles=1 ' | grep -c 'conic=1$')
+UNSOUND=$((WITH - SOUND))
+SOUND_OK=$(grep '^I1467 ' /run1467/model.txt | grep ' doubles=1 ' | grep 'conic=1$' | grep -c ' wires=20 ok=1 ')
+UNSOUND_OK=$(grep '^I1467 ' /run1467/model.txt | grep ' doubles=1 ' | grep -v 'conic=1$' | grep -c ' ok=1 ')
+say "     of those $WITH, $SOUND have a conic the ring identity agrees is the doubles ring and $UNSOUND do not" ok
+if [ "$SOUND" -gt 0 ] && [ "$SOUND_OK" -eq "$SOUND" ]; then
+  say "OK   $SOUND_OK of $SOUND looks with a sound conic returned a TRUSTED twenty" ok
 else
-  say "FAIL only $OK20 of $WITH looks with a ring returned a trusted twenty" no
+  say "FAIL only $SOUND_OK of $SOUND looks with a sound conic returned a trusted twenty" no
+fi
+if [ "$UNSOUND_OK" -eq 0 ]; then
+  say "OK   and none of the $UNSOUND whose conic is not the doubles ring was allowed to calibrate" ok
+else
+  say "FAIL $UNSOUND_OK of $UNSOUND looks whose conic is not the doubles ring still calibrated" no
 fi
 
 # Twenty boundaries on top of each other is not a board's ring. The smallest image-space
@@ -114,6 +134,29 @@ if [ "$OK20" -ge "$COK" ]; then
 else
   say "FAIL the model returns a ring on $OK20 looks where counting returned one on $COK" no
 fi
+# NO REGRESSION, asked LOOK BY LOOK rather than as a total: a model that lost one look
+# and gained two passes a comparison of counts and is still a regression.
+python3 - /run1467/count.txt /run1467/model.txt <<'REG'
+import sys
+def ok(path):
+    out={}
+    for l in open(path):
+        if not l.startswith("I1467 "): continue
+        f=dict(kv.split("=",1) for kv in l.split() if "=" in kv)
+        out[(f["clip"],f["look"])] = (f.get("ok")=="1")
+    return out
+c, m = ok(sys.argv[1]), ok(sys.argv[2])
+lost=[k for k in c if c[k] and not m.get(k)]
+gained=[k for k in m if m[k] and not c.get(k)]
+print("     the model gains %d looks and loses %d against counting, look by look" % (len(gained), len(lost)))
+for k in sorted(gained): print("       gained: %s look %s" % (k[0].replace("/app/",""), k[1]))
+for k in sorted(lost):   print("       LOST:   %s look %s" % (k[0].replace("/app/",""), k[1]))
+print("OK   no look counting got right is refused by the model" if not lost
+      else "FAIL the model refuses %d look(s) counting calibrated" % len(lost))
+sys.exit(0 if not lost else 1)
+REG
+[ $? -eq 0 ] || FAILED=1
+
 CASKED=$(grep '^I1467 ' /run1467/count.txt | grep -c ' asked=1 ')
 if [ "$CASKED" -eq 0 ]; then
   say "OK   no fit was asked for on the counting path, so the falsifier really falsifies" ok
@@ -257,7 +300,7 @@ else
   PWITH=$(grep '^I1467 ' /run1467/planted.txt | grep -c ' doubles=1 ')
   POK=$(grep '^I1467 ' /run1467/planted.txt | grep ' doubles=1 ' | grep -c ' wires=20 ok=1 ')
   if [ "$PWITH" -gt 0 ] && [ "$POK" -eq 0 ]; then
-    say "OK   $POK of $PWITH on the planted tree against $OK20 of $WITH on this one: section 1 could not have passed without the bull" ok
+    say "OK   $POK of $PWITH on the planted tree against $SOUND_OK of $SOUND on this one: section 1 could not have passed without the bull" ok
   else
     say "FAIL $POK of $PWITH looks still returned a trusted twenty with the bull taken out of the model, so section 1 proves nothing" no
   fi
