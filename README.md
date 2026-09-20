@@ -256,6 +256,21 @@ to do instead:
    moves with its constant"* -- and its label was the one that could be repaired without a
    bisect. The three that went red are the three that did not.
 
+5. **A quiet box at the start is not a quiet box throughout, and on a 1200-second tester
+   that gap is most of the run.** Rule 1 says not to start while another agent's container
+   is up -- which is a check you make *once*, and is exactly the insufficient thing. Measured
+   on 2026-09-20: a 58-label sweep ran fully contended and produced two reds, `leaks` and
+   `1355-bounds`, each "no answer in 1200s" and each **green on w128**. Run alone on a quiet
+   box they pass in **19s and 25s**. Both would have been reported as new reds caused by the
+   merge.
+
+   Worse, the first *isolated* re-run of `1355-bounds` also timed out at 1128s and was
+   recorded `clean=yes`, because the wrapper confirmed three quiet checks **before** starting
+   and never sampled again; the box was invaded mid-run. The only thing that gave it away was
+   `load_at_end=4.90`. So: **sample the load during a long run, not only before it, and print
+   `load_at_end` beside every timeout.** A timeout with no load reading beside it is not
+   evidence of anything.
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.
