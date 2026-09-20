@@ -24,6 +24,37 @@ public:
   void run();
   void stop();
 
+  /**
+   * #1383: the exit status a run that ended blind carries, and what it claims.
+   *
+   * AN EXIT CODE IS A CLAIM, AND "I COULD NOT SEE" IS NOT "I CRASHED". A blind board
+   * that was given no cycle budget makes no claim at all, because it does not exit --
+   * that is #895's vigil and it is unchanged. This is the one case that was added: a run
+   * a TESTER bounded, which ends having done none of what a scorer is for.
+   *
+   * 75 is EX_TEMPFAIL, sysexits.h's "temporary failure; the user is invited to retry",
+   * which is exactly a camera that is not plugged in yet. The house already spells exit
+   * statuses this way -- scorer.cpp exits 78, EX_CONFIG, for a motion fix it refuses to
+   * run. It is deliberately none of the three codes a reader would otherwise have to tell
+   * it from: 0 is "the run did what it was asked", which a blind run did not; 139 is the
+   * SIGSEGV #892 measured on this exact path, and a fault that reads as a crash is what
+   * #895 spent a slice replacing; 78 is somebody mistyping an environment variable.
+   *
+   * THE UNIT AND THE BINARY AGREE ABOUT IT. `Restart=always` restarts on any status, so
+   * the template needs nothing for this and gets nothing; what it gets instead is a
+   * comment saying that the case it looks like it covers -- a board that cannot see -- is
+   * the one case that never exits at all. A deployment sets no cycle budget, and
+   * testers/i1383_units.sh fails the tree if the shipped unit ever names one.
+   */
+  static constexpr int kCouldNotSee = 75;
+
+  /**
+   * Whether this run ended because a cycle budget ended a board that could not see.
+   * Read once, by main, to decide the status above. False on every other route out --
+   * including a vigil left by SIGTERM, which exits 0 as it always has.
+   */
+  bool endedBlindOnTheBudget() const { return ended_blind_on_the_budget_; }
+
   // #1274: whether this object has a detector it can score with -- and so whether run()
   // will open the score socket at all, or take #895's fault vigil, which deliberately
   // does not. main asks it before announcing the board on the network, so an announcement
@@ -85,6 +116,10 @@ private:
 
   // Simple control
   atomic<bool> running{false};
+
+  // #1383: set by the fault vigil and by nothing else. Written and read on the thread
+  // that calls run(), so it is a plain bool rather than an atomic.
+  bool ended_blind_on_the_budget_{false};
 
   std::shared_ptr<ScoreQueue> score_queue_;
   std::unique_ptr<WebSocketService> websocket_service_;

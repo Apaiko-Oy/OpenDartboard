@@ -31,6 +31,38 @@ Restart=always
 # over. Without it systemd's default is 100ms, so a crashing detector respawned ten times a
 # second and re-ran calibration on every one of them.
 RestartSec=2
+# ---- #1383: WHAT THE THREE KEYS ABOVE DO NOT COVER, SAID HERE RATHER THAN DISCOVERED ----
+#
+# Restart=, RestartSec= and the StartLimit pair all fire on EXIT. THE COMMONEST WAY FOR
+# THIS BOARD TO BE BROKEN IS NOT AN EXIT. A detector whose cameras will not open, or whose
+# calibration fails, takes #895's fault vigil: it stays up, beats ERROR to Turnaus and
+# waits, because a camera that comes back should find it still there. So it is never
+# restarted, the start limit never counts it, nothing is written to the journal, and this
+# unit is `active (running)` for a board that can see nothing.
+#
+# That is deliberate and it is NOT what the stanza above appears to promise, which is why
+# this comment exists. The blind board is made visible by NotifyAccess= below instead --
+# it says so in its own `Status:` line -- and not by being made to exit, which would hand
+# Restart= a board to loop on and take away the thing the vigil is for.
+#
+# WatchdogSec= is deliberately absent for the same reason: a missed ping makes systemd
+# KILL the service, so a watchdog here would be that exit arriving by a side door.
+#
+# OD_MAX_CYCLES DOES NOW END A BLIND RUN, AND IT MUST NEVER APPEAR IN THIS FILE. It is a
+# tester's instruction -- a run with a known end -- and a board at a venue has no such
+# budget. testers/i1383_units.sh fails the tree if this template ever names it.
+#
+# The board's own word about itself, where a supervisor can read it without opening a log:
+#
+#   systemctl status opendartboard          ->  Status: "ERROR: this board cannot see -- ..."
+#   systemctl show -p StatusText opendartboard
+#
+# `main` here and not `all`: the detector is the main process on a Linux board -- the
+# launcher is Windows-only -- so nothing else has anything to say. Type= stays `simple`:
+# MEASURED on systemd 255 (testers/i1383_units.sh), a simple unit with NotifyAccess set
+# has $NOTIFY_SOCKET and its STATUS= is kept and printed, so nothing about when this unit
+# counts as started moves.
+NotifyAccess=main
 Nice=-5
 Environment=G_MESSAGES_MIN_LEVEL=3
 StandardOutput=journal

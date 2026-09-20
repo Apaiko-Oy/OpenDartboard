@@ -210,6 +210,69 @@ a release binary calibrates on a different frame of the same clip.
 A tester runs from whatever checkout it is in -- no path in `testers/` names a worktree --
 and its run output goes to `runs-<checkout>/` beside the tree.
 
+### `OD_MAX_CYCLES`, and what it does to a board that cannot see
+
+`OD_MAX_CYCLES=<n>` gives a run a known end: the detector stops after `n` cycles of
+whatever loop it is in and leaves by the ordinary exit path, so two runs stop on the same
+frame and a harness never has to kill anything. It is a **tester's instruction**. Nothing
+deployed sets it -- `templates/opendartboard.service.template` must never name it, and
+`testers/i1383_units.sh` fails the tree if it ever does.
+
+**A blind board honours it too, and did not until #1383.** A board whose cameras will not
+open, or whose calibration fails, takes #895's fault vigil: it stays up, beats `ERROR` and
+waits, because a camera that comes back should find the detector still there. That loop
+ignored the budget, so a harness that arranged a blind board -- a fixture several checks
+want -- had no way to end one and fell back on a wall-clock kill. #1334's agent spent nine
+minutes of it and then killed the container, which reads as a hung suite rather than as
+the fixture working as designed.
+
+Three things to carry:
+
+- **A cycle is one pass of the loop the process is in.** In the scoring loop that is a
+  frame; in the fault vigil it is the 200 ms the vigil already sleeps. So `OD_MAX_CYCLES=20`
+  is about four seconds of vigil where it is a second and a third of scoring. The number
+  means "a known end", not a duration.
+- **A blind run ended by its budget exits 75**, `EX_TEMPFAIL` -- *"I could not see"*. That
+  is deliberately not `0` (the run did none of what a scorer is for), not `78` (`EX_CONFIG`,
+  which this binary already uses for a motion fix it refuses to run) and not a crash status:
+  #892 measured `139` on this exact path, and a fault that reads as a crash is what #895
+  spent a slice replacing. A run that reached the scoring loop still exits `0`.
+- **Without a budget, nothing about the vigil moved.** A blind board given no number waits
+  for ever, which is the property #895 exists for and the reason the maintainer refused
+  letting a blind board exit after a bounded wait.
+
+`OD_BLIND_RUN=unbounded` restores the whole of the pre-#1383 behaviour on the same binary --
+the budget ignored and nothing said to a supervisor -- so a harness can measure the "before"
+without compiling a second build.
+
+### Telling a blind board from a working one, without opening a log
+
+Until #1383 a board that could see nothing and a board scoring darts were both
+`active (running)`, because `Restart=`, `RestartSec=` and `StartLimit*` all fire on **exit**
+and a blind board never exits. The board already said `ERROR` -- over the beat, to Turnaus
+(#892) -- and that is a sentence addressed to a server, over a network, by a board that has
+been paired. It said nothing to the supervisor on the same box.
+
+It now sends `sd_notify`'s `STATUS=` on the socket systemd names in `$NOTIFY_SOCKET`
+(`src/utils/od_notify.hpp`: the documented wire format, forty lines of `sendto`, no
+`libsystemd` and no new dependency). The unit is still `Type=simple` and carries
+`NotifyAccess=main`:
+
+```sh
+systemctl status opendartboard            # Status: "ERROR: this board cannot see -- ..."
+systemctl show -p StatusText opendartboard
+```
+
+A board that can see says `READY: scoring with ...` instead, which is the half that makes
+the first half mean anything: a silent status line would otherwise read as "faulted" and as
+"running an older binary" equally.
+
+**`WatchdogSec=` is deliberately absent.** A missed ping makes systemd *kill* the service,
+`Restart=always` starts it again, and the board that was waiting for its camera is gone --
+which is the exit that was refused, arriving by a side door. `Type=notify` was refused for
+the same reason one step along: the only honest meaning for `READY=1` is *"I can see"*, and
+a blind board would then sit in `activating` until `TimeoutStartSec` killed it.
+
 ### Before you merge
 
 Four labels sat red on `main` through 2026-09-19, and three were the same mistake: a slice
