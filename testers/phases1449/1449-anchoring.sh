@@ -254,7 +254,7 @@ echo "=== 5. the census reads the field the SCORER reads, on every phase ==="
 # camera reported readable at start is by construction one the scorer reads. Measured
 # rather than asserted: the count in the census line must equal whether darts were read.
 for t in none some all; do
-  C=$(grep -a 'ORIENTATION: ' /run1449/$t.txt | head -1 | grep -oE '^.*ORIENTATION: [0-9]+' | grep -oE '[0-9]+$')
+  C=$(grep -aoE 'ORIENTATION: [0-9]+ of [0-9]+ cameras can be read' /run1449/$t.txt | head -1 | grep -oE '[0-9]+' | head -1)
   M=$(grep -ca 'BOARD: wedge measured' /run1449/$t.txt || true)
   D=$(grep -ca 'BOARD: wedge by default' /run1449/$t.txt || true)
   echo "    $t: census says $C readable; darts read=$M, asserted=$D"
