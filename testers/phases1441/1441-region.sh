@@ -47,7 +47,31 @@ FIXTURES="$(ls -d /app/mocks/*/ 2>/dev/null | sed 's#/app/mocks/##;s#/$##') mock
 SUBJECT=/app/mocks/rig-20260918/cam_2.mp4
 
 measure() { env $2 "$BIN" "$1" $BAND 2>/dev/null | grep '^I1437' > "$3"; }
-refused() { grep -c 'wires_ok=0' "$1" || true; }
+# #1445: counted from the WIRE NUMBER rather than from the verdict, and #1442 is the
+# reason rather than a preference.
+#
+# `wires_ok` became TWO-SIDED in that slice, so a frame proposing twenty-two now reads
+# `wires_ok=0` here. This tester's subject is a REGION, and what a wrong region does is
+# COLLAPSE the count -- #1378's twenty wires found on the treble ring, #1317's nine found
+# on a partial ring, and the 1.30 region in D below, which answers 6, 14, 14, 16, 15.
+# An over-count is the opposite fault: a camera reading structure the board does not have,
+# answered by what else is in its picture, and it is #1442's subject. Folding it in here
+# turns this tester red for a thing it cannot name and its reader cannot act on, which is
+# exactly what happened -- mocks/cam_1 went 6 -> 7 on a frame that moved from 20 to 21.
+#
+# MEASURED, on the run that made this change, and it is what says this is a NARROWING of
+# the population rather than a loosening of the test: every one of the 8 refusals phase B
+# asserts is an under-count (18, 18, 18, 18, 19, 17, 17, 19), every one of D's 15 is
+# (6, 14, 14, 16, 15, 16, 14, 14, 15, 14, 15, 14, 14, 15, 12), and phase C's five clips
+# agree before and after. So every literal in this file is the number it always was, and
+# the only line that moves is the one #1442 predicted would.
+#
+# The over-counts are PRINTED beside the under-counts rather than dropped in silence
+# (#923's rule: an exclusion is a number in the report, so a check quietly growing or
+# shrinking is visible). What they mean is #1442's tester's business, and it asserts them
+# over this same population.
+refused()   { sed -n 's/.*wires=\([0-9]*\) kept.*/\1/p' "$1" | awk -v req=20 '$1 < req' | wc -l | tr -d ' '; }
+overcount() { sed -n 's/.*wires=\([0-9]*\) kept.*/\1/p' "$1" | awk -v req=20 '$1 > req' | wc -l | tr -d ' '; }
 counted() { grep -c '^I1437' "$1" || true; }
 # The smallest fitted board over the frames this clip ANSWERED for. #1378's collapse is
 # 91,849 px against 258,582, so the floor is nowhere near either and needs no tuning.
@@ -57,7 +81,7 @@ echo "=== A. the clip this issue is about answers at every frame, about a repair
 measure "$SUBJECT" "X=x" /run1441/after_subject.txt
 R="$(refused /run1441/after_subject.txt)"; N="$(counted /run1441/after_subject.txt)"
 B="$(smallest_board /run1441/after_subject.txt)"
-echo "  rig-20260918/cam_2: refused $R of $N, smallest fitted board it answered about: ${B:-none} px"
+echo "  rig-20260918/cam_2: refused $R of $N by under-count (and $(overcount /run1441/after_subject.txt) of $N read MORE than twenty, which is #1442's), smallest fitted board it answered about: ${B:-none} px"
 if [ "$N" = 0 ]; then
   say "FAIL the census measured nothing at all, so nothing here was asked" no
 elif [ "$R" != 0 ]; then
@@ -73,7 +97,7 @@ echo "=== B. the same binary with the pre-#1441 region put back ==="
 measure "$SUBJECT" "OD_WIRE_REGION=doubles" /run1441/before_subject.txt
 RB="$(refused /run1441/before_subject.txt)"; NB="$(counted /run1441/before_subject.txt)"
 WAS=8
-echo "  rig-20260918/cam_2 with OD_WIRE_REGION=doubles: refused $RB of $NB"
+echo "  rig-20260918/cam_2 with OD_WIRE_REGION=doubles: refused $RB of $NB by under-count (and $(overcount /run1441/before_subject.txt) over-count)"
 if [ "$RB" = "$WAS" ]; then
   say "OK   the region before this issue is caught, at the $WAS of $NB it really refused" ok
 elif [ "$RB" = 0 ]; then
@@ -93,7 +117,7 @@ for f in $FIXTURES; do
     measure "$c" "OD_WIRE_REGION=doubles" "/run1441/before_$t.txt"
     A="$(refused "/run1441/after_$t.txt")"; P="$(refused "/run1441/before_$t.txt")"
     T="$(counted "/run1441/after_$t.txt")"
-    echo "  $f $(basename "$c"): refused $P of $T before, $A of $T after"
+    echo "  $f $(basename "$c"): refused $P of $T before, $A of $T after (over-counts, not the subject: $(overcount "/run1441/before_$t.txt") -> $(overcount "/run1441/after_$t.txt"))"
     [ "$A" = "$P" ] || MOVED="$MOVED $f/$(basename "$c") ($P->$A)"
   done
 done
