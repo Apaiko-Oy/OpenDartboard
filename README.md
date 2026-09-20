@@ -271,6 +271,13 @@ to do instead:
    `load_at_end` beside every timeout.** A timeout with no load reading beside it is not
    evidence of anything.
 
+**A `gh` call in a worktree of this repository needs `--repo Apaiko-Oy/OpenDartboard`.**
+`gh` resolves the remote by walking the checkout's git config, and in a fork it answers with
+the *upstream* -- `OpenDartboard/OpenDartboard` -- not with ours. The failure is silent and
+reads as good news: `gh pr list` returns `[]`, which looks exactly like "there are no open
+pull requests" rather than like "you asked the wrong repository". Measured on 2026-09-20 in
+`/home/mikko/opendartboard/fork`, where six PRs were open at the time.
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.
