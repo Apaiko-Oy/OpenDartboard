@@ -602,10 +602,15 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // two-camera board and goes on reporting 3 of 3; a board with none of them
             // publishes every dart as a MISS.
             //
-            // It counts against the scorer's own expression -- `canScoreAPoint` -- and not
-            // against `sees_board`, which is the census that was already here and the
-            // reason this was invisible. The two agree on a freshly calibrated camera and
-            // part company on a cached one, which is exactly the board this issue is about.
+            // It counts with `aDartIsScoredFrom`, which is BOTH of `processScore`'s
+            // conditions -- the camera is looking at the dartboard AND `scorePoint`'s own
+            // guard admits it. Neither half alone is the question. `sees_board` alone is
+            // the census that was already here and is the reason this was invisible; the
+            // guard alone would count a cached camera that produced no frame this start
+            // (#1372 clears its `sees_board` and leaves its ring), which is this same
+            // defect one field further on. The two halves agree on a freshly calibrated
+            // camera and part company on a cached one -- exactly the board this issue is
+            // about, and the reason the census must ask the conjunction.
             const int scorable = score_processing::camerasThatCanScoreAPoint(calibrations);
             const string each_camera_scores = score_processing::namingEachCamera(calibrations);
 
