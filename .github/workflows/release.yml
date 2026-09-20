@@ -9,14 +9,137 @@ on:
       - "v*" # e.g. vX.X.X
   workflow_dispatch: # allows manual rebuilds
 
-# #1299: two jobs, and they are deliberately independent of each other. Neither names
-# the other in `needs`, they share no `strategy`, and each attaches its own file to the
-# release itself -- so an arm64 build that fails does not stop the Windows artefact from
-# reaching the release, and a Windows build that fails does not stop the .deb. There is
-# no third "publish" job that both feed, because that job would be exactly the thing
+# #1299: two build jobs, and they are deliberately independent of each other. Neither
+# names the other in `needs`, they share no `strategy`, and each attaches its own file to
+# the release itself -- so an arm64 build that fails does not stop the Windows artefact
+# from reaching the release, and a Windows build that fails does not stop the .deb. There
+# is no third "publish" job that both feed, because that job would be exactly the thing
 # that makes one failure hide the other's result.
+#
+# #1408 adds a third job and it is not that job. `signing-inputs` runs BEFORE both and
+# neither depends on the other through it: it is a precondition, so its failure stops both
+# for the same stated reason rather than letting one hide the other. What it checks could
+# not be checked later without it being too late -- see the job itself.
 jobs:
+  # #1408: the update path had a reader and no writer. This is where the writer starts,
+  # and it starts with a refusal, because the failure mode here is silent.
+  #
+  # Apaiko-Oy/OpenDartboard is a PUBLIC repository. An organisation secret whose repository
+  # access is "Private repositories" is not refused to a public repo's workflow -- it is
+  # handed over as an EMPTY STRING, with no error, no warning and nothing in the log. An
+  # openssl that is asked to sign with an empty key file fails, but a workflow written a
+  # little differently would attach an unsigned or malformed manifest to a real release,
+  # which is worse than attaching none: `updates:sync-opendartboard` would refuse it and a
+  # club would be told its boards cannot be vouched for.
+  #
+  # The anchor has the same shape of failure one level down. `update_keys::anchors()` drops
+  # anything `anchorFromHex` will not read -- 127 characters, a pasted newline, a point with
+  # its leading 04 still on -- and a build that dropped its only anchor compiles cleanly and
+  # answers NoAnchor to every manifest for the rest of its life. There is no runtime way to
+  # give it one and there must never be, so an artefact that shipped without a usable anchor
+  # is an artefact nobody can ever update: ADR-0077 §4's recovery is a download by hand.
+  #
+  # So both are asserted here, together with the thing neither of them says alone: that they
+  # are a PAIR. A key rotated in the secret and not in the variable signs manifests no board
+  # can read, and the release is green.
+  signing-inputs:
+    runs-on: ubuntu-24.04
+    outputs:
+      channel: ${{ steps.channel.outputs.CHANNEL }}
+      prerelease: ${{ steps.channel.outputs.PRERELEASE }}
+    steps:
+      - name: The signing key and the trust anchor are both here, and they are a pair
+        shell: bash
+        env:
+          # A variable and not a secret, deliberately: the anchor is a public key, it is
+          # compiled into every artefact this workflow ships, and `strings` on the .exe
+          # prints it. A secret would only mean the log could not say which one was wrong.
+          ANCHOR: ${{ vars.OD_UPDATE_ANCHOR_CURRENT }}
+          ANCHOR_NEXT: ${{ vars.OD_UPDATE_ANCHOR_NEXT }}
+          SIGNING_KEY: ${{ secrets.ODPRIVATE }}
+        run: |
+          set -uo pipefail
+          fail() { echo "::error title=release signing::$1"; exit 1; }
+
+          if [ -z "$SIGNING_KEY" ]; then
+            fail "secrets.ODPRIVATE is empty. This repository is PUBLIC, and an organisation secret scoped to 'Private repositories' is handed to a public repository's workflow as an empty string with no error. Give the secret access to this repository, or store it on the repository itself. Nothing was built and nothing was signed."
+          fi
+          if [ -z "$ANCHOR" ]; then
+            fail "vars.OD_UPDATE_ANCHOR_CURRENT is empty. It is the 128-hex public half of the signing key and it is compiled into every artefact this run would ship; without it every artefact answers NoAnchor to every manifest, for ever, with no runtime way to fix it."
+          fi
+          printf '%s' "$ANCHOR" | grep -Eq '^[0-9a-fA-F]{128}$' || \
+            fail "vars.OD_UPDATE_ANCHOR_CURRENT is ${#ANCHOR} characters. An anchor is 128 hexadecimal ones -- the uncompressed public point, X then Y, with the leading 04 removed (src/update/update_keys.hpp). anchorFromHex refuses anything else at RUNTIME, by which time it has shipped."
+
+          if [ -n "$ANCHOR_NEXT" ]; then
+            printf '%s' "$ANCHOR_NEXT" | grep -Eq '^[0-9a-fA-F]{128}$' || \
+              fail "vars.OD_UPDATE_ANCHOR_NEXT is set and is ${#ANCHOR_NEXT} characters rather than 128. Leave it unset unless a rotation is in progress (ADR-0077 §4)."
+            [ "$ANCHOR_NEXT" != "$ANCHOR" ] || \
+              fail "vars.OD_UPDATE_ANCHOR_NEXT is the same key as OD_UPDATE_ANCHOR_CURRENT, which is a build that trusts one key twice rather than a rotation."
+            echo "two anchors: a rotation is in progress (ADR-0077 §4)"
+          fi
+
+          umask 077
+          key="$RUNNER_TEMP/od-signing-check.pem"
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          trap 'rm -f "$key" "$RUNNER_TEMP/od-public-check.pem"' EXIT
+
+          openssl ec -in "$key" -pubout -out "$RUNNER_TEMP/od-public-check.pem" > /dev/null 2>&1 || \
+            fail "openssl will not read secrets.ODPRIVATE as a private EC key. The secret holds the whole PEM, BEGIN and END lines included, exactly as 'openssl ecparam -name prime256v1 -genkey -noout' writes it."
+
+          # -pubin from here on, so nothing that touches the private half is ever printed.
+          openssl ec -pubin -in "$RUNNER_TEMP/od-public-check.pem" -text -noout > "$RUNNER_TEMP/od-public.txt" 2>/dev/null || \
+            fail "openssl will not describe the public half of secrets.ODPRIVATE"
+          grep -Eq 'prime256v1|P-256' "$RUNNER_TEMP/od-public.txt" || \
+            fail "secrets.ODPRIVATE is not a P-256 key. ADR-0077 §2 verifies through CNG's BCRYPT_ECDSA_P256_ALG_HANDLE and nothing else, so a P-384 or P-521 key produces signatures no board on earth can check."
+
+          point="$(awk '/pub:/{r=1; next} r{ if ($0 !~ /:/ || $0 ~ /ASN1|NIST/) exit; gsub(/[^0-9a-f]/,""); printf "%s", $0 }' "$RUNNER_TEMP/od-public.txt")"
+          [ "${#point}" -eq 130 ] || fail "openssl did not print an uncompressed public point for secrets.ODPRIVATE (${#point} characters)"
+          mine="${point#04}"
+          theirs="$(printf '%s' "$ANCHOR" | tr 'A-F' 'a-f')"
+          if [ "$mine" != "$theirs" ]; then
+            fail "the signing key's public half is ${mine:0:16}… and vars.OD_UPDATE_ANCHOR_CURRENT is ${theirs:0:16}…. They are not a pair, so every manifest this run signed would be refused by every artefact this run built. If a key was rotated, both halves move together."
+          fi
+
+          # Sign something and check it back, so that "openssl can use this key" is measured
+          # rather than assumed -- an encrypted or truncated PEM reads far enough to describe
+          # itself and then cannot sign.
+          printf 'the writing half of ADR-0077' > "$RUNNER_TEMP/od-probe.bin"
+          openssl dgst -sha256 -sign "$key" -out "$RUNNER_TEMP/od-probe.sig" "$RUNNER_TEMP/od-probe.bin" 2>/dev/null || \
+            fail "openssl will not sign with secrets.ODPRIVATE, although it reads it. An encrypted PEM is the usual reason; this workflow has no passphrase to give it."
+          openssl dgst -sha256 -verify "$RUNNER_TEMP/od-public-check.pem" -signature "$RUNNER_TEMP/od-probe.sig" "$RUNNER_TEMP/od-probe.bin" > /dev/null 2>&1 || \
+            fail "a signature made with secrets.ODPRIVATE does not verify under its own public half, which should be impossible and means openssl on this runner is not doing what this workflow thinks"
+
+          echo "the signing key is P-256, it signs, and its public half is vars.OD_UPDATE_ANCHOR_CURRENT (${mine:0:16}…)"
+
+      # Which channel this release is for, decided once so that the flag GitHub holds and
+      # the word inside the signature cannot disagree.
+      #
+      # App\Autoscoring\Updates\PublishedManifests reads the fork's release list and calls
+      # `stable` the newest release that is neither a draft nor a prerelease, and `beta` the
+      # newest that is not a draft. The channel is also INSIDE the signed payload, and the
+      # deployment refuses a manifest whose channel is not the one it asked for -- which is
+      # what stops a stable manifest being served at the beta address. So a prerelease must
+      # be flagged as one on GitHub *and* signed for beta, or the two halves refuse each
+      # other and nothing publishes.
+      #
+      # A semver prerelease suffix is what says which: v0.2.0-rc1 is beta, v0.2.0 is stable.
+      # A manual run has no tag and is 0.0.0-dev, which carries a suffix and is therefore
+      # beta -- and publishes nothing, so it can never claim to be a stable release.
+      - name: Which channel this tag publishes on
+        id: channel
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="0.0.0-dev"; fi
+          case "$VERSION" in
+            *-*) CHANNEL=beta;   PRERELEASE=true ;;
+            *)   CHANNEL=stable; PRERELEASE=false ;;
+          esac
+          echo "CHANNEL=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "PRERELEASE=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "version $VERSION publishes on the $CHANNEL channel (prerelease: $PRERELEASE)"
+
   build-deb:
+    needs: signing-inputs
     runs-on: ubuntu-24.04-arm
 
     container:
@@ -48,7 +171,16 @@ jobs:
           fi
 
       # 4. Build binary and .deb
+      #    #1408: the anchor reaches the Makefile through the environment and never through
+      #    a source file. ADR-0077's scope is Windows and a Linux board updates through apt,
+      #    so nothing here installs anything -- but `--check-update` is compiled into this
+      #    binary too, and without an anchor its only possible answer is "this build has no
+      #    update key compiled in". A Linux board's operator would then have no way to learn
+      #    a fix exists. The anchor is public and costs the .deb nothing.
       - name: Build + Package
+        env:
+          OD_UPDATE_ANCHOR_CURRENT: ${{ vars.OD_UPDATE_ANCHOR_CURRENT }}
+          OD_UPDATE_ANCHOR_NEXT: ${{ vars.OD_UPDATE_ANCHOR_NEXT }}
         run: |
           make build VERSION=${{ steps.vars.outputs.VERSION }}
           make deb VERSION=${{ steps.vars.outputs.VERSION }}
@@ -63,10 +195,15 @@ jobs:
           files: dist/*.deb
           # GitHub auto‑creates notes
           generate_release_notes: true
+          # #1408: both jobs state the same flag, from the same one decision, because both
+          # may be the job that CREATES the release and a release flagged one way with a
+          # manifest signed the other publishes on neither channel.
+          prerelease: ${{ needs.signing-inputs.outputs.prerelease == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
+    needs: signing-inputs
     # windows-2022 is pinned rather than windows-latest, and the reason is in
     # scripts/build-windows.bat: the static OpenCV tree is read from
     # C:\opencv-static\x64\vc17\staticlib, and "vc17" is the Visual Studio 2022
@@ -81,6 +218,22 @@ jobs:
       # 4.14.0 is what scripts/build-windows.bat means by opencv_world4140.dll.
       # This number is the only input to the cache key that anybody edits on purpose.
       OPENCV_VERSION: "4.14.0"
+
+      # #1408: the oldest launcher that may install this release (ADR-0077 §1). A launcher
+      # below the line says so, in Finnish and English, and does not try.
+      #
+      # 0.0.1 is the floor rather than a guess. apply_update.hpp orders this over leading
+      # dotted integers with a leading `v` and any `-suffix` ignored, and a build that was
+      # given no version is 0.0.0-dev -- which parses as 0.0.0 and is therefore below every
+      # real minimum, "refused by the same rule rather than by an exception", as that file
+      # puts it. So 0.0.1 says exactly one thing: any launcher built from a real tag may
+      # install this, and a launcher built by hand from an untagged tree may not.
+      #
+      # RAISE IT the day a release needs something older launchers cannot do -- a new archive
+      # layout, a second file beside the .exe -- and raise it to the version that first
+      # shipped the thing they lack. It is one line here and it reaches every board on the
+      # channel, which is the whole reason ADR-0077 §1 put it in the manifest.
+      OD_MINIMUM_LAUNCHER: "0.0.1"
 
     steps:
       - uses: actions/checkout@v4
@@ -174,8 +327,14 @@ jobs:
             throw "no OpenCVConfig.cmake in $dir -- a restored cache is not the tree build-windows.bat expects"
           }
 
+      # #1408: scripts\build-windows.bat reads both anchors from the environment and hands
+      # them to CMake, which refuses a malformed one outright. Nothing writes an anchor into
+      # a source file and there is no runtime way to name one (src/update/update_keys.hpp).
       - name: Build the standalone Windows detector
         shell: cmd
+        env:
+          OD_UPDATE_ANCHOR_CURRENT: ${{ vars.OD_UPDATE_ANCHOR_CURRENT }}
+          OD_UPDATE_ANCHOR_NEXT: ${{ vars.OD_UPDATE_ANCHOR_NEXT }}
         run: scripts\build-windows.bat static ${{ steps.vars.outputs.VERSION }}
 
       # The tag reaches the compiled string through -DAPP_VERSION, and this is the only
@@ -295,22 +454,158 @@ jobs:
           Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
           "ZIP=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      # #1408: the manifest, signed over the bytes of the zip that was just written.
+      #
+      # The signing is scripts/sign-manifest.sh rather than ten lines here, and that is the
+      # whole point of it: a step that runs only on a `v*` tag is a step nobody has ever
+      # executed, and testers/i1408_sign_check.sh runs that script against a throwaway key
+      # on any machine with openssl. What is asserted there -- the envelope, the DER, the
+      # six fields, the base64 the strict decoder in manifest.hpp accepts, and a one-byte
+      # change stopping the verification -- is asserted about this exact code path.
+      #
+      # It is signed over the PAYLOAD BYTES (ADR-0077 §2): the payload is written once,
+      # signed as it stands and base64'd as it stands, so there is no canonicalisation rule
+      # for this and src/update/manifest.hpp to drift apart on.
+      #
+      # The url names the release asset before the release exists, which is safe for the
+      # reason ADR-0077 §6 gives: the URL is untrusted data. The digest and the signature
+      # are the trust, so a wrong address fails the digest rather than installing anything.
+      - name: Sign the manifest this release publishes
+        id: manifest
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.ODPRIVATE }}
+          ANCHOR: ${{ vars.OD_UPDATE_ANCHOR_CURRENT }}
+          CHANNEL: ${{ needs.signing-inputs.outputs.channel }}
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+          ZIP: ${{ steps.package.outputs.ZIP }}
+        run: |
+          set -uo pipefail
+          umask 077
+          key="$RUNNER_TEMP/od-signing.pem"
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+
+          zip="$(printf '%s' "$ZIP" | tr '\\' '/')"
+          name="$(basename "$zip")"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; else tag="v$VERSION"; fi
+
+          bash scripts/sign-manifest.sh \
+            --channel "$CHANNEL" \
+            --version "$VERSION" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$name" \
+            --artefact "$zip" \
+            --key "$key" \
+            --anchor "$ANCHOR" \
+            --minimum-launcher "$OD_MINIMUM_LAUNCHER" \
+            --out dist/manifest.json
+
+      # #1408, and this is the criterion the issue asks for: the artefact this release
+      # ships accepts the manifest this release ships, on the platform that really verifies
+      # it. Not a fixture pair and not p256_verify.hpp -- the key in secrets.ODPRIVATE, the
+      # anchor compiled into this .exe minutes ago, and CNG's BCryptVerifySignature, which
+      # is the half ADR-0077 §2 actually chose.
+      #
+      # It asks over a socket because that is the only door there is: `--check-update`
+      # resolves an address the way everything else does (#822, #1257) and reads
+      # /updates/opendartboard/<channel>.json from it. There is deliberately no flag that
+      # takes a manifest from a file, so a check that took one would be measuring a path no
+      # board has. `--turnaus` points it at a python server on this runner's own loopback;
+      # nothing leaves the machine.
+      #
+      # TWO ANSWERS, AND THE SECOND IS WHAT MAKES THE FIRST MEAN ANYTHING. The manifest
+      # names this build's own version, so a verified one reads "there is no update" -- and
+      # an artefact with NO anchor, or with the wrong one, cannot produce that sentence: it
+      # says "this build has no update key compiled in" or "SIGNATURE VERIFICATION FAILED"
+      # instead. Then one byte of the payload is moved and the same artefact is asked again,
+      # and it must refuse. An assertion whose failure was never demonstrated is an
+      # assertion that passes by not being asked.
+      - name: The artefact this release ships verifies the manifest this release ships
+        shell: bash
+        env:
+          CHANNEL: ${{ needs.signing-inputs.outputs.channel }}
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+        run: |
+          set -uo pipefail
+          fail() { echo "::error title=release signing::$1"; exit 1; }
+
+          python="$(command -v python || command -v python3 || true)"
+          [ -n "$python" ] || fail "no python on this runner to serve the manifest from, so the one end-to-end check cannot be made"
+
+          root="$RUNNER_TEMP/od-www"
+          rm -rf "$root"
+          mkdir -p "$root/updates/opendartboard"
+          cp dist/manifest.json "$root/updates/opendartboard/$CHANNEL.json"
+
+          "$python" -m http.server 8408 --bind 127.0.0.1 --directory "$root" > "$RUNNER_TEMP/www.log" 2>&1 &
+          www=$!
+          trap 'kill "$www" > /dev/null 2>&1' EXIT
+          sleep 3
+
+          cfg="$RUNNER_TEMP/od-cfg"
+          rm -rf "$cfg"
+          mkdir -p "$cfg"
+
+          ask() {
+            build-win-static/opendartboard.exe --check-update --quiet \
+              --channel "$CHANNEL" --credentials "$cfg/credentials.json" \
+              --turnaus http://127.0.0.1:8408 2>&1
+          }
+
+          said="$(ask)"
+          rc=$?
+          echo "$said"
+          [ "$rc" -eq 0 ] || fail "--check-update exited $rc against the manifest this release ships; a non-zero exit there is a refusal (update_check::exitCode)"
+          case "$said" in
+            *"publishes version $VERSION"*"There is no update."*) ;;
+            *) fail "the artefact did not read the manifest beside it as the version it is. It said: $said" ;;
+          esac
+
+          # The control. One byte of the payload, the signature left exactly as it was.
+          payload="$(sed -n 's/.*"payload": "\([^"]*\)".*/\1/p' dist/manifest.json)"
+          signature="$(sed -n 's/.*"signature": "\([^"]*\)".*/\1/p' dist/manifest.json)"
+          moved="$(printf '%s' "$payload" | openssl base64 -d -A | sed 's/"size":/"size":1/' | tr -d '\n' | openssl base64 -A)"
+          [ -n "$moved" ] && [ "$moved" != "$payload" ] || fail "the control did not move a byte, so the refusal below would prove nothing"
+          printf '{"payload": "%s", "signature": "%s"}\n' "$moved" "$signature" > "$root/updates/opendartboard/$CHANNEL.json"
+
+          said="$(ask)"
+          rc=$?
+          echo "$said"
+          [ "$rc" -ne 0 ] || fail "one byte of the payload was changed and this artefact still accepted it, which means nothing above was verified by anything"
+          case "$said" in
+            *"SIGNATURE VERIFICATION FAILED"*) ;;
+            *) fail "a tampered manifest was refused for some other reason than its signature, which is the one refusal that must be its own sentence. It said: $said" ;;
+          esac
+
+          echo "the anchor compiled into this artefact verifies this release's manifest, and refuses it one byte later"
+
       # Every run leaves the artefact somewhere it can be fetched and looked at, tag or
       # not. That is what makes a manual run useful without it publishing anything.
+      # #1408: the manifest goes with it, so a manual run can be inspected -- and so a
+      # release that has to be re-published by hand has the bytes that were verified here.
       - name: Keep the artefact on the run
         uses: actions/upload-artifact@v4
         with:
           name: opendartboard-windows-x64
-          path: ${{ steps.package.outputs.ZIP }}
+          path: |
+            ${{ steps.package.outputs.ZIP }}
+            dist/manifest.json
           if-no-files-found: error
 
       # generate_release_notes is deliberately not set here: the .deb job writes the
       # notes, and two jobs writing the same body would have one of them overwrite the
       # other. This job only attaches its file.
+      # #1408: manifest.json is attached under exactly that name, because that is what
+      # App\Autoscoring\Updates\PublishedManifests looks for on a release -- one asset per
+      # release, holding one channel, which is why the channel is decided once in
+      # `signing-inputs` and stated both inside the signature and as GitHub's own flag.
       - name: Publish GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.package.outputs.ZIP }}
+          files: |
+            ${{ steps.package.outputs.ZIP }}
+            dist/manifest.json
+          prerelease: ${{ needs.signing-inputs.outputs.prerelease == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

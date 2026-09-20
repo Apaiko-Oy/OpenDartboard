@@ -101,6 +101,10 @@ tester 1259-control       "bash '$T/i1259_run.sh' '$T/i1259_control.sh'"
 tester 1259-pairing       "bash '$T/i1259_check.sh'"
 tester 1305-update       "bash '$T/i1305_run.sh'"
 tester 1305-manifest     "bash '$T/i1305_check.sh'"
+# #1408 is the writing half of the same path and needs no container and no build: openssl,
+# a throwaway key and the script release.yml really calls. It sits here beside the reading
+# half rather than with the pure checks, because what it is about is the pair.
+tester 1408-signing      "bash '$T/i1408_sign_check.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"

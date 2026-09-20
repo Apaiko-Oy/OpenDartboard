@@ -38,6 +38,47 @@ endif()
 # Find threads package for threading support
 find_package(Threads REQUIRED)
 
+# ---------------------------------------------- the update trust anchors (ADR-0077 §4, #1408)
+# The public half of the key a release is signed with, compiled in. Two of them, current and
+# next, so a rotation is three ordinary releases; src/update/update_keys.hpp holds the whole
+# argument and the recipe for turning a public.pem into these 128 characters.
+#
+# EMPTY IS A LEGAL VALUE AND IT MEANS "nothing here can vouch for anything". A build with no
+# anchor refuses every manifest with NoAnchor, which is the safe direction to fail in and is
+# what every build before #1408 did. So it is not required here: a developer's build, a
+# tester's build and `make build` on somebody's laptop all go on working with nothing passed.
+# What .github/workflows/release.yml does instead is refuse to RELEASE without one, by name,
+# before it signs anything -- because an artefact that cannot verify the manifest shipped
+# beside it is a release nobody can ever update from.
+#
+# A MALFORMED ONE IS A FATAL ERROR RATHER THAN A SILENT DROP, and that is the half worth
+# having here. update_keys::anchors() leaves out anything anchorFromHex refuses, so 127
+# characters, a point with the leading 04 still on it, or a pasted newline all compile
+# cleanly and produce a binary that answers NoAnchor to a manifest that is perfectly good.
+# On a developer's box that is a puzzle; on a release it is a shipped artefact that can never
+# be updated. The shape is known here, so it is refused here.
+#
+# testers/i1305_inside.sh passes its fixture anchor through CMAKE_CXX_FLAGS instead and is
+# untouched by this: that is the same preprocessor define arriving by another road, and this
+# adds a road rather than closing one.
+set(OD_UPDATE_ANCHOR_CURRENT "" CACHE STRING "128 hex characters: the current signing key's public point, X then Y")
+set(OD_UPDATE_ANCHOR_NEXT "" CACHE STRING "128 hex characters: the next signing key's public point, for a rotation")
+
+function(od_update_anchors target)
+    foreach(which CURRENT NEXT)
+        set(anchor "${OD_UPDATE_ANCHOR_${which}}")
+        if(NOT anchor STREQUAL "")
+            if(NOT anchor MATCHES "^[0-9a-fA-F]{128}$")
+                message(FATAL_ERROR
+                    "OD_UPDATE_ANCHOR_${which} is not 128 hexadecimal characters, so update_keys::anchors() "
+                    "would drop it and this build would answer NoAnchor to every manifest. It is the "
+                    "uncompressed public point with the leading 04 removed -- see src/update/update_keys.hpp.")
+            endif()
+            target_compile_definitions(${target} PRIVATE OD_UPDATE_ANCHOR_${which}="${anchor}")
+        endif()
+    endforeach()
+endfunction()
+
 # Use pkg-config to find OpenCV if standard find_package fails
 find_package(OpenCV QUIET)
 if(NOT OpenCV_FOUND)
@@ -112,6 +153,12 @@ target_compile_definitions(opendartboard
   PRIVATE
     APP_VERSION="${APP_VERSION}"
 )
+
+# #1408. The detector reads a manifest too -- `--check-update` is its whole subject -- so it
+# carries the same anchors the launcher does. ADR-0077's scope is Windows and a Linux board
+# updates through apt, but a Linux board that cannot even ASK is a board whose operator has
+# no way to learn a fix exists, and the anchor is public: it costs the .deb nothing.
+od_update_anchors(opendartboard)
 
 # ---------------------------------------------------------------- Windows
 # Media Foundation is what CAP_MSMF and --autocams talk to, and ws2_32 is the
@@ -189,6 +236,10 @@ if(WIN32)
         NOMINMAX
         _CRT_SECURE_NO_WARNINGS
     )
+
+    # #1408: and this is the one that decides whether a board can ever be updated, because
+    # the launcher is the half that installs (ADR-0077 §1).
+    od_update_anchors(opendartboard-launcher)
 
     # #1306. nlohmann is the detector's own dependency and is linked as an interface
     # target, so nothing is compiled twice; winhttp and bcrypt are in-box Windows DLLs.

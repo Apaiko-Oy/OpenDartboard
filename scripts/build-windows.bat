@@ -53,6 +53,17 @@ if not defined OD_VERSION set "OD_VERSION=0.0.0-dev"
 
 if defined OD_DEV set OD_DEFS=/DDEBUG_SEEK_VIDEO /DDEBUG_VIA_VIDEO_INPUT
 
+REM #1408: the update trust anchors (ADR-0077 §4). They are read from the environment
+REM rather than typed here, and they are never a source file: release.yml puts the public
+REM half of the signing key into OD_UPDATE_ANCHOR_CURRENT from an Actions variable, so
+REM rotating a key is a variable and not a commit. Unset is legal and is what a hand build
+REM has -- the artefact then answers NoAnchor to every manifest, which is what every build
+REM before #1408 did. CMakeLists.txt refuses a malformed one outright rather than dropping
+REM it silently, so a truncated paste stops here instead of shipping.
+set "OD_ANCHORS="
+if defined OD_UPDATE_ANCHOR_CURRENT set "OD_ANCHORS=%OD_ANCHORS% -DOD_UPDATE_ANCHOR_CURRENT=%OD_UPDATE_ANCHOR_CURRENT%"
+if defined OD_UPDATE_ANCHOR_NEXT set "OD_ANCHORS=%OD_ANCHORS% -DOD_UPDATE_ANCHOR_NEXT=%OD_UPDATE_ANCHOR_NEXT%"
+
 if defined OD_STATIC (
   REM The static tree's OpenCVConfig.cmake lives beside the .lib files.
   set "OPENCV_DIR=C:\opencv-static\x64\vc17\staticlib"
@@ -72,11 +83,12 @@ call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
   -DOpenCV_DIR="!OPENCV_DIR!" ^
   !CRT! ^
   -DCMAKE_CXX_FLAGS="%OD_DEFS%" ^
-  -DAPP_VERSION=%OD_VERSION% || exit /b 1
+  -DAPP_VERSION=%OD_VERSION% !OD_ANCHORS! || exit /b 1
 
 "%CMAKE%" --build !BUILD_DIR! --parallel 3 || exit /b 1
 
 REM #1303: two executables now. `cmake --build` builds every target, so nothing
 REM above changed; this says both names so a hand build can see both appear.
 echo Built !BUILD_DIR!\opendartboard.exe and !BUILD_DIR!\opendartboard-launcher.exe with OD_DEFS="%OD_DEFS%" OpenCV="!OPENCV_DIR!"
+if defined OD_UPDATE_ANCHOR_CURRENT ( echo   an update trust anchor is compiled in ) else ( echo   NO update trust anchor is compiled in: this build refuses every manifest )
 endlocal

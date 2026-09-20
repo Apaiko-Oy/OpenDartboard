@@ -7,9 +7,18 @@ PROJECT_VERSION_VAL := $(if $(VERSION),$(VERSION),0.0.0-dev)
 DEV_DEFS = -DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT
 OD_DEFS ?=
 
+# #1408: the update trust anchors (ADR-0077 §4), taken from the environment and never
+# typed into a source file. Unset is legal and is what an ordinary build has: the binary
+# then answers NoAnchor to every manifest, which is what every build before #1408 did.
+# .github/workflows/release.yml sets them from an Actions variable, so rotating a key is a
+# variable and not a commit, and CMakeLists.txt refuses a malformed one outright.
+OD_ANCHOR_FLAGS = $(if $(OD_UPDATE_ANCHOR_CURRENT),-DOD_UPDATE_ANCHOR_CURRENT=$(OD_UPDATE_ANCHOR_CURRENT)) \
+                  $(if $(OD_UPDATE_ANCHOR_NEXT),-DOD_UPDATE_ANCHOR_NEXT=$(OD_UPDATE_ANCHOR_NEXT))
+
 CMAKE_FLAGS = -DCMAKE_PREFIX_PATH=/usr/local \
               -DCMAKE_CXX_FLAGS="$(OD_DEFS)" \
-              -DAPP_VERSION=$(PROJECT_VERSION_VAL)
+              -DAPP_VERSION=$(PROJECT_VERSION_VAL) \
+              $(OD_ANCHOR_FLAGS)
 
 build-dev: OD_DEFS = $(DEV_DEFS)
 build-dev: build

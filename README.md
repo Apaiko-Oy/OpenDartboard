@@ -306,6 +306,41 @@ for an issue, and neither default is right.
    git merge-base --is-ancestor "$BASE_COMMIT" HEAD    # rc=0 on the right branch, 1 elsewhere
    ```
 
+## Releasing
+
+`.github/workflows/release.yml` fires on a `v*` tag. Since #1408 it also mints the signed
+manifest a board reads before it starts (ADR-0077), so a release needs **two things set on
+this repository** and refuses to build without them, by name, before it signs anything:
+
+| where | name | what it is |
+| --- | --- | --- |
+| Actions **secret** | `ODPRIVATE` | the P-256 signing key's private half, the whole PEM |
+| Actions **variable** | `OD_UPDATE_ANCHOR_CURRENT` | its public half: 128 hex characters, the uncompressed point with the leading `04` removed |
+| Actions **variable** | `OD_UPDATE_ANCHOR_NEXT` | empty, except while a key is being rotated |
+
+**The anchor is a variable and not a secret on purpose.** It is a public key, it is compiled
+into every artefact the workflow ships, and `strings` on the `.exe` prints it. Making it a
+secret would only mean the log could not say which one was wrong.
+
+**The failure this guards against is silent.** This repository is public, and an
+organisation secret scoped to *Private repositories* is not refused to a public repository's
+workflow -- it is handed over as an **empty string**, with no error and nothing in the log.
+The same shape one level down: `update_keys::anchors()` drops an anchor `anchorFromHex` will
+not read, so 127 characters or a pasted newline compiles cleanly and produces an artefact
+that answers `NoAnchor` to every manifest for the rest of its life, with no runtime way to
+give it one. `signing-inputs` therefore asserts that both are present, that the key is
+P-256, that it can really sign, and that the two are a **pair** -- a key rotated in the
+secret and not in the variable signs manifests no board can read, and the release is green.
+
+The channel is decided once, from the tag: `v0.2.0-rc1` is a prerelease on **beta**,
+`v0.2.0` is **stable**. GitHub's own prerelease flag and the channel inside the signature
+come from that one decision, because Turnaus refuses a manifest whose signed channel is not
+the one it asked for.
+
+`testers/i1408_sign_check.sh` measures `scripts/sign-manifest.sh` -- what CI really calls --
+against a throwaway key, and needs no container and no build. What only a tag can prove is
+listed in #1408.
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.
