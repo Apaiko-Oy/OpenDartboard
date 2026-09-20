@@ -1,10 +1,12 @@
 #pragma once
 
 #include <cmath>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
 #include "geometry_calibration.hpp"
+#include "orientation_processing.hpp" // #1450: wedgeCanBeRead, the seal's own question
 
 // #899: whether the board in front of a camera now is the board that camera was
 // calibrated on.
@@ -164,6 +166,30 @@ namespace geometry_agreement
         bool radius_comparable = false; // both fitted a doubles ring with a size
     };
 
+    /**
+     * #1450's falsification, in the shape od_fix, #1339, #1340, #1378, #1392 and #1442
+     * established: one binary, the spelling chosen at run time, so "different build" is
+     * never a confound.
+     *
+     * OD_SEAL=star restores exactly what `fingerprint` sealed before #1450 -- the star
+     * MEASUREMENT alone, with nothing about whether the board may be READ -- and is how a
+     * camera whose `anchored` moved can be made to slip past `geometryBreach()` again on
+     * the very binary that now catches it. Anything but that exact word is ignored rather
+     * than obeyed.
+     *
+     * There is deliberately no word for the reverse. Sealing what the scorer reads is
+     * what this line IS, not a mode it is in.
+     */
+    inline bool sealsOnlyTheStarMeasurement()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_SEAL");
+            return e && std::string(e) == "star";
+        }();
+        return v;
+    }
+
     /** The mean radius of a fitted ellipse, or -1 when there is not one to measure. */
     inline double meanRadius(const DartboardCalibration &calibration)
     {
@@ -242,6 +268,52 @@ namespace geometry_agreement
      * bytes: `DartboardCalibration` carries debug-only members and a capture timestamp,
      * and a line that changes when the timestamp does would be a guard nobody could keep
      * green.
+     *
+     * #1450: WHETHER THE BOARD MAY BE READ, WHICH IS NOT WHETHER A STAR WAS MEASURED.
+     *
+     * The paragraph above says "every field a dart's score is derived from", and until
+     * #1450 the line did not keep it. `star=` is what the ORIENTATION STAGE MEASURED.
+     * What `score_processing` actually asks before it reads a wedge is
+     * `wedgeCanBeRead(orientation)` -- #1449's one copy of the expression -- and it is
+     * `anchored && wedge20WireIndex >= 0`, neither half of which was sealed.
+     *
+     * #1363 made `anchored` a separate field precisely because the two can disagree, and
+     * they disagree in a SHIPPED configuration: OD_CAMERA_WEDGES, written for a Winmau
+     * Blade 6 over a black surround where no camera anchors itself, sets `anchored` true
+     * and leaves `isStarCamera` false. So the seal printed `star=0` for a camera the
+     * scorer WILL read, and said nothing about the field that decided it.
+     *
+     * The consequence is #1447's and #1448's: an unanchored camera takes #1346's
+     * asserted-twenty path and answers `dartboard_numbers[0]` for every tip on any ring.
+     * A board could go on publishing the same number for every dart while `geometryBreach`
+     * reported the geometry unchanged.
+     *
+     * WHY `wedge20=` AS WELL, WHICH IS MORE THAN THE FIELD THE ISSUE NAMED. `read=` is a
+     * bit, and it stays 1 while the index under it moves. The index is the wire the wedge
+     * count STARTS FROM -- `findWedgeSlot(pixel, calib, start, fraction)` with
+     * `start = wedge20WireIndex` -- so an index that moved from 3 to 8 is every dart five
+     * wedges wrong with `read=1` on both sides of the comparison. It is a field a dart's
+     * score is derived from by the paragraph above's own test, and sealing it costs
+     * nothing extra: the spelling changes once either way.
+     *
+     * WHAT IT COSTS TO CHANGE THIS LINE, MEASURED RATHER THAN ASSUMED. Nothing. The
+     * fingerprint is NOT PERSISTED: `sealed_geometry` is a member of GeometryDetector,
+     * taken at the end of every `initialize()` and compared only against fingerprints
+     * built in the same process from the same live `calibrations`. No file holds one --
+     * the cache holds `DartboardCalibration` records and no string -- so there is no old
+     * spelling anywhere for a new binary to read as a breach. A board restarting across
+     * this change re-seals in the new spelling and compares like with like.
+     *
+     * Nor does it force a re-calibration. The cache's refusal is `record_bytes !=
+     * sizeof(DartboardCalibration)` (#1330), and this change adds no field to that struct
+     * -- it reads two that #1363 already put there. A cached calibration loads, has the
+     * configured anchors applied to it as before, and is sealed with the same line a
+     * fresh calibration of the same rig would produce. `testers/i1450_seal_check.cpp`
+     * measures that as a round trip through the cache's own raw-bytes copy.
+     *
+     * Both of those are the reason no version field is wanted here, one step past the
+     * maintainer's decision on #1450: there is no cost to amortise. A version would be
+     * machinery guarding a boundary nothing crosses.
      */
     inline std::string fingerprint(const std::vector<DartboardCalibration> &held)
     {
@@ -261,8 +333,14 @@ namespace geometry_agreement
                     " scoring=" + (calibration.sees_board ? "1" : "0") +
                     " bull=" + std::to_string(calibration.bullCenter.x) + "," +
                     std::to_string(calibration.bullCenter.y) +
-                    " star=" + (calibration.orientation.isStarCamera ? "1" : "0") +
-                    " angle=" + twoPlaces((double)calibration.orientation.angleOffsetFromSouth) +
+                    " star=" + (calibration.orientation.isStarCamera ? "1" : "0");
+            if (!sealsOnlyTheStarMeasurement())
+            {
+                line += std::string(" read=") +
+                        (orientation_processing::wedgeCanBeRead(calibration.orientation) ? "1" : "0") +
+                        " wedge20=" + std::to_string(calibration.orientation.wedge20WireIndex);
+            }
+            line += " angle=" + twoPlaces((double)calibration.orientation.angleOffsetFromSouth) +
                     " radius=" + twoPlaces(meanRadius(calibration));
         }
         return line.empty() ? std::string("no camera holds a calibration") : line;

@@ -87,6 +87,14 @@ tester 1363-anchor        "bash '$T/unit_check.sh' 1363"
 # long ring produces it in one slot position only (measured; see the check's own header).
 tester 1451-scorable      "bash '$T/unit_check.sh' 1451"
 
+# #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
+# its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
+# plain and OD_SEAL=star -- and unit_check.sh compiles and runs a check once. Costs a
+# compile and two milliseconds, like the pure checks above it, and it also holds the
+# census that keeps the seal unpersisted: the issue's whole stated cost was a board
+# reading an old spelling off disk, and there is no disk.
+tester 1450-seal          "bash '$T/i1450_seal_check.sh'"
+
 tester 1258-choice        "bash '$T/i1258_check.sh'"
 tester 1319-findings      "bash '$T/i1319_run.sh'"
 tester 1320-speck         "bash '$T/i1320_run.sh'"
