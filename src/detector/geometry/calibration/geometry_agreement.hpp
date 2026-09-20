@@ -134,6 +134,23 @@ namespace geometry_agreement
         // name. Retiring it is #1423's to decide once a stage can say which ring it
         // measured; widening it to fit the renames would leave a board scoring on a
         // geometry that is 0.629 of its board with nothing left to notice.
+        /**
+         * #1423, WHAT CHANGED FOR THIS TOLERANCE. Not its value -- 0.05 stands -- but the
+         * reading it is asked of.
+         *
+         * 44 of this tolerance's 45 measured false positives are the radius term, stable
+         * at about 64% on `mocks/rig-20260918`, and #1388's sentence is that a doubles
+         * ring does not change size by 39% and hold there for six seconds. 64% is
+         * 107/170: the two calibrations were measuring two different rings and the
+         * tolerance was being asked whether one board had moved.
+         *
+         * STEP 1.6 now names the ring behind each radius, on `Evidence::ring_measured`.
+         * So a comparison between two calibrations can ask whether they measured the SAME
+         * ring before asking whether the radius moved, and a change of ring is a different
+         * event from a bumped rig -- which is the distinction that turns 44 false
+         * positives into 44 correct readings of something else. Wiring that in is #1416's
+         * work; this issue supplies the statement it needs and moves nothing here.
+         */
         double max_radius_change = 0.05;
     };
 
