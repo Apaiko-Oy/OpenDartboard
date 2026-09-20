@@ -10,6 +10,75 @@
 #include <cstdio>
 #include <tuple>
 
+// #1319's readFourCC lives here. A code READ BACK from a backend is never turned into
+// words anywhere else in this program, and this file is the second place that was true
+// of (#1477).
+#include "capture.hpp"
+
+// --------------------------------------------------------------------------
+// #1477: why a probed camera's format is, or is not, the MJPG --autocams needs.
+//
+// Platform-neutral on purpose. probe() below is #ifdef _WIN32 and cannot be compiled on
+// the Linux box these slices are carried on, which is why #1319 repaired the OPEN site
+// and left this one alone. The decision and the sentence are a pure function of one int,
+// so testers/i1477_probe_format_check.cpp exercises every branch with no camera, no
+// Windows and no MSMF.
+//
+// The wording is #1319's, not a second phrasing of it: the phrases come from the same
+// two sentences capture.hpp's formatFinding() prints at the open site, and the check
+// holds the two to each other so one cannot drift from the other.
+// --------------------------------------------------------------------------
+namespace autocam
+{
+    /**
+     * What a probed camera's CAP_PROP_FOURCC read-back means for --autocams.
+     *
+     * @var is_mjpg   the camera negotiated MJPG and is kept
+     * @var reported  the backend said SOMETHING; false is the FOURCC of 0 that MSMF
+     *                answers on these modules, which is a different fact about a camera
+     *                than a format that is not MJPG
+     * @var name      never empty, whatever the code was -- "MJPG", "YUY2", "0x00000014",
+     *                or "none reported"
+     * @var reason    why it was rejected, empty when it was not
+     */
+    struct FormatVerdict
+    {
+        bool is_mjpg = false;
+        bool reported = false;
+        std::string name;
+        std::string reason;
+    };
+
+    inline FormatVerdict judgeProbedFormat(int code)
+    {
+        const camera::NegotiatedFormat format = camera::readFourCC(code);
+
+        FormatVerdict verdict;
+        verdict.name = format.name;
+        verdict.reported = (format.report != camera::FormatReport::NotReported);
+        verdict.is_mjpg = format.is_mjpg;
+
+        if (verdict.is_mjpg)
+        {
+            return verdict;
+        }
+
+        // Whether a camera that reports NO format should be refused at all is #1336's
+        // question and needs the rig. It is refused here exactly as it was before, and
+        // the line now says which of the two things happened.
+        if (!verdict.reported)
+        {
+            verdict.reason = "MJPG was requested and the backend reported no format at all "
+                             "(CAP_PROP_FOURCC read back as 0), so whether it is MJPG "
+                             "cannot be told from here";
+            return verdict;
+        }
+
+        verdict.reason = "negotiated " + format.name + ", not the MJPG that was requested";
+        return verdict;
+    }
+} // namespace autocam
+
 #ifdef _WIN32
 
 // --------------------------------------------------------------------------
@@ -115,19 +184,12 @@ namespace autocam
         int width = 0;
         int height = 0;
         int fps = 0;
-        std::string fourcc;
+        // #1477: the read-back as a verdict rather than as a string. fourccToString()
+        // stood here and returned "" for a FOURCC of 0, so a rejected camera was
+        // reported as `rejected: negotiated , not MJPG` -- a sentence with a hole in it,
+        // and on MSMF the hole is where the whole diagnosis was.
+        FormatVerdict format;
     };
-
-    inline std::string fourccToString(int code)
-    {
-        char text[5];
-        text[0] = (char)(code & 0xFF);
-        text[1] = (char)((code >> 8) & 0xFF);
-        text[2] = (char)((code >> 16) & 0xFF);
-        text[3] = (char)((code >> 24) & 0xFF);
-        text[4] = 0;
-        return std::string(text);
-    }
 
     inline WindowsMode probe(int index, int width, int height, int fps)
     {
@@ -145,7 +207,7 @@ namespace autocam
         mode.width = (int)capture.get(cv::CAP_PROP_FRAME_WIDTH);
         mode.height = (int)capture.get(cv::CAP_PROP_FRAME_HEIGHT);
         mode.fps = (int)capture.get(cv::CAP_PROP_FPS);
-        mode.fourcc = fourccToString((int)capture.get(cv::CAP_PROP_FOURCC));
+        mode.format = judgeProbedFormat((int)capture.get(cv::CAP_PROP_FOURCC));
         capture.release();
         return mode;
     }
@@ -179,7 +241,7 @@ namespace autocam
             {
                 std::string what = mode.opened
                                        ? (std::to_string(mode.width) + "x" + std::to_string(mode.height) +
-                                          " @ " + std::to_string(mode.fps) + " fps " + mode.fourcc)
+                                          " @ " + std::to_string(mode.fps) + " fps " + mode.format.name)
                                        : std::string("could not be opened through MSMF");
                 std::fprintf(stderr, " %s [%d] %s: %s\n",
                              mode.opened ? "-" : "x",
@@ -191,10 +253,10 @@ namespace autocam
             // The check V4L2 made with VIDIOC_S_FMT, made here against what the open
             // actually granted. A camera that fell back to YUY2 is refused rather than
             // accepted quietly, because three of those do not fit on one USB bus.
-            if (mode.fourcc != "MJPG")
+            if (!mode.format.is_mjpg)
             {
                 if (verbose)
-                    std::fprintf(stderr, "   rejected: negotiated %s, not MJPG\n", mode.fourcc.c_str());
+                    std::fprintf(stderr, "   rejected: %s\n", mode.format.reason.c_str());
                 continue;
             }
             if (mode.width != width || mode.height != height)
