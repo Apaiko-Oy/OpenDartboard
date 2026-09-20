@@ -526,6 +526,19 @@ jobs:
           CHANNEL: ${{ needs.signing-inputs.outputs.channel }}
           VERSION: ${{ steps.vars.outputs.VERSION }}
         run: |
+          # `+e` deliberately, and it is the whole of why this step can measure a refusal.
+          #
+          # GitHub runs a `shell: bash` step as `bash --noprofile --norc -e -o pipefail`, so
+          # errexit is already on and `set -uo pipefail` does not turn it off. The tamper
+          # control below *wants* the artefact to exit non-zero -- that is the artefact
+          # refusing a manifest whose payload moved by one byte -- and under errexit
+          # `said="$(ask)"` aborts the step at that moment, before `rc=$?` is ever read. The
+          # control then reads as a failure at exactly the point it succeeds.
+          #
+          # Measured on run 35511027382: the positive half passed ("publishes version
+          # 0.0.0-dev ... There is no update.") and the step died on the tamper half with no
+          # output from it at all, which is the signature of an abort rather than a verdict.
+          set +e
           set -uo pipefail
           fail() { echo "::error title=release signing::$1"; exit 1; }
 
