@@ -106,7 +106,9 @@ tester 1442-count         "bash '$T/i1442_run.sh'"
 # calibration stage -- the averaged frame the board really calibrates on, then the single
 # frames after it -- which is where the budget's size comes from; then four detector runs
 # for the od_fix pair (#1340) and two more that nudge the camera the retry calibrated, to
-# show ADR-0080's refusal still fires about it. MEASURED_COST_GOES_HERE
+# show ADR-0080's refusal still fires about it. MEASURED 2026-09-20 on the 4-core box,
+# to completion, rc=0: wall 146 s at load 2.1-2.6, so it takes no `slow` and sits well
+# inside the default 1200.
 tester 1445-looks         "bash '$T/i1445_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
