@@ -76,10 +76,10 @@ grep -q '^OLD_RC=0$' "$RUN/old.txt" \
 #
 # A check whose sections had both been skipped would exit 0 twice and say nothing. These
 # two greps are what make the pair of exit codes mean something.
-grep -q 'a camera whose .anchored. moved is caught' "$RUN/new.txt" \
+grep -q '^OK   a camera whose .anchored. moved is caught' "$RUN/new.txt" \
   && say 'OK   this tree'"'"'s run reached the finding: an anchored that moved breaks the seal' \
   || say "FAIL this tree's run never reached the finding" bad
-grep -q 'FALSIFIED the pre-#1450 seal cannot tell a readable board' "$RUN/old.txt" \
+grep -q '^OK   FALSIFIED the pre-#1450 seal cannot tell a readable board' "$RUN/old.txt" \
   && say "OK   and the falsified run reached the defect: the old seal cannot tell them apart" \
   || say "FAIL the falsified run never reached the defect" bad
 
