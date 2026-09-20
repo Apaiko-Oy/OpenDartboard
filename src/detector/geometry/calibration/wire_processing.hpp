@@ -346,6 +346,15 @@ namespace wire_processing
      * own copy of the detector. It is the concatenation `findWiresByEnsemble` has always
      * built and is not a second opinion about anything.
      */
+    /**
+     * What the FITTED conic's radius must be multiplied by to be the doubles ring.
+     *
+     * #1467's precondition, asked of #1423 and asserted rather than relied on, and
+     * public because the census that measures the fit must read the stage's own verdict
+     * rather than restate it. It logs when the two measurements disagree.
+     */
+    double conicOfDoublesFor(const DartboardCalibration &calib);
+
     std::vector<Point2f> wireCandidates(const Mat &frame, const Mat &colorMask,
                                         const DartboardCalibration &calib,
                                         const WireDetectionConfig &config = WireDetectionConfig());

@@ -41,9 +41,9 @@ namespace wire_model
                         a * s, b * c, conic.center.y,
                         0.0, 0.0, 1.0);
 
-        double det = 0.0;
-        const Matx33d Ainv = A.inv(DECOMP_LU, &det);
-        if (det == 0.0 || !std::isfinite(det))
+        bool invertible = false;
+        const Matx33d Ainv = A.inv(DECOMP_LU, &invertible);
+        if (!invertible)
         {
             return plane;
         }
@@ -79,8 +79,8 @@ namespace wire_model
         const Matx33d M = rot * boost * rotT;
 
         plane.H = A * M;
-        plane.Hinv = plane.H.inv(DECOMP_LU, &det);
-        if (det == 0.0 || !std::isfinite(det))
+        plane.Hinv = plane.H.inv(DECOMP_LU, &invertible);
+        if (!invertible)
         {
             plane.built = false;
             return plane;

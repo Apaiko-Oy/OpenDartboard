@@ -634,6 +634,51 @@ namespace wire_processing
         return avgPosition;
     }
 
+    double conicOfDoublesFor(const DartboardCalibration &calib)
+    {
+        ring_identity::Sighting sighting;
+        sighting.ring = static_cast<ring_identity::Ring>(calib.look.ring_measured);
+        sighting.reach = calib.look.ring_reach_of_span;
+
+        const double semiMajor = 0.5 * max(calib.ellipses.outerDoubleEllipse.size.width,
+                                           calib.ellipses.outerDoubleEllipse.size.height);
+        const double boardFromSpan = calib.look.board_span_px * sighting.boardRadiusOfSpan();
+        const double band = ring_identity::Spec().band(); // 1.2605, and nothing chosen
+        const double trebleOfDoubles = 1.0 / ring_identity::Spec().boardRadiusOfTrebleSpan();
+
+        double conicOfDoubles = 1.0;
+        if (boardFromSpan > 0.0 && semiMajor > 0.0)
+        {
+            const double ratio = semiMajor / boardFromSpan;
+            if (ratio > 1.0 / band && ratio < band)
+            {
+                conicOfDoubles = 1.0; // the ray tracer and #1423 agree: this is the doubles ring
+            }
+            else if (ratio > trebleOfDoubles / band && ratio < trebleOfDoubles * band)
+            {
+                conicOfDoubles = ring_identity::Spec().boardRadiusOfTrebleSpan();
+                log_warning("Camera " + log_string(calib.camera_index + 1) +
+                            " wire model: the fitted conic is " + log_string((int)semiMajor) +
+                            " px where " + log_string((int)boardFromSpan) +
+                            " px is this board's radius by its ring identity, so the ring that was "
+                            "traced is the TREBLE ring; the plane is built at " +
+                            log_string(ring_identity::Spec().boardRadiusOfTrebleSpan()) +
+                            " of it rather than at its own radius.");
+            }
+            else
+            {
+                log_warning("Camera " + log_string(calib.camera_index + 1) +
+                            " wire model: the fitted conic is " + log_string((int)semiMajor) +
+                            " px and this board's radius by its ring identity is " +
+                            log_string((int)boardFromSpan) +
+                            " px, which is neither the doubles ring nor the treble ring of the "
+                            "other; the plane is built on the conic as traced and its tilt is "
+                            "worth no more than that.");
+            }
+        }
+        return conicOfDoubles;
+    }
+
     // What the two suppliers proposed, before anything is grouped, fitted or kept.
     // #1467 made this its own function: the fit and the census both read it, and the
     // census must read the SAME candidates the stage read.
@@ -799,46 +844,7 @@ namespace wire_processing
             // #1423, and the conic's semi-major axis is the board's radius according to
             // the ray tracer. Agreement within #1423's own band is the precondition;
             // disagreement is said out loud, in both numbers, and is not quietly fixed.
-            ring_identity::Sighting sighting;
-            sighting.ring = static_cast<ring_identity::Ring>(calib.look.ring_measured);
-            sighting.reach = calib.look.ring_reach_of_span;
-
-            const double semiMajor = 0.5 * max(calib.ellipses.outerDoubleEllipse.size.width,
-                                               calib.ellipses.outerDoubleEllipse.size.height);
-            const double boardFromSpan = calib.look.board_span_px * sighting.boardRadiusOfSpan();
-            const double band = ring_identity::Spec().band(); // 1.2605, and nothing chosen
-            const double trebleOfDoubles = 1.0 / ring_identity::Spec().boardRadiusOfTrebleSpan();
-
-            double conicOfDoubles = 1.0;
-            if (boardFromSpan > 0.0 && semiMajor > 0.0)
-            {
-                const double ratio = semiMajor / boardFromSpan;
-                if (ratio > 1.0 / band && ratio < band)
-                {
-                    conicOfDoubles = 1.0; // the ray tracer and #1423 agree: this is the doubles ring
-                }
-                else if (ratio > trebleOfDoubles / band && ratio < trebleOfDoubles * band)
-                {
-                    conicOfDoubles = ring_identity::Spec().boardRadiusOfTrebleSpan();
-                    log_warning("Camera " + log_string(calib.camera_index + 1) +
-                                " wire model: the fitted conic is " + log_string((int)semiMajor) +
-                                " px where " + log_string((int)boardFromSpan) +
-                                " px is this board's radius by its ring identity, so the ring that was "
-                                "traced is the TREBLE ring; the plane is built at " +
-                                log_string(ring_identity::Spec().boardRadiusOfTrebleSpan()) +
-                                " of it rather than at its own radius.");
-                }
-                else
-                {
-                    log_warning("Camera " + log_string(calib.camera_index + 1) +
-                                " wire model: the fitted conic is " + log_string((int)semiMajor) +
-                                " px and this board's radius by its ring identity is " +
-                                log_string((int)boardFromSpan) +
-                                " px, which is neither the doubles ring nor the treble ring of the "
-                                "other; the plane is built on the conic as traced and its tilt is "
-                                "worth no more than that.");
-                }
-            }
+            const double conicOfDoubles = conicOfDoublesFor(calib);
 
             const wire_model::Plane plane =
                 wire_model::planeOf(calib.ellipses.outerDoubleEllipse, Point2f(calib.bullCenter), conicOfDoubles);
