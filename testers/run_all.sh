@@ -191,6 +191,16 @@ tester 1451-scoring       "bash '$T/i1451_run.sh'"
 # runs build/opendartboard over the rig footage twice at OD_MAX_CYCLES=6000, which is what
 # reaches all seven visits -- 1200 reached four and the truncation was invisible.
 tester 1485-rings         "bash '$T/i1485_run.sh'"
+# #1490: how far apart two cameras place ONE dart, in millimetres, through #1467's
+# planeOf() and through the BoardPosition the scorer already computes, side by side. A
+# PROBE: it changes nothing, it asserts no threshold on the spread -- ADR-0084 s4 defers
+# that deliberately, and a number chosen from one fixture is #1322 -- and what it does
+# assert is its own instrument: three cameras calibrated, a plane on at least two of them,
+# and at least one dart placed by two cameras, because a census that compared nothing has
+# measured nothing. It needs no detector binary and OD_SKIP_BUILD changes nothing about
+# it: it compiles the calibration and detection stages and replays the whole of
+# mocks/rig-20260918 through them, to the end of the footage and with no cycle cap.
+tester 1490-spread        "bash '$T/i1490_run.sh'"
 # #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
 # shipped the server half -- Turnaus stores the census and the marking page draws it -- and
 # no board ever posted it, so the feature was live and inert and every board read as
