@@ -197,7 +197,10 @@ namespace score_processing
      */
     inline bool canScoreAPoint(const DartboardCalibration &calib)
     {
-        return calib.ellipses.hasValidDoubles && calib.wires.wholeRing();
+        // #1467: and the fit, where there was one. `readable()` is `wholeRing()` on a
+        // calibration made before that issue or on the counting path, so this door is no
+        // wider than it was and is narrower where a plane was fitted and not trusted.
+        return calib.ellipses.hasValidDoubles && calib.wires.readable();
     }
 
     /**

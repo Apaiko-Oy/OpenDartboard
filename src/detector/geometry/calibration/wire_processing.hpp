@@ -190,6 +190,42 @@ namespace wire_processing
          * and a guard asking it can only ever be one-sided however it is spelled.
          */
         bool wholeRing() const { return isAWholeRing(wiresDetected); }
+
+        /**
+         * #1467: WHAT THE TWENTY-FOLD FIT SAID, which is the fit-quality metric #1458
+         * observed this pipeline does not have.
+         *
+         * `fit_coherence` is R = |sum e^{i 20 theta}| / n over every candidate's BOARD
+         * angle -- one dot product, microseconds. It is not a detector-quality number and
+         * must not be read as one: #1467 measured it correlating -0.863 with bull-centre
+         * displacement over 84 frames while NOT ranking clips by how often the detector
+         * counted twenty. What it reports is the thing the model actually rides on.
+         *
+         * All four are plain scalars because DartboardCalibration is fwritten to the
+         * calibration cache byte for byte, and the matrices this fit was made of are not
+         * here for exactly that reason -- `wire_model::Plane` is rebuilt from the conic
+         * and the bull, both of which are already on the calibration.
+         *
+         * A calibration made by a binary older than this issue reads zeroes in all four
+         * and `fit_asked` false, which is the same thing the counting path writes, so
+         * `--reuse-calibration` is not a door around the refusal below.
+         */
+        double fit_coherence = 0.0;      // R
+        double fit_inlier_fraction = 0.0; // share of candidates within the residual cut
+        int fit_candidates = 0;          // what the two suppliers proposed, before the fit
+        int fit_snapped = 0;             // of the twenty, how many a candidate placed
+        bool fit_asked = false;          // the model ran (false under OD_WIRE_MODEL=count)
+        bool fit_trusted = false;        // ... and its coherence cleared the minimum
+
+        /**
+         * Whether this reading may be scored with. #1442's whole-ring question AND
+         * #1467's fit question, because a ring of twenty generated from a plane nobody
+         * trusts is exactly the plausible-looking wrong answer ADR-0055 refuses.
+         *
+         * On the counting path (`OD_WIRE_MODEL=count`) there is no fit to ask, so this
+         * is #1442's question alone and the falsifier measures what it always measured.
+         */
+        bool readable() const { return wholeRing() && (!fit_asked || fit_trusted); }
     };
 
     // DartboardCalibration is written to the calibration cache with a raw fwrite of
@@ -300,6 +336,19 @@ namespace wire_processing
      */
     RotatedRect regionOf(const DartboardCalibration &calib,
                          const WireRegionParams &params = WireRegionParams());
+
+    /**
+     * Every wire candidate the two suppliers proposed, before anything is grouped,
+     * fitted or kept.
+     *
+     * Public since #1467 because the census that measures the fit has to read the same
+     * candidates the stage read -- a census that re-derived them would be measuring its
+     * own copy of the detector. It is the concatenation `findWiresByEnsemble` has always
+     * built and is not a second opinion about anything.
+     */
+    std::vector<Point2f> wireCandidates(const Mat &frame, const Mat &colorMask,
+                                        const DartboardCalibration &calib,
+                                        const WireDetectionConfig &config = WireDetectionConfig());
 
     WireData processWires(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib, bool enableDebug = false, const WireDetectionConfig &config = WireDetectionConfig());
 }

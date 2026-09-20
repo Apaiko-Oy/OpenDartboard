@@ -18,6 +18,7 @@
 #include "dartboard_visualization.hpp"
 #include "perspective_processing.hpp"
 #include "ring_identity.hpp"
+#include "wire_model.hpp"
 
 using namespace cv;
 using namespace std;
@@ -512,8 +513,26 @@ namespace geometry_calibration
             const bool moreThanABoardHas = wireData.wiresDetected > wire_processing::kWiresRequired;
             const string count = to_string(wireData.wiresDetected);
             const string needed = to_string(wire_processing::kWiresRequired);
+
+            // #1467: THE THIRD REASON, AND IT IS THE LOUD HALF OF THIS ISSUE'S OWN RISK.
+            // The twenty-fold model rides entirely on the bull centre -- the conic fixes
+            // the rest of the map -- so a bull that is wrong tilts the whole board, and
+            // the ring it then generates is twenty boundaries in the wrong places rather
+            // than a count anybody could notice. What makes that survivable is that the
+            // fit's own coherence FALLS with bull error (r = -0.863 over 84 frames), so
+            // the failure is announced in the number it is a failure of. This is the
+            // announcement: the camera is refused, by name, with R against its minimum,
+            // and it is the opposite of what a wrong ring did before this issue.
+            const bool fitRefused = wireData.fit_asked && !wireData.fit_trusted;
             const string why =
-                moreThanABoardHas
+                fitRefused
+                    ? "the wire stage could not place a board plane it trusts -- its twenty-fold "
+                      "coherence is " + to_string(wireData.fit_coherence) + " against a minimum of " +
+                          to_string(wire_model::minimumCoherence()) + " over " +
+                          to_string(wireData.fit_candidates) +
+                          " candidates, which on this rig has meant a bull centre several pixels "
+                          "from where the board's really is; this camera cannot be scored with."
+                : moreThanABoardHas
                     ? "the wire stage found " + count + " wire boundaries where a board has " + needed +
                           ", so it is reading something that is not the board and no " + needed +
                           " of those " + count + " are the board's; this camera cannot be scored with."
@@ -521,10 +540,13 @@ namespace geometry_calibration
                           " are needed to tell one wedge from the next, so this camera cannot be scored with.";
             log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: " + log_string_src(why));
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
-                                     " did not calibrate: the wire stage found " + count +
-                                     (moreThanABoardHas
-                                          ? " wire boundaries where a board has " + needed
-                                          : " of the " + needed + " wire boundaries a board has"));
+                                     (fitRefused
+                                          ? " did not calibrate: the wire stage could not place a board "
+                                            "plane it trusts (coherence " + to_string(wireData.fit_coherence) + ")"
+                                          : " did not calibrate: the wire stage found " + count +
+                                                (moreThanABoardHas
+                                                     ? " wire boundaries where a board has " + needed
+                                                     : " of the " + needed + " wire boundaries a board has")));
             calibration.sees_board = false;
             return calibration;
         }
