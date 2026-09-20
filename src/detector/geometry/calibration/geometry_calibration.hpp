@@ -100,5 +100,10 @@ namespace geometry_calibration
     DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode);
 
     // Calibrate multiple cameras at once
+    // #1445: the CAMERAS census, said by whoever last changed the answer. It used to be
+    // printed inside calibrateMultipleCameras; since a refused camera may still be
+    // calibrated by a further look, the first pass is no longer the thing that knows.
+    void sayWhichCamerasSeeTheBoard(const vector<DartboardCalibration> &calibrations);
+
     vector<DartboardCalibration> calibrateMultipleCameras(const vector<Mat> &frames, bool debugMode = false, int targetWidth = 640, int targetHeight = 480);
 }

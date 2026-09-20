@@ -565,6 +565,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // file it is not writing; a camera missing from a cache is the case #1372
             // handed to #899's review, and it still is.
             lookAgainAtRefusedCameras();
+
+            // And only now the census, because only now is the answer final (#1318,
+            // #1338, #1389). See the note where this used to be printed.
+            geometry_calibration::sayWhichCamerasSeeTheBoard(calibrations);
         }
 
         // #1318, standing on 74be46f rather than reverting it. That commit replaced

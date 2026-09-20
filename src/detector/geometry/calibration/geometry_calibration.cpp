@@ -501,55 +501,12 @@ namespace geometry_calibration
         return calibration;
     }
 
-    // Multi-camera calibration orchestration
-    vector<DartboardCalibration> calibrateMultipleCameras(const vector<Mat> &frames, bool debugMode, int targetWidth, int targetHeight)
+    // #1445: which cameras are looking at the dartboard, said once, by whoever last
+    // changed the answer. Lifted out of `calibrateMultipleCameras` unedited -- every word
+    // below is #1318's, #1338's and #1389's -- because that function is now the FIRST of
+    // two passes and a census printed after the first one is a number that moves.
+    void sayWhichCamerasSeeTheBoard(const vector<DartboardCalibration> &calibrations)
     {
-        vector<DartboardCalibration> calibrations;
-
-        log_debug("DARTBOARD CALIBRATION STARTED");
-
-        if (frames.empty())
-        {
-            log_error("No frames provided for calibration");
-            return calibrations;
-        }
-
-        // Check if all frames have the same size and calibrate
-        for (size_t cam_idx = 0; cam_idx < frames.size(); cam_idx++)
-        {
-            if (frames[cam_idx].empty())
-            {
-                // #1338: a camera that produced no frame is not a camera that was
-                // looked at and refused. It is said here in the words of the remedy --
-                // nothing was seen, so nothing about aim or lighting can be concluded --
-                // and its slot carries `Refused::NoFrame` into the census below.
-                log_warning("Camera " + log_string(cam_idx + 1) +
-                            " produced no frame to calibrate on, so it was never looked at; "
-                            "that is a cable, a hub or the bandwidth it shares, not its aim");
-                // #1318: the slot is kept. score_processing reads calibrations[i] by the
-                // camera's position in this vector, so a `continue` that shortened it
-                // handed every camera after this one the calibration of its neighbour --
-                // a board scored through the wrong perspective, with nothing said.
-                DartboardCalibration blank;
-                blank.camera_index = (int)cam_idx;
-                calibrations.push_back(blank);
-                continue;
-            }
-
-            //  Just call the static function
-            DartboardCalibration calibration = calibrateSingleCamera(frames[cam_idx], cam_idx, debugMode);
-            calibrations.push_back(calibration);
-
-            if (debugMode)
-            {
-                // Create a debug visualization showing the calibration
-                cv::Mat visFrame = dartboard_visualization::drawCalibrationOverlay(frames[cam_idx], calibration, true);
-                odfs::ensureDirectory("debug_frames/geometry_calibration");
-                imwrite("debug_frames/geometry_calibration/calibration_camera_" + to_string(cam_idx) + ".jpg", visFrame);
-            }
-        }
-
-        // #1318: which cameras are looking at the dartboard, said once, as a sentence.
         // A board with two good cameras and a webcam in the middle of the list used to
         // report `BOARD FAULTED: this board is running and cannot see`, which was true of
         // nothing anybody could act on. Now the count is here and the reason is on the
@@ -599,6 +556,67 @@ namespace geometry_calibration
             else
                 log_info(line);
         }
+    }
+
+    // Multi-camera calibration orchestration
+    vector<DartboardCalibration> calibrateMultipleCameras(const vector<Mat> &frames, bool debugMode, int targetWidth, int targetHeight)
+    {
+        vector<DartboardCalibration> calibrations;
+
+        log_debug("DARTBOARD CALIBRATION STARTED");
+
+        if (frames.empty())
+        {
+            log_error("No frames provided for calibration");
+            return calibrations;
+        }
+
+        // Check if all frames have the same size and calibrate
+        for (size_t cam_idx = 0; cam_idx < frames.size(); cam_idx++)
+        {
+            if (frames[cam_idx].empty())
+            {
+                // #1338: a camera that produced no frame is not a camera that was
+                // looked at and refused. It is said here in the words of the remedy --
+                // nothing was seen, so nothing about aim or lighting can be concluded --
+                // and its slot carries `Refused::NoFrame` into the census below.
+                log_warning("Camera " + log_string(cam_idx + 1) +
+                            " produced no frame to calibrate on, so it was never looked at; "
+                            "that is a cable, a hub or the bandwidth it shares, not its aim");
+                // #1318: the slot is kept. score_processing reads calibrations[i] by the
+                // camera's position in this vector, so a `continue` that shortened it
+                // handed every camera after this one the calibration of its neighbour --
+                // a board scored through the wrong perspective, with nothing said.
+                DartboardCalibration blank;
+                blank.camera_index = (int)cam_idx;
+                calibrations.push_back(blank);
+                continue;
+            }
+
+            //  Just call the static function
+            DartboardCalibration calibration = calibrateSingleCamera(frames[cam_idx], cam_idx, debugMode);
+            calibrations.push_back(calibration);
+
+            if (debugMode)
+            {
+                // Create a debug visualization showing the calibration
+                cv::Mat visFrame = dartboard_visualization::drawCalibrationOverlay(frames[cam_idx], calibration, true);
+                odfs::ensureDirectory("debug_frames/geometry_calibration");
+                imwrite("debug_frames/geometry_calibration/calibration_camera_" + to_string(cam_idx) + ".jpg", visFrame);
+            }
+        }
+
+        // #1445: the census used to be said HERE, and it is said by `initialize` now.
+        // It was printed by this function, which is the first pass; a camera refused on
+        // this start's averaged frame may still be calibrated by a further look, and a
+        // line reading `CAMERAS: 2 of 3 ... refused: 3` three lines above `Initial
+        // calibration completed successfully on 3 of 3 cameras` is a census that stopped
+        // being true while the reader was reading it. ADR-0081's rule is that the gate
+        // that decides is the gate that says so, and after #1445 the thing that decides
+        // how many cameras this board has is not this loop.
+        //
+        // `sayWhichCamerasSeeTheBoard` above is that same block, unmoved and unedited, so
+        // the sentence three testers grep for is byte-for-byte what it was.
 
         // once all cameras are calibrated, we need to find the star camera
         // and then use it to determine the perspective correction for the other 2 cameras
