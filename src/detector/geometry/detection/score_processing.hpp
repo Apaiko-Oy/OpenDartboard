@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -41,12 +42,30 @@ namespace score_processing
         string score = "MISS";       // S20, D5, T17, BULL, OUTER, MISS - unchanged vocabulary
         string ring;                 // single, double, triple, bull, outer; empty for a miss
         int segment = -1;            // 1..20; -1 where the ring has no segment or the dart missed
-        bool wedge_measured = false; // orientation known for this camera
+        // #1489: the WEDGE of this reading was measured -- this camera is anchored AND
+        // the wedge is part of what was read. It is not `anchored` on its own: a bull
+        // read by an anchored camera measured a ring and no wedge at all.
+        bool wedge_measured = false;
         // #1346: true exactly where the 20 was ASSERTED rather than measured -- the
         // upstream "no orientation data, defaulting to 20", set at the site of the
         // assertion. A bull is never asserted: its score comes from the ring ellipses and
-        // the wedge never enters it, so a bull from an unoriented camera is a measurement.
+        // the wedge never enters it.
         bool wedge_asserted = false;
+        // #1489: the wedge is NO PART of this reading -- a BULL or an OUTER, scored by
+        // the ring ellipses alone with the angular ruler never asked. Such a reading is
+        // neither measured nor asserted, and the three are exclusive: at most one is true
+        // of any one reading.
+        //
+        // #1346 said the first half of this and left the second implicit -- a bull "is a
+        // measurement", meaning it is not the asserted 20 and the vote must not discard
+        // it. The vote read that as `!wedge_asserted` and so counted a ring-only reading
+        // among the cameras that MEASURED A WEDGE, which is what 0.7 and 0.9 say. On
+        // mocks/rig-20260918 under OD_RINGS=asfitted that is eight darts of nineteen
+        // published at 0.7 or 0.9 by cameras that read no wedge at all, so a geometry
+        // change pushing MORE darts into the 25 ring reads as the anchor improving. The
+        // agreement is real and still wins a consensus; it is just not agreement about a
+        // wedge, and `ScoreChoice::ring_only` is where the published reading says so.
+        bool ring_only = false;
         BoardPosition board;
     };
 
@@ -71,11 +90,27 @@ namespace score_processing
      * #1346: what the vote chose, and what the choice is worth.
      *
      * `camera` indexes the reading the board publishes, -1 when no camera may vote.
-     * `agreeing` is how many MEASURED cameras agreed on it; `by_default` is true when the
-     * published wedge was asserted rather than measured, which is also the only way
-     * `confidence` can be 0.5 on a dart. The three confidences now mean something
-     * (#797's complaint): 0.9 is two or more measured cameras agreeing, 0.7 is one
-     * camera's measurement standing alone, 0.5 is a wedge nobody measured.
+     * `agreeing` is how many cameras that READ something agreed on it; `by_default` is
+     * true when the published wedge was asserted rather than measured, which is also the
+     * only way `confidence` can be 0.5 on a dart. The three confidences now mean
+     * something (#797's complaint): 0.9 is two or more readings agreeing, 0.7 is one
+     * reading standing alone, 0.5 is a wedge nobody measured.
+     *
+     * #1489: and `ring_only` is the SECOND axis those three needed, because they count
+     * cameras and say nothing about what the cameras read. A BULL or an OUTER is scored
+     * by the ring ellipses with no wedge in it at all, so two cameras agreeing on one is
+     * a real consensus -- 0.9, unchanged -- about something that is not a wedge. Read
+     * as a number alone, 0.9 and 0.7 then move with the geometry rather than with the
+     * anchor: eight of the rig's nineteen darts published at 0.7 or 0.9 with not one
+     * wedge measured anywhere in the run.
+     *
+     * So this is not a fourth confidence. A fourth number would have to mean "agreed,
+     * but about a ring", which is the same count of cameras as 0.9 with a different
+     * subject -- it would leave `agreeing` ambiguous, change what a published float
+     * means to every client of the WebSocket API, and still not tell a reader which of
+     * the two a 0.9 was. The count and the subject are two questions, so they are two
+     * fields: the census reports 0.9 and 0.7 each split by `ring_only`, and the sum of
+     * the split is the number that was there before.
      */
     struct ScoreChoice
     {
@@ -83,7 +118,37 @@ namespace score_processing
         float confidence = 0.5f;
         int agreeing = 0;
         bool by_default = false;
+        bool ring_only = false;
     };
+
+    /**
+     * #1489: a ring-only reading counts as a camera that measured a wedge, the way every
+     * build before this issue did -- the falsifier, on the same binary. A distinction
+     * that can only ever be drawn cannot be shown to be doing anything.
+     */
+    inline bool ringOnlyReadingsCountAsMeasured()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_RING_ONLY");
+            return e != nullptr && std::string(e) == "counted";
+        }();
+        return v;
+    }
+
+    /**
+     * #1489: how a published reading came by its wedge, in the words the BOARD line has
+     * always used. The first two spellings are byte-for-byte what they were; the third
+     * is the state that had no name and was printed as the second.
+     */
+    inline string howTheWedgeWasRead(const PointScore &point)
+    {
+        if (point.ring_only)
+        {
+            return "wedge not in this reading";
+        }
+        return point.wedge_measured ? "wedge measured" : "wedge by default";
+    }
 
     /**
      * #1346: the vote, pure, and the decision #796 measured finally in the code that
@@ -94,9 +159,17 @@ namespace score_processing
      * measurements. Asserted readings are kept aside and published ONLY when no camera
      * measured a wedge at all, at 0.5 -- the fallback fills a void, it never outvotes.
      *
-     * Among measured readings the rule is upstream's, unchanged: two or more agreeing on
-     * one score string win at 0.9; otherwise the lowest-index measured camera stands
-     * alone at 0.7, which is #797's open question and deliberately not this decision.
+     * Among readings the rule is upstream's, unchanged: two or more agreeing on one score
+     * string win at 0.9; otherwise the lowest-index reading stands alone at 0.7, which is
+     * #797's open question and deliberately not this decision.
+     *
+     * #1489: a READING is what this bucket always really held, and calling it `measured`
+     * is what went wrong. A bull and an outer bull are scored by the ring ellipses with
+     * the wedge never asked, so they are neither asserted nor a wedge measurement -- and
+     * they belong in this bucket, because the fallback fills a void and a ring reading is
+     * not a void. They vote exactly as they did. What changes is that the choice now says
+     * which kind of reading won, instead of leaving a reader to infer a measured wedge
+     * from a number that only ever counted cameras.
      *
      * `may_vote[i]` is what processScore has always required of a voter: the camera
      * participated in the window, is calibrated, found a tip, and did not read MISS.
@@ -105,7 +178,7 @@ namespace score_processing
     inline ScoreChoice chooseScore(const vector<PointScore> &points, const vector<bool> &may_vote)
     {
         ScoreChoice out;
-        vector<int> measured;
+        vector<int> readings;
         vector<int> defaulted;
         for (size_t i = 0; i < points.size(); i++)
         {
@@ -113,15 +186,15 @@ namespace score_processing
             {
                 continue;
             }
-            (points[i].wedge_asserted ? defaulted : measured).push_back((int)i);
+            (points[i].wedge_asserted ? defaulted : readings).push_back((int)i);
         }
 
-        if (!measured.empty())
+        if (!readings.empty())
         {
-            // Upstream's consensus, restricted to cameras that measured: count each
+            // Upstream's consensus, restricted to cameras that read something: count each
             // score string's cameras, and the first largest group of two or more wins.
             map<string, vector<int>> score_cameras;
-            for (int index : measured)
+            for (int index : readings)
             {
                 score_cameras[points[index].score].push_back(index);
             }
@@ -143,10 +216,16 @@ namespace score_processing
             }
             else
             {
-                out.camera = measured[0];
+                out.camera = readings[0];
                 out.agreeing = 1;
                 out.confidence = 0.7f;
             }
+            // #1489: what the winning cameras agreed ABOUT, read off the reading that is
+            // published rather than off the score string, so nothing downstream parses a
+            // score back into a decision (#1186's rule). A group is homogeneous by
+            // construction -- `ring_only` is a fact about the ring the string names -- and
+            // the tester asks that rather than assuming it.
+            out.ring_only = points[out.camera].ring_only;
             return out;
         }
 
