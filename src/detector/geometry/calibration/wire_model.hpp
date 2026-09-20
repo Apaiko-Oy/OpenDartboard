@@ -86,7 +86,22 @@ namespace wire_model
      * which prints the residual distribution of every candidate on every fixture frame
      * and the gap between the two populations. #1467's own investigation put real wires
      * at a 0.98 degree mean with a 5.29 degree 99th percentile and intruders at 6.57
-     * degrees with a 3.9 degree floor, so three degrees sits in clear air between them.
+     * degrees with a 3.9 degree floor.
+     *
+     * MEASURED ON THIS TREE, and the difference from that claim is worth stating rather
+     * than smoothing over. 825 candidates pooled over both fixtures, three looks apiece:
+     * rms 1.63 degrees, mean 1.08, median 0.80, p90 2.01, p99 7.00, max 8.91, with
+     * 94.7% inside three degrees. The two populations are there -- 781 candidates under
+     * 3 degrees against 30 beyond 4 -- but there is NO EMPTY BAND between them on this
+     * footage: thirteen candidates sit between 3 and 4 degrees. So three degrees is a
+     * cut through a thin place rather than through clear air, and #1467's "zero overlap
+     * below 3.9 degrees" did not reproduce here.
+     *
+     * What does not change is what the cut is FOR. The twenty boundaries are GENERATED,
+     * and a candidate only moves one it is within `kSnapDeg` of, so a candidate sitting
+     * near the cut neither places a boundary nor displaces one. The cut decides the
+     * reported inlier fraction and the weight a candidate carries in the offset, and
+     * both of those are continuous in it.
      */
     inline constexpr double kResidualCutDeg = 3.0;
 
@@ -198,8 +213,29 @@ namespace wire_model
      * displaces the bull by a stated number of pixels in eight directions and reads R
      * and the worst boundary error back.
      *
-     * `OD_WIRE_FIT_MIN=<x>` moves it on one binary, which is how the sweep behind the
-     * number was taken.
+     * THE NUMBER, AND THE SWEEP IT CAME FROM. Measured on this tree, both fixtures,
+     * three looks apiece, the bull displaced 0 to 20 px in eight directions -- 128
+     * (look, displacement) pairs, of which 35 place a boundary more than four degrees
+     * from where the true bull placed it and 93 do not:
+     *
+     *     cut    wrong rings refused    good rings refused
+     *     0.50   30/35  (86%)            3/93  (3%)
+     *     0.55   33/35  (94%)            4/93  (4%)
+     *     0.60   34/35  (97%)            5/93  (5%)   <-- this
+     *     0.65   34/35  (97%)           11/93  (12%)
+     *     0.70   35/35  (100%)          16/93  (17%)
+     *     0.80   35/35  (100%)          34/93  (37%)
+     *
+     * 0.60 is the ELBOW rather than the row: refusing wrong rings saturates there and
+     * everything above it is bought with good cameras. The honest half, said out loud:
+     * ONE wrong ring survives this cut -- mocks/cam_2 at 8 px of bull error, R = 0.689,
+     * worst boundary 4.80 degrees out. The refusal is complete from twelve pixels, which
+     * is where #1467 measured the model breaking outright and is four times the stated
+     * tolerance. Five of the ninety-three good rings are refused, and four of those five
+     * are one look whose doubles ellipse had collapsed to 176 px of a 295 px board --
+     * a camera this stage should refuse on its own terms.
+     *
+     * `OD_WIRE_FIT_MIN=<x>` moves it on one binary, which is how that sweep was taken.
      */
     double minimumCoherence();
 
