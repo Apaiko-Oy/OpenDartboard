@@ -1,13 +1,63 @@
-name: Release
+name: Build and release
 
+# #1452: read this next to the `on:` block below. Until #1452 the only thing that ever
+# compiled this tree for Windows was a tag or a hand-dispatched run, so the whole of
+# `build-windows` was a step taken AFTER the decision to ship, and `contents: write` was a
+# top-level grant for the same reason -- every run was a publishing run. Now that an
+# ordinary pull request runs this file, the default here is read and each job states the
+# grant it spends.
+#
+# BE CLEAR ABOUT WHAT THAT DOES AND DOES NOT BUY, because the obvious reading of it is
+# wrong and it was measured rather than reasoned. A job is the finest grain GitHub has --
+# there is no step-level `permissions:` and no expression allowed in this block -- and both
+# jobs here publish on a tag, so both keep `contents: write` and A PULL-REQUEST RUN STILL
+# GETS A WRITE TOKEN. Measured on run 35513335239, the first pull_request run there has
+# ever been: `Set up job` printed `Contents: write` for both jobs. What makes a pull request
+# write nothing is the `if: github.ref_type == 'tag'` on the two publish steps, exactly as
+# it was before #1452; what this block buys is that the NEXT job added to this file starts
+# at read and has to ask.
 permissions:
-  contents: write # grants GITHUB_TOKEN the ability to create GitHub Releases
+  contents: read
 
 on:
   push:
     tags:
       - "v*" # e.g. vX.X.X
   workflow_dispatch: # allows manual rebuilds
+
+  # #1452: AND EVERY PULL REQUEST. The decision, and the measurement that settled it:
+  #
+  # On 2026-09-20 five separate defects in this path were found in one day, and not one of
+  # them was findable by reading. `M_PI` (86b6c71) is a POSIX extension rather than standard
+  # C++: it compiled on Linux, on the Pi, into the arm64 .deb and through a 56-of-58
+  # `run_all.sh` sweep, and broke only on MSVC -- found by dispatching a build BY HAND after
+  # it had already merged to main. The other four were in this file and in the scripts it
+  # calls: a PEM where 128 hex characters were meant, a CMake `MATCHES "{128}"` that has no
+  # bounded repetition and so refused every correct anchor for ever, a `shell: bash` step
+  # whose inherited `-e` killed a control at the moment it succeeded, and an organisation
+  # secret's visibility to a public repository. Every one of them would otherwise have
+  # surfaced with a tag in flight, which is the worst moment to learn the build is broken.
+  #
+  # The cost is the reason this was ever a question, and it has an answer. Measured over the
+  # four real runs of 2026-09-20 -- 35481843459, 35482175978, 35511027382, 35511233207 --
+  # `build-windows` took 1.0, 2.1, 2.0 and 1.7 minutes and `build-deb` 1.7, 1.7, 1.8 and 1.8,
+  # in parallel. The 8.5-minute static OpenCV build is a CACHE MISS cost and did not occur
+  # once in those four runs. `Apaiko-Oy/OpenDartboard` is a public repository, so
+  # GitHub-hosted runners are free for it. Two free minutes, against the class of defect
+  # above.
+  #
+  # Both jobs run, not only the Windows one. `build-deb` is 1.8 of those free minutes and it
+  # is the only place anything here is compiled by gcc on arm64 inside debian:12; a
+  # contributor's local build is x86 Ubuntu. If that is ever not worth it, one `if:` on
+  # `build-deb` turns it off -- and `testers/i1452_pr_build_check.sh` is written so that
+  # doing so to `build-windows` cannot pass quietly.
+  #
+  # A pull-request run PUBLISHES NOTHING. That is not a new property and it is not an `if:`
+  # added here: the two `Publish GitHub Release` steps have been gated on
+  # `github.ref_type == 'tag'` since #1299, a pull_request run's ref is `refs/pull/N/merge`
+  # and its ref_type is `branch`, and the same condition already decides that a dispatch
+  # publishes nothing. The version steps read the same fact and answer `0.0.0-dev`.
+  pull_request:
 
 # #1299: two jobs, and they are deliberately independent of each other. Neither names
 # the other in `needs`, they share no `strategy`, and each attaches its own file to the
@@ -18,6 +68,12 @@ on:
 jobs:
   build-deb:
     runs-on: ubuntu-24.04-arm
+
+    # #1452: the grant that used to be top-level, stated by the job that spends it. Only
+    # the publish step below needs it, and only a tag reaches that step -- but the grant
+    # itself cannot be conditional, so see the note at the top of this file.
+    permissions:
+      contents: write
 
     container:
       image: debian:12
@@ -74,6 +130,12 @@ jobs:
     # would install OpenCV under a different toolset directory and quietly stop
     # matching the path the hand-built maintainer build uses.
     runs-on: windows-2022
+
+    # #1452: see build-deb, and the note at the top of this file about what a job-level
+    # grant does and does not narrow. Write is for the publish step, which only a tag
+    # reaches.
+    permissions:
+      contents: write
 
     env:
       # Nothing in this tree named the OpenCV version, because the hand-built path
@@ -134,6 +196,18 @@ jobs:
       # an edit to the flags in build-opencv-windows-static.bat must not be served a
       # tree built before the edit. There is deliberately no `restore-keys`: a prefix
       # match would happily hand this job an OpenCV built from another version.
+      #
+      # #1452: THE KEY NAMES NO EVENT AND NO REF, and that is what makes a pull-request
+      # build cost two minutes rather than ten. A cache entry belongs to the ref that wrote
+      # it, and a run may restore one written by its own ref, by its base ref, or by the
+      # default branch -- so a pull request against `main` reads the entry a dispatch on
+      # `main` wrote, and a tag reads it too. Measured on 2026-09-20 before this change: the
+      # repository held exactly ONE cache entry, 47.1 MB, scoped to `refs/heads/main`, key
+      # `opencv-static-windows-2022-4.14.0-8e4499c6…`. Put `github.event_name`,
+      # `github.ref_name` or `github.run_id` anywhere in this key and every pull request
+      # rebuilds OpenCV from source for eight and a half minutes, once each, for ever --
+      # a cache written by a pull-request run is scoped to `refs/pull/N/merge` and is
+      # readable by nothing else, so it would not even help the next push.
       - name: Restore the static OpenCV tree
         id: opencv-cache
         uses: actions/cache@v4
