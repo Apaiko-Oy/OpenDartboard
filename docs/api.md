@@ -126,6 +126,14 @@ as good as that calibration: a wire-to-wire fraction is read in image angle. Whe
 that scored has no orientation - the detector's own log says `wedge by default` - the 20 is the
 segment the detector asserts, and `angle` says where in that wedge the dart is.
 
+**A bull and an outer bull have no wedge in them at all**, and the log says a third thing about
+those rather than either of the two above: `wedge not in this reading`. Their score comes from
+the ring ellipses, the angular ruler is never asked, and `segment` is `null` accordingly. That
+bears on `confidence` and not only on the log line, because the confidences count *cameras*:
+`0.9` is two or more cameras agreeing and `0.7` is one standing alone, so a `0.9` on a `BULL`
+or an `OUTER` is two cameras agreeing about a **ring** and says nothing about any camera's
+orientation (#1489).
+
 **An absence is `null`, never `0`.** `0.0` is a real angle and a real radius. `END` and `MISS`
 carry `"segment": null, "ring": null, "board": null`; a bull carries `"segment": null` with a
 ring and a radius, and `"angle": null` when the orientation is unknown.

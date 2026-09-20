@@ -8,8 +8,10 @@
 // header now (#1338's shape), so the scene is replayed here as PointScores: the same
 // three readings, and the assertion that the measurement wins.
 //
-// What is also held: a bull from an unoriented camera counts as a measurement (the wedge
-// never entered it), asserted readings still fill the void when nothing measured -- at
+// What is also held: a bull from an unoriented camera is a READING and votes as one -- the
+// wedge never entered it, so it is not the asserted 20, and #1489 gave that state its own
+// word (`ring_only`) without moving this vote by a camera --, asserted readings still fill
+// the void when nothing measured -- at
 // 0.5, the fallback that never outvotes -- the lowest-index rule among disagreeing
 // measured cameras is unchanged (#797's open question, deliberately not this decision),
 // and a camera that may not vote is not in the vote at all.
@@ -96,9 +98,11 @@ int main()
             "with nothing measured the assertion is published as the fallback it is: 0.5, by_default, no consensus claimed");
     }
 
-    // ---- a bull from an unoriented camera is a measurement -----------------------------
+    // ---- a bull from an unoriented camera is a reading ---------------------------------
     // The wedge never entered a bull, so two unoriented cameras agreeing on BULL really
-    // did measure the same thing twice.
+    // did read the same thing twice. #1489: what they did NOT do is measure a wedge, and
+    // this vote is where that distinction is not drawn -- the consensus is real and stays
+    // at 0.9. `ScoreChoice::ring_only` is where it is drawn, and 1489-ringonly holds it.
     {
         const ScoreChoice c = chooseScore({bull("BULL"), bull("BULL"), asserted("S20")}, all);
         say(c.camera == 0 && c.agreeing == 2 && c.confidence == 0.9f && !c.by_default,

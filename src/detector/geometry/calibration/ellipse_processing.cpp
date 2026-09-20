@@ -471,6 +471,19 @@ namespace ellipse_processing
         // Set bull validation flag
         result.hasValidBulls = (result.outerBullEllipse.size.area() > 0 || result.innerBullEllipse.size.area() > 0);
 
+        // SECTION 3.2: #1485 -- WHICH RING IS THAT? Asked of the five fitted rings, once,
+        // here: this is the last statement that can still say which contour became which
+        // ring, and `score_processing::scorePoint` is the first reader that cannot. The
+        // rule, the bands and why a refused ring is zeroed rather than corrected are in
+        // ellipse_processing.hpp beside the millimetres they come out of.
+        //
+        // At log_info and not log_debug, deliberately. The state this repairs was silent:
+        // an outer bull ellipse at 0.97 of the board drew a scoring page, calibrated three
+        // of three, reported itself whole and published every dart on the board as a 25,
+        // with nothing anywhere saying which contour it had measured.
+        log_info("Camera " + log_string(camera_idx + 1) + " rings: " +
+                 log_string_src(holdRingsToTheBoard(result)));
+
         // SECTION 4: PERSPECTIVE ANALYSIS (using doubles as reference)
         if (result.hasValidDoubles)
         {

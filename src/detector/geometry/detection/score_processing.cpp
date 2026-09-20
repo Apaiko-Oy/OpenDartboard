@@ -33,6 +33,16 @@ namespace score_processing
         float a = ellipse.size.width / 2.0f;
         float b = ellipse.size.height / 2.0f;
 
+        // #1485: a ring that was not fitted, or that was refused by the band check in
+        // ellipse_processing, is a zeroed RotatedRect and contains nothing. It already
+        // read that way -- the division makes an infinity or a NaN and every comparison
+        // with one is false -- and saying it costs a branch and removes the reader's
+        // need to work that out.
+        if (!(a > 0.0f) || !(b > 0.0f))
+        {
+            return false;
+        }
+
         return (rotated.x * rotated.x) / (a * a) + (rotated.y * rotated.y) / (b * b) <= 1.0f;
     }
 
@@ -298,21 +308,36 @@ namespace score_processing
         // start is by construction a camera read here -- the two cannot drift, which is
         // the defect #1449 was filed about one field earlier. NOT a behaviour change:
         // `wedgeCanBeRead` is `anchored && wedge20WireIndex >= 0` and nothing else.
-        out.wedge_measured = orientation_processing::wedgeCanBeRead(calib.orientation);
-        if (!out.wedge_measured && !on_bull)
+        //
+        // #1489: `anchored` is a fact about the CAMERA -- whether its wedge can be read
+        // at all -- and it is now kept apart from `wedge_measured`, which is a fact about
+        // THIS READING. Every line below that asks whether there is an angular ruler to
+        // use asks `anchored`, so none of them moves; the field says the narrower thing.
+        const bool anchored = orientation_processing::wedgeCanBeRead(calib.orientation);
+
+        // #1489, stated rather than arrived at: on a bull and on an outer bull the ring
+        // ellipses are the whole of the score and the wedge is no part of it. The reading
+        // is therefore neither a measurement of a wedge nor an assertion of one, which is
+        // #1346's sentence about a bull with the half it left implicit written down. Both
+        // flags stay false here whatever this camera's anchor is worth, and the vote --
+        // which split the cameras on `wedge_asserted` alone -- stops counting a ring
+        // reading among the ones that measured a wedge.
+        out.ring_only = on_bull && !ringOnlyReadingsCountAsMeasured();
+        out.wedge_measured = anchored && !out.ring_only;
+        if (!anchored && !on_bull)
         {
             log_debug("SCORE: No orientation data, defaulting to 20");
         }
 
         // On a bull there is no wedge to decide, but the angle is still known where the
         // orientation is; where it is not, nothing implies one, and the angle stays absent.
-        if (on_bull && !out.wedge_measured)
+        if (on_bull && !anchored)
         {
             return out;
         }
 
         float fraction = 0.0f;
-        int start = out.wedge_measured ? calib.orientation.wedge20WireIndex : 0;
+        int start = anchored ? calib.orientation.wedge20WireIndex : 0;
         int slot = findWedgeSlot(pixel, calib, start, fraction);
         if (slot < 0)
         {
@@ -321,7 +346,7 @@ namespace score_processing
             {
                 return out;
             }
-            if (!out.wedge_measured)
+            if (!anchored)
             {
                 // Upstream asserted the 20 without looking at a wire; so does this, and
                 // with no wedge to place the tip in there is no angle to state.
@@ -338,10 +363,12 @@ namespace score_processing
 
         // With no orientation the wedge the tip is in is asserted to be the 20 - slot 0 of
         // the sequence - and the fraction says where across that wedge the tip is.
-        // #1346: a bull cannot reach this as an assertion -- on_bull without a measured
-        // wedge returned above -- so the flag marks exactly the asserted 20s.
-        out.wedge_asserted = !out.wedge_measured;
-        int sequence_slot = out.wedge_measured ? slot : 0;
+        // #1346: a bull cannot reach this as an assertion -- on_bull without an anchor
+        // returned above -- so the flag marks exactly the asserted 20s. #1489 says that
+        // in the expression rather than relying on the reader to trace the return: a
+        // ring-only reading asserts nothing, whatever the anchor is worth.
+        out.wedge_asserted = !anchored && !on_bull;
+        int sequence_slot = anchored ? slot : 0;
         float angle = 18.0f * sequence_slot - 9.0f + 18.0f * fraction;
         while (angle < 0.0f)
             angle += 360.0f;
@@ -510,7 +537,13 @@ namespace score_processing
                 result.ring = point_scores[best_camera].ring;
                 result.segment = point_scores[best_camera].segment;
                 result.board = point_scores[best_camera].board;
-                log_info(string("BOARD: ") + (point_scores[best_camera].wedge_measured ? "wedge measured" : "wedge by default") +
+                // #1489: three states where this line printed two. "wedge measured" and
+                // "wedge by default" are byte-for-byte what they were -- #1484's census
+                // reads them -- and a BULL or an OUTER now says the thing it always was:
+                // the ring ellipses scored this and no wedge entered it. It used to print
+                // "wedge by default" for those, beside a confidence of 0.7 or 0.9 whose
+                // whole meaning is that a camera measured one.
+                log_info(string("BOARD: ") + howTheWedgeWasRead(point_scores[best_camera]) +
                          " | ring=" + result.ring +
                          " | segment=" + to_string(result.segment) +
                          " | radius=" + (result.board.has_radius ? to_string(result.board.radius) : string("none")) +

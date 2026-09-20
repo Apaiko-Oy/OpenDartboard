@@ -38,9 +38,19 @@ the clip, not an arbitrary window — a comparison that starts anywhere else is 
 nothing. This is not hypothetical: the first comparison written into this file matched the
 detector's four visits against visits 3–6 and had to be redone.
 
-**A miss is not nothing.** A dart outside the scoring area publishes as `OUTER`, so the two
-misses above should appear as `OUTER` and their absence is as much a finding as a wrong
+**A miss is not nothing.** A dart outside the scoring area publishes as `MISS`, so the two
+misses above should appear as `MISS` and their absence is as much a finding as a wrong
 wedge.
+
+**`OUTER` is not that, and this file said it was until #1485.** `OUTER` is the OUTER BULL --
+the 25 ring, the green ring around the bullseye. `score_processing::scorePoint` sets it for
+a point inside `outerBullEllipse` and outside `innerBullEllipse`, and
+`turnaus_client::postableSector` posts it to Turnaus as a score of **25**. The vocabulary is
+in `docs/api.md`: `S1`-`D20`, `BULL`, `OUTER`, `MISS`, `END`. Nobody threw at the 25 ring in
+this footage, so every `OUTER` in the table below is a dart on the board published as a 25 --
+which is a much worse reading than "off the board" and points at the opposite fault. The
+sentence that was here sent #1485 looking for a radial scale that reads a dart FURTHER out
+than it is; the measurement is that they are read NEARER the bull, by up to 5.9x.
 
 **Three trebles are in here** — T13, T14 and T20 — and they are the only evidence in this
 repository about whether a treble can be read at all. A treble published as a single is a
@@ -59,27 +69,43 @@ quoted as if they were the clip's — they were not. **This fixture needs no cap
 | --- | --- |
 | detected | 19 (visits 1–5 complete, visits 6 and 7 two apiece) |
 | correct | **2** — both a thrown 20 published `S20` |
-| `OUTER` where a scoring dart was thrown | **8** |
+| `OUTER`, i.e. published as a **25** | **8** |
 | a different number entirely | 7 |
 | a score published where a *miss* was thrown | 2 — **both misses were missed** |
 
 Confidence: **2 at 0.9, 6 at 0.7, 11 at `by_default` 0.5.**
 
-**Read those three with care.** `scorePoint` returns `OUTER` before `wedge_measured` is set,
-so every `OUTER` counts as a camera that measured — **not one dart in this clip had a wedge
-measured**, though 8 published at 0.7 or 0.9. That is #1489, and until it is fixed a change
-pushing more darts off the board reads as the anchor improving.
-
 **The two missing darts are a detection failure, not truncation.** The run did not end early;
 visits 6 and 7 simply yielded two darts each where three were thrown.
 
-Eight `OUTER`s against two misses thrown is the shape a wrong **radial scale** makes, and
-#1423 measured that cause on this fixture: the colour stage measuring the **treble** ring
-while believing it had the board, so a dart at true radius *r* reads at *r* × 170/107 =
-**1.589r** and falls off the edge. That is #1485.
+## The cause of the eight 25s, measured rather than guessed
 
-So two distinct faults are visible at once and must not be conflated: a **scale** error
-putting darts off the board, and an **anchor** failure meaning no wedge is ever measured.
+An earlier draft of this file guessed a radial scale reading a dart at *r* × 170/107 =
+**1.589r** and off the edge, after #1423 found the colour stage measuring the treble ring on
+this rig. **#1485 measured that guess false.** The three cameras' ray-traced doubles ellipses
+here are **316.05, 317.98 and 315.29 px** — the real doubles ring, agreeing within 0.85%.
+
+What is wrong is the ellipse **named** the 25 ring. `ellipse_processing`'s contour stage fits
+it at **0.9733, 0.6112 and 0.3401** of the board where the millimetres put it at 15.9/170 =
+**0.0935** — 3.6× to 10.4× too large on all three cameras — and `scorePoint` tests the bull
+ellipses first, so a dart anywhere inside that contour becomes a 25. The stage fits five of
+six rings to whatever colour blob was largest and **names them after the ring they were
+expected to be**, with nothing asking whether they are it.
+
+## Why the confidence figures cannot be read at face value
+
+**Not one dart in this clip had a wedge measured** — every `BOARD:` line says so — yet **8
+published at 0.7 or 0.9.**
+
+The mechanism is not an early return, which an earlier draft also guessed wrongly.
+`chooseScore` splits the cameras on `wedge_asserted` **alone**, so a reading with *neither*
+flag set lands in the bucket named `measured`. That is #1489.
+
+Until it is repaired, a change pushing **more** darts into the 25 reads as a **rise** in 0.7
+and 0.9 — the anchor apparently improving while it did nothing.
+
+So two distinct faults are visible at once and must not be conflated: a **ring** error making
+darts 25s, and an **anchor** failure meaning no wedge is ever measured.
 
 ## What this file is not
 
