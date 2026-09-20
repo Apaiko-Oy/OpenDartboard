@@ -39,7 +39,48 @@ namespace
     // consecutive disagreeing samples, and it answers the same question -- how long a
     // disturbance this budget has to outlast.
     //
-    // MEASURED_TABLE_GOES_HERE
+    // MEASURED 2026-09-20 on the 4-core box at load 1.9-3.7, with the integration sweep
+    // finished and nothing else running, by testers/phases1445/1445-looks.sh: the averaged
+    // frame each camera really calibrates on -- composed the way readAveraged(30) composes
+    // one, from the seek DEBUG_SEEK_VIDEO puts that camera's slot at -- and then eighty
+    // consecutive single frames after it.
+    //
+    //                          averaged   single frames    longest run of consecutive
+    //                             frame   reading twenty   refused looks, 5 cycles apart
+    //     mocks/cam_1                20          55 of 80   2
+    //     mocks/cam_2                20          55 of 80   3
+    //     mocks/cam_3                20          72 of 80   1
+    //     rig-20260918/cam_1         20          29 of 80   4
+    //     rig-20260918/cam_2         20          80 of 80   0
+    //     rig-20260918/cam_3         21 REFUSED  42 of 80   5   <-- the maximum
+    //
+    // THE FIRST ROW OF THAT LAST LINE IS THE WHOLE ISSUE, and it reproduces on a quiet box:
+    // #1442's twenty-one was measured at load 12-15 and flagged as possibly a figure the
+    // load produced. It is not. For a FILE source `read()` takes the next frame and no
+    // clock is consulted, so readAveraged(30) over a mock is the mean of thirty consecutive
+    // frames and which thirty is decided by the seek alone -- the number is arithmetic, and
+    // it came back 21 at load 1.9. That camera then reads exactly twenty on 42 of the 80
+    // single frames composing and following that average. The average really is the worse
+    // picture.
+    //
+    // WHY FIVE CYCLES APART rather than adjacent. Adjacent frames are not independent
+    // readings, and the measurement says so: at a spacing of one the longest run of
+    // consecutive refused looks is 18 (mocks/cam_2), at three it is 7, at five it is 5 and
+    // at ten it is 3. Five is where the run stops falling steeply, and spending twelve
+    // looks on twelve adjacent frames would measure very little more than one look.
+    //
+    // WHY TWELVE. Five is the longest run any camera of either fixture produced at this
+    // spacing, so twelve outlasts it 2.4 times over -- the same margin #1388 gave itself
+    // (an 11-to-12 s span against a 6.00 s disturbance) and for the same reason: five is
+    // the longest run seen in this footage, not the longest run there is. The whole budget
+    // spans 12 x 5 = 60 frames, which is 2.0 s at the mocks' 30 fps and 4.0 s at the 15 fps
+    // a rig is more likely to run at.
+    //
+    // ONE CAMERA OF SIX IS IN THE POPULATION, and that is worth saying rather than hiding:
+    // the budget's maximum and the issue's subject are the same camera. The other five rows
+    // are what stops it being a constant chosen for one clip -- rig/cam_1 reads nineteen on
+    // half its frames and would have wanted four looks had its average been refused, which
+    // is the second-longest run and is measured on a camera this retry never touches.
     //
     // THE COST OF BEING WRONG IS NOT SYMMETRIC, and the margin goes the same way #1388's
     // does. A look is one frame read and one calibration, and it is spent ONLY on a camera
