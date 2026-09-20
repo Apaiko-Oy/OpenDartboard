@@ -5,8 +5,9 @@
 // says, compares the version it names against this build's own, and says the answer in
 // Finnish and English. IT DOWNLOADS NO ARTEFACT AND REPLACES NO FILE, and there is
 // nothing in this header that could: the only address it asks is the manifest's, the only
-// thing it writes is the channel and only when somebody is setting it, and `url` and
-// `sha256` are read out of the verified payload so that they can be PRINTED.
+// thing it writes is the channel and only when somebody is setting it, and `url`, `sha256`,
+// `size` and `minimumLauncher` are read out of the verified payload so that they can be
+// PRINTED -- or, since #1306, handed to the launcher that does the installing.
 //
 // WHICH ADDRESS. ADR-0077 §5: the one the detector already resolves -- --turnaus, then
 // OD_TURNAUS_URL, then the base_url the pairing wrote, then the compiled-in default
@@ -64,6 +65,13 @@ namespace update_check
         std::string published_version; // only ever read out of a verified payload
         std::string published_url;
         std::string published_sha256;
+        // #1306: the two remaining payload fields, read the same way and for the same
+        // reason -- a launcher that is about to install has to refuse an absurd size
+        // before it fetches anything, and has to know whether this build is old enough
+        // to get it wrong (ADR-0077 §1). They are read here rather than by re-parsing
+        // the body somewhere else, so that a payload is verified once and read once.
+        long long published_size = 0;
+        std::string published_minimum_launcher;
 
         bool differs() const { return kind == Kind::Available; }
     };
@@ -121,6 +129,8 @@ namespace update_check
         answer.published_version = manifest.version;
         answer.published_url = manifest.url;
         answer.published_sha256 = manifest.sha256;
+        answer.published_size = manifest.size;
+        answer.published_minimum_launcher = manifest.minimum_launcher;
         answer.kind = manifest.version == running_version ? Kind::UpToDate : Kind::Available;
         return answer;
     }

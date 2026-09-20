@@ -48,7 +48,7 @@ fi
 
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
-  docker run --rm --name "$(od_name "i1331-clean")" --network none -v "$BASE":/base "$OD_IMAGE" \
+  od_run "i1331-clean" --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf /base/framing > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -57,7 +57,7 @@ mkdir -p "$RUN/cfg"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "$(od_name "i1331-framing")" --cpus=2 --network none -e HOME=/root \
+od_run "i1331-framing" --cpus=2 --network none -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1331 -v "$RUN/cfg":/root/.config \
   -w /run1331 "$OD_IMAGE" bash /app/testers/i1331_inside.sh

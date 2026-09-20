@@ -1,6 +1,7 @@
 #include "scorer/scorer.hpp"
 #include "utils/args.hpp"
 #include "utils/cache.hpp"
+#include "utils/geometry_fault.hpp"
 #include "utils/debug.hpp"
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
@@ -13,11 +14,11 @@
 #include "utils/setup_view.hpp"
 #include "utils/od_paths.hpp"
 #include "communication/turnaus_client.hpp"
-#include "communication/turnaus_address.hpp"
 #include "communication/pairing_prompt.hpp"
 #include "utils/console_prompt.hpp"
 // #1305: --check-update. Reads the manifest this board's channel publishes, verifies it,
 // compares the version it names against this build's own, and stops there.
+#include "update/update_address.hpp"
 #include "update/update_check.hpp"
 #include "update/update_keys.hpp"
 #ifdef _WIN32
@@ -91,6 +92,35 @@ int main(int argc, char **argv)
   // nudged since it was written would score through a perspective that is wrong and looks
   // right. utils/cache.hpp holds the measurement.
   cache::geometry::allowReuse(hasFlag(argc, argv, "--reuse-calibration"));
+
+  // #1388 / ADR-0080 section 4: the operator has looked at the rig. This is the ONLY
+  // thing that clears a recorded geometry fault -- not a restart, not a successful
+  // calibration, not time -- because a frame that has shifted on its bolts is a physical
+  // fault and a board that cleared its own record would be a board deciding it had been
+  // fixed. It exits rather than going on to score, so that what happens next is a start
+  // somebody watched.
+  if (hasFlag(argc, argv, "--clear-geometry-fault"))
+  {
+    const std::string was = geometry_fault::held();
+    if (was.empty())
+    {
+      std::cout << "No geometry fault is recorded at " << geometry_fault::path()
+                << "; there was nothing to clear." << std::endl;
+      return 0;
+    }
+    if (!geometry_fault::clear())
+    {
+      std::cerr << "Could not clear the geometry fault at " << geometry_fault::path()
+                << "; it is still held and this board will still refuse to calibrate."
+                << std::endl;
+      return 1;
+    }
+    std::cout << "Cleared the geometry fault recorded at " << geometry_fault::path()
+              << ". It said: " << was << std::endl;
+    std::cout << "This board will calibrate on the rig as it is now at the next start."
+              << std::endl;
+    return 0;
+  }
   int width = getArg(argc, argv, "--width", 1280);
   int height = getArg(argc, argv, "--height", 720);
   int fps = getArg(argc, argv, "--fps", 15);
@@ -147,38 +177,13 @@ int main(int argc, char **argv)
   // #1259: the pairing request says the board's label, not the literal it always sent.
   turnaus_config.label = label;
 
-  string configured_url = getArg(argc, argv, "--turnaus", string(""));
-  string address_source = "--turnaus";
-  if (configured_url.empty())
-  {
-    configured_url = od_paths::env("OD_TURNAUS_URL");
-    address_source = "OD_TURNAUS_URL";
-  }
-  if (configured_url.empty())
-  {
-    // What the last pairing was made against, if there was one.
-    address_source = "the credential file";
-    string raw;
-    if (od_paths::readFile(turnaus_config.credentials_path, raw))
-    {
-      size_t at = raw.find("\"base_url\"");
-      if (at != string::npos)
-      {
-        size_t open_quote = raw.find('"', raw.find(':', at) + 1);
-        size_t close_quote = open_quote == string::npos ? string::npos : raw.find('"', open_quote + 1);
-        if (close_quote != string::npos)
-        {
-          configured_url = raw.substr(open_quote + 1, close_quote - open_quote - 1);
-        }
-      }
-    }
-  }
-  if (configured_url.empty())
-  {
-    // #1257: production, never a domain somebody else can buy.
-    configured_url = turnaus_address::kDefault;
-    address_source = "the default";
-  }
+  // #1306: the four steps are update_address::resolve() and were these twenty lines. They
+  // moved because the launcher now follows the same rule (ADR-0077 §5), and a rule two
+  // programs follow from two copies is a rule they will one day disagree about.
+  const update_address::Resolved resolved =
+      update_address::resolve(getArg(argc, argv, "--turnaus", string("")), turnaus_config.credentials_path);
+  string configured_url = resolved.url;
+  string address_source = resolved.source;
   turnaus_config.base_url = configured_url;
   // #1257: one line, the address and which rule chose it; the credential is never logged.
   log_info("TURNAUS: address " + configured_url + " (from " + address_source + ")");

@@ -23,7 +23,7 @@ set -u
 TREE="${1:-$OD_TREE_ROOT}"
 OUT="$OD_RUNS_BASE/1305"
 mkdir -p "$OUT"
-docker run --rm --name "$(od_name "i1305-run")" --cpus=2 --network none -e HOME=/root \
+od_run "i1305-run" --cpus=2 --network none -e HOME=/root \
   -v "$TREE":/app -v "$OUT":/out -w /app "$OD_IMAGE" bash /app/testers/i1305_inside.sh
 RC=$?
 echo "RUN_RC=$RC"

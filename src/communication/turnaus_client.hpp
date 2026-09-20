@@ -274,6 +274,89 @@ public:
         return (n >= 1 && n <= 20 && score.substr(1) == std::to_string(n)) ? score : std::string();
     }
 
+    // ---- #1366: where the dart landed, in the body that is posted for ever. ----
+
+    /**
+     * The bounds `POST /api/v1/{autoscorer,casual}/detections` really admits, quoted from
+     * `Domain\Scoring\Darts\BoardPosition` (#1365) so that a server which moves them
+     * makes this file wrong rather than silently stale. `App\Autoscoring\PushedPosition`
+     * interpolates the same four numbers into the door's own rules.
+     *
+     * `kMaxAngle` is **359.9999 and not "anything below 360"**, and that is the one that
+     * matters here: a position is kept to four decimal places, so 359.99995 would round
+     * into the column as 360.0000, which the domain refuses. The door therefore refuses
+     * it too, and a board that sent it would meet a 422 -- which deliver() drops rather
+     * than retries, so the DART would be lost, not just its position.
+     */
+    static constexpr double kMinRadius = 0.0;
+    static constexpr double kMaxRadius = 1.2;
+    static constexpr double kMinAngle = 0.0;
+    static constexpr double kMaxAngle = 359.9999;
+    /** Four decimal places is what the columns keep, so it is what is sent. */
+    static constexpr int kPositionPlaces = 4;
+
+    /**
+     * #1366: the detection body, built ONCE and posted for ever.
+     *
+     * Pure and static, for #1347's reason and for one of its own. #822 rule 3 writes the
+     * body at the moment the dart is offered and every retry -- including every retry
+     * after a restart, out of the spool file -- posts those same bytes. So a field added
+     * at POST time rather than here is a field every spooled dart loses, and no happy
+     * path would ever show it. Everything a body says is therefore decided in this one
+     * function, which a tester can hold without a client, a socket or a spool.
+     *
+     * `reference` is passed in rather than minted here so that the seam is deterministic;
+     * offer() mints it with newIdempotencyKey() exactly as it always did.
+     *
+     * ## Both keys or neither, never one
+     *
+     * `PushedPosition::rules()` is `required_with` beside `nullable`: a radius with a null
+     * angle is half a polar position and is refused with 422 as surely as a radius with
+     * the angle key missing. So there is no "send what is known" here. A bull scored on a
+     * camera with no measured orientation knows its radius and no angle (score_processing
+     * returns before the angular ruler), and that dart goes out with NO position rather
+     * than with half of one.
+     *
+     * ## A MISS has no position
+     *
+     * By the API's own contract, and by the detector's: #1186 leaves the board fields
+     * absent on a MISS, and score_processing clears them on the one MISS path that had
+     * reached the radial ruler. The seam says it again rather than trusting that, because
+     * this is the side of the wire where saying it wrong costs a dart.
+     *
+     * ## Rounded here, and 360 sent as 0
+     *
+     * The numbers are rounded to `kPositionPlaces` before they are written, which is what
+     * the columns keep anyway -- 1e-4 of a board radius is 17 micrometres. It is not
+     * tidiness: `board_angle` is a float, so the three floats immediately below 360 print
+     * through nlohmann as 359.99996948242188 and up, every one of which is ABOVE the
+     * published bound and every one of which would cost the dart. Rounded, they become
+     * 360.0000, and 360 degrees is 0 degrees -- which is what #1365 asks a detector whose
+     * arithmetic lands there to send. Anything still outside the bounds after that is a
+     * position this door cannot hold: it is withheld, said out loud, and the dart goes
+     * without it. A dart is never risked for a position.
+     */
+    struct DetectionBody
+    {
+        /** The JSON, exactly as it will be posted. Empty when the sector is unpostable. */
+        std::string json;
+        /** True when `board_radius` and `board_angle` are both in it. */
+        bool carries_position = false;
+        /**
+         * Non-empty when the detector HAD a position and this body does not carry it, and
+         * why. Empty both when there was nothing to carry and when it was carried.
+         */
+        std::string position_withheld;
+        /**
+         * True when what was withheld was a WHOLE position the door would refuse. That is
+         * a surprise and offer() says it out loud; a half-known position is an ordinary
+         * reading of an ordinary board and is said at debug.
+         */
+        bool position_out_of_bounds = false;
+    };
+
+    static DetectionBody detectionBody(const std::string &reference, const DetectorResult &result);
+
     // ---- #1259: one code, either door, asked for at the console. ----
 
     /** Which door a six-digit code is presented at. */

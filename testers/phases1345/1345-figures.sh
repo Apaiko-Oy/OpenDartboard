@@ -67,11 +67,43 @@ for r in rig mocks; do
     say "OK   $r accounts for its refusals and no more" ok
   else say "FAIL $r printed $V accounts over $W windows" no; fi
 done
-# Four of the rig's six windows are refusals; the other two moved the state and keep
-# #1350's blank line. A refusal is what #1345 is about, so there must be several.
-if [ "$(votes rig)" -ge 4 ]; then
-  say "OK   the rig refuses a dart in most of its windows, which is what #1345 is" ok
-else say "FAIL the rig refused $(votes rig) windows; this footage refuses four of six" no; fi
+# #1358: this asserted the DEFECT census. When #1345 was written the rig opened six
+# windows and refused four of them, because the only motion that could form an event
+# was the player pulling the darts out. #1353 let a throw form an event, #1354 moved the
+# deciding figure onto the board and #1358 stopped a cooldown swallowing the next throw,
+# and the rig now opens a window per throw and refuses almost none. The observation
+# #1345 shipped is unchanged and still asserted above and below.
+#
+# #1419: and what was put here in the census's place did not keep up with that argument.
+# It was `votes rig <= windows rig` -- the loop three lines above minus its `W > 0` half,
+# strictly weaker than an iteration that had already run, unable to go red unless that
+# one had. Its comment claimed it held the half of the sentence the loop does NOT hold:
+# that a refusal is possible at all. It did not. `V = 0` passes `V <= W`, and `V = 0` is
+# what the rig produces on main -- `rig: 0 of 23 completed windows were refused`, in
+# runs-attrib-main/run_all/1345-figures.log -- so the line read as a check on precisely
+# the tree it was blindest to.
+#
+# The property is worth holding, so it is said about footage that can still produce a
+# refusal, and that is the CONTROL rather than the rig. The rig's refusal census is at
+# zero by design since #1358 and testers/phases1358/1358-window.sh is what holds it
+# there -- it has no assertion that a refusal is possible at all, in either direction,
+# and asserting one about the rig here would be the retired census coming back under a
+# new name. The shipped mocks still refuse: 7 of 16 on main, 4 of 19 on this tree.
+#
+# Measured both ways on this tree, with src/ reverted afterwards. (a) A tree that cannot
+# refuse -- every completed window forced to change state -- prints not one STATE VOTE
+# line on either rig, and the line this replaces passes it green: `OK   the rig refuses
+# no more windows than it opened (0 of 29)`, as does the loop above. This one goes red.
+# (b) A tree where a window is still refused but stops accounting for itself (#1350's
+# regression, refusedWindowAccount returning "" for every window) leaves
+# testers/phases1358/1358-window.sh green throughout, rc=0 -- that file reads WINDOW
+# CENSUS and never STATE VOTE, so it holds nothing about this -- and turns this one red.
+# Section 3's figure census goes red under both as well, but says "a figure was printed
+# with nowhere", which names a defect neither tree has.
+MV=$(votes mocks)
+if [ "$MV" -ge 1 ]; then
+  say "OK   a refusal is possible at all: the control refused $MV of $(windows mocks) windows" ok
+else say "FAIL the control refused none of its $(windows mocks) windows, so nothing here shows a window can be refused and account for itself" no; fi
 
 echo
 echo "=== 3. every refused camera's figure says how much of it was on the board ==="
@@ -99,11 +131,15 @@ echo "=== 5. the reading the issue proposed, and what the footage says ==="
 # rig that is the only camera that clears the threshold, which is why "the sensitivity is
 # right by accident on one camera" is the wrong half of the sentence: the camera that
 # fires is a false positive and the two that do not are correct.
+# #1358: and the number this asserted has been driven to zero, which is the whole of
+# what that issue was. It used to demand at least ten camera-figures with nothing on the
+# board among the rig's refusals, because that was the rig's condition. The clause is
+# still printed for a camera it is true of -- testers/i1358_run.sh is where the rig's
+# on-board figures are now asserted, window by window, and where the old trigger is
+# restored at run time to put them back at zero.
 OFF=$(grep -h 'STATE VOTE' /run1345/rig.txt | grep -oE 'none of it inside its own board' | wc -l)
 echo "rig: $OFF camera-figures in refused windows had no changed pixel on the board at all"
-if [ "$OFF" -ge 10 ]; then
-  say "OK   the census is recorded and is the evidence #1345's report reads" ok
-else say "FAIL only $OFF of the rig's camera figures were wholly off the board" no; fi
+say "OK   the census is recorded ($OFF); i1358_run.sh is what holds it to a number" ok
 
 echo "CHECK_RC=$FAILED"
 exit $FAILED

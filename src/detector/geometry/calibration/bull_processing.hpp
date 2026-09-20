@@ -107,19 +107,75 @@ namespace bull_processing
         // constant is, to three decimals. The two rigs never disagreed about a bull. One
         // of them was being divided by the wrong number.
         //
-        // What the extent really reaches is therefore checkable on the rig, and the check
-        // is the span this stage now prints beside the disc radius. If the span reads near
-        // 250 the coloured arcs reach the outer ring, the board is the board, and the
-        // ratio printed beside it falls from 0.154 toward 0.09. If it still reads 151, the
-        // colour on that rig stops short of the doubles edge, the honest board is the
-        // fitted ellipse, and that does not exist for three stages yet -- which #1331 was
-        // expected to settle and did NOT. #1331 moved the region and the measurement that
-        // sizes it; the ellipse fit is still STEP 6 and the rig still reads 194, 195 and
-        // 197 px here, unmoved by the reordering. Whichever board that is, it is now
-        // measured on a picture nothing has cut. The floor holds either way, and that is
-        // the point of deriving it from resolvability rather than from a board: 64.2 px
-        // passes at 108, at 151 and at 250. Nothing here is refitted, and the band between
+        // What the extent really reaches was left as a question for the rig -- if the span
+        // reads near 250 the coloured arcs reach the outer ring; if it still reads 151 the
+        // colour stops short of the doubles edge -- and #1340 was the first commit to BUILD
+        // any of this and RUN it. The answer is neither, on both fixtures, and it is worth
+        // having in the file because it is the one thing nobody predicted:
+        //
+        //   mocks/cam_*.mp4     span 291.2, 314.6, 308.9 px   fitted board 242, 235, 236 px
+        //   mocks/rig-20260918  span 194.6, 195.6, 197.4 px   fitted board 250, 253, 249 px
+        //
+        // The span UNDER-measures the rig by 0.78 and OVER-measures the shipped fixture by
+        // 1.20 to 1.34. Set beside the disc radius the same regions give -- 247/242/250 and
+        // 151/153/151 -- neither measure is the board, and they fail in opposite directions
+        // on the two fixtures. The red/green mask is simply not a board detector: on the
+        // rig it keeps the trebles and loses the dull doubles arcs, and on the mocks it
+        // keeps something outside the doubles ring that drags an enclosing circle a third
+        // of the way past it. The honest board is the fitted ellipse and that is STEP 6,
+        // three stages below here, which #1331 was expected to settle and did NOT -- it
+        // moved the region and the measurement that sizes it, not the ordering of the fit.
+        //
+        // THIS IS WHY THE FLOOR IS DERIVED FROM THE BAND AND NOT FROM A BOARD, and the
+        // argument is worth stating in one line because it is the whole of #1340. This
+        // stage accepts a bull whose radius lies between minBullRadiusFactor and
+        // maxBullRadiusFactor times bullRadiusOfBoardRadius of whatever R it measured.
+        // Requiring the BOTTOM of that band to still be something this stage can measure
+        // is a statement about R alone -- it never asks what fraction of a board, or of a
+        // frame, R happens to be. So it is true at R = 151, at R = 195, at R = 250 and at
+        // R = 315, which is the full range six real cameras produce across two fixtures by
+        // two different measures. A fraction-of-frame floor cannot be true across that
+        // range, and a fraction-of-board floor could not be stated at all at a stage where
+        // the board is what is in doubt. Nothing here is refitted, and the band between
         // minBullRadiusFactor and maxBullRadiusFactor does not move.
+        //
+        // OD_BOARD=frame restores this stage exactly as it stood before #1340 -- disc
+        // radius, boundary centroid, and the 4%-of-frame refusal -- on the same binary,
+        // so a before/after is never a comparison of two builds. testers/i1340_run.sh is
+        // what runs it.
+        // #1340's last criterion was a CENSUS rather than a fix: two fraction-of-frame
+        // thresholds had been found by accident -- this one and #1339's -- and a third
+        // was cheaper to look for than to meet. It was swept on 2026-09-19 over the whole
+        // of src/detector/, and there is not one third, there are three. All are FILED
+        // AND NOT FIXED here, because each needs the rig in front of it:
+        //
+        //   #1392  board_look::max_red_green_fraction = 0.12, the ring mask over
+        //          doublesMask.total() -- which is the whole frame, masked or not. It
+        //          REFUSES A WHOLE CAMERA, and ring pixels go as the square of how much
+        //          of the frame the board fills: the board camera #1318 measured at 3.0%
+        //          reads 12.0% if it is mounted at half the distance. The most dangerous
+        //          of the three, because its failure is a refusal and not a fallback.
+        //          FIXED. The ring is now asked about the circle the board spans and the
+        //          flood about a ceiling derived from the frame's own shape; both are in
+        //          board_look.hpp with the measurement, and OD_LOOK=frame restores this
+        //          line. The census above is why the ring share had to be measured rather
+        //          than derived from millimetres: the span is 0.78 to 1.34 of the board,
+        //          so one ring reads 11.1% to 26.9% of its own circle across two fixtures.
+        //   #1393  mask_processing's bull carve, min(cols, rows) / 15 -- a fixed 48 px at
+        //          720p where a 50-point bull is 9 px on the mocks and 6 px on the rig.
+        //          5.3x and 8.6x oversized, and worse on the rig whose board is smaller
+        //          in frame, which is this issue's shape exactly.
+        //   #1394  color_processing's centrality, bull's-eye, connectivity and text
+        //          windows, all sized `cols * k`. #1323 moved their ORIGIN onto the
+        //          measured board and left their SCALE a fraction of the frame.
+        //
+        // Two more were looked at and are NOT defects of this kind. dart_processing's
+        // change_percent_threshold = 0.22 is over the whole frame, but #1354 already
+        // made the board the denominator wherever one is fitted and the frame figure is
+        // named in the file as the no-fitted-board fallback. roi_processing's four
+        // hand-fitted frame constants are reachable only under OD_ROI=frame, the way the
+        // 4% floor below is reachable only under OD_BOARD=frame.
+
         double bullRadiusOfBoardRadius = 0.0935; // Outer bull radius / doubles radius
         double minBullRadiusFactor = 0.5;        // Reject below half the ideal radius
         double maxBullRadiusFactor = 3.0;        // Reject above three times the ideal radius

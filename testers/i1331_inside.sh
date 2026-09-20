@@ -21,9 +21,9 @@ run_one() { # $1 name, $2 clip, $3 optional VAR=value for this run only
 # Three cameras. OD_MAX_CYCLES ends a board that calibrates; a board that CANNOT
 # calibrate goes to #895's fault vigil and stays up for good, so this waits for the
 # cycles to run out and then ends the run by its own recorded pid, never by pattern.
-run_three() { # $1 name, $2 cams
+run_three() { # $1 name, $2 cams, $3 optional VAR=value for this run only
   mkdir -p /run1331/$1
-  ( cd /run1331/$1 && OD_MAX_CYCLES=20 exec /app/build/opendartboard \
+  ( cd /run1331/$1 && export ${3:-OD_NOTHING_AT_ALL=1} && OD_MAX_CYCLES=20 exec /app/build/opendartboard \
       --debug --cams $2 --width 1280 --height 720 > /run1331/$1.out 2>&1 ) &
   local P=$!
   local WAITED=0
@@ -100,15 +100,65 @@ done
 
 echo
 echo "=== 2. the region is drawn around the board that was found ==="
-# 1.25x the board, around the board's own middle. On camera 2 of the mocks that is 393 px
+# 2.107x the board, around the board's own middle. On camera 2 of the mocks that is 663 px
 # around (619,370); the ellipse it replaced was 486x316 around (640,360) whatever was in
-# the picture.
-if grep -qF "Camera 2 region: 393 px around the board found at (619,370), which measured 314 px" /run1331/mocks.txt; then
-  say "OK   the region names the board it was drawn around, and its radius is 1.25x of it" ok
+# the picture. #1378 moved the margin from 1.25 and roi_processing.hpp carries the
+# arithmetic: what this stage is handed is the largest red/green CONTOUR's span, which on
+# a board whose doubles ring has dropped out of the colour mask is the TREBLE ring.
+if grep -qF "Camera 2 region: 663 px around the board found at (619,370), which measured 314 px" /run1331/mocks.txt; then
+  say "OK   the region names the board it was drawn around, and its radius is 2.107x of it" ok
 else
   grep -hoE 'region: .*' /run1331/mocks.txt | head -3
   say "FAIL the region does not say which board it was drawn around" no
 fi
+
+echo
+echo "=== 2.5 #1378: the board the MOTION stage measures against, on both fixtures ==="
+# Two different numbers in this pipeline are called "the board" and this is the second
+# one. Section 1 above pins `bull_processing::measureBoard`'s red/green span -- a COLOUR
+# measurement, taken at STEP 1 so that a region can be drawn. This pins the doubles ring
+# FITTED at STEP 6, which is what #1339 makes every motion ratio a fraction of, what
+# #1345 counts a dart's changed pixels inside, and what #1358 measures a window by. They
+# are not the same quantity and on mocks/rig-20260918 they are not close: 194/195/197 px
+# of span against a fitted ring 632/636/631 px across.
+#
+# It is pinned here because it has now moved twice under a tester that pins its
+# consequence rather than itself -- #1331 shrank it to 36.6% and #1378 put it back -- and
+# a number nothing states is a number the next region change moves again in silence.
+fitted() { grep -hoE 'degrees: [0-9]+ px' /run1331/$1.txt | grep -oE '[0-9]+' | tr '\n' ' '; }
+echo "mocks fitted boards: $(fitted mocks)"
+echo "rig   fitted boards: $(fitted rig)"
+if [ "$(fitted mocks)" = "183859 173006 175444 " ]; then
+  say "OK   mocks: the three fitted boards are 183859, 173006 and 175444 px" ok
+else say "FAIL mocks: the fitted boards are $(fitted mocks), not 183859 173006 175444" no; fi
+if [ "$(fitted rig)" = "197117 200385 194335 " ]; then
+  say "OK   rig: the three fitted boards are 197117, 200385 and 194335 px" ok
+else say "FAIL rig: the fitted boards are $(fitted rig), not 197117 200385 194335" no; fi
+
+echo
+echo "=== 2.6 #1378 FALSIFY: put the margin back to 1.25 and watch the rig collapse ==="
+# The same binary and the same footage; only the margin moves. At 1.25 the rig's region is
+# 243 px around a board whose doubles ring reaches 316, the ring is fitted out of what
+# survived the cut, and the fit SUCCEEDS -- smaller. Without this the number above is a
+# fixture's reading rather than a consequence of the constant.
+run_three rigsmall /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 OD_ROI_MARGIN=1.25
+echo "rig at 1.25: $(fitted rigsmall)"
+if [ "$(fitted rigsmall)" = "72374 72531 72171 " ]; then
+  say "OK   at 1.25 the rig's fitted boards collapse to 72374, 72531 and 72171 px -- 36.6%" ok
+else say "FAIL at 1.25 the rig measured $(fitted rigsmall); #1378 measured 72374 72531 72171" no; fi
+# And the line whose absence cost eight darts: the region cut coloured board, said out
+# loud, per camera, with the share against the share this check allows.
+CUT=$(grep -cE '^\[WARN\].*drew a region that CUT coloured board' /run1331/rigsmall.txt || true)
+if [ "$CUT" = "3" ]; then
+  grep -hE 'drew a region that CUT' /run1331/rigsmall.txt | sed 's/.*] - //' | cut -c1-150
+  say "OK   all three cameras say their region cut coloured board, with the share" ok
+else say "FAIL $CUT of 3 cameras reported a region that cut coloured board" no; fi
+# The control for it: at the margin this repository ships, no camera on either fixture
+# says it. Section 1 already asserts both runs print no WARN at all, so this is that
+# assertion said where a reader of #1378 will look for it.
+QUIET=$(grep -cE 'drew a region that CUT coloured board' /run1331/mocks.txt /run1331/rig.txt | awk -F: '{s+=$2} END {print s+0}')
+if [ "$QUIET" = "0" ]; then say "OK   and neither fixture says it at 2.107" ok
+else say "FAIL $QUIET cameras report a cut region at the margin this repository ships" no; fi
 
 echo
 echo "=== 3. a board low and right in its own frame calibrates, whole ==="

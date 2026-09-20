@@ -17,7 +17,7 @@ RUN="$BASE/$LABEL"
 # debug_frames/ and cache/ are written by root inside the container, so the host user
 # cannot remove them. Reap the directory from a container instead.
 if [ -d "$RUN" ]; then
-  docker run --rm --name "$(od_name "i1257-clean-$LABEL")" --network none -v "$BASE":/base "$OD_IMAGE" \
+  od_run "i1257-clean-$LABEL" --network none -v "$BASE":/base "$OD_IMAGE" \
     rm -rf "/base/$LABEL" > /dev/null 2>&1
 fi
 rm -rf "$RUN" 2>/dev/null
@@ -27,7 +27,7 @@ cp "$SCRIPT" "$RUN/inside.sh"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-docker run --rm --name "$(od_name "i1257-$LABEL")" --cpus=2 --network none -e HOME=/root \
+od_run "i1257-$LABEL" --cpus=2 --network none -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1257 -v "$RUN/cfg":/root/.config \
   -w /run1257 "$OD_IMAGE" bash /run1257/inside.sh

@@ -31,6 +31,30 @@ namespace roi_processing
             return v;
         }
 
+        /**
+         * #1378's falsification, in the same shape as OD_ROI above: one binary, the
+         * margin chosen at run time, so "different build" is never a confound.
+         *
+         * OD_ROI_MARGIN=1.25 restores the constant this issue moved, and is how the rig's
+         * fitted board can be made to collapse to 72171/72374/72531 px again on the very
+         * binary that measures it at 197117/200385/194335. It is also how the plateau in
+         * ROIParams was swept: 1.25, 1.40, 1.60, 1.80, 2.00, 2.30, 2.60, 3.00 over both
+         * fixtures, one build.
+         *
+         * A value of zero or less, or anything atof cannot read, is ignored rather than
+         * obeyed -- a region of no radius is a black frame and every camera would be
+         * refused four stages down for a reason naming the ellipse fitter.
+         */
+        double marginAsked(double stated)
+        {
+            static double asked = []
+            {
+                const char *e = std::getenv("OD_ROI_MARGIN");
+                return e ? std::atof(e) : 0.0;
+            }();
+            return asked > 0.0 ? asked : stated;
+        }
+
         /** The four hand-fitted numbers ADR-0079 §1 retired, kept only for OD_ROI=frame. */
         Mat frameCentredMask(const Mat &frame)
         {
@@ -48,6 +72,11 @@ namespace roi_processing
         }
     }
 
+    double regionRadiusFor(double boardRadius, const ROIParams &params)
+    {
+        return boardRadius * marginAsked(params.roiRadiusOfBoardRadius);
+    }
+
     Mat processROI(const Mat &frame, const Point &boardCenter, double boardRadius,
                    bool debug_mode, int camera_idx, const ROIParams &params)
     {
@@ -61,10 +90,12 @@ namespace roi_processing
         }
         else
         {
-            // A circle, not an ellipse, because the board was measured by the smallest
-            // circle enclosing it: a circle of that radius contains the whole of it by
-            // construction, and no shape constant has to be chosen to say so.
-            const int regionRadius = cvRound(boardRadius * params.roiRadiusOfBoardRadius);
+            // A circle, not an ellipse, because what was measured is the smallest circle
+            // enclosing a contour, so a circle is the shape that answer comes in and no
+            // shape constant has to be chosen to say so. What it encloses is the largest
+            // red/green CONTOUR and not necessarily the board -- #1378 -- which is what
+            // the margin is sized for and what the check after STEP 6 verifies.
+            const int regionRadius = cvRound(regionRadiusFor(boardRadius, params));
             mask = Mat::zeros(frame.size(), CV_8UC1);
             circle(mask, boardCenter, regionRadius, Scalar(255), -1);
             log_debug("Camera " + log_string(camera_idx + 1) + " region: " + log_string(regionRadius) +

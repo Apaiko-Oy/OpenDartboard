@@ -1,6 +1,17 @@
 [Unit]
 Description=Set webcams to MJPEG ${WIDTH}×${HEIGHT} @ ${FPS} fps
 After=multi-user.target
+# The mirror of #1334's second fault. This unit already had the backoff -- RestartSec=2
+# below is where the detector's number came from -- but not the limit, so a lock_cams.sh
+# that cannot succeed respawned on whatever DefaultStartLimitBurst the image happens to
+# carry, and on an image that sets DefaultStartLimitIntervalSec=0 it respawned forever.
+# The same five-in-a-minute as the detector, for the same reason and out of the same
+# argument: stop, fail, and say "start request repeated too quickly" in the journal.
+#
+# There is no network clause here and that is deliberate: this unit sets webcam pixel
+# formats and never opens a socket, so it has nothing to order against connectivity.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
