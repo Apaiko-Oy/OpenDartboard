@@ -588,6 +588,59 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                             "cannot measure.");
             }
 
+            // #1451: #1449's census one field over, said in the same place and for the
+            // same reason -- after applyConfiguredAnchors on both paths, before anything
+            // has been scored, and reading `calibrations` rather than a count kept beside
+            // them so there is no second copy that can agree with itself while disagreeing
+            // with the board.
+            //
+            // WHAT IS DIFFERENT, AND IT IS WHY THIS ONE IS WORSE. #1449's unreadable
+            // camera still scored, wrongly, as #1346's asserted 20. A camera this census
+            // counts out contributes NOTHING: `scorePoint` returns the default PointScore
+            // whose `score` is "MISS", `may_vote` is therefore false, and the camera is
+            // absent from `chooseScore`. A three-camera board silently becomes a
+            // two-camera board and goes on reporting 3 of 3; a board with none of them
+            // publishes every dart as a MISS.
+            //
+            // It counts against the scorer's own expression -- `canScoreAPoint` -- and not
+            // against `sees_board`, which is the census that was already here and the
+            // reason this was invisible. The two agree on a freshly calibrated camera and
+            // part company on a cached one, which is exactly the board this issue is about.
+            const int scorable = score_processing::camerasThatCanScoreAPoint(calibrations);
+            const string each_camera_scores = score_processing::namingEachCamera(calibrations);
+
+            log_info("SCORING: " + to_string(scorable) + " of " + to_string(camera_slots) +
+                     " cameras can be scored from. " + each_camera_scores);
+
+            // #1338's shape and #1449's threshold, for #1449's reason: NONE, not "fewer
+            // than all". A board scoring on two of three cameras is degraded and not
+            // broken, and warning about it every night is how an operator is trained to
+            // ignore the line that matters. Zero is the one that cannot be lived with --
+            // that board publishes a MISS for every dart thrown at it.
+            //
+            // `calibrated` is deliberately untouched, which is a judgement and not an
+            // oversight. The count this census takes is a THIRD population (ADR-0081 §2):
+            // `voting` is cameras that can vote on what is ON the board, and a camera with
+            // a fitted ring but a broken wire ring really can still do that -- it spikes,
+            // it sees a dart appear and be taken out. Folding this question into `voting`
+            // would make `whyNoStateChangeIsPossible` say something false about it. A
+            // board that can see a dart and cannot number it is worth refusing, and that
+            // refusal belongs in its own gate with its own measurement behind it.
+            //
+            // The per-camera naming is repeated inside the WARN rather than left to the
+            // INFO above, because #882's rule is that a decision must not live one
+            // severity filter away from where it is read (#1449).
+            if (scorable == 0 && camera_slots > 0)
+            {
+                log_warning("No camera on this board can be scored from, so every dart thrown at "
+                            "it will be seen and published as a MISS -- the board will look alive "
+                            "and score nothing. " +
+                            each_camera_scores +
+                            ". Delete cache/ to measure this board again; a camera that is looking "
+                            "at the dartboard and still cannot be scored from came off a cache "
+                            "written by an older binary.");
+            }
+
             initialized = true;
             calibrated = true;
         }

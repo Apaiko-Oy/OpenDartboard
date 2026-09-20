@@ -174,6 +174,73 @@ namespace score_processing
     // Standard dartboard sequence starting from 20, clockwise
     static const vector<int> dartboard_numbers = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
 
+    // #1451: `scorePoint`'s guard, with one copy of it. See the header for why a camera
+    // can reach this function seeing the board and still be refused by it, and for why
+    // the refusal was invisible. NOT a behaviour change: this is the expression that was
+    // written inline below, character for character.
+    bool canScoreAPoint(const DartboardCalibration &calib)
+    {
+        return calib.ellipses.hasValidDoubles && calib.wires.wholeRing();
+    }
+
+    int camerasThatCanScoreAPoint(const vector<DartboardCalibration> &calibrations)
+    {
+        int scorable = 0;
+        for (const DartboardCalibration &calibration : calibrations)
+        {
+            if (canScoreAPoint(calibration))
+            {
+                scorable++;
+            }
+        }
+        return scorable;
+    }
+
+    string howItScores(const DartboardCalibration &calib)
+    {
+        if (canScoreAPoint(calib))
+        {
+            return "has a fitted doubles ring and all " + to_string(wire_processing::kWiresRequired) +
+                   " wire boundaries, so a dart is scored from it";
+        }
+        if (!calib.ellipses.hasValidDoubles)
+        {
+            // The same camera camera_quorum already abstains from both dart quorums for
+            // (#1339, #1354), said here in the scorer's own words: no fitted ring is no
+            // radial ruler, so there is no ring to put the dart in either.
+            return "has no fitted doubles ring, so it has no radial ruler and no dart is "
+                   "scored from it";
+        }
+        // A ring that is not whole. #1442's two shapes, and the count tells them apart,
+        // because they send the reader to different places: short is a wire stage that
+        // found too little, long is one that found too much and had the surplus dropped.
+        const string count = to_string(calib.wires.wiresDetected) + " of the " +
+                             to_string(wire_processing::kWiresRequired) + " wire boundaries a board has";
+        if (!calib.sees_board)
+        {
+            return "is not looking at the dartboard, and found " + count;
+        }
+        // Seeing the board with a ring that is not whole is the state `calibrateSingleCamera`
+        // refuses, so this camera did not calibrate on this start: it came off the cache,
+        // written by a binary whose wire guard asked the other field (#1442). The remedy is
+        // the cache and not the rig, and saying so is the whole point of naming it here.
+        return "calibrated with " + count +
+               ", which the wire guard refuses, so no dart is scored from it -- it came off "
+               "the calibration cache, written by a binary that measured a whole ring "
+               "differently; delete cache/ to measure this camera again";
+    }
+
+    string namingEachCamera(const vector<DartboardCalibration> &calibrations)
+    {
+        string out;
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            out += out.empty() ? "" : "; ";
+            out += "camera " + to_string(i + 1) + ": " + howItScores(calibrations[i]);
+        }
+        return out;
+    }
+
     // Clean, angle-based scoring function. #1186: the same decision upstream made, stated
     // as fields; `score` is composed from them and is byte-for-byte what it was.
     PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib)
@@ -201,7 +268,13 @@ namespace score_processing
         // gap left behind -- give every wedge past that gap a different number, reported
         // with the confidence of a whole ring. That is the same fault the sentence above
         // describes for nineteen wires, reached from the other side.
-        if (!calib.ellipses.hasValidDoubles || !calib.wires.wholeRing())
+        //
+        // #1451: the same expression, with one copy of it, so that the startup census can
+        // ask THIS question rather than a weaker one that happened to agree. It asked
+        // `sees_board && hasValidDoubles` and never the ring, so a camera refused here was
+        // counted a full voter at start and then abstained from every dart in silence --
+        // this refusal is `log_debug`, below the default level.
+        if (!canScoreAPoint(calib))
         {
             log_debug("SCORE: Invalid calibration data: camera " + log_string(calib.camera_index + 1) +
                       " has " + log_string(calib.wires.wiresDetected) + " wire boundaries where scoring needs the " +
