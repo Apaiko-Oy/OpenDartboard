@@ -544,6 +544,10 @@ private:
     // always available and always safe (#822 §11), so the board stops beating and says so
     // once, rather than beating at a 404 every interval for the length of an evening.
     std::atomic<bool> beat_unsupported_{false};
+    // #1474: said once, on the first beat that carries a camera census, so a console in
+    // the room with the board shows that the number the marking page draws is this
+    // board's own and is arriving.
+    std::atomic<bool> said_it_counts_cameras_{false};
     std::atomic<bool> paired_{false};
     std::atomic<bool> running_{false};
     // #1259. Set where a running board loses the last thing it could push with.

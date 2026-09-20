@@ -55,6 +55,65 @@ SAMPLE_SECONDS = float(os.environ.get("STUB_SAMPLE_SECONDS", "1"))
 SELF_REPORTABLE = ["UPDATING", "INITIALISING", "CALIBRATING", "READY", "ERROR"]
 TRANSCRIPT = os.environ.get("STUB_TRANSCRIPT", "/run822/transcript.jsonl")
 
+# ---------------------------------------------------------------------------------------
+# #1474 / #1343: what a beat may say about the board's cameras.
+#
+# `App\Autoscoring\CameraReport` ported, to the comparison, because the whole of #1474 is
+# whether the body a real board sends is one the real server accepts -- and a stub that
+# merely wrote down whatever arrived would pass on a body Turnaus answers 422 to. The
+# three behaviours that matter, and they are three different answers rather than degrees
+# of one:
+#
+#   ABSENT      no `cameras` key. 200, recorded as unknown. Every board from before
+#               #1474, which is the fleet mid-upgrade, and it must go on beating.
+#   REFUSED     the key is there and malformed -- a member missing, a member that is not
+#               a whole number, fitted outside 1..16, or a FOURTH member. 422, and the
+#               club loses the condition as well as the count, which is why the detector
+#               must never be able to send one.
+#   DROPPED     every member passes its own rule and the three disagree: scoring + dark
+#               above fitted is arithmetic no board can be in. 200 -- the beat is worth
+#               more than the census -- and the count is recorded as unknown.
+#
+# `array:fitted,scoring,dark` is Laravel's closed-object rule and is the sharp edge here:
+# a fourth member is a 422, so a detector that ever adds the machine's serial to this
+# object takes the board's condition off the club's page with it.
+MOST_A_BOARD_HAS = 16
+
+
+def camera_report(body):
+    """(status, report_or_None, why). 422 status means the whole beat is refused."""
+    if "cameras" not in body:
+        return 200, None, "absent"
+
+    cameras = body["cameras"]
+    if not isinstance(cameras, dict):
+        return 422, None, "not an object"
+
+    members = ("fitted", "scoring", "dark")
+    extra = sorted(set(cameras) - set(members))
+    if extra:
+        return 422, None, "members this object does not have: " + ",".join(extra)
+
+    for name in members:
+        if name not in cameras:
+            return 422, None, "no " + name
+        value = cameras[name]
+        # bool is an int in Python and is not a whole number here.
+        if isinstance(value, bool) or not isinstance(value, int):
+            return 422, None, name + " is not a whole number"
+        if value < 0 or value > MOST_A_BOARD_HAS:
+            return 422, None, name + " out of 0.." + str(MOST_A_BOARD_HAS)
+
+    if cameras["fitted"] < 1:
+        return 422, None, "fitted below 1"
+
+    report = {n: cameras[n] for n in members}
+    if report["scoring"] + report["dark"] > report["fitted"]:
+        return 200, None, "arithmetic no board can be in"
+
+    return 200, report, "stated"
+
+
 PIN = "483920"
 TOKEN = "17|" + "z" * 40
 # #1259: codes and tokens by generation. The first club token is TOKEN, unchanged, so every
@@ -111,6 +170,9 @@ state = {
     "heard_at": None,
     "condition": None,
     "beats": 0,
+    # #1474: the last camera census this board stated, or None for a board that has
+    # never said. Null is *nobody can say* and is never nought.
+    "cameras": None,
     "round": [],            # the round in hand: list of sectors
     "counted": [],          # references already counted into it
     "detections_seen": 0,
@@ -293,6 +355,7 @@ class Handler(BaseHTTPRequestHandler):
                     state["casual_beats"] = state.get("casual_beats", 0) + 1
                     beats_now = state["casual_beats"]
                 record({"event": "casual_beat", "condition": condition, "auth_sha256_16": auth_digest,
+                        "cameras": camera_report(body)[1], "cameras_raw": body.get("cameras"),
                         "round": list(state["casual_round"])})
                 if GIVE_UP_AFTER_BEATS and beats_now >= GIVE_UP_AFTER_BEATS:
                     state["casual_given_up"] = True
@@ -376,7 +439,16 @@ class Handler(BaseHTTPRequestHandler):
                         "auth_sha256_16": auth_digest})
                 return self.reply(422, {"message": "The given data was invalid.",
                                         "errors": {"condition": ["The selected condition is invalid."]}})
+            # #1474: asked BEFORE anything is written, as the real controller asks it --
+            # a refused body records no condition at all.
+            cam_status, cam_report, cam_why = camera_report(body)
+            if cam_status == 422:
+                record({"event": "beat_refused", "condition": condition, "cameras_why": cam_why,
+                        "cameras_raw": body.get("cameras"), "auth_sha256_16": auth_digest})
+                return self.reply(422, {"message": "The given data was invalid.",
+                                        "errors": {"cameras": [cam_why]}})
             with lock:
+                state["cameras"] = cam_report
                 state["beats"] += 1
                 state["club_token_beats"] += 1
                 token_beats = state["club_token_beats"]
@@ -386,7 +458,13 @@ class Handler(BaseHTTPRequestHandler):
                 state["checked_at"] = time.time()
             record({"event": "beat", "condition": condition, "auth_sha256_16": auth_digest,
                     "round": list(state["round"]), "counted": list(state["counted"]),
-                    "heard_at": state["heard_at"]})
+                    "heard_at": state["heard_at"],
+                    # #1474: what the page would draw. `cameras` is the report as STORED --
+                    # null is *nobody can say* and is never nought -- and `cameras_raw` is
+                    # what really came over the wire, so a tester can prove the shape as
+                    # well as the numbers.
+                    "cameras": cam_report, "cameras_why": cam_why,
+                    "cameras_raw": body.get("cameras")})
             if REVOKE_CLUB_AFTER_BEATS and token_beats >= REVOKE_CLUB_AFTER_BEATS:
                 # #1246's revocation: the token row is gone, and the next request meets 401.
                 record({"event": "club_revoked", "generation": state["club_generation"],
