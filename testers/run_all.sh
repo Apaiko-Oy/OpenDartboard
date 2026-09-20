@@ -117,6 +117,15 @@ tester 1441-region        "bash '$T/i1441_run.sh'"
 # wall 110 s -- it starts no detector and reads no build/opendartboard, so it takes no
 # `slow` and sits well inside the default 1200.
 tester 1442-count         "bash '$T/i1442_run.sh'"
+
+# #1467: the wire stage fits a twenty-fold model instead of counting to twenty. Six
+# sections, the last of which plants a board plane built with no bull in it -- #1466's
+# affine unprojection -- and asserts section 1 could not have passed on that tree. It
+# builds the census three times (this tree, the counting falsifier's run is the same
+# binary, the planted tree) and runs eighteen calibrations per build; it never starts
+# the detector binary, so OD_SKIP_BUILD makes no difference to it. Measured on the
+# 4-core box at load 9: 269 seconds.
+tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
 # #1445: a camera refused on one averaged frame is looked at again. Two censuses of the
 # calibration stage -- the averaged frame the board really calibrates on, then the single
 # frames after it -- which is where the budget's size comes from; then four detector runs

@@ -136,24 +136,43 @@ else
 fi
 # NO REGRESSION, asked LOOK BY LOOK rather than as a total: a model that lost one look
 # and gained two passes a comparison of counts and is still a regression.
+#
+# ONE KIND OF LOSS IS NOT A REGRESSION AND IT IS NAMED RATHER THAN EXCUSED. Counting
+# calibrates a camera whose doubles ellipse has COLLAPSED -- it counts twenty boundaries
+# on a ring that is not the board's -- and that is the silently-wrong-twenty class this
+# issue exists to refuse, not a camera the model lost. The precondition the model prints
+# on every row (`conic=1`) is what tells the two apart, and it is a measurement rather
+# than a list: the census holds the ray tracer's ellipse against #1423's ring identity.
+# Any other loss is a regression and fails here.
 python3 - /run1467/count.txt /run1467/model.txt <<'REG'
 import sys
-def ok(path):
+def read(path):
     out={}
     for l in open(path):
         if not l.startswith("I1467 "): continue
         f=dict(kv.split("=",1) for kv in l.split() if "=" in kv)
-        out[(f["clip"],f["look"])] = (f.get("ok")=="1")
+        out[(f["clip"],f["look"])] = f
     return out
-c, m = ok(sys.argv[1]), ok(sys.argv[2])
-lost=[k for k in c if c[k] and not m.get(k)]
-gained=[k for k in m if m[k] and not c.get(k)]
-print("     the model gains %d looks and loses %d against counting, look by look" % (len(gained), len(lost)))
-for k in sorted(gained): print("       gained: %s look %s" % (k[0].replace("/app/",""), k[1]))
-for k in sorted(lost):   print("       LOST:   %s look %s" % (k[0].replace("/app/",""), k[1]))
-print("OK   no look counting got right is refused by the model" if not lost
-      else "FAIL the model refuses %d look(s) counting calibrated" % len(lost))
-sys.exit(0 if not lost else 1)
+c, m = read(sys.argv[1]), read(sys.argv[2])
+def ok(f): return f is not None and f.get("ok")=="1"
+lost   = [k for k in c if ok(c[k]) and not ok(m.get(k))]
+gained = [k for k in m if ok(m[k]) and not ok(c.get(k))]
+unsound = [k for k in lost if m[k].get("conic","1") != "1"]
+real    = [k for k in lost if k not in unsound]
+short = lambda k: "%s look %s" % (k[0].replace("/app/",""), k[1])
+print("     the model gains %d looks and loses %d against counting, look by look"
+      % (len(gained), len(lost)))
+for k in sorted(gained): print("       gained: %s" % short(k))
+for k in sorted(unsound):
+    print("       refused, and rightly: %s -- counting returned twenty here on a conic the"
+          % short(k))
+    print("                             ring identity says is not the doubles ring (conic=%s),"
+          % m[k].get("conic"))
+    print("                             which is the wrong-twenty class this issue refuses")
+for k in sorted(real): print("       LOST:   %s" % short(k))
+print("OK   no look counting got right on a sound conic is refused by the model" if not real
+      else "FAIL the model refuses %d look(s) counting calibrated on a sound conic" % len(real))
+sys.exit(0 if not real else 1)
 REG
 [ $? -eq 0 ] || FAILED=1
 
