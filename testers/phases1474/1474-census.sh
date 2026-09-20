@@ -30,12 +30,44 @@ set -u
 #            change rather than from the stub -- and it is also the fleet mid-upgrade,
 #            which the server contract has to go on accepting.
 #   WHOLE    the shipped mocks, census on. A healthy board reports scoring EQUAL to fitted.
-#   REFUSED  mocks/rig-20260918, census on. #1442 refuses a camera proposing more than
-#            twenty wire boundaries and cameras 1 and 3 of that fixture propose 21 and 22,
-#            so this board really has cameras it cannot be scored from. It must report
-#            FEWER scoring than fitted. This is the positive control the acceptance
-#            criterion names, and without it WHOLE would pass on a board that reported
-#            "all of them" whatever was in front of it.
+#   REFUSED  mocks/rig-20260918 with OD_CALIBRATION_LOOKS=once, census on. A board with a
+#            camera that really is refused at calibration must report FEWER scoring than
+#            fitted. This is the positive control the acceptance criterion names, and
+#            without it WHOLE would pass on a board that reported "all of them" whatever
+#            was in front of it.
+
+# WHAT THIS TESTER DOES NOT MEASURE, AND IT IS A MEASUREMENT RATHER THAN A GAP. `dark` is
+# the third number and every phase here leaves it at NOUGHT, so a detector that never
+# counted a dark camera would pass. A dark camera is one that delivered no frame AT
+# CALIBRATION -- `dark` is `calibrations.size() - validCount(calibration_frames)` -- and
+# the obvious instrument does not reach that: OD_DROP_CAM=3 OD_DROP_EVERY=1 was tried and
+# the board still calibrated 3 of 3 and beat `3 3 0`, because that switch fails a slot
+# inside the SCORING loop and the calibration frames are read before it by
+# `capture::readAveraged(30)`. The board this needs is a start given two readable sources
+# and one that is not -- two cameras calibrate, the third slot is kept and empty -- and it
+# is left to whoever next touches this file rather than guessed at here. The NOCAMS phase
+# covers the all-dark end of it: no census at all, which is the answer that matters most.
+#
+# WHY `OD_CALIBRATION_LOOKS=once` IS IN THAT PHASE, AND IT IS A MEASUREMENT RATHER THAN A
+# CONVENIENCE. #1442 refuses a camera proposing more than twenty wire boundaries, and
+# mocks/rig-20260918/cam_3 proposes twenty-one on its averaged frame -- so that fixture
+# was the obvious way to build a board with a camera it cannot be scored from. It is not
+# one any more. #1445 (merged at 9d699de, AFTER #1442) hands a refused camera up to twelve
+# further looks five capture cycles apart, and on this fixture the second look finds
+# exactly twenty and the camera calibrates. MEASURED on this tree, not argued: a plain rig
+# start logs `Camera 3 did not calibrate: the wire stage found 21 wire boundaries`, then
+# `LOOK AGAIN: camera(s) 3 were refused`, and then `SCORING: 3 of 3 cameras can be scored
+# from` -- a board with NO refused camera left, and a positive control that controls
+# nothing. An earlier draft of this tester asserted on that board and duly failed.
+#
+# `OD_CALIBRATION_LOOKS=once` is #1445's own falsification switch and it says in that
+# file what it is for: one averaged frame per camera and nothing after it, which is what
+# every commit before #1445 did, "so the population this issue is about can be counted
+# twice on ONE binary". Used here for exactly that -- the refusal is #1442's real one, on
+# this binary, on shipped footage, with the recovery that would have hidden it turned off
+# by the switch its own author provided. It is not a pretend refusal and nothing is
+# hardcoded: the camera really is set aside for the run, and the board really does score
+# with fewer cameras than it has.
 #
 # WHOLE and REFUSED are each other's control in both directions: a tester holding only
 # WHOLE would pass on a detector that hardcoded fitted==scoring, and one holding only
@@ -192,7 +224,7 @@ phase() {
 phase nocams  "$NOWHERE" 20
 phase old     "$MOCKS"   30 OD_BEAT_CAMERAS=0
 phase whole   "$MOCKS"   30
-phase refused "$RIG"     30
+phase refused "$RIG"     30 OD_CALIBRATION_LOOKS=once
 
 kill $STUB 2>/dev/null; wait $STUB 2>/dev/null
 
@@ -289,6 +321,12 @@ echo "    last stated beat: $(stated refused)"
 if grep -qa 'wire boundaries where a board has 20' /run1474/refused.txt; then
   say "OK   a camera really was refused at calibration on this fixture (#1442)" ok
 else say "FAIL no camera was refused here, so this phase is not a positive control at all" no; fi
+# And it STAYED refused. Without this the phase silently stops being a positive control
+# the day #1467 lands and cam_3's wire stage finds twenty on its averaged frame -- the
+# assertion below would then be measuring a healthy board and reporting the defect.
+if grep -qa 'OD_CALIBRATION_LOOKS=once is set' /run1474/refused.txt; then
+  say "OK   and #1445's further looks really were off, so it stayed refused for the run" ok
+else say "FAIL the refused camera was looked at again, so this board may have recovered" no; fi
 if [ -z "$(stated refused)" ]; then
   say "FAIL the degraded board stated no census -- which is the state somebody most needs it in" no
 else
