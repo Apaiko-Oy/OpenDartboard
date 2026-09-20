@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 #include <opencv2/opencv.hpp>
@@ -118,6 +119,34 @@ public:
     // Initialize the detector. A detector is given the frames it calibrates on and the
     // rate they arrive at; it is not given the device they came from.
     virtual bool initialize(const vector<camera::Frame> &calibration_frames, double capture_fps) = 0;
+
+    /**
+     * #1445: a way to be handed ANOTHER look, for a camera this detector could not
+     * calibrate on the first one.
+     *
+     * The line above is the contract and this does not weaken it. A detector is still
+     * not given the device: it is given a function that answers with frames, of exactly
+     * the type `initialize` is already handed, and it can do nothing with it but ask for
+     * another picture. It cannot open, close, re-configure or even name a camera.
+     *
+     * WHY ANY OF THIS IS NEEDED. Calibration happens once, on one averaged frame per
+     * camera, and a camera refused on that frame abstains for the life of the run
+     * (#1318, and the cost is written out in geometry_calibration.cpp). #1442 made the
+     * wire count two-sided and the cost landed at once: `mocks/rig-20260918/cam_3`
+     * proposes twenty-one on its averaged frame and exactly twenty on many of the single
+     * frames composing that average. One bad picture is not an evening, and the only
+     * thing missing was a second picture.
+     *
+     * WHAT IT IS NOT. It is not a recalibration, and the distinction is ADR-0080 §2's.
+     * Whatever a detector does with this, it does BEFORE it has sealed a geometry -- so
+     * there is nothing for it to depart from and nothing for it to adopt. A board that
+     * is scoring is asked with `reviewGeometry`, which is a different question with a
+     * different answer and does not touch `calibrations`.
+     *
+     * The default is to ignore the offer: a detector that calibrates on one frame or on
+     * none is complete without it, and `initialize` is still the only thing that decides.
+     */
+    virtual void offerFurtherLooks(function<vector<camera::Frame>()> /*look*/) {}
 
     // Whether the detector is ready
     virtual bool isInitialized() const = 0;

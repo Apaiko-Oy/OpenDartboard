@@ -16,6 +16,252 @@
 using namespace cv;
 using namespace std;
 
+// ---- #1445: the board looks more than once, and the two numbers that say how often ----
+namespace
+{
+    // MEASURED, on both fixtures, by testers/phases1445/1445-looks.sh. See the table
+    // below; the constants are set from it and the harness re-derives it on every run, so
+    // a re-shot fixture or a moved constant fails here rather than in a pub. This is
+    // #1388's shape and it is deliberately the same shape: a budget nobody measured is the
+    // one thing this slice must not produce.
+    //
+    // WHAT A LOOK IS. One frame, read from the camera, calibrated with the same
+    // `calibrateSingleCamera` the first pass used. NOT another thirty-frame average, and
+    // the measurement is why rather than a preference -- see the table. The averaged frame
+    // is not a better picture of the board, it is a picture of thirty pictures, and a
+    // bright edge present in any of them survives the mean with a thirtieth of its
+    // contrast while a wire boundary that moved between them is smeared. That is a reading
+    // no single frame gave, and it is the reading this issue is about.
+    //
+    // WHAT WAS MEASURED, per clip: the run of CONSECUTIVE looks that do not read a whole
+    // ring, which is how long a board looking repeatedly would go on being refused by a
+    // camera that can be calibrated. It is the direct analogue of #1388's longest run of
+    // consecutive disagreeing samples, and it answers the same question -- how long a
+    // disturbance this budget has to outlast.
+    //
+    // MEASURED 2026-09-20 on the 4-core box at load 1.9-3.7, with the integration sweep
+    // finished and nothing else running, by testers/phases1445/1445-looks.sh: the averaged
+    // frame each camera really calibrates on -- composed the way readAveraged(30) composes
+    // one, from the seek DEBUG_SEEK_VIDEO puts that camera's slot at -- and then eighty
+    // consecutive single frames after it.
+    //
+    //                          averaged   single frames    longest run of consecutive
+    //                             frame   reading twenty   refused looks, 5 cycles apart
+    //     mocks/cam_1                20          55 of 80   2
+    //     mocks/cam_2                20          55 of 80   3
+    //     mocks/cam_3                20          72 of 80   1
+    //     rig-20260918/cam_1         20          29 of 80   4
+    //     rig-20260918/cam_2         20          80 of 80   0
+    //     rig-20260918/cam_3         21 REFUSED  42 of 80   5   <-- the maximum
+    //
+    // THE FIRST ROW OF THAT LAST LINE IS THE WHOLE ISSUE, and it reproduces on a quiet box:
+    // #1442's twenty-one was measured at load 12-15 and flagged as possibly a figure the
+    // load produced. It is not. For a FILE source `read()` takes the next frame and no
+    // clock is consulted, so readAveraged(30) over a mock is the mean of thirty consecutive
+    // frames and which thirty is decided by the seek alone -- the number is arithmetic, and
+    // it came back 21 at load 1.9. That camera then reads exactly twenty on 42 of the 80
+    // single frames composing and following that average. The average really is the worse
+    // picture.
+    //
+    // WHY FIVE CYCLES APART rather than adjacent. Adjacent frames are not independent
+    // readings, and the measurement says so: at a spacing of one the longest run of
+    // consecutive refused looks is 18 (mocks/cam_2), at three it is 7, at five it is 5 and
+    // at ten it is 3. Five is where the run stops falling steeply, and spending twelve
+    // looks on twelve adjacent frames would measure very little more than one look.
+    //
+    // WHY TWELVE. Five is the longest run any camera of either fixture produced at this
+    // spacing, so twelve outlasts it 2.4 times over -- the same margin #1388 gave itself
+    // (an 11-to-12 s span against a 6.00 s disturbance) and for the same reason: five is
+    // the longest run seen in this footage, not the longest run there is. The whole budget
+    // spans 12 x 5 = 60 frames, which is 2.0 s at the mocks' 30 fps and 4.0 s at the 15 fps
+    // a rig is more likely to run at.
+    //
+    // ONE CAMERA OF SIX IS IN THE POPULATION, and that is worth saying rather than hiding:
+    // the budget's maximum and the issue's subject are the same camera. The other five rows
+    // are what stops it being a constant chosen for one clip -- rig/cam_1 reads nineteen on
+    // half its frames and would have wanted four looks had its average been refused, which
+    // is the second-longest run and is measured on a camera this retry never touches.
+    //
+    // THE COST OF BEING WRONG IS NOT SYMMETRIC, and the margin goes the same way #1388's
+    // does. A look is one frame read and one calibration, and it is spent ONLY on a camera
+    // that has already been refused -- a board whose cameras all calibrated on the
+    // averaged frame does not read a single extra frame and does not reach this code. An
+    // over-long budget therefore costs start-up seconds on a board that is already in
+    // trouble; an over-short one sets a healthy camera aside for the evening, which is the
+    // fault this issue was filed on.
+    constexpr int kFurtherLooks = 12;
+
+    // How many capture cycles pass between one look and the next. Consecutive frames are
+    // not independent readings -- whatever the camera is reading that a board does not
+    // have is usually still there a frame later -- so spending the budget on twelve
+    // adjacent frames measures very little more than one. This is the spacing the census
+    // below was taken at.
+    constexpr int kFramesBetweenLooks = 5;
+
+    /**
+     * OD_CALIBRATION_LOOKS=once restores the board this slice was filed on: one averaged
+     * frame per camera and nothing after it, which is what every commit before #1445 did.
+     * So the population this issue is about can be counted twice on ONE binary and the
+     * difference is this function and nothing else (#1340).
+     *
+     * Anything but that exact word is ignored, so a typo looks again rather than silently
+     * reading in the behaviour the issue was filed on. There is deliberately no word for
+     * the reverse: looking again is what this stage now IS, not a mode it is in.
+     */
+    bool theBoardLooksOnlyOnce()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_CALIBRATION_LOOKS");
+            return e && std::string(e) == "once";
+        }();
+        return v;
+    }
+}
+
+void GeometryDetector::lookAgainAtRefusedCameras()
+{
+    // ADR-0080 §2, checked rather than asserted. `sealed_geometry` is taken at the end of
+    // `initialize` and never written again, so a non-empty seal here means this board has
+    // already decided what its geometry is -- and changing it afterwards is the adoption
+    // #899 refused and #1388 built a refusal around. This branch can only be reached by
+    // somebody moving the call, which is exactly the mistake worth making impossible.
+    if (!sealed_geometry.empty())
+    {
+        log_error("LOOK AGAIN refused: this board has already sealed its geometry, and a "
+                  "calibration taken now would be adopted mid-run (ADR-0080 §2)");
+        return;
+    }
+
+    // Which cameras have an EMPTY slot, and which of those are worth another picture.
+    //
+    // A camera that produced no frame is not a camera that was looked at and refused, and
+    // it is left alone here on #1338's distinction rather than by oversight. Nothing about
+    // its aim or its lighting has been concluded, because nothing was seen; what is wrong
+    // is a cable, a hub or the bandwidth it shares (#1319), and reading the same silence
+    // twelve more times says nothing the first silence did not. #1372 wrote down that a
+    // camera which comes back during the evening is #899's review's errand and not
+    // `initialize`'s, and that is still true.
+    vector<size_t> still_refused;
+    for (size_t i = 0; i < calibrations.size(); i++)
+    {
+        if (calibrations[i].sees_board)
+        {
+            continue;
+        }
+        if (board_look::verdict(calibrations[i].look) == board_look::Refused::NoFrame)
+        {
+            continue;
+        }
+        still_refused.push_back(i);
+    }
+    if (still_refused.empty())
+    {
+        return;
+    }
+
+    if (theBoardLooksOnlyOnce())
+    {
+        log_warning("OD_CALIBRATION_LOOKS=once is set: the " + to_string((int)still_refused.size()) +
+                    " camera(s) refused on this start's averaged frame are not looked at again, "
+                    "as they were not before #1445");
+        return;
+    }
+    if (!further_look)
+    {
+        // Nobody offered. A detector calibrating from a still, or from a test's fixture,
+        // has no second picture to be handed and says so once rather than looking like a
+        // budget that was spent.
+        log_info("LOOK AGAIN: " + to_string((int)still_refused.size()) +
+                 " camera(s) were refused on this start's averaged frame and nothing offered "
+                 "this detector another look, so the first frame is the only evidence there is");
+        return;
+    }
+
+    // #1445: a look is not a fault, and the fault record is where that has to be said.
+    //
+    // `board_sight::recordFault` is first-fault-wins and `calibrateSingleCamera` calls it
+    // on every refusal it reaches. So without this, a camera refused on look 1 and
+    // calibrated on look 2 would leave BOARD FAULTED holding a sentence about a camera
+    // that is scoring -- and, worse, would hold the slot against the real fault that comes
+    // later, which on this board is #1388's `Moved`. What the first pass recorded is kept
+    // whole; what the looks record is dropped, and the gate below records the board's real
+    // refusal, with every camera named (#1389), if there is one.
+    const string fault_before_looking = board_sight::faultDetail();
+
+    string names;
+    for (size_t i : still_refused)
+    {
+        names += (names.empty() ? "" : ", ") + to_string((int)i + 1);
+    }
+    log_info("LOOK AGAIN: camera(s) " + names + " were refused on this start's averaged frame, "
+             "which is one picture and not an evening. Up to " + to_string(kFurtherLooks) +
+             " further looks, " + to_string(kFramesBetweenLooks) +
+             " capture cycles apart, before any of them is set aside for the run");
+
+    int looks_spent = 0;
+    for (int look = 1; look <= kFurtherLooks && !still_refused.empty(); look++)
+    {
+        vector<camera::Frame> frames;
+        for (int cycle = 0; cycle < kFramesBetweenLooks; cycle++)
+        {
+            frames = further_look();
+        }
+        looks_spent = look;
+
+        const vector<Mat> images = camera::images(frames);
+        vector<size_t> carried;
+        for (size_t i : still_refused)
+        {
+            if (i >= images.size() || images[i].empty())
+            {
+                // The camera has gone quiet between the average and now. That is not a
+                // refusal and it is not agreement either; it is a look that did not
+                // happen, and it costs the budget nothing to say so.
+                carried.push_back(i);
+                continue;
+            }
+
+            DartboardCalibration fresh = geometry_calibration::calibrateSingleCamera(images[i], (int)i, false);
+            if (!fresh.sees_board)
+            {
+                carried.push_back(i);
+                continue;
+            }
+
+            // The only write in this function, and it is into a slot that held nothing a
+            // board can be scored through: a refused calibration returns before the
+            // perspective fit and before orientation, so there is no measurement here to
+            // overwrite. This is a FIRST calibration for this camera, arriving late.
+            calibrations[i] = fresh;
+            log_info("LOOK AGAIN: camera " + to_string((int)i + 1) + " calibrated on look " +
+                     to_string(look) + " of " + to_string(kFurtherLooks) +
+                     ", so the averaged frame was a worse reading than this one and not a "
+                     "camera that cannot be scored with");
+        }
+        still_refused = carried;
+    }
+
+    board_sight::faultDetail() = fault_before_looking;
+
+    if (!still_refused.empty())
+    {
+        string left;
+        for (size_t i : still_refused)
+        {
+            left += (left.empty() ? "" : ", ") + to_string((int)i + 1);
+        }
+        // #1389: the count is the less useful half, and the reason each camera was refused
+        // is already on that camera's own ERROR line from every look it was given. What
+        // this adds is the one thing those lines cannot say -- that it was asked more than
+        // once and answered the same way, which is what tells a transient from a camera to
+        // go and look at.
+        log_error("LOOK AGAIN: camera(s) " + left + " were refused on the averaged frame and on all " +
+                  to_string(looks_spent) + " further looks, so they are set aside for this run; "
+                  "the reason is on each camera's own line above and is the thing to act on");
+    }
+}
+
 // Constructor
 GeometryDetector::GeometryDetector(bool debug_mode, int target_width, int target_height, int target_fps)
     : initialized(false), calibrated(false), debug_mode(debug_mode), target_width(target_width), target_height(target_height), target_fps(target_fps)
@@ -302,6 +548,27 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                 debug_mode,
                 target_width,
                 target_height);
+
+            // #1445: and a second picture for any camera that slot is still empty for.
+            //
+            // HERE, and the position is the argument rather than a detail. It is after
+            // the first pass, so a camera that calibrated is already done and is not
+            // looked at; it is before the gate below, so the census, both arithmetics and
+            // `scoring_with` are all asked of the cameras this board really ended up
+            // with; and it is before `sealed_geometry` is taken at the end of this
+            // function, so there is no geometry yet for a later look to have departed
+            // from. ADR-0080 §2 is about a board changing its mind after it has decided;
+            // this is the deciding.
+            //
+            // It is on the MEASURING path only. A cached start did not look at the board
+            // at all (#1372) and a second look it did not take could not be written into a
+            // file it is not writing; a camera missing from a cache is the case #1372
+            // handed to #899's review, and it still is.
+            lookAgainAtRefusedCameras();
+
+            // And only now the census, because only now is the answer final (#1318,
+            // #1338, #1389). See the note where this used to be printed.
+            geometry_calibration::sayWhichCamerasSeeTheBoard(calibrations);
         }
 
         // #1318, standing on 74be46f rather than reverting it. That commit replaced
