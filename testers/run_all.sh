@@ -111,7 +111,10 @@ tester 1372-cached        "bash '$T/i1372_run.sh'"
 # Four detector runs on shipped footage and no instrumentation -- an unanchored board is
 # three slots filled from the two mocks that are not the star camera -- plus a compile of
 # the branch point, which is the "before": admitted, READY, and every dart the asserted 20
-# with nothing said until after one had been published. MEASURED_WALL
+# with nothing said until after one had been published. MEASURED 2026-09-20 on the 4-core
+# box, to completion, rc=0: wall 180.2 s at host_busy_pct=41.2, so it takes no `slow` --
+# it sits well inside the default 1200, and the number is here rather than in nobody's
+# head, which is how 1317-asan's 1200 got to be wrong.
 tester 1449-anchoring     "bash '$T/i1449_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
