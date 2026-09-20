@@ -9,7 +9,7 @@ file is the only thing that can say whether a score is **right**.
 
 ## The darts
 
-Four visits, twelve throws, two of them misses.
+Five visits, fifteen throws, two of them misses.
 
 | visit | 1 | 2 | 3 |
 | --- | --- | --- | --- |
@@ -17,6 +17,7 @@ Four visits, twelve throws, two of them misses.
 | 2 | 19 | 20 | *miss* |
 | 3 | 15 | 4 | 18 |
 | 4 | *miss* | 7 | 2 † |
+| 5 | 5 | 20 | 20 |
 
 † The last dart was read as a 2 from `cam_1` alone and the maintainer flagged it as
 uncertain — a second camera would settle it. Treat it as unconfirmed rather than as fact,
@@ -35,8 +36,10 @@ finding as a wrong wedge.
 
 ## Measured against it, on merged `main` at `77710ca`
 
-`OD_MAX_CYCLES=1200`, all three cameras, 2026-09-20. Eleven darts detected of twelve
-thrown:
+`OD_MAX_CYCLES=1200`, all three cameras, 2026-09-20. **The run was truncated by that cap
+and never reached visit 5**, so the table below compares visits 1–4 only: eleven darts
+detected of the twelve thrown in them. A later run must raise the cap or it will keep
+measuring four fifths of the footage and calling it all of it.
 
 | visit | detector | thrown |
 | --- | --- | --- |
