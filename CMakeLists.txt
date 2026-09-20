@@ -68,7 +68,16 @@ function(od_update_anchors target)
     foreach(which CURRENT NEXT)
         set(anchor "${OD_UPDATE_ANCHOR_${which}}")
         if(NOT anchor STREQUAL "")
-            if(NOT anchor MATCHES "^[0-9a-fA-F]{128}$")
+            # CMake's regex has no bounded repetition -- `{128}` is matched literally, so
+            # `^[0-9a-fA-F]{128}$` refuses every correct anchor and the build can never be
+            # given one. Measured on cmake 3.18.4: the 128-hex anchor fails that pattern and
+            # passes `^[0-9a-fA-F]+$`. The length is therefore its own check.
+            #
+            # Found by dispatching the workflow rather than by reading it: the bash guard in
+            # `signing-inputs` accepted the same string this refused, and two engines
+            # disagreeing about one variable is what named the cause.
+            string(LENGTH "${anchor}" anchor_length)
+            if(NOT anchor MATCHES "^[0-9a-fA-F]+$" OR NOT anchor_length EQUAL 128)
                 message(FATAL_ERROR
                     "OD_UPDATE_ANCHOR_${which} is not 128 hexadecimal characters, so update_keys::anchors() "
                     "would drop it and this build would answer NoAnchor to every manifest. It is the "
