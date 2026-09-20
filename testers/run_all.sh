@@ -197,6 +197,14 @@ tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
 tester 899-recover        "bash '$T/i899_run.sh'"
+# Six labels ran something and threw its verdict away until #1479 -- the four immediately
+# below, plus 1276-control and 1257-control further down. The five *-control.sh scripts
+# ended on `echo "PROGRAM_RC=$?"` and the announce phase on `echo "PHASES_DONE"`, and an
+# echo returns 0 whatever it printed, so not one of them could go red however the detector
+# died. That is #1412's defect in the directories #1412 did not sweep. Each now exits on
+# what it measured and says in its own first lines what that status carries: the detector's
+# own for a control, which asserts nothing about what was scored; the count of #1274's own
+# three musts for the announce phase, which already stated them in prose.
 tester 1274-announce      "bash '$T/i1274_run.sh' announce '$T/phases1274/1274-announce.sh'"
 # #1295 is the other half of #1274's rule -- an announcement must not precede the socket --
 # reached by the other cause: a board that CAN see and whose listen() fails anyway. It runs
