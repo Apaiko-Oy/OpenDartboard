@@ -36,7 +36,7 @@ ok()   { echo "ok   $*"; }
 # phase 1 and printed, or "it was still running" would only mean "it was still
 # calibrating". Both phases assert BOARD FAULTED is in the log as well as rc=124, so the
 # number being too small is a red build and never a quiet pass.
-WAIT_S=75
+WAIT_S=40
 # And the ceiling on a run that IS supposed to end on its own. Twenty vigil cycles is
 # four seconds after the fault; everything before that is the fixture calibrating.
 END_S=180
@@ -66,13 +66,24 @@ seeing_run() {  # <name> <timeout> <env...> -- the same, on the shipped mocks
 }
 
 listen() {      # <transcript> -- bind the socket systemd would have bound
-  rm -f "$SOCK" "$1"
+  # The old readiness file goes FIRST and the wait is for the word rather than for a
+  # size. `cmd > f &` truncates f in the CHILD, so a parent that asks whether f is
+  # non-empty can be answered by the PREVIOUS phase's copy of it, leave the wait at once,
+  # and grep a file the child truncates a millisecond later. Measured: phase 7 failed
+  # that way on the first run of this tester and phases 6 and 8 did not.
+  rm -f "$SOCK" "$1" "$RUN/listener.out"
   : > "$1"
   python3 /app/testers/i1383_notify_listener.py "$SOCK" "$1" > "$RUN/listener.out" 2>&1 &
   LISTENER=$!
   local waited=0
-  while [ ! -s "$RUN/listener.out" ] && [ "$waited" -lt 50 ]; do sleep 0.2; waited=$((waited + 1)); done
-  grep -q READY "$RUN/listener.out" || { fail "the notify listener never bound $SOCK"; return 1; }
+  while ! grep -q READY "$RUN/listener.out" 2>/dev/null && [ "$waited" -lt 100 ]; do
+    sleep 0.2; waited=$((waited + 1))
+  done
+  if ! grep -q READY "$RUN/listener.out" 2>/dev/null; then
+    fail "the notify listener never bound $SOCK"
+    sed 's/^/     | /' "$RUN/listener.out" 2>/dev/null
+    return 1
+  fi
 }
 hangup() { kill "$LISTENER" 2>/dev/null; wait "$LISTENER" 2>/dev/null; }
 
@@ -85,7 +96,7 @@ else
 fi
 if grep -qE "^SCORE: |Scorer running with" "$RUN/fixture.all"; then
   fail "the fixture scored or entered the scoring loop; it is not blind and every phase below it is empty"
-  grep -mE1 "^SCORE: |Scorer running with" "$RUN/fixture.all" | sed 's/^/     | /'
+  grep -m1 -E "^SCORE: |Scorer running with" "$RUN/fixture.all" | sed 's/^/     | /'
 else
   ok "it never entered the scoring loop and never scored a dart"
 fi

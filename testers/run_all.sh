@@ -191,6 +191,13 @@ tester 1282-footage       "bash '$T/i1282_run.sh'"
 tester 1303-launcher      "bash '$T/i1303_check.sh'"
 tester 1306-install      "bash '$T/i1306_check.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
+# #1383: a blind board given a cycle budget ends, and a blind board says so where a
+# supervisor can read it. Six detector runs on #892's blind fixture and the shipped
+# mocks, each half measured against the SAME binary with OD_BLIND_RUN=unbounded -- what
+# this tree did before -- so no phase is a claim about a build. It asserts #895's vigil
+# is intact first and ends a blind run only where one was handed a number. MEASURED
+# 2026-09-20 on the 4-core box: see the label's own line; it needs no `slow`.
+tester 1383-blind-end     "bash '$T/i1383_run.sh'"
 # #1334's other half measures what systemd does with templates/*.service.template, so it
 # needs a live manager and a live journal where everything here runs in a container with
 # no init. It is deliberately outside this list and carries a marker saying so.
