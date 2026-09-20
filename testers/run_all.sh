@@ -107,6 +107,12 @@ tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"
 tester 1348-quorum        "bash '$T/i1348_run.sh'"
 tester 1372-cached        "bash '$T/i1372_run.sh'"
+# #1449: whether the board says AT START how many of its cameras can be read for a wedge.
+# Four detector runs on shipped footage and no instrumentation -- an unanchored board is
+# three slots filled from the two mocks that are not the star camera -- plus a compile of
+# the branch point, which is the "before": admitted, READY, and every dart the asserted 20
+# with nothing said until after one had been published. MEASURED_WALL
+tester 1449-anchoring     "bash '$T/i1449_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
