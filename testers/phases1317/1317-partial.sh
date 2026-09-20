@@ -164,11 +164,27 @@ else say "FAIL the census refused $BLIND cameras and $REFUSED of them on the wir
 # the board`. That is the whole of the intermittency -- some runs get far enough to round
 # a second time, and nothing about the tree under test decides which.
 #
-# The scoping is structural rather than lucky. calibrateMultipleCameras() fits every
-# camera inside its loop, each fit logging `PnP calibration successful` from
-# perspective_processing, and prints the census ONCE after the loop closes. So every fit
-# belonging to a round precedes that round's own census line, always; counting the fits
-# above that line counts the round the census is about and no other.
+# The scoping is structural rather than lucky. It was written against a detector where
+# calibrateMultipleCameras() both fitted every camera and printed the census after its own
+# loop closed, and #1445 moved the census out from under that sentence -- so the
+# derivation below is #1453's, re-measured on this tree, and the conclusion is unchanged.
+#
+# `initialize` now calibrates in TWO passes and prints the census after both:
+# calibrateMultipleCameras() fits every camera it admits, then lookAgainAtRefusedCameras()
+# gives each still-empty slot up to a few further looks and calls calibrateSingleCamera()
+# on each -- so a camera refused on the averaged frame and calibrated on a later look logs
+# its `PnP calibration successful` from perspective_processing AFTER the first pass has
+# finished. Only then does initialize() call sayWhichCamerasSeeTheBoard(), which is the
+# same block, lifted out of calibrateMultipleCameras() unedited, printing the same
+# `CAMERAS: n of 3` sentence this greps for.
+#
+# So the census is printed by a different function than it was, and LATER -- and that
+# makes the scoping stronger rather than weaker. A refused camera returns before the
+# perspective fit, so it logs no fit on the pass that refused it; every fit above the
+# census line therefore belongs to a camera the census counts, from either pass, and a
+# later ROUND's fit -- #895's vigil, which is the intermittency this section was written
+# for -- is still below it. Counting the fits above that line counts the cameras the
+# census is about and no others.
 CENSUS_AT=$(grep -nE 'CAMERAS: [0-9]+ of 3' /run1317/partial_dbg.txt | head -1 | cut -d: -f1)
 if [ -z "${CENSUS_AT:-}" ]; then
   say "FAIL the debug run printed no camera census, so there is no round to count PnP fits within" no
@@ -180,6 +196,28 @@ else
   if [ "$PNP" = "$SEEING_DBG" ]; then
     say "OK   $PNP PnP fits for $SEEING_DBG camera(s) that saw the board, and none for the rest" ok
   else say "FAIL $PNP PnP fits against $SEEING_DBG cameras that saw the board, within one round" no; fi
+
+  # #1453: and the placement the paragraph above derives that from, ASSERTED rather than
+  # described. The scoping is only sound while the census is printed after the LAST thing
+  # that can still change it, and what that is has already moved once: #1445 added a
+  # second pass and carried the census out of calibrateMultipleCameras() to sit below it.
+  # A comment cannot notice the next such move -- this one went stale for a day and #1453
+  # was filed on it -- so the ordering is read out of the run. `LOOK AGAIN:` is the second
+  # pass saying it ran; a census printed ABOVE one is a census taken before the answer was
+  # final, and every fit count above it is then about a board that changed afterwards.
+  LOOK_LAST=$(grep -nE '^\[[A-Z]+\]\[GEOMETRYDETECTOR\] - LOOK AGAIN:' /run1317/partial_dbg.txt \
+    | tail -1 | cut -d: -f1)
+  if [ -z "${LOOK_LAST:-}" ]; then
+    # Not a failure and not a pass. How many cameras this fixture refuses depends on the
+    # second the calibration lands on -- the header above says so -- so a run in which
+    # none was refused never reached the second pass, and there is no ordering here to
+    # measure. Said out loud so it cannot read as a check that passed.
+    echo "second pass: no LOOK AGAIN line in this run, so the census/second-pass ordering was not exercised"
+  elif [ "$CENSUS_AT" -gt "$LOOK_LAST" ]; then
+    say "OK   the census (line $CENSUS_AT) is printed below the second pass's last word (line $LOOK_LAST), so it counts the board this start really ended with" ok
+  else
+    say "FAIL the census is at line $CENSUS_AT and the second pass was still speaking at line $LOOK_LAST, so the census was taken before the answer was final and the fit count above it is about a board that changed afterwards" no
+  fi
 fi
 
 echo "=== 3d. a board on which nothing calibrated says so ==="
