@@ -178,6 +178,19 @@ tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
 tester 899-recover        "bash '$T/i899_run.sh'"
 tester 1274-announce      "bash '$T/i1274_run.sh' announce '$T/phases1274/1274-announce.sh'"
+# #1295 is the other half of #1274's rule -- an announcement must not precede the socket --
+# reached by the other cause: a board that CAN see and whose listen() fails anyway. It runs
+# beside #1274's because the two share a path and a harness shape, and it is the cheaper of
+# the two: two starts rather than three, and no blind-camera phase.
+# MEASURED 2026-09-20 on the 4-core box: see the pull request for the wall time and the load.
+tester 1295-socket        "bash '$T/i1295_run.sh'"
+# #1473 is the case #1295 turned out not to cover: not another program on 13520 but
+# another BOARD, which httplib's SO_REUSEPORT lets bind alongside the first with nothing
+# failing and nothing logged. It runs beside #1295's because its positive control IS
+# #1295's refusal -- the two decisions share one path and must not drift apart -- and it
+# starts up to two detectors at once, which is why it is the hungrier of the two.
+# MEASURED 2026-09-20 on the 4-core box: see the pull request for the wall time and the load.
+tester 1473-lock          "bash '$T/i1473_run.sh'"
 tester 1249-control       "bash '$T/i1249_run.sh' '$T/i1249_control.sh'"
 tester 1258-control       "bash '$T/i1258_run.sh' '$T/i1258_control.sh'"
 tester 1259-control       "bash '$T/i1259_run.sh' '$T/i1259_control.sh'"

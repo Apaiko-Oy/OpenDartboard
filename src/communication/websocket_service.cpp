@@ -497,6 +497,14 @@ void WebSocketService::start()
     // #816: shipped code constructs server_ inside the worker thread and reads the
     // same pointer from the main thread's stop(). Constructing it here makes the
     // write happen-before the thread that reads it.
+    //
+    // #1473: and this Server binds with SO_REUSEPORT and without SO_REUSEADDR, because
+    // that is httplib::detail::default_socket_options and this repository deliberately
+    // leaves it alone. It means two boards on one host both bind 13520 and silently share
+    // the darts, which is refused a long way above here -- one_board::Claim in main(),
+    // see src/communication/one_board.hpp and the note beside the httplib tag in
+    // CMakeLists.txt. Do not set socket options here to "fix" it: the lock is what holds,
+    // whatever an httplib upgrade does to the default.
     if (od_fix::shutdownFix())
     {
         server_ = make_unique<httplib::Server>();
@@ -937,16 +945,42 @@ void WebSocketService::run()
         // Start server thread. #1187: the address is the setting's - loopback unless
         // --listen - and the log says which, so a reader can tell from the log alone
         // whether the board is on the network.
+        //
+        // #1295: the thread does nothing but listen, and says nothing. Both "listening"
+        // lines used to be printed by this lambda BEFORE it called listen(), so a board
+        // whose port was already taken printed two confident sentences and then the
+        // correction underneath them - which is the opposite of what #1187 added them for.
+        // Nothing claims a socket is open until listen() has said so, below.
         const string bind = settings_.bind_address;
         const bool on_network = bind != "127.0.0.1" && bind != "localhost" && bind != "::1";
-        thread server_thread([&, bind, on_network]()
+        thread server_thread([&, bind]()
                              {
+            if (!server_->listen(bind.c_str(), port_))
+                log_error("score socket: could not listen on " + bind + ":" + to_string(port_) +
+                          " (is the port already in use?)"); });
+
+        // #1295: wait for listen() to answer, and record the answer for main.
+        //
+        // wait_until_ready() ends on either outcome rather than spinning on the good one:
+        // listen() carries its own scope_exit setting done_, so a bind that fails returns
+        // and ends the wait, while a bind that succeeds sets is_running_ and ends it too.
+        // That makes this a race-free "did the socket open?" with no future and no promise.
+        server_->wait_until_ready();
+        socket_listening_ = server_->is_running();
+        socket_resolved_ = true;
+
+        if (socket_listening_)
+        {
             log_info("WebSocket server listening on ws://" + bind + ":" + to_string(port_) + "/scores" +
                      (on_network ? " (open on the network; a subscriber presents ?token=)"
                                  : " (loopback only; --listen opens it on the network, a subscriber presents ?token=)"));
             log_info("Rest server listening on http://" + bind + ":" + to_string(port_) + "/");
-            if (!server_->listen(bind.c_str(), port_))
-                log_error("score socket: could not listen on " + bind + ":" + to_string(port_)); });
+        }
+        else
+        {
+            log_warning("score socket: nothing is listening on " + bind + ":" + to_string(port_) +
+                        "; this board scores but no subscriber can reach it");
+        }
 
         // MAIN BROADCASTING LOOP - this is where the magic happens!
         while (running_)
@@ -971,7 +1005,24 @@ void WebSocketService::run()
     catch (const exception &e)
     {
         log_error("WebSocket server error: " + string(e.what()));
+        // #1295: a caller waiting on the socket's answer gets one here too. Without this,
+        // a throw on the way to listen() would leave awaitScoreSocket() waiting for an
+        // attempt that is never going to be made.
+        socket_listening_ = false;
+        socket_resolved_ = true;
     }
+}
+
+// #1295: the socket's own answer, waited for. Returns when listen() has answered - or at
+// once if this service was never started or has already been stopped, which are both
+// honestly "no socket". Nothing here reads a clock.
+bool WebSocketService::awaitScoreSocket()
+{
+    while (running_ && !socket_resolved_)
+    {
+        this_thread::sleep_for(chrono::milliseconds(1));
+    }
+    return socket_resolved_ && socket_listening_;
 }
 
 void WebSocketService::broadcastScore(const string &json_message)

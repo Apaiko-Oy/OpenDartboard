@@ -295,6 +295,18 @@ bool Scorer::canSee() const
     return detector && detector->isInitialized();
 }
 
+// #1295: the socket, and whether it really came up. See scorer.hpp for why main calls
+// this before it announces the board, and why calling it twice opens one socket.
+bool Scorer::openScoreSocket()
+{
+    if (!canSee())
+    {
+        return false; // the fault vigil never opens a socket
+    }
+    websocket_service_->start();
+    return websocket_service_->awaitScoreSocket();
+}
+
 void Scorer::run()
 {
     // #895: the null check that was missing, and -- more to the point -- the thing that
@@ -326,8 +338,17 @@ void Scorer::run()
         return;
     }
 
-    // Start WebSocket service
-    websocket_service_->start();
+    // Start WebSocket service.
+    //
+    // #1295: through openScoreSocket(), which main has already called before announcing.
+    // start() is idempotent and the answer is recorded, so this is the same socket read a
+    // second time rather than a second socket. A board whose port is taken goes on
+    // scoring - the queue still has to be drained, and a board with no network is still a
+    // board - it is only the announcement that must not be made.
+    if (!openScoreSocket())
+    {
+        log_warning("score socket: not open, so nothing can subscribe to this board");
+    }
 
     // #822: and the outbound client, if there is one. It starts its own worker thread;
     // an unpaired board starts nothing and says so once.
