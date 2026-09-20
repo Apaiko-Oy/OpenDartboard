@@ -191,11 +191,46 @@ namespace score_processing
      * apart -- a camera counted at start and refused at every dart is exactly the silence
      * this issue is about. `sees_board` is NOT the question: a cached calibration can
      * carry it over a ring this expression refuses.
+     *
+     * NOT a behaviour change: this is the expression `scorePoint` had written inline,
+     * character for character.
      */
-    bool canScoreAPoint(const DartboardCalibration &calib);
+    inline bool canScoreAPoint(const DartboardCalibration &calib)
+    {
+        return calib.ellipses.hasValidDoubles && calib.wires.wholeRing();
+    }
+
+    /**
+     * #1451: whether a dart really IS scored from this camera, which is both of
+     * `processScore`'s conditions and is what a census must ask.
+     *
+     * `canScoreAPoint` above is the guard INSIDE `scorePoint`, and it is right not to ask
+     * `sees_board`: its caller asks that first and abstains the camera by name before ever
+     * calling it. A census asking the inner guard alone repeats this very issue one field
+     * further on -- and not hypothetically. #1372 clears `sees_board` on a cached camera
+     * that produced no frame THIS start, while its cached ring and doubles stay exactly as
+     * they were; that camera passes `canScoreAPoint` and is abstained by `processScore`
+     * anyway. An earlier draft of this census counted it scorable, and
+     * testers/i1451_scoring_check.cpp is what caught it.
+     */
+    inline bool aDartIsScoredFrom(const DartboardCalibration &calib)
+    {
+        return calib.sees_board && canScoreAPoint(calib);
+    }
 
     /** How many of these cameras the scorer will read a point from. */
-    int camerasThatCanScoreAPoint(const vector<DartboardCalibration> &calibrations);
+    inline int camerasThatCanScoreAPoint(const vector<DartboardCalibration> &calibrations)
+    {
+        int scorable = 0;
+        for (const DartboardCalibration &calibration : calibrations)
+        {
+            if (aDartIsScoredFrom(calibration))
+            {
+                scorable++;
+            }
+        }
+        return scorable;
+    }
 
     /**
      * #1389 / ADR-0081 §3: this camera's own reason, never just a count. "A message saying
@@ -207,7 +242,51 @@ namespace score_processing
      * cache written by an older binary, where the remedy is to delete cache/ rather than
      * to touch the rig.
      */
-    string howItScores(const DartboardCalibration &calib);
+    inline string howItScores(const DartboardCalibration &calib)
+    {
+        // #1321's rule, and the positive branch obeys it too: the count is stated against
+        // the threshold even when it passed. An earlier draft of this line said "all 20"
+        // as a constant, and the tester caught it measuring a board running under
+        // OD_WIRE_COUNT=atleast, where a camera really holding twenty-one was reported as
+        // holding all twenty. A census whose healthy sentence cannot report the number
+        // that decided it hides exactly the reading this issue is about.
+        if (aDartIsScoredFrom(calib))
+        {
+            return "has a fitted doubles ring and " + to_string(calib.wires.wiresDetected) +
+                   " of the " + to_string(wire_processing::kWiresRequired) +
+                   " wire boundaries a board has, so a dart is scored from it";
+        }
+        // Asked in `processScore`'s own order, and the order is load-bearing. A cached
+        // camera that produced no frame this start keeps its cached ring and doubles and
+        // loses only `sees_board` (#1372), so asking the ring first would report a whole
+        // ring on a camera the scorer abstains before it looks at one.
+        if (!calib.sees_board)
+        {
+            return "is not looking at the dartboard this start, so it abstains and no dart "
+                   "is scored from it";
+        }
+        if (!calib.ellipses.hasValidDoubles)
+        {
+            // The same camera camera_quorum already abstains from both dart quorums for
+            // (#1339, #1354), said here in the scorer's own words: no fitted ring is no
+            // radial ruler, so there is no ring to put the dart in either.
+            return "has no fitted doubles ring, so it has no radial ruler and no dart is "
+                   "scored from it";
+        }
+        // A ring that is not whole. #1442's two shapes, and the count tells them apart,
+        // because they send the reader to different places: short is a wire stage that
+        // found too little, long is one that found too much and had the surplus dropped.
+        const string count = to_string(calib.wires.wiresDetected) + " of the " +
+                             to_string(wire_processing::kWiresRequired) + " wire boundaries a board has";
+        // Seeing the board with a ring that is not whole is the state `calibrateSingleCamera`
+        // refuses, so this camera did not calibrate on this start: it came off the cache,
+        // written by a binary whose wire guard asked the other field (#1442). The remedy is
+        // the cache and not the rig, and saying so is the whole point of naming it here.
+        return "calibrated with " + count +
+               ", which the wire guard refuses, so no dart is scored from it -- it came off "
+               "the calibration cache, written by a binary that measured a whole ring "
+               "differently; delete cache/ to measure this camera again";
+    }
 
     /**
      * Every camera in its own slot, with its own reason, scorable or not. Deliberately not
@@ -216,7 +295,17 @@ namespace score_processing
      * which are different questions about the same camera, and one sentence answering all
      * three would be wrong about two of them.
      */
-    string namingEachCamera(const vector<DartboardCalibration> &calibrations);
+    inline string namingEachCamera(const vector<DartboardCalibration> &calibrations)
+    {
+        string out;
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            out += out.empty() ? "" : "; ";
+            out += "camera " + to_string(i + 1) + ": " + howItScores(calibrations[i]);
+        }
+        return out;
+    }
+
 
     // #1186: score one tip against one camera's calibration. The string the vote counts
     // is PointScore::score; the rest is the same decision stated as fields.

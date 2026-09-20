@@ -71,6 +71,12 @@ tester 1349-background    "bash '$T/unit_check.sh' 1349"
 tester 1350-vote-line     "bash '$T/unit_check.sh' 1350"
 tester 1351-ledger        "bash '$T/unit_check.sh' 1351"
 tester 1363-anchor        "bash '$T/unit_check.sh' 1363"
+# #1451: `canScoreAPoint` -- the scorer's own guard, extracted so the startup census and
+# `scorePoint` ask one expression -- plus the count and the per-camera naming built on it.
+# It carries the ZERO board, which 1451-scoring deliberately does not: no cache this
+# repository can write holds three refused rings, because the one shipped camera with a
+# long ring produces it in one slot position only (measured; see the check's own header).
+tester 1451-scorable      "bash '$T/unit_check.sh' 1451"
 
 tester 1258-choice        "bash '$T/i1258_check.sh'"
 tester 1319-findings      "bash '$T/i1319_run.sh'"
@@ -107,6 +113,17 @@ tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"
 tester 1348-quorum        "bash '$T/i1348_run.sh'"
 tester 1372-cached        "bash '$T/i1372_run.sh'"
+# #1451: whether the board says AT START how many of its cameras a dart can be SCORED
+# from. #1449 one field over and worse -- a camera refused by `scorePoint` contributes
+# nothing at all rather than an asserted 20, and the refusal is log_debug. Six detector
+# runs plus a compile of the branch point, on mocks/rig-20260918, whose camera 3 finds
+# twenty-one wire boundaries. The board is built from that fixture's own cache, written by
+# a binary with #1442's OD_WIRE_COUNT=atleast set and read by one without it, because the
+# cache is the only door into the state: a freshly calibrated camera with a ring that is
+# not whole is refused by `calibrateSingleCamera` and never reaches the census.
+# MEASURED 2026-09-20 on the 4-core box, to completion, rc=0: see the line below for the
+# number, recorded here rather than left in nobody's head (how 1317-asan's 1200 got wrong).
+tester 1451-scoring       "bash '$T/i1451_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"

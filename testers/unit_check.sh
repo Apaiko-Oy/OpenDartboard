@@ -30,8 +30,9 @@ case "$NAME" in
   1350) SRC=i1350_vote_line_check.cpp;   EXTRA= ;;
   1351) SRC=i1351_ledger_check.cpp;      EXTRA= ;;
   1363) SRC=i1363_anchor_check.cpp;      EXTRA= ;;
+  1451) SRC=i1451_scoring_check.cpp;     EXTRA=src/detector/geometry/calibration/wire_processing.cpp ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1346 1347 1349 1350 1351 1363" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1346 1347 1349 1350 1351 1363 1451" >&2
     exit 2
     ;;
 esac
