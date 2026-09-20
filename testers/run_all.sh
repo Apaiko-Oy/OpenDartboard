@@ -87,6 +87,12 @@ tester 1363-anchor        "bash '$T/unit_check.sh' 1363"
 # long ring produces it in one slot position only (measured; see the check's own header).
 tester 1451-scorable      "bash '$T/unit_check.sh' 1451"
 
+# #1477: the sentence --autocams prints about a camera it rejects. autocam::probe() is
+# #ifdef _WIN32 and cannot be compiled here, so what this measures is the pure function
+# outside that #ifdef which decides the verdict and writes the words -- the same two
+# sentences capture.hpp prints at the OPEN site, held to each other so one cannot drift.
+tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
+
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
 # plain and OD_SEAL=star -- and unit_check.sh compiles and runs a check once. Costs a
