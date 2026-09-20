@@ -284,6 +284,28 @@ live in **`Apaiko-Oy/turnaus`** -- #1437 through #1453 are all there. So a `gh` 
 repository needs `--repo Apaiko-Oy/OpenDartboard` for a pull request and `--repo Apaiko-Oy/turnaus`
 for an issue, and neither default is right.
 
+6. **A tester's dependency on another branch is not always a symbol, and a symbol grep will
+   not find it.** Measured on 2026-09-20 while moving #1451 off #1449. Every grep for #1449's
+   identifiers -- `orientation_processing`, `OD_CAMERA_WEDGES`, `wedgeCanBeRead`, `ORIENTATION` --
+   came back clean. The dependency was a **git object**:
+
+   ```sh
+   BASE_COMMIT="${BASE_COMMIT:-75f9d2b}"     # 75f9d2b is the other branch's tip
+   ```
+
+   That is the commit the tester's "before" phase unpacks, compiles and measures the defect's
+   absence on. Left alone it would have gone on compiling a tree the branch no longer contains
+   **and passed green**, because the phase's only guard refused a branch point that already
+   carried the fix -- it catches a commit that is too *new* and is blind to one that is merely
+   somebody else's.
+
+   So a tester that pins a base commit states which branch it belongs to, and the guard to
+   write is the one that fires when it does not:
+
+   ```sh
+   git merge-base --is-ancestor "$BASE_COMMIT" HEAD    # rc=0 on the right branch, 1 elsewhere
+   ```
+
 ## API Documentation
 
 See [`docs/api.md`](docs/api.md) for the full WebSocket specification & client examples.
