@@ -17,6 +17,8 @@
 #include "orientation_processing.hpp"
 #include "dartboard_visualization.hpp"
 #include "perspective_processing.hpp"
+#include "ring_identity.hpp"
+#include "wire_model.hpp"
 
 using namespace cv;
 using namespace std;
@@ -191,6 +193,46 @@ namespace geometry_calibration
                       log_string_src(why) + ".");
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " did not calibrate: it " + why);
             return calibration;
+        }
+
+        // [===STEP 1.6:===] #1423: WHICH RING WAS THAT? Asked here, and here for a reason.
+        //
+        // The span STEP 1 measured is the only length this pipeline has at this point and
+        // everything below is about to be sized by it -- STEP 2's region, STEP 2.5's
+        // colour windows, and the radius term #1416 watches between one calibration and
+        // the next. On `mocks/cam_*.mp4` that span IS the board and on
+        // `mocks/rig-20260918` it is 107/170 of it, and until this statement nothing in
+        // the pipeline could tell the two apart: three constants downstream each guessed,
+        // and each guessed differently.
+        //
+        // It is asked AFTER STEP 1.5 and not before, because the reading is a claim about
+        // what lies outside the measured ring and a frame that has cut the board off can
+        // make that claim true by amputation. ADR-0079 section 2 is exactly the guarantee
+        // this needs, and STEP 1.5 has just enforced it on the same mask.
+        //
+        // This stage STATES the identity; it does not spend it. #1378's ROI margin,
+        // #1407's colour cutoff and #1416's `max_radius_change` are each a constant of
+        // their own issue, and every one of them still holds the worst case it held
+        // before this line existed. What has changed is that they no longer have to.
+        const ring_identity::Sighting ring =
+            ring_identity::identify(fullFrameColours, Point2f((float)board.center.x, (float)board.center.y),
+                                    board.radius);
+        calibration.look.ring_measured = static_cast<int>(ring.ring);
+        calibration.look.ring_reach_of_span = ring.reach;
+        calibration.look.ring_reach_rays = ring.rays_answered;
+
+        if (ring.stated())
+        {
+            log_debug("Camera " + log_string(cameraIdx + 1) + " ring identity: " +
+                      log_string_src(ring_identity::sentence(ring)));
+        }
+        else
+        {
+            // #1321's shape, one level down: the reading, both bands it missed, and what
+            // is being done instead. A fallback nobody can see is the defect this issue
+            // is about, repeating.
+            log_warning("Camera " + log_string(cameraIdx + 1) + " ring identity: " +
+                        log_string_src(ring_identity::sentence(ring)));
         }
 
         // [===STEP 2:===] The region, drawn around the board that was found.
@@ -471,8 +513,26 @@ namespace geometry_calibration
             const bool moreThanABoardHas = wireData.wiresDetected > wire_processing::kWiresRequired;
             const string count = to_string(wireData.wiresDetected);
             const string needed = to_string(wire_processing::kWiresRequired);
+
+            // #1467: THE THIRD REASON, AND IT IS THE LOUD HALF OF THIS ISSUE'S OWN RISK.
+            // The twenty-fold model rides entirely on the bull centre -- the conic fixes
+            // the rest of the map -- so a bull that is wrong tilts the whole board, and
+            // the ring it then generates is twenty boundaries in the wrong places rather
+            // than a count anybody could notice. What makes that survivable is that the
+            // fit's own coherence FALLS with bull error (r = -0.863 over 84 frames), so
+            // the failure is announced in the number it is a failure of. This is the
+            // announcement: the camera is refused, by name, with R against its minimum,
+            // and it is the opposite of what a wrong ring did before this issue.
+            const bool fitRefused = wireData.fit_asked && !wireData.fit_trusted;
             const string why =
-                moreThanABoardHas
+                fitRefused
+                    ? "the wire stage could not place a board plane it trusts -- its twenty-fold "
+                      "coherence is " + to_string(wireData.fit_coherence) + " against a minimum of " +
+                          to_string(wire_model::minimumCoherence()) + " over " +
+                          to_string(wireData.fit_candidates) +
+                          " candidates, which on this rig has meant a bull centre several pixels "
+                          "from where the board's really is; this camera cannot be scored with."
+                : moreThanABoardHas
                     ? "the wire stage found " + count + " wire boundaries where a board has " + needed +
                           ", so it is reading something that is not the board and no " + needed +
                           " of those " + count + " are the board's; this camera cannot be scored with."
@@ -480,10 +540,13 @@ namespace geometry_calibration
                           " are needed to tell one wedge from the next, so this camera cannot be scored with.";
             log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: " + log_string_src(why));
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
-                                     " did not calibrate: the wire stage found " + count +
-                                     (moreThanABoardHas
-                                          ? " wire boundaries where a board has " + needed
-                                          : " of the " + needed + " wire boundaries a board has"));
+                                     (fitRefused
+                                          ? " did not calibrate: the wire stage could not place a board "
+                                            "plane it trusts (coherence " + to_string(wireData.fit_coherence) + ")"
+                                          : " did not calibrate: the wire stage found " + count +
+                                                (moreThanABoardHas
+                                                     ? " wire boundaries where a board has " + needed
+                                                     : " of the " + needed + " wire boundaries a board has")));
             calibration.sees_board = false;
             return calibration;
         }

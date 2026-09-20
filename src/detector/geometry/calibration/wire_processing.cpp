@@ -3,6 +3,8 @@
 #include <iostream>
 
 #include "wire_processing.hpp"
+#include "wire_model.hpp"
+#include "ring_identity.hpp"
 #include "geometry_calibration.hpp"
 #include "utils.hpp"
 #include <cstdlib>
@@ -632,23 +634,75 @@ namespace wire_processing
         return avgPosition;
     }
 
+    double conicOfDoublesFor(const DartboardCalibration &calib)
+    {
+        ring_identity::Sighting sighting;
+        sighting.ring = static_cast<ring_identity::Ring>(calib.look.ring_measured);
+        sighting.reach = calib.look.ring_reach_of_span;
+
+        const double semiMajor = 0.5 * max(calib.ellipses.outerDoubleEllipse.size.width,
+                                           calib.ellipses.outerDoubleEllipse.size.height);
+        const double boardFromSpan = calib.look.board_span_px * sighting.boardRadiusOfSpan();
+        const double band = ring_identity::Spec().band(); // 1.2605, and nothing chosen
+        const double trebleOfDoubles = 1.0 / ring_identity::Spec().boardRadiusOfTrebleSpan();
+
+        double conicOfDoubles = 1.0;
+        if (boardFromSpan > 0.0 && semiMajor > 0.0)
+        {
+            const double ratio = semiMajor / boardFromSpan;
+            if (ratio > 1.0 / band && ratio < band)
+            {
+                conicOfDoubles = 1.0; // the ray tracer and #1423 agree: this is the doubles ring
+            }
+            else if (ratio > trebleOfDoubles / band && ratio < trebleOfDoubles * band)
+            {
+                conicOfDoubles = ring_identity::Spec().boardRadiusOfTrebleSpan();
+                log_warning("Camera " + log_string(calib.camera_index + 1) +
+                            " wire model: the fitted conic is " + log_string((int)semiMajor) +
+                            " px where " + log_string((int)boardFromSpan) +
+                            " px is this board's radius by its ring identity, so the ring that was "
+                            "traced is the TREBLE ring; the plane is built at " +
+                            log_string(ring_identity::Spec().boardRadiusOfTrebleSpan()) +
+                            " of it rather than at its own radius.");
+            }
+            else
+            {
+                log_warning("Camera " + log_string(calib.camera_index + 1) +
+                            " wire model: the fitted conic is " + log_string((int)semiMajor) +
+                            " px and this board's radius by its ring identity is " +
+                            log_string((int)boardFromSpan) +
+                            " px, which is neither the doubles ring nor the treble ring of the "
+                            "other; the plane is built on the conic as traced and its tilt is "
+                            "worth no more than that.");
+            }
+        }
+        return conicOfDoubles;
+    }
+
+    // What the two suppliers proposed, before anything is grouped, fitted or kept.
+    // #1467 made this its own function: the fit and the census both read it, and the
+    // census must read the SAME candidates the stage read.
+    vector<Point2f> wireCandidates(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib, const WireDetectionConfig &config)
+    {
+        vector<Point2f> contourWires = findWiresByColorTransitions(frame, colorMask, calib, false);
+        vector<Point2f> houghWires = findWiresByHoughLines(frame, colorMask, calib, false, config);
+
+        log_debug("Contour method found " + log_string(contourWires.size()) + " wires");
+        log_debug("Hough method found " + log_string(houghWires.size()) + " wires");
+
+        vector<Point2f> allWires = contourWires;
+        allWires.insert(allWires.end(), houghWires.begin(), houghWires.end());
+
+        log_debug("Combined total: " + log_string(allWires.size()) + " wire candidates");
+        return allWires;
+    }
+
     // Ensemble method combining both approaches - AVERAGE VERSION
     vector<Point2f> findWiresByEnsemble(const Mat &mask, const Mat &colorMask, const DartboardCalibration &calib, bool debug_mode, const WireDetectionConfig &config)
     {
         log_debug("STARTING ENSEMBLE WIRE DETECTION (AVERAGE) for camera " + log_string(calib.camera_index));
 
-        // Get wires from both methods
-        vector<Point2f> contourWires = findWiresByColorTransitions(mask, colorMask, calib, false);
-        vector<Point2f> houghWires = findWiresByHoughLines(mask, colorMask, calib, false, config);
-
-        log_debug("Contour method found " + log_string(contourWires.size()) + " wires");
-        log_debug("Hough method found " + log_string(houghWires.size()) + " wires");
-
-        // Combine all wire candidates
-        vector<Point2f> allWires = contourWires;
-        allWires.insert(allWires.end(), houghWires.begin(), houghWires.end());
-
-        log_debug("Combined total: " + log_string(allWires.size()) + " wire candidates");
+        vector<Point2f> allWires = wireCandidates(mask, colorMask, calib, config);
 
         // Group wires by angular proximity (±9° tolerance for 18° dartboard segments)
         vector<vector<Point2f>> wireGroups = groupWiresByAngle(allWires, Point2f(calib.bullCenter), 9.0f);
@@ -762,11 +816,80 @@ namespace wire_processing
                   log_string((int)calib.ellipses.outerDoubleEllipse.size.height) +
                   " px) and not from the board finder's search region");
 
-        // Choose detection method based on config
         vector<Point2f> colorWires;
 
-        log_debug("Using ENSEMBLE detection method (Contour + Hough + Scoring)");
-        colorWires = findWiresByEnsemble(frame, colorMask, calib, enableDebug, config);
+        if (wire_model::modelNotAsked())
+        {
+            // OD_WIRE_MODEL=count: the counting path, whole, on this same binary.
+            log_debug("Using ENSEMBLE detection method (Contour + Hough + Scoring)");
+            colorWires = findWiresByEnsemble(frame, colorMask, calib, enableDebug, config);
+        }
+        else
+        {
+            // #1467: FIT TWENTY RATHER THAN COUNT TO TWENTY.
+            const vector<Point2f> candidates = wireCandidates(frame, colorMask, calib, config);
+            result.fit_candidates = (int)candidates.size();
+            result.fit_asked = true;
+
+            // WHICH RING THE CONIC IS, asked of #1423 rather than assumed. The model
+            // measures the bull's offset in units of the conic's OWN radius, so a conic
+            // that is really the treble ring makes the same bull read 1.589 times
+            // further out and the recovered tilt is wrong while still looking plausible.
+            //
+            // It is a PRECONDITION and it is asserted rather than relied on (#1295).
+            // #1423's identity is about the span STEP 1 measured, and what this stage
+            // holds is the ellipse STEP 6 ray-traced -- two different measurements of
+            // possibly two different rings. So the two are held against each other here:
+            // the span times `boardRadiusOfSpan()` is the board's radius according to
+            // #1423, and the conic's semi-major axis is the board's radius according to
+            // the ray tracer. Agreement within #1423's own band is the precondition;
+            // disagreement is said out loud, in both numbers, and is not quietly fixed.
+            const double conicOfDoubles = conicOfDoublesFor(calib);
+
+            const wire_model::Plane plane =
+                wire_model::planeOf(calib.ellipses.outerDoubleEllipse, Point2f(calib.bullCenter), conicOfDoubles);
+            const wire_model::Fit fit = wire_model::fitTwentyFold(plane, candidates);
+
+            result.fit_coherence = fit.coherence;
+            result.fit_inlier_fraction = fit.inlierFraction;
+            result.fit_trusted = fit.built && fit.coherence >= wire_model::minimumCoherence();
+
+            if (!plane.built)
+            {
+                // The bull is not inside the ring it is supposed to be the centre of, or
+                // the conic has no radius. There is no plane, so there is no ring, and
+                // there is deliberately no fallback to counting: a ring nobody can place
+                // is the plausible wrong answer this issue exists to refuse.
+                log_warning("Camera " + log_string(calib.camera_index + 1) +
+                            " wire model: no board plane could be built from a conic of " +
+                            log_string((int)calib.ellipses.outerDoubleEllipse.size.width) + "x" +
+                            log_string((int)calib.ellipses.outerDoubleEllipse.size.height) +
+                            " px and a bull at (" + log_string(calib.bullCenter.x) + "," +
+                            log_string(calib.bullCenter.y) + ").");
+            }
+            else if (result.fit_trusted)
+            {
+                const wire_model::Ring ring = wire_model::ringFrom(plane, fit, candidates, Point2f(calib.bullCenter));
+                colorWires = ring.endpoints;
+                result.fit_snapped = ring.snapped;
+            }
+
+            // Default level, not DEBUG: this is the fit-quality line #1458 observed does
+            // not exist, and a quality number nobody prints is a quality number nobody
+            // reads. #1321's rule on the sentence -- the numbers, against each other, in
+            // one line.
+            log_info("Camera " + log_string(calib.camera_index + 1) + " wire model: " +
+                     log_string(fit.candidates) + " candidates, tilt " + log_string(plane.tilt) +
+                     ", coherence R=" + log_string(fit.coherence) + " against a minimum of " +
+                     log_string(wire_model::minimumCoherence()) + ", " +
+                     log_string((int)(100.0 * fit.inlierFraction)) + "% of them within " +
+                     log_string(wire_model::kResidualCutDeg) + " degrees of the ring, rms " +
+                     log_string(fit.rmsResidualDeg) + " degrees; " +
+                     (result.fit_trusted
+                          ? log_string(result.fit_snapped) + " of the twenty boundaries were placed by a "
+                                                             "candidate and the rest by the model"
+                          : string("this fit is not trusted and no ring was generated from it")));
+        }
 
         // #1317: a push, not an indexed copy. This loop used to run i over 0..19 and read
         // colorWires[i] with nothing looking at colorWires.size(), so a nine-wire board
@@ -789,7 +912,7 @@ namespace wire_processing
         // #1442 repairs the second: with a real `.size()` the question was still asked of
         // a store BOUNDED at twenty, which can read short and can never read long, so
         // twenty-two filled it to twenty and passed. `isAWholeRing` asks wiresDetected.
-        result.isValid = result.wholeRing();
+        result.isValid = result.readable();
 
         // #1317: what was found, not what the array can hold. On the rig that issue was
         // filed from, the line above this one said "Selected 9 averaged wires" and this

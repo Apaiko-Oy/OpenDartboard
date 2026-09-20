@@ -94,6 +94,25 @@ namespace color_processing
          * repair needs something this stage does not have: which ring the span landed on.
          * That is #1378's open problem and not this issue's. `OD_COLOUR_WINDOWS=frame`
          * therefore moves three windows and not four, deliberately.
+         *
+         * #1423, WHAT CHANGED FOR THIS CUTOFF. The thing this window's repair needed and
+         * this stage did not have -- which ring the span landed on -- is now measured one
+         * stage up and recorded as `Evidence::ring_measured`, so the sentence above is no
+         * longer true of the pipeline as a whole. "1.0 R is 1.0 span under one reading and
+         * 1.589 spans under the other" stops being two readings: on every camera either
+         * fixture has, STEP 1.6 says which, and 1.0 R is one number.
+         *
+         * That dissolves the tie this cutoff could not be chosen through. At 1.589 spans
+         * the window landed on 496 and 486 px where the mocks' room blobs sit at 497 and
+         * 486 -- one pixel and an exact tie -- BECAUSE the mocks' span is the doubles ring
+         * and 1.589 was the wrong multiplier for them. With the identity stated their
+         * window is 1.0 R = 1.0 span -- 312 and 306 px on those two cameras -- and the room
+         * blobs at 497 and 486 px are 185 and 180 px outside it; the rig keeps its 1.589 and its two real components at 0.74
+         * and 0.76 R.
+         *
+         * This constant is still 0.6 of the frame and this issue did not move it. #1407 is
+         * where it is moved, on this measurement, and its author's refusal to ship a
+         * number stands until then.
          */
         double maxDistanceFromCenter = 0.6; // Maximum distance from center as ratio of image width
 

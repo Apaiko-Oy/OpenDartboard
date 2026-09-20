@@ -117,6 +117,29 @@ tester 1441-region        "bash '$T/i1441_run.sh'"
 # wall 110 s -- it starts no detector and reads no build/opendartboard, so it takes no
 # `slow` and sits well inside the default 1200.
 tester 1442-count         "bash '$T/i1442_run.sh'"
+
+# #1423: which ring the calibration stage measured -- the doubles ring or the treble
+# ring -- read from the image rather than from a constant fitted to a rig. Its statistic
+# is `reach`, the outermost radius carrying colour at the 90th percentile over 720 rays,
+# in spans; the two fixtures sit on the two values the millimetres predict (1.0 and
+# 170/107) with a factor of 1.61 of clear air between them.
+#
+# Registered here because it was NOT: #1423 shipped `i1423_run.sh` and no line in this
+# file, so the label existed and the suite would never have run it -- a tester that
+# cannot be reached is the same as one that cannot fail (#1463). Found by #1467's agent,
+# which is stacked on #1423 and read the file for its own registration.
+#
+# Measured on the 4-core box at load 9.62: 213 seconds.
+tester 1423-ringidentity  "bash '$T/i1423_run.sh'"
+
+# #1467: the wire stage fits a twenty-fold model instead of counting to twenty. Six
+# sections, the last of which plants a board plane built with no bull in it -- #1466's
+# affine unprojection -- and asserts section 1 could not have passed on that tree. It
+# builds the census three times (this tree, the counting falsifier's run is the same
+# binary, the planted tree) and runs eighteen calibrations per build; it never starts
+# the detector binary, so OD_SKIP_BUILD makes no difference to it. Measured on the
+# 4-core box at load 9: 269 seconds.
+tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
 # #1445: a camera refused on one averaged frame is looked at again. Two censuses of the
 # calibration stage -- the averaged frame the board really calibrates on, then the single
 # frames after it -- which is where the budget's size comes from; then four detector runs

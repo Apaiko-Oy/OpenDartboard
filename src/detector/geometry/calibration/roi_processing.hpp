@@ -106,6 +106,23 @@ namespace roi_processing
          * all six, because they have now moved twice under a tester that pinned their
          * consequence rather than themselves.
          */
+        /**
+         * #1423, WHAT CHANGED FOR THIS CONSTANT. Nothing yet, deliberately: this margin
+         * is still 2.107 and this issue did not move it.
+         *
+         * What moved is that the ambiguity it is the worst case OF is now measured.
+         * STEP 1.6 states which ring the span landed on and records it as
+         * `Evidence::ring_measured`, so the "somewhere between f spans and 1.589 f spans"
+         * this constant is sized against is, on every camera either fixture has, a
+         * `ring_identity::Sighting::boardRadiusOfSpan()` of exactly 1.0 or exactly 1.589.
+         * 18 of 18 looks are named, with 1.14x of clear air to the nearest boundary.
+         *
+         * So the margin can become arithmetic rather than a worst case whenever #1378
+         * wants it to -- and until it does, taking the worst case costs what it always
+         * cost and is still right. This is a statement made available, not a constant
+         * moved: changing a margin eleven detector branches stack on is that issue's
+         * work and not this one's.
+         */
         float roiRadiusOfBoardRadius = 2.107f;
     };
 

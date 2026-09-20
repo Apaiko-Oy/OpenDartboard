@@ -34,7 +34,7 @@ namespace perspective_processing
             return result;
         }
 
-        if (!calib.wires.wholeRing())
+        if (!calib.wires.readable()) // #1467: the whole ring, and a plane that was trusted
         {
             // A fact of its own, so it says the count. #1317 made it true: `.size()` is
             // now what the wire stage found rather than the capacity it was stored in, so
