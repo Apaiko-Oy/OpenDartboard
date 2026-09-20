@@ -1,10 +1,22 @@
-// #1423 EXPLORATORY: what the largest coloured region actually looks like, radially.
+// #1423: what ring each camera's span landed on, measured rather than assumed.
 //
-//   i1423_ring_census <clip> <camera-index> [frames] [spacing]
+//   i1423_ring_census <clip> <camera-index> [looks] [spacing]
 //
-// Prints, per look, the span measureBoard would take and a radial ink profile of the
-// colour mask about that span's centre, so the identity of the measured ring can be read
-// off rather than guessed at.
+// Runs the pipeline's own STEP 1 -- color_processing::processColors on the full frame,
+// then bull_processing::measureBoard's blur, threshold and largest outermost contour --
+// and then asks ring_identity::identify what that span is. The verdict is READ from the
+// module rather than restated here, so a tree whose rule has moved prints the moved rule.
+//
+// It also prints the measured ring's own WIDTH in spans on every row. That is the method
+// #1423 was steered towards and refused on a measurement (a doubles ring is 8 mm of 170
+// and a treble 8 mm of 107, 0.047 against 0.075), and a method refused on a measurement
+// stays refused only for as long as the measurement can be re-taken.
+//
+// One line per look on stdout, prefixed so it survives the pipeline's own logging:
+//
+//   I1423 clip=<name> cam=<n> look=<k> span=<px> ring=<unknown|doubles|trebles>
+//         reach=<spans> rays=<answered>/<asked> widthOfSpan=<f> boardRadius=<px>
+//
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
@@ -14,6 +26,7 @@
 
 #include "color_processing.hpp"
 #include "bull_processing.hpp"
+#include "ring_identity.hpp"
 
 namespace
 {
@@ -100,38 +113,18 @@ int main(int argc, char **argv)
         cv::Point2f c; float span = 0;
         cv::minEnclosingCircle(contours[best], c, span);
 
-        // raw (unblurred) mask, for widths the 7x7 has not inflated
+        // The measured ring's own width, over 720 rays, on the UNBLURRED mask: the
+        // refused method, kept measurable.
         cv::Mat rawGray, rawBin;
         cv::cvtColor(colours, rawGray, cv::COLOR_BGR2GRAY);
         cv::threshold(rawGray, rawBin, 1, 255, cv::THRESH_BINARY);
 
-        // radial profile: share of rays with ink at each 0.05-span bin, and the outermost
-        // ink run's width per ray
         const int rays = 720;
-        const int bins = 44; // 0.00 .. 2.20 span
-        std::vector<int> hit(bins, 0);
         std::vector<double> widths;
-        std::vector<double> outerEdge;
-        std::vector<double> reach;
         for (int k = 0; k < rays; k++)
         {
             const double th = 2.0 * kPi * k / rays;
             const double cx = std::cos(th), cy = std::sin(th);
-            // bin occupancy
-            for (int b = 0; b < bins; b++)
-            {
-                const double r = (b + 0.5) * 0.05 * span;
-                // sample a few points across the bin
-                bool any = false;
-                for (double d = -0.02; d <= 0.02 && !any; d += 0.01)
-                {
-                    int x = cvRound(c.x + cx * (r + d * span)), y = cvRound(c.y + cy * (r + d * span));
-                    if (x < 0 || y < 0 || x >= rawBin.cols || y >= rawBin.rows) continue;
-                    if (rawBin.at<uchar>(y, x)) any = true;
-                }
-                if (any) hit[b]++;
-            }
-            // outermost ink run on this ray, searched inward from 1.15 span
             int r1 = -1, r0 = -1;
             for (int r = cvRound(span * 1.05); r >= 1; r--)
             {
@@ -140,33 +133,24 @@ int main(int argc, char **argv)
                 if (ink && r1 < 0) { r1 = r; }
                 else if (!ink && r1 >= 0) { r0 = r + 1; break; }
             }
-            if (r1 > 0 && r0 > 0) { widths.push_back(r1 - r0 + 1); outerEdge.push_back(r1); }
-            for (int r = cvRound(span * 2.2); r >= 1; r--)
-            {
-                int x = cvRound(c.x + cx * r), y = cvRound(c.y + cy * r);
-                if (x < 0 || y < 0 || x >= rawBin.cols || y >= rawBin.rows) continue;
-                if (rawBin.at<uchar>(y, x)) { reach.push_back(r / (double)span); break; }
-            }
+            if (r1 > 0 && r0 > 0) { widths.push_back(r1 - r0 + 1); }
         }
+
+        const ring_identity::Sighting ring = ring_identity::identify(colours, c, span);
+        const char *name = (ring.ring == ring_identity::Ring::Doubles)   ? "doubles"
+                           : (ring.ring == ring_identity::Ring::Trebles) ? "trebles"
+                                                                        : "unknown";
 
         std::cout << "I1423 clip=" << clip << " cam=" << camIdx << " look=" << look
                   << " span=" << cvRound(span)
-                  << " area=" << (long)bestArea
-                  << " rays=" << widths.size()
-                  << " medWidth=" << medianOf(widths)
-                  << " medWidthOfSpan=" << (span > 0 ? medianOf(widths) / span : -1)
-                  << " medOuterOfSpan=" << (span > 0 ? medianOf(outerEdge) / span : -1)
-                  << " reachRays=" << reach.size()
-                  << " reachP50=" << pct(reach, 0.50)
-                  << " reachP75=" << pct(reach, 0.75)
-                  << " reachP90=" << pct(reach, 0.90)
-                  << " reachMax=" << pct(reach, 1.00)
+                  << " ring=" << name
+                  << " reach=" << ring.reach
+                  << " rays=" << ring.rays_answered << "/" << ring.rays_asked
+                  << " widthOfSpan=" << (span > 0 ? medianOf(widths) / span : -1)
+                  << " boardRadius=" << (span * ring.boardRadiusOfSpan())
                   << "\n";
-        std::cout << "I1423PROF clip=" << clip << " cam=" << camIdx << " look=" << look << " ";
-        for (int b = 0; b < bins; b++)
-        {
-            std::cout << (int)std::lround(100.0 * hit[b] / rays) << (b + 1 < bins ? "," : "\n");
-        }
+        std::cout << "I1423SAY clip=" << clip << " cam=" << camIdx << " look=" << look
+                  << " " << ring_identity::sentence(ring) << "\n";
 
         for (int s = 1; s < spacing; s++) { cv::Mat junk; if (!cap.read(junk)) break; }
     }

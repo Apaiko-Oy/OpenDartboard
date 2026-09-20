@@ -186,6 +186,24 @@ namespace board_look
         // frame" look like a sensible thing to ask.
         int ring_pixels = 0;
 
+        // #1423: WHICH RING that span landed on, and the reading it was named from.
+        // `ring_measured` is `ring_identity::Ring` as an int, because this struct is
+        // fwritten to the cache and may own no memory: 0 unknown, 1 the doubles ring, 2
+        // the treble ring. `ring_reach_of_span` is the outermost coloured radius in
+        // spans -- 1.0 when the span is the last coloured thing on the board and 1.589
+        // when a second ring lies outside it -- and `ring_reach_rays` is how many of the
+        // 720 rays found any colour at all, so a reading can be told from a reading taken
+        // over an arc. All three are zero until STEP 1.6 runs and stay zero under
+        // `OD_RING=span`.
+        //
+        // `board_look` does not refuse a camera on any of them and deliberately: an
+        // unreadable ring is a board that was found and measured whose ring could not be
+        // named, which `ring_identity::Sighting::boardRadiusOfSpan` answers with the
+        // worst case rather than with a refusal, and says why.
+        int ring_measured = 0;
+        double ring_reach_of_span = 0.0;
+        int ring_reach_rays = 0;
+
         // #1392: the radius `bull_processing::measureBoard` measured on the FULL frame,
         // which is what `ring_pixels` is divided by. Zero where no board was found at all
         // -- a camera with no board in its picture is refused by the stage that could not

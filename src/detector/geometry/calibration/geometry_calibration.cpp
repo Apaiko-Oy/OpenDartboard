@@ -17,6 +17,7 @@
 #include "orientation_processing.hpp"
 #include "dartboard_visualization.hpp"
 #include "perspective_processing.hpp"
+#include "ring_identity.hpp"
 
 using namespace cv;
 using namespace std;
@@ -191,6 +192,46 @@ namespace geometry_calibration
                       log_string_src(why) + ".");
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " did not calibrate: it " + why);
             return calibration;
+        }
+
+        // [===STEP 1.6:===] #1423: WHICH RING WAS THAT? Asked here, and here for a reason.
+        //
+        // The span STEP 1 measured is the only length this pipeline has at this point and
+        // everything below is about to be sized by it -- STEP 2's region, STEP 2.5's
+        // colour windows, and the radius term #1416 watches between one calibration and
+        // the next. On `mocks/cam_*.mp4` that span IS the board and on
+        // `mocks/rig-20260918` it is 107/170 of it, and until this statement nothing in
+        // the pipeline could tell the two apart: three constants downstream each guessed,
+        // and each guessed differently.
+        //
+        // It is asked AFTER STEP 1.5 and not before, because the reading is a claim about
+        // what lies outside the measured ring and a frame that has cut the board off can
+        // make that claim true by amputation. ADR-0079 section 2 is exactly the guarantee
+        // this needs, and STEP 1.5 has just enforced it on the same mask.
+        //
+        // This stage STATES the identity; it does not spend it. #1378's ROI margin,
+        // #1407's colour cutoff and #1416's `max_radius_change` are each a constant of
+        // their own issue, and every one of them still holds the worst case it held
+        // before this line existed. What has changed is that they no longer have to.
+        const ring_identity::Sighting ring =
+            ring_identity::identify(fullFrameColours, Point2f((float)board.center.x, (float)board.center.y),
+                                    board.radius);
+        calibration.look.ring_measured = static_cast<int>(ring.ring);
+        calibration.look.ring_reach_of_span = ring.reach;
+        calibration.look.ring_reach_rays = ring.rays_answered;
+
+        if (ring.stated())
+        {
+            log_debug("Camera " + log_string(cameraIdx + 1) + " ring identity: " +
+                      log_string_src(ring_identity::sentence(ring)));
+        }
+        else
+        {
+            // #1321's shape, one level down: the reading, both bands it missed, and what
+            // is being done instead. A fallback nobody can see is the defect this issue
+            // is about, repeating.
+            log_warning("Camera " + log_string(cameraIdx + 1) + " ring identity: " +
+                        log_string_src(ring_identity::sentence(ring)));
         }
 
         // [===STEP 2:===] The region, drawn around the board that was found.
