@@ -45,8 +45,9 @@ set -u
 #
 #   WSTALE  write the cache with OD_WIRE_COUNT=atleast on the rig fixture. Camera 3
 #           calibrates on 21 wires and the file records it. Not asserted on; it is setup.
-#   BEFORE  the branch point (75f9d2b), compiled here, reading that cache. It must be
-#           ADMITTED three of three, beat READY -- and say NOTHING at default level about
+#   BEFORE  the branch point -- 1a8a57a, #1448's tip, which carries #1442 -- compiled
+#           here, reading that cache. It must be ADMITTED three of three, beat READY,
+#           and say NOTHING at default level about
 #           the camera the scorer is about to refuse at every dart. That is the issue's
 #           whole claim and nothing in the repository demonstrated it.
 #   STALE   this binary, the SAME cache. Still admitted, still READY -- naming is not
@@ -210,9 +211,9 @@ kill $STUB 2>/dev/null; wait $STUB 2>/dev/null
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 readied() { grep -qx READY /run1451/$1.beats; }
-# #1449's lesson, bought in 5673f56: match a census by its own SHAPE, never by being the
-# first line with its prefix on it. `applyConfiguredAnchors` logs ORIENTATION lines before
-# the ORIENTATION census, and a per-camera reason here can contain the word "scored".
+# Match a census by its own SHAPE, never by being the first line carrying a word in it: a
+# per-camera reason on this very line can contain the word "scored", and any later line
+# about scoring would otherwise be read as the census.
 census() { grep -aoE 'SCORING: [0-9]+ of [0-9]+ cameras can be scored from' /run1451/$1.txt | head -1; }
 censusN() { census "$1" | grep -oE '[0-9]+' | head -1; }
 
@@ -249,7 +250,7 @@ echo
 echo "=== 2. STALE: the same board on this binary -- named, and still admitted ==="
 grep -aE 'SCORING:|Cached calibration accepted|Scorer running with' /run1451/stale.txt | head -4 || true
 if grep -qa 'Cached calibration accepted on 3 of 3 cameras' /run1451/stale.txt; then
-  say "OK   still admitted -- #1451 is naming and not refusing, as #1449 was" ok
+  say "OK   still admitted -- #1451 is naming and not refusing" ok
 else say "FAIL the census turned a legal board into a refused one; that is the one thing it must not do" no; fi
 if readied stale; then
   say "OK   still beats READY" ok
@@ -270,7 +271,7 @@ else say "FAIL camera 3's reason does not state its wire count against the thres
 if echo "$CLINE" | grep -q 'delete cache/'; then
   say "OK   and the remedy is the cache, not the rig -- this camera IS looking at the board" ok
 else say "FAIL the census says what is wrong and not what to do about it" no; fi
-# NOT warned: two of three is degraded, not broken, and #1449's threshold is inherited.
+# NOT warned: two of three is degraded, not broken. The WARN fires at ZERO alone (#1338).
 if grep -qa 'No camera on this board can be scored from' /run1451/stale.txt; then
   say "FAIL a board with two scorable cameras was warned as though it were broken" no
 else say "OK   not warned: some is the ordinary case, and only NONE is the alarming one" ok; fi

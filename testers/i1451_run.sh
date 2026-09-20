@@ -29,8 +29,23 @@ mkdir -p "$RUN/cfg"
 cp "$SCRIPT" "$RUN/inside.sh"
 
 # The branch point: the tree as it was before this issue, which is what phase BEFORE
-# builds and runs. Overridable so the harness still means something after a rebase.
-BASE_COMMIT="${BASE_COMMIT:-75f9d2b}"
+# builds and runs. Overridable so the harness still means something after a rebase -- and
+# it HAS been rebased: this slice was first carried on top of #1449 and moved to #1448,
+# which carries #1442. #1442 is the whole premise (it is the commit that opened the cache
+# door this tester walks through), #1449 is not a dependency of anything here, and this
+# number is #1448's tip. Move it with the branch: phase BEFORE compiling somebody else's
+# tree would still pass the strings guard below and measure nothing.
+BASE_COMMIT="${BASE_COMMIT:-1a8a57a}"
+# And it is checked rather than trusted. The phase script refuses a branch point that
+# already carries the census -- one that is too NEW -- but nothing there can see a commit
+# that is merely somebody ELSE's tree: it would lack the census too, compile, run, and
+# report the silence this issue is about as though it had been measured on the parent.
+if ! git -C "$HERE" merge-base --is-ancestor "$BASE_COMMIT" HEAD 2>/dev/null; then
+  echo "FAIL BASE_COMMIT=$BASE_COMMIT is not an ancestor of HEAD, so phase BEFORE would"
+  echo "     compile a tree this branch was never cut from and measure nothing. Point it"
+  echo "     at this branch's parent (git merge-base HEAD <trunk>) and re-run."
+  exit 1
+fi
 mkdir -p "$RUN/pre-1451"
 git -C "$HERE" archive "$BASE_COMMIT" | tar -x -C "$RUN/pre-1451"
 

@@ -538,11 +538,12 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                 applyConfiguredAnchors();
             }
 
-            // #1451: #1449's census one field over, said in the same place and for the
-            // same reason -- after applyConfiguredAnchors on both paths, before anything
-            // has been scored, and reading `calibrations` rather than a count kept beside
-            // them so there is no second copy that can agree with itself while disagreeing
-            // with the board.
+            // #1451: how many of these cameras a dart can be SCORED from, said HERE --
+            // after applyConfiguredAnchors on both paths, which is the first moment the
+            // answer is final, and before anything has been scored. It reads
+            // `calibrations` rather than a count kept beside them, for the reason
+            // geometryBreach() rebuilds its fingerprint every cycle: there is no second
+            // copy that could agree with itself while disagreeing with the board.
             //
             // WHAT IS DIFFERENT, AND IT IS WHY THIS ONE IS WORSE. #1449's unreadable
             // camera still scored, wrongly, as #1346's asserted 20. A camera this census

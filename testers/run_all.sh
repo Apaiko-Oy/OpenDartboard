@@ -121,8 +121,11 @@ tester 1372-cached        "bash '$T/i1372_run.sh'"
 # a binary with #1442's OD_WIRE_COUNT=atleast set and read by one without it, because the
 # cache is the only door into the state: a freshly calibrated camera with a ring that is
 # not whole is refused by `calibrateSingleCamera` and never reaches the census.
-# MEASURED 2026-09-20 on the 4-core box, to completion, rc=0: see the line below for the
-# number, recorded here rather than left in nobody's head (how 1317-asan's 1200 got wrong).
+# NOT YET MEASURED ON THIS BASE. It measured 210.4 s at host_busy_pct=89.4 on the 4-core
+# box carried on top of #1449; this slice has since moved to #1448 and phase BEFORE now
+# compiles a different parent, so that number is not this tester's. It is written as a
+# gap rather than carried forward, because a wall time nobody took is how 1317-asan's
+# 1200 got to be wrong. Replace this with the measurement from a run on this branch.
 tester 1451-scoring       "bash '$T/i1451_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"

@@ -290,10 +290,9 @@ namespace score_processing
 
     /**
      * Every camera in its own slot, with its own reason, scorable or not. Deliberately not
-     * `camera_quorum::namingEachCamera` nor `orientation_processing::namingEachCamera`:
-     * those answer "can it vote on what is on the board" and "can its wedge be read",
-     * which are different questions about the same camera, and one sentence answering all
-     * three would be wrong about two of them.
+     * `camera_quorum::namingEachCamera`: that one answers "can it vote on what is ON the
+     * board", which is a different question about the same camera, and one sentence
+     * answering both would be wrong about one of them.
      */
     inline string namingEachCamera(const vector<DartboardCalibration> &calibrations)
     {
