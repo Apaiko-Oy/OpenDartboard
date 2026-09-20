@@ -50,8 +50,14 @@ logsays() { # logsays <file> <ERE>
 # Who is on the port: nobody, the squatter, or something speaking HTTP (the board's own
 # REST listener, which the WebSocket upgrade shares).
 cat > /run1295/who.py <<'PY'
-import socket, sys
+import socket, struct, sys
 s = socket.socket(); s.settimeout(3)
+# Close with a RST rather than a FIN, so this probe never leaves a TIME_WAIT socket
+# holding 13520. That matters here more than it usually would: httplib's
+# default_socket_options sets SO_REUSEPORT and NOT SO_REUSEADDR on Linux, so the board
+# cannot bind over a lingering socket, and a probe that left one would make the next
+# phase fail in exactly the way the defect does.
+s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
 try:
     s.connect(('127.0.0.1', 13520))
 except OSError as e:
@@ -72,11 +78,27 @@ except OSError as e:
 print('http' if answer.startswith(b'HTTP/') else 'other(%r)' % answer[:24])
 PY
 
+cat > /run1295/portstate.py <<'PORTSTATE'
+want = '%04X' % 13520
+names = {'01': 'ESTABLISHED', '06': 'TIME_WAIT', '0A': 'LISTEN', '08': 'CLOSE_WAIT'}
+seen = []
+for f in ('/proc/net/tcp', '/proc/net/tcp6'):
+    try:
+        rows = open(f).read().splitlines()[1:]
+    except OSError:
+        continue
+    for row in rows:
+        p = row.split()
+        if p[1].split(':')[1] == want or p[2].split(':')[1] == want:
+            seen.append(names.get(p[3], p[3]))
+print(','.join(sorted(set(seen))) or 'none')
+PORTSTATE
+
 # The squatter. SO_REUSEADDR only, and deliberately NOT SO_REUSEPORT: Linux lets two
 # sockets share a port only when EVERY one of them asked for SO_REUSEPORT, so without it
 # here the board's bind fails whatever httplib asks for.
 cat > /run1295/squat.py <<'PY'
-import socket, sys
+import socket, struct, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(('0.0.0.0', 13520))
@@ -91,8 +113,30 @@ while True:
         c.sendall(b'SQUATTER-1295\n')
     except OSError:
         pass
+    # Let the PROBE close first, and close on what that leaves behind. Two things need
+    # to be true at once and only this order gets both: the banner has to be readable
+    # (a RST from this side discards data the peer has not read yet -- measured, the
+    # probe got ECONNRESET instead of the banner), and this side must not be the active
+    # closer (a FIN from a socket bound to 13520 leaves it in TIME_WAIT for sixty
+    # seconds, which the next phase's board could not bind over, because httplib asks
+    # for SO_REUSEPORT and not SO_REUSEADDR).
+    try:
+        c.settimeout(3)
+        c.recv(16)
+    except OSError:
+        pass
     c.close()
 PY
+
+# Every socket the kernel holds on 13520, by state. A precondition rather than a
+# curiosity: the board binds with SO_REUSEPORT and without SO_REUSEADDR, so ANY socket
+# lingering on that port stops it -- and the board then fails exactly as it does when the
+# port is really taken. Measured on 2026-09-20 while writing this: the squatter's own
+# TIME_WAIT sockets made the positive control fail on a port nothing was listening on.
+# A phase that cannot measure what it is about says so here instead of reading as a finding.
+portstate() {
+  python3 /run1295/portstate.py
+}
 
 # Wait for a sentinel the detector itself prints, never for a process pattern. The needle
 # is an ERE matching BOTH outcomes of the decision under test, so a board that announces
@@ -119,7 +163,8 @@ if ! await /run1295/squat.out 'SQUATTING' 15 > /dev/null; then
   kill $SQUAT 2> /dev/null
   exit 3
 fi
-check "p1 who holds the port before the board starts" "squatter" "$(python3 /run1295/who.py)"
+check "p1 who holds the port before the board starts"   "squatter" "$(python3 /run1295/who.py)"
+check "p1 the only socket on the port is a listening one" "LISTEN" "$(portstate)"
 
 printf 'stale announcement left by an earlier --listen run\n' > "$SVC"
 check "p1 stale announcement planted" "yes" "$(announced)"
@@ -146,6 +191,8 @@ sed -E 's/\x1b\[[0-9;]*m//g' /run1295/taken.out | grep -aE 'announce|listen' | s
 echo "=== phase 2: the port is free (positive control) ==="
 rm -f "$SVC"
 check "p2 who holds the port before the board starts" "nobody(errno=111)" "$(python3 /run1295/who.py)"
+# This is only a control if the board CAN bind. See portstate().
+check "p2 nothing at all is holding the port"        "none" "$(portstate)"
 OD_MAX_CYCLES=200 "$BIN" --debug $MOCKS --listen --announce-dir "$ANN" --label "Kello 1295" $NOPUSH \
   > /run1295/free.out 2> /run1295/free.err &
 FREE=$!
