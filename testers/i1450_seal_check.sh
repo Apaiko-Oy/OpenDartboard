@@ -76,8 +76,8 @@ grep -q '^OLD_RC=0$' "$RUN/old.txt" \
 #
 # A check whose sections had both been skipped would exit 0 twice and say nothing. These
 # two greps are what make the pair of exit codes mean something.
-grep -q 'a camera whose `anchored` moved is caught' "$RUN/new.txt" \
-  && say "OK   this tree's run reached the finding: an `anchored` that moved breaks the seal" \
+grep -q 'a camera whose .anchored. moved is caught' "$RUN/new.txt" \
+  && say 'OK   this tree'"'"'s run reached the finding: an anchored that moved breaks the seal' \
   || say "FAIL this tree's run never reached the finding" bad
 grep -q 'FALSIFIED the pre-#1450 seal cannot tell a readable board' "$RUN/old.txt" \
   && say "OK   and the falsified run reached the defect: the old seal cannot tell them apart" \
@@ -100,12 +100,20 @@ OLDSEAL=$(grep -m1 '^SEAL anchored:' "$RUN/old.txt")
 # PERSISTED. It is not. `sealed_geometry` lives in GeometryDetector and nowhere else, and
 # the census below is what keeps that true: a later slice that serialises it, puts it in
 # the cache or publishes it over the API turns this red and has to say so.
-HOLDERS=$(grep -rl 'sealed_geometry' "$OD_TREE_ROOT/src" | sed "s|$OD_TREE_ROOT/||" | sort | tr '\n' ' ')
-[ "$HOLDERS" = "src/detector/geometry/geometry_detector.cpp src/detector/geometry/geometry_detector.hpp " ] \
-  && say "OK   the seal is held in one place only: $HOLDERS" \
-  || say "FAIL the seal has escaped GeometryDetector; it is now in: $HOLDERS" bad
+# Prose is filtered out and that is the point of the filter rather than a convenience:
+# `geometry_agreement.hpp` holds a docblock that explains the seal at length and must be
+# allowed to NAME it. What may not spread is a line of CODE that reaches the seal, so a
+# line whose first characters are a comment marker is not one.
+code_touching_the_seal() {
+  grep -rn 'sealed_geometry' "$OD_TREE_ROOT/src" | grep -Ev ':[[:space:]]*(\*|//|/\*)'
+}
 
-grep -rn 'sealed_geometry' "$OD_TREE_ROOT/src" | grep -Eq 'ofstream|fwrite|write\(|json|cache|save' \
+HOLDERS=$(code_touching_the_seal | cut -d: -f1 | sed "s|$OD_TREE_ROOT/||" | sort -u | tr '\n' ' ')
+[ "$HOLDERS" = "src/detector/geometry/geometry_detector.cpp src/detector/geometry/geometry_detector.hpp " ] \
+  && say "OK   the seal is reached from one place only: $HOLDERS" \
+  || say "FAIL the seal has escaped GeometryDetector; it is now reached from: $HOLDERS" bad
+
+code_touching_the_seal | grep -Eq 'ofstream|fwrite|write\(|json|cache|save' \
   && say "FAIL something now writes the sealed fingerprint down, so a restart CAN read an old spelling" bad \
   || say "OK   and no path writes it to a file, a cache or a payload, so no restart reads an old one"
 
