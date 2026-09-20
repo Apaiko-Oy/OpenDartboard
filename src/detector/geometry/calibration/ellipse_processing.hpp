@@ -3,7 +3,11 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <string>
-#include "mask_processing.hpp" // Include for MaskBundle
+#include "mask_processing.hpp"        // Include for MaskBundle
+#include "perspective_processing.hpp" // #1485: the board's own millimetres
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace ellipse_processing
 {
@@ -80,6 +84,216 @@ namespace ellipse_processing
                                 offsetX(0.0), offsetY(0.0), offsetMagnitude(0.0), offsetAngle(0.0),
                                 hasDetectedEllipses(false) {}
     };
+
+    // ---- #1485: WHICH RING A FITTED CONTOUR REALLY IS --------------------------------
+    //
+    // Five of the six ring ellipses above are fitted to a COLOUR CONTOUR and named after
+    // the ring they were expected to be, with nothing in between asking whether they are
+    // it. `mask_processing::processMask` builds each mask by subtracting the last one
+    // from the colour mask and keeping the LARGEST CONNECTED COMPONENT of what is left,
+    // so on footage where the subtraction goes wrong once it goes wrong for every ring
+    // after it -- and the name stays.
+    //
+    // Measured on mocks/rig-20260918/ at 77710ca, as a multiple of the ray-traced doubles
+    // ring, where the board's own millimetres put the 25 ring at 15.9/170 = 0.0935:
+    //
+    //     camera 1  outer bull 0.9733      camera 2  0.6112      camera 3  0.3401
+    //
+    // -- 3.6x to 10.4x the ring it is named after, on all three cameras, while the
+    // shipped mocks read 0.0961, 0.0991 and 0.0980. `score_processing::scorePoint` tests
+    // the bull ellipses FIRST, so a dart anywhere inside that contour is published
+    // `OUTER`, which `turnaus_client::postableSector` posts to Turnaus as a score of 25.
+    // Eight of eleven darts on that fixture were published that way (#1485).
+    //
+    // THE REFERENCE IS THE DOUBLES RING AND NOTHING ELSE IS HELD TO ANYTHING HERE. It is
+    // the one ellipse on this calibration that is ray-traced outward from the bull rather
+    // than fitted to whatever contour was largest, and three other issues have measured
+    // it independently on this very rig -- #1393's ~316 px fit, #1378's 1.63 spans,
+    // #1423's reach. So the doubles ring is what the other five are read against, and it
+    // is never itself refused by this rule.
+    //
+    // THE BANDS ARE GEOMETRY AND NOT A FITTED NUMBER, which is the whole of #1322's and
+    // #1478's complaint about `horizontalScale = 0.95f  // (was 1.1f - too wide!)`. Each
+    // ring's own radius in millimetres, over the doubles ring's, gives the six values
+    //
+    //     6.35/170=0.0374  15.9/170=0.0935  99/170=0.5824  107/170=0.6294  162/170=0.9529
+    //
+    // and a ring is refused when it is nearer to a DIFFERENT ring of the same board than
+    // to its own -- the boundary being the geometric mean of the two, which is #1423's
+    // own band and is derived from the millimetres rather than from any footage. Nothing
+    // in here was chosen by looking at what this rig reads: every shipped-mocks ring
+    // clears its band with room, and the three refused above miss theirs by 1.5x to 4x.
+    //
+    // A REFUSED RING IS ZEROED RATHER THAN CORRECTED. #1320's precedent, and the reason
+    // is that the thing to put in its place would have to be invented: a ring ellipse
+    // derived by scaling the doubles ring is a reconstruction nothing measured, and this
+    // repository has paid for one of those already. A zeroed `RotatedRect` is already
+    // what every reader downstream treats as absent -- `isPointInEllipse` cannot contain
+    // a point and the radial ruler drops the mark -- so a dart in a ring nobody could
+    // measure reads as the ring outside it, at the right RADIUS, instead of as a 25.
+    enum RingIndex
+    {
+        kInnerBull = 0,
+        kOuterBull,
+        kInnerTriple,
+        kOuterTriple,
+        kInnerDouble,
+        kRingCount
+    };
+
+    /** Each ring's radius over the doubles ring's, from the board's own millimetres. */
+    inline double ringTruth(int ring)
+    {
+        const perspective_processing::DartboardSpec spec;
+        const double board = spec.outerDoubleRadius;
+        switch (ring)
+        {
+        case kInnerBull:
+            return spec.bullRadius / board;
+        case kOuterBull:
+            return spec.bull25Radius / board;
+        case kInnerTriple:
+            return spec.innerTripleRadius / board;
+        case kOuterTriple:
+            return spec.outerTripleRadius / board;
+        case kInnerDouble:
+            return spec.innerDoubleRadius / board;
+        default:
+            return 1.0; // the doubles ring itself, the reference
+        }
+    }
+
+    inline const char *ringName(int ring)
+    {
+        switch (ring)
+        {
+        case kInnerBull:
+            return "the bullseye";
+        case kOuterBull:
+            return "the 25 ring";
+        case kInnerTriple:
+            return "the treble ring's inner edge";
+        case kOuterTriple:
+            return "the treble ring's outer edge";
+        case kInnerDouble:
+            return "the doubles ring's inner edge";
+        default:
+            return "the doubles ring";
+        }
+    }
+
+    /**
+     * The band this ring may be in, as multiples of the doubles ring. The upper edge is
+     * the geometric mean with the ring outside it and the lower edge the geometric mean
+     * with the ring inside it; the bullseye has nothing inside it, so its lower edge is
+     * its own upper edge mirrored through it. Both edges come out of `ringTruth`, so a
+     * board whose millimetres were ever corrected corrects these with it.
+     */
+    inline double ringBandHigh(int ring) { return std::sqrt(ringTruth(ring) * ringTruth(ring + 1)); }
+    inline double ringBandLow(int ring)
+    {
+        if (ring == kInnerBull)
+        {
+            return ringTruth(kInnerBull) * ringTruth(kInnerBull) / ringBandHigh(kInnerBull);
+        }
+        return std::sqrt(ringTruth(ring - 1) * ringTruth(ring));
+    }
+
+    /** A ring ellipse's semi-major axis. The same half-of-the-larger-side every stage uses. */
+    inline double ringReach(const cv::RotatedRect &e)
+    {
+        return 0.5 * std::max(e.size.width, e.size.height);
+    }
+
+    /**
+     * #1485's falsifier, on the same binary: `OD_RINGS=asfitted` holds no ring to
+     * anything and takes every fitted contour for the ring it is named after, which is
+     * exactly what every build before this issue did. A switch that only ever refuses
+     * would pass any check asking it to refuse.
+     */
+    inline bool ringsAreTakenAsFitted()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_RINGS");
+            return e != nullptr && std::string(e) == "asfitted";
+        }();
+        return v;
+    }
+
+    inline cv::RotatedRect &ringEllipse(EllipseBoundaryData &e, int ring)
+    {
+        switch (ring)
+        {
+        case kInnerBull:
+            return e.innerBullEllipse;
+        case kOuterBull:
+            return e.outerBullEllipse;
+        case kInnerTriple:
+            return e.innerTripleEllipse;
+        case kOuterTriple:
+            return e.outerTripleEllipse;
+        default:
+            return e.innerDoubleEllipse;
+        }
+    }
+
+    /**
+     * Hold the five fitted rings to the board the doubles ring says this is, and zero the
+     * ones that are not where the board puts them. Returns the sentence to print: every
+     * ring, its reading and its band, because a refusal nobody can read is the silence
+     * #1451 was filed about one field over.
+     *
+     * Pure and inline on purpose (#1338's reason): a tester holds this decision without
+     * building the detector, and the numbers it asserts are read out of the same
+     * `DartboardSpec` the scorer divides by.
+     */
+    inline std::string holdRingsToTheBoard(EllipseBoundaryData &e)
+    {
+        const double board = ringReach(e.outerDoubleEllipse);
+        if (!e.hasValidDoubles || !(board > 0.0))
+        {
+            return "no ray-traced doubles ring, so there is nothing to read the other "
+                   "rings against and none of them was held to anything";
+        }
+
+        std::string said;
+        int refused = 0;
+        for (int ring = 0; ring < kRingCount; ring++)
+        {
+            cv::RotatedRect &fitted = ringEllipse(e, ring);
+            const double reach = ringReach(fitted);
+            if (!(reach > 0.0))
+            {
+                continue; // nothing was fitted for this ring; it is already absent
+            }
+            const double spans = reach / board;
+            const bool where = spans >= ringBandLow(ring) && spans <= ringBandHigh(ring);
+            char row[256];
+            snprintf(row, sizeof(row), "%s%s %.4f of the board (%.4f..%.4f)%s",
+                     said.empty() ? "" : "; ", ringName(ring), spans,
+                     ringBandLow(ring), ringBandHigh(ring), where ? "" : " REFUSED");
+            said += row;
+            if (!where && !ringsAreTakenAsFitted())
+            {
+                fitted = cv::RotatedRect();
+                refused++;
+            }
+        }
+
+        e.hasValidTriples = (e.outerTripleEllipse.size.area() > 0 && e.innerTripleEllipse.size.area() > 0);
+        e.hasValidBulls = (e.outerBullEllipse.size.area() > 0 || e.innerBullEllipse.size.area() > 0);
+
+        if (ringsAreTakenAsFitted())
+        {
+            return "OD_RINGS=asfitted, so every contour is taken for the ring it is named "
+                   "after the way it was before #1485 -- " + said;
+        }
+        return (refused == 0 ? std::string("every ring is where the board puts it -- ")
+                             : std::to_string(refused) + " ring(s) are not where the board puts "
+                                                         "them and were dropped -- ") +
+               said;
+    }
 
     /**
      * What one run of the ellipse stage produced: the geometry, and -- when the doubles

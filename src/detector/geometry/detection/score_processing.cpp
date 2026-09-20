@@ -33,6 +33,16 @@ namespace score_processing
         float a = ellipse.size.width / 2.0f;
         float b = ellipse.size.height / 2.0f;
 
+        // #1485: a ring that was not fitted, or that was refused by the band check in
+        // ellipse_processing, is a zeroed RotatedRect and contains nothing. It already
+        // read that way -- the division makes an infinity or a NaN and every comparison
+        // with one is false -- and saying it costs a branch and removes the reader's
+        // need to work that out.
+        if (!(a > 0.0f) || !(b > 0.0f))
+        {
+            return false;
+        }
+
         return (rotated.x * rotated.x) / (a * a) + (rotated.y * rotated.y) / (b * b) <= 1.0f;
     }
 
