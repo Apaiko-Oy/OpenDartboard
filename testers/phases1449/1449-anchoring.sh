@@ -58,6 +58,42 @@ await() {
   echo "TIMEOUT-$limit"; return 1
 }
 
+# ---- the binary this tester measures is the binary this tree would build ---------------
+#
+# "Rebuild before you measure" is advice, and advice that can be skipped will be: this
+# very tester was first run against a build/opendartboard 7 minutes older than the source
+# it was supposed to be measuring, and phase NONE duly reported that the census said
+# nothing -- which is exactly what the defect looks like. A stale binary does not fail
+# loudly here, it fails as the ISSUE, which is the worst way for it to fail.
+#
+# So the harness refuses instead, in #565's shape: the mistake cannot land green. Two
+# questions, because they catch different mistakes. The mtime catches a tree edited after
+# its last build; the string catches a binary built from some OTHER tree, which an mtime
+# can never see.
+if [ ! -x $BIN ]; then
+  echo "FAIL no $BIN -- a fresh worktree has none, and phase 4 of i1330_run.sh needs it too."
+  echo "     Build it:  make build   (or run testers/run_all.sh, which builds first)"
+  exit 1
+fi
+NEWEST=$(find /app/src /app/CMakeLists.txt -newer $BIN 2>/dev/null | head -5)
+if [ -n "$NEWEST" ]; then
+  echo "FAIL $BIN is OLDER than the source it is supposed to be measuring:"
+  echo "$NEWEST" | sed 's/^/       /'
+  echo "     Every phase below would measure a binary without this tree's changes in it,"
+  echo "     and phase NONE would report the census saying nothing -- which is precisely"
+  echo "     what the defect being measured looks like. Rebuild and re-run."
+  exit 1
+fi
+# The census line is what this whole tester is about, so a binary that does not carry it
+# is not a binary this tester can say anything about -- green or red.
+if ! strings $BIN | grep -q 'cameras can be read for a wedge'; then
+  echo "FAIL $BIN does not carry #1449's census line at all."
+  echo "     It was built from a tree without this change in it. Nothing below would be"
+  echo "     measuring this branch. Rebuild and re-run."
+  exit 1
+fi
+echo "--- $BIN carries the census and is newer than every source under /app/src ---"
+
 # ---- the branch point, compiled offline against this build's fetched sources ----------
 # #1317's spelling: FetchContent cannot reach the network in here, and it does not need to
 # -- /app/build/_deps holds what this tree already fetched, and the parent needs the same
