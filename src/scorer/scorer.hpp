@@ -31,6 +31,20 @@ public:
   // branches on the same call: one condition, two readers.
   bool canSee() const;
 
+  // #1295: open the score socket, and say whether it really opened. canSee() is the right
+  // question for a dark board and the wrong one for this: listen() fails later and
+  // elsewhere - typically because the port is already in use - and a board that can see,
+  // announces, and cannot bind sends a phone to a socket that is not there.
+  //
+  // main calls this before #1189's announcement, which is why the socket is opened here
+  // rather than only inside run(): the answer has to exist before the announcement is
+  // written. run() calls the same function, and it is idempotent - WebSocketService::start()
+  // returns at once when the service is already running, and the answer is the recorded
+  // one - so the board gets one socket and two readers of it, the shape canSee() already has.
+  //
+  // False for a board that cannot see: the fault vigil never opens a socket.
+  bool openScoreSocket();
+
   // #822: the outbound client, handed in rather than built here, because pairing must
   // be possible without opening a camera. Scorer owns it so that #825's exit path --
   // main unwound, ~Scorer run -- is what stops and joins it.

@@ -392,7 +392,24 @@ int main(int argc, char **argv)
   // Asking it here rather than above also shortens the interval in which a board is
   // announced and not yet listening: opening three cameras and calibrating happen in the
   // Scorer's constructor, above this line, and the socket opens inside run(), below it.
-  const bool announcing = listen && scorer.canSee();
+  // #1295: and only when the socket really opened. canSee() is the right question for a
+  // dark board and the wrong one for a socket that cannot bind: listen() fails later and
+  // elsewhere - typically because the port is already in use - and a board that can see,
+  // announces, and then fails to listen sends a phone to a socket that is not there.
+  // #1274 could not ask it, because the socket opened inside run(), below, and the service
+  // logged its failure from a thread nothing here could hear.
+  //
+  // So the socket is opened HERE, before the announcement, and the service is asked
+  // whether it came up. scorer.run() opens the same socket through the same idempotent
+  // call, so the board still gets one socket - and, as with canSee(), one condition with
+  // two readers rather than two spellings that can drift apart.
+  //
+  // What this deliberately does not do is ask again on the cycle budget. #1274's carve-out
+  // stands: a socket that dies mid-run keeps its announcement, because withdrawing on that
+  // is the future/promise shape this issue weighed and rejected for cost.
+  const bool can_see = scorer.canSee();
+  const bool socket_open = scorer.openScoreSocket();
+  const bool announcing = listen && socket_open;
   if (announcing)
   {
     announce::Outcome published = announce::publish(announce_dir, label, socket.port, version);
@@ -404,12 +421,17 @@ int main(int argc, char **argv)
   }
   else if (listen)
   {
+    // #1295: two reasons reach this branch and they want different remedies -- a camera
+    // that did not open is not a port that is already in use -- so the log names which.
+    const string why = can_see
+                           ? "the score socket did not open on " + socket.bind_address + ":" +
+                                 to_string(socket.port) + ", so there is nothing to announce"
+                           : "this board cannot see, so the score socket is never opened";
     announce::Outcome withdrawn = announce::withdraw(announce_dir);
     if (withdrawn.done)
-      log_warning("not announced: this board cannot see, so the score socket is never opened; removed " +
-                  withdrawn.detail + " left by an earlier run");
+      log_warning("not announced: " + why + "; removed " + withdrawn.detail + " left by an earlier run");
     else
-      log_warning("not announced: this board cannot see, so the score socket is never opened");
+      log_warning("not announced: " + why);
   }
   else
   {
