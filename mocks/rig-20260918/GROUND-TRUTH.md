@@ -46,33 +46,40 @@ wedge.
 repository about whether a treble can be read at all. A treble published as a single is a
 *ring* error and belongs to a different fault from a wrong wedge.
 
-## Measured against it, on merged `main` at `77710ca`
+## Measured against it, on merged `main`
 
-`OD_MAX_CYCLES=1200`, all three cameras, 2026-09-20. **The run was truncated by that cap
-after four visits**, so this compares visits 1–4 — twelve throws, one of them a miss —
-and never reached visits 5, 6 or 7. A later run must raise the cap or it will keep
-measuring three sevenths of the footage and calling it all of it.
+**Measured 2026-09-21 over the whole clip** by `1484-confidence`, with **no cycle budget**:
+the detector plays all 60 s in 62 s and ends on `END OF FOOTAGE` after 1694 cycles. An
+earlier run here used `OD_MAX_CYCLES=1200`, reached four visits, and its figures were
+quoted as if they were the clip's — they were not. **This fixture needs no cap.**
 
-| visit | detector | thrown |
-| --- | --- | --- |
-| 1 | `OUTER` (569,251) · `S20` (758,267) · `OUTER` (614,332) | T13 · 13 · 19 |
-| 2 | `S20` (760,266) · `OUTER` (731,227) · `S20` (543,440) | 19 · T14 · 5 |
-| 3 | `OUTER` (616,102) · `OUTER` (895,139) · `OUTER` (809,338) | 10 · 7 · T20 |
-| 4 | `OUTER` (895,139) · `S20` (484,368) | 19 · 20 · *miss* |
+**19 darts detected of 21 thrown. 2 scored correctly.**
 
-**Eight of eleven detected darts published `OUTER`, and only one miss was thrown in those
-four visits.** So at least seven real darts are read as off the board entirely — an
-entire visit of three among them.
+| | |
+| --- | --- |
+| detected | 19 (visits 1–5 complete, visits 6 and 7 two apiece) |
+| correct | **2** — both a thrown 20 published `S20` |
+| `OUTER` where a scoring dart was thrown | **8** |
+| a different number entirely | 7 |
+| a score published where a *miss* was thrown | 2 — **both misses were missed** |
 
-That is the shape a wrong **radial scale** makes, and #1423 measured that cause on this
-fixture: the colour stage measuring the **treble** ring while believing it had the board,
-so a dart at true radius *r* reads at *r* × 170/107 = **1.589r** and falls off the edge.
-The three `S20`s are all at confidence 0.5 — `by_default`, meaning **no camera measured a
-wedge** and #1346's fallback asserted the 20. None of those throws was a 20.
+Confidence: **2 at 0.9, 6 at 0.7, 11 at `by_default` 0.5.**
 
-**Not one score is correct.** Two distinct faults are visible at once and must not be
-conflated: a **scale** error putting darts off the board, and an **anchor** failure meaning
-the wedge is asserted rather than read.
+**Read those three with care.** `scorePoint` returns `OUTER` before `wedge_measured` is set,
+so every `OUTER` counts as a camera that measured — **not one dart in this clip had a wedge
+measured**, though 8 published at 0.7 or 0.9. That is #1489, and until it is fixed a change
+pushing more darts off the board reads as the anchor improving.
+
+**The two missing darts are a detection failure, not truncation.** The run did not end early;
+visits 6 and 7 simply yielded two darts each where three were thrown.
+
+Eight `OUTER`s against two misses thrown is the shape a wrong **radial scale** makes, and
+#1423 measured that cause on this fixture: the colour stage measuring the **treble** ring
+while believing it had the board, so a dart at true radius *r* reads at *r* × 170/107 =
+**1.589r** and falls off the edge. That is #1485.
+
+So two distinct faults are visible at once and must not be conflated: a **scale** error
+putting darts off the board, and an **anchor** failure meaning no wedge is ever measured.
 
 ## What this file is not
 
