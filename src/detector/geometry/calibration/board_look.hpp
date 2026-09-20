@@ -288,7 +288,7 @@ namespace board_look
     /** The area of the circle the board was measured out to, in pixels. */
     inline double boardDiscPixels(const Evidence &e)
     {
-        return kPi * e.board_span_px * e.board_span_px;
+        return M_PI * e.board_span_px * e.board_span_px;
     }
 
     /** A share as a percentage with one decimal, because 5.7 and 6 are different claims. */
@@ -326,7 +326,7 @@ namespace board_look
             return 1.0; // nothing is known about this frame, so nothing is refused on it
         }
         const double shortest = w < h ? w : h;
-        return kPi * shortest * shortest / (4.0 * w * h);
+        return M_PI * shortest * shortest / (4.0 * w * h);
     }
 
     /** Where the flood line sits: that far along the gap from the ceiling to all of it. */
