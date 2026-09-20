@@ -12,6 +12,7 @@
 #include "utils/od_clock.hpp"
 #include "utils/board_sight.hpp"
 #include "utils/od_fix.hpp"
+#include "utils/od_notify.hpp"
 #include "utils/signals.hpp"
 #include "utils/geometry_fault.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
@@ -124,6 +125,26 @@ namespace
     //
     // The first is the disagreement itself, so three of the four are re-asks.
     constexpr int kMovedAttempts = 4;
+
+    // ---- #1383: the falsification switch, on the same binary (#815's convention) ----
+    //
+    // OD_BLIND_RUN=unbounded restores exactly what this tree did before #1383: the fault
+    // vigil ignores OD_MAX_CYCLES, so a blind run given a budget never ends and has to be
+    // killed by a clock, and nothing is said to a supervisor about any board. It is how
+    // testers/i1383_inside.sh measures the "before" of both halves without compiling a
+    // second binary, so "different build" is never a confound.
+    //
+    // It restores a behaviour rather than removing one, which is why it is a switch and
+    // not a mutation: the mutation proof is a separate thing and plants a real defect.
+    inline bool blindRunLeftUnbounded()
+    {
+        static const bool v = []
+        {
+            const char *e = getenv("OD_BLIND_RUN");
+            return e && string(e) == "unbounded";
+        }();
+        return v;
+    }
 
     // Flat, and NOT the doubling backoff the `Unreadable` path uses. That backoff exists
     // because a camera that will not open may not open for hours and the board must not
@@ -370,6 +391,18 @@ void Scorer::run()
                                            ? to_string(camera_sources.size()) + " camera sources, census unknown"
                                            : census));
     log_info("Using detector: " + detector_type_name);
+    // #1383: the other half of the sentence, and the half that makes the first one mean
+    // something. Until a board that CAN see says so here, `systemctl status` on a blind
+    // board says nothing rather than saying the wrong thing -- and a reader cannot tell
+    // "this board is faulted" from "this board is running an older binary". Two boards,
+    // two different Status lines, neither of them a log file.
+    if (!blindRunLeftUnbounded())
+    {
+        od_notify::status(board_sight::word(board_sight::Condition::Ready),
+                          "scoring with " + (census.empty()
+                                                 ? to_string(camera_sources.size()) + " camera sources, census unknown"
+                                                 : census));
+    }
     cout << "-------------------------------------" << endl;
 
     // ---- harness, not upstream: one cycle budget, so two runs stop on the same frame.
@@ -734,6 +767,32 @@ void Scorer::runFaultVigil()
                                            "instead of 'the board stopped answering'. Check the cameras and "
                                            "restart the detector.");
 
+    // #1383: and where a supervisor is listening, it says the same thing to that. The
+    // word is the one the beat sends and the sentence is the one logged above, so the two
+    // readers cannot be told different things. A board with no pairing, no network and no
+    // Turnaus to beat to still reaches this line.
+    if (!blindRunLeftUnbounded())
+    {
+        od_notify::status(board_sight::word(board_sight::Condition::Error), "this board cannot see -- " + detail);
+    }
+
+    // ---- #1383: the cycle budget, which a blind board honours too. ----
+    //
+    // THE BUDGET IS A TESTER'S INSTRUCTION AND A BLIND CYCLE IS STILL A CYCLE. Nothing
+    // deployed sets OD_MAX_CYCLES -- testers/i1383_units.sh asserts the shipped unit file
+    // does not name it -- so this cannot end a board at a venue, and the vigil above is
+    // untouched for every run that was not given a number. What it ends is the nine
+    // minutes of wall clock and then a kill that #1334's agent met while trying to write
+    // a blind fixture, which reads as a hung suite rather than as the fixture working.
+    //
+    // A cycle here is one pass of the loop the process is actually in, at the 200 ms the
+    // vigil already sleeps -- not a frame, because a blind board reads no frames. So
+    // OD_MAX_CYCLES=20 is four seconds of vigil where it is about a second and a third of
+    // scoring, and the number a tester writes means "a known end" rather than a duration.
+    const char *vigil_budget_env = getenv("OD_MAX_CYCLES");
+    const long vigil_budget = blindRunLeftUnbounded() ? 0 : (vigil_budget_env ? atol(vigil_budget_env) : 0);
+    long vigil_cycles = 0;
+
     running = true;
     auto last_reminder = chrono::steady_clock::now();
 
@@ -746,6 +805,21 @@ void Scorer::runFaultVigil()
             running = false;
             break;
         }
+
+        if (vigil_budget > 0 && vigil_cycles >= vigil_budget)
+        {
+            cout << "[i1383] blind cycle budget reached: cycles=" << vigil_cycles << endl;
+            log_info("CYCLE BUDGET REACHED: " + to_string(vigil_cycles) + " cycles");
+            log_error("BLIND RUN ENDED BY ITS CYCLE BUDGET: " + detail +
+                      ". This run was given OD_MAX_CYCLES, so it ends where it was told to "
+                      "rather than waiting for a camera; a board with no budget goes on "
+                      "waiting. It exits " + to_string(kCouldNotSee) +
+                      " -- it could not see, which is not the same claim as a crash.");
+            ended_blind_on_the_budget_ = true;
+            running = false;
+            break;
+        }
+        vigil_cycles++;
 
         // A log somebody tails should go on saying it, and once a minute is often enough
         // that a reader knows the process is alive and rare enough to be free.

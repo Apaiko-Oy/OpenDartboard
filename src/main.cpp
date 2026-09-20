@@ -467,5 +467,13 @@ int main(int argc, char **argv)
   // #825: and then this function ends normally, which is the whole point. ~Scorer runs
   // here -- joining the WebSocket worker, stopping the HTTP server and releasing the
   // cameras -- because main is unwound rather than skipped by exit().
-  return 0;
+  //
+  // #1383: with the one status that is not 0. A run a tester bounded with OD_MAX_CYCLES
+  // that spent that budget blind did none of what a scorer is for, and says so rather
+  // than reporting success -- see Scorer::kCouldNotSee for what the number claims and
+  // why it is not 0, not 78 and not a crash. Every other route out of run() -- the
+  // scoring budget, the end of the footage, SIGINT, SIGTERM, a vigil a signal left --
+  // returns 0 exactly as before. Taken after the withdrawal above, so the announcement
+  // is gone whatever this answers.
+  return scorer.endedBlindOnTheBudget() ? Scorer::kCouldNotSee : 0;
 }
