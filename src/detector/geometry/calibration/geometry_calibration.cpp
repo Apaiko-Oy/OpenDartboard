@@ -446,16 +446,44 @@ namespace geometry_calibration
         // tautologies, and the run said `PnP calibration successful` over eleven slots of
         // whatever was in memory. A board in that state scores darts against a geometry
         // it invented, which is worse than one that will not start.
+        //
+        // #1442 ADDS THE OTHER SIDE, AND IT IS THE SAME REFUSAL RATHER THAN A NEW ONE.
+        // `isValid` now means a board's whole ring, so this branch is reached by a camera
+        // proposing twenty-two as well as by one proposing nineteen, and the only thing
+        // that changes here is that the sentence says WHICH -- because the remedy differs.
+        // Too few is a board partly unread and is answered with light, aim and a clean
+        // board; too many is the camera reading structure a board does not have, and is
+        // answered by what else is in its picture. Neither is answered by the other's
+        // advice, and a reader given one number and no direction tries both.
+        //
+        // What this costs is worth stating where it is paid: a refused camera abstains for
+        // the LIFE of the run. Calibration happens once, on one averaged frame per camera
+        // (capture::readAveraged(30) at start-up), and nothing retries it -- #895's vigil
+        // sits faulted rather than looking again. So a healthy camera that proposes
+        // twenty-two on its one frame is set aside until the board is restarted. That is
+        // #1318's answer to a camera that cannot be trusted, unchanged: the camera is
+        // named and set aside, the others carry on, and the board only faults when none is
+        // left. It is the right trade here because the alternative is not "score slightly
+        // worse" -- it is scoring a wedge map that is wrong by a whole wedge past the gap
+        // the truncation leaves, and reporting it with the confidence of a clean twenty.
         if (!wireData.isValid)
         {
-            log_error("Camera " + log_string(cameraIdx + 1) +
-                      " did not calibrate: the wire stage found " + log_string(wireData.wiresDetected) +
-                      " wire boundaries and all " + log_string(wire_processing::kWiresRequired) +
-                      " are needed to tell one wedge from the next, so this camera cannot be scored with.");
+            const bool moreThanABoardHas = wireData.wiresDetected > wire_processing::kWiresRequired;
+            const string count = to_string(wireData.wiresDetected);
+            const string needed = to_string(wire_processing::kWiresRequired);
+            const string why =
+                moreThanABoardHas
+                    ? "the wire stage found " + count + " wire boundaries where a board has " + needed +
+                          ", so it is reading something that is not the board and no " + needed +
+                          " of those " + count + " are the board's; this camera cannot be scored with."
+                    : "the wire stage found " + count + " wire boundaries and all " + needed +
+                          " are needed to tell one wedge from the next, so this camera cannot be scored with.";
+            log_error("Camera " + log_string(cameraIdx + 1) + " did not calibrate: " + log_string_src(why));
             board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
-                                     " did not calibrate: the wire stage found " + to_string(wireData.wiresDetected) +
-                                     " of the " + to_string(wire_processing::kWiresRequired) +
-                                     " wire boundaries a board has");
+                                     " did not calibrate: the wire stage found " + count +
+                                     (moreThanABoardHas
+                                          ? " wire boundaries where a board has " + needed
+                                          : " of the " + needed + " wire boundaries a board has"));
             calibration.sees_board = false;
             return calibration;
         }

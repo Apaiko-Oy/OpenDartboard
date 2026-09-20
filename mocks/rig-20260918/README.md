@@ -57,3 +57,43 @@ Scoring reaches `DART_PROCESSING` six times in sixty seconds. Those lines log em
 so do the shipped mocks' twenty-five, on the same build, which is why that is recorded here
 as a property of the build rather than of this footage. Whether it should be is not this
 file's question.
+
+## What it does on `detector-integration-w128` (#1437)
+
+The section above is true on the build it names and is still true of an **ordinary
+detector run** on the integration branch: both fixtures calibrate 3 of 3, and
+`1394-windows` asserts exactly that and is green. What moved is what this fixture answers
+when a measurement **holds a frame** instead of seeking to one, and it moved enough that a
+fixture-wide figure taken that way is not trustworthy without saying which frame it is of.
+
+`#1378` moved `roi_processing`'s margin from 1.25 to 2.107 of the measured board, for a
+reason this fixture is itself the evidence for: on this rig the colour stage measures the
+**treble** ring, so at 1.25 the region cut the doubles ring and the fitted board collapsed
+36.6%. The region on this rig therefore grew from about 243 px of radius to about 410 px,
+and the wire stage -- which reads whatever the region kept -- now sees the number ring,
+the wire ends and the wall beyond them. Its angular grouping returns a **spread** where it
+used to return twenty.
+
+Measured with `testers/i1437_wire_census.cpp`, one calibration per frame, at frames
+30..450 in steps of 30 -- the fifteen clean seconds this file calls the calibration input
+-- as the count of frames at which the wire stage refused the camera:
+
+    clip            before the branch   on the branch
+    cam_1.mp4                1 of 15         3 of 15
+    cam_2.mp4                1 of 15         8 of 15
+    cam_3.mp4                4 of 15         3 of 15
+
+and, for the control, `mocks/cam_{1,2,3}.mp4` read 0, 3 and 6 of 15 on **both** trees. The
+shipped mocks do not move because their boards fill their frames, so the widened region
+runs off the frame edge and is clipped; this rig's does not.
+
+The spread is **two-sided** -- 17, 18 and 19 appear, and so do 21 and 22 -- which is worth
+knowing before reading any refusal here as a camera being marginal. `kWiresRequired` is a
+one-sided threshold: more than twenty is truncated with `keeping the first 20` and fewer
+than twenty refuses the camera, so the same instability is silent in one direction and
+fatal in the other.
+
+**So a measurement over this fixture states which frame it held**, and a held-frame figure
+taken on this branch is a figure about that frame. #1416's ring-identity census read
+`rig doubles 27/27, --, 35/35` here and the dash is this. `testers/i1437_run.sh` is what
+now refuses a measurement that leaves a clip out.

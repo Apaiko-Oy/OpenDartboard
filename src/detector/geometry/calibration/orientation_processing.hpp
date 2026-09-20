@@ -169,6 +169,115 @@ namespace orientation_processing
         return 0;
     }
 
+    // ---- #1449: whether this board can be READ for a wedge, and how each camera reads ----
+    //
+    // The startup census counted cameras that produced a frame and cameras that see a
+    // board, and said nothing about the one field the scorer asks before it reads a wedge
+    // at all. So a board on which NO camera can be read was admitted, logged "Initial
+    // calibration completed successfully on 3 of 3 cameras", beat READY -- and then gave
+    // every dart on every ring the same number, because an unanchored camera takes
+    // #1346's asserted-twenty path. That is the maintainer's first live scoring run
+    // (#1363), and until #1449 the first thing that said so was a dart that had already
+    // been published.
+    //
+    // This is NOT a refusal and must not become one. An unanchored camera is a legal
+    // state: on a Winmau Blade 6 over a black surround the clip finder sees one clip
+    // where both branches of STEP 3 demand exactly four, so no camera anchors and a
+    // fresh calibration is unanchored too -- which is the whole reason OD_CAMERA_WEDGES
+    // exists. Refusing the board would make it unusable on the rig the feature was
+    // written for. What was missing is that nobody was TOLD, at the one moment an
+    // operator can still act: delete cache/, aim a camera, or state the anchor.
+
+    /**
+     * #1449: whether the SCORER will read this camera's wedge.
+     *
+     * This is `score_processing`'s own expression and there is now one of it. The census
+     * that reports anchoring and the scorer that acts on it must not be able to drift
+     * apart -- a camera counted as readable here and skipped there is exactly the silence
+     * this issue is about, one field further on. `anchored` alone is NOT the question:
+     * trust without an index to the 20 reads no wedge either.
+     */
+    inline bool wedgeCanBeRead(const OrientationData &orientation)
+    {
+        return orientation.anchored && orientation.wedge20WireIndex >= 0;
+    }
+
+    /** How many of these cameras the scorer will read a wedge from. */
+    inline int camerasWhoseWedgeCanBeRead(const vector<OrientationData> &orientations)
+    {
+        int readable = 0;
+        for (const OrientationData &orientation : orientations)
+        {
+            if (wedgeCanBeRead(orientation))
+            {
+                readable++;
+            }
+        }
+        return readable;
+    }
+
+    /**
+     * #1389 / ADR-0081 §3: this camera's own reason, never just a count. "A message
+     * saying only 'two of three' has told nobody anything."
+     *
+     * Every branch here is a state STEP 1 to STEP 3 above can really leave a camera in,
+     * and each sends the reader somewhere different: a clip-wire guess is a camera the
+     * heuristic DID place and #797 measured one wedge loose, so the remedy is to state
+     * the anchor; no south wire is a wire stage that found nothing, so the remedy is the
+     * aim or the lighting; neither star nor four clips is the Blade 6 itself, where
+     * OD_CAMERA_WEDGES is the answer and no amount of re-aiming is.
+     */
+    inline string howItReads(const OrientationData &orientation)
+    {
+        if (wedgeCanBeRead(orientation))
+        {
+            return string(orientation.cameraPosition == CameraPosition::CONFIGURED
+                              ? "anchored by configuration"
+                              : "anchored by its own star-pattern measurement") +
+                   ", wedge " + to_string(orientation.wedgeNumber) +
+                   " at its image south, so its wedge is read";
+        }
+        if (orientation.anchored)
+        {
+            // Trust with nothing to point at. No path above produces this today -- both
+            // set the index and the flag together -- and it is named rather than folded
+            // into the branches below so that a future one that sets only the flag is
+            // reported as itself instead of as a camera that found no clips.
+            return "is anchored but holds no wire index for the 20, so its wedge is asserted";
+        }
+        if (orientation.cameraPosition == CameraPosition::TOP ||
+            orientation.cameraPosition == CameraPosition::BOTTOM)
+        {
+            return "was placed " + cameraPositionToString(orientation.cameraPosition) +
+                   " by the clip-wire heuristic, whose guess #797 measured one wedge loose, so "
+                   "its wedge is asserted and not read; state it with OD_CAMERA_WEDGES";
+        }
+        if (orientation.southWireIndex < 0)
+        {
+            return "found no south wire to index a wedge from, so its wedge is asserted";
+        }
+        return "found neither the star pattern nor the four clips the heuristic needs, so its "
+               "wedge is asserted; state it with OD_CAMERA_WEDGES";
+    }
+
+    /**
+     * #1389's shape, in this file's vocabulary: every camera in its own slot, with its own
+     * reason, readable or not. Deliberately NOT camera_quorum::namingEachCamera -- that
+     * one's positive phrase is "sees the dartboard and can vote", which is a different
+     * question about the same camera, and one sentence answering both would be wrong
+     * about one of them.
+     */
+    inline string namingEachCamera(const vector<OrientationData> &orientations)
+    {
+        string out;
+        for (size_t i = 0; i < orientations.size(); i++)
+        {
+            out += out.empty() ? "" : "; ";
+            out += "camera " + to_string(i + 1) + ": " + howItReads(orientations[i]);
+        }
+        return out;
+    }
+
     // Main processing function
     OrientationData processOrientation(
         const Mat &frame,

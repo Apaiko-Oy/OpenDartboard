@@ -5,19 +5,123 @@
 #include "wire_processing.hpp"
 #include "geometry_calibration.hpp"
 #include "utils.hpp"
+#include <cstdlib>
+#include <string>
 
 using namespace cv;
 using namespace std;
 
 namespace wire_processing
 {
+    namespace
+    {
+        /**
+         * #1441's falsification, in the shape OD_ROI, OD_ROI_MARGIN, OD_BOARD,
+         * OD_BULL_CARVE and OD_COLOUR_WINDOWS established: one binary, the region chosen
+         * at run time, so "different build" is never a confound.
+         *
+         * OD_WIRE_REGION=doubles draws this stage's region at the fitted doubles ellipse
+         * itself, which is what every commit before this issue read, and is row 1.00 of
+         * the sweep in the header. Anything but that exact word is ignored, so a typo
+         * reads inside the region this stage was measured in rather than silently inside
+         * the one it was broken in.
+         */
+        bool wireReadsOutToTheDoubles()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_WIRE_REGION");
+                return e && std::string(e) == "doubles";
+            }();
+            return v;
+        }
+
+        /**
+         * OD_WIRE_REGION_MARGIN=<x> moves the region on one binary, the way
+         * OD_ROI_MARGIN moves the board finder's, and is how the header's sweep was
+         * taken. A value this cannot use is ignored rather than obeyed, and there are
+         * two ways to be unusable:
+         *
+         *   zero or less, or anything atof cannot read -- a region of no radius is a
+         *   black frame, and this stage would then refuse every camera on a wire count
+         *   while the reason is a region nobody printed;
+         *
+         *   past the board's rim. A board is 225.5 mm to its rim and 170 mm to the outer
+         *   doubles wire, so 1.33 of this ellipse is the whole board and there is
+         *   nothing further out for a stage that intersects every endpoint it returns
+         *   with the doubles ellipse. A value beyond it names no region on any board.
+         *
+         * Both are ignored rather than clamped: a clamp obeys a value nobody meant by
+         * quietly turning it into one that was never asked for, which is how #1378 was
+         * invisible for nineteen merges.
+         */
+        constexpr double kRegionPastTheRim = 225.5 / 170.0;
+
+        double wireRegionAsked(double stated)
+        {
+            static double asked = []
+            {
+                const char *e = std::getenv("OD_WIRE_REGION_MARGIN");
+                return e ? std::atof(e) : 0.0;
+            }();
+            return (asked > 0.0 && asked <= kRegionPastTheRim) ? asked : stated;
+        }
+
+        /**
+         * #1442's falsification, in the same shape as OD_WIRE_REGION above: one binary,
+         * the test chosen at run time.
+         *
+         * OD_WIRE_COUNT=atleast restores the one-sided test every commit before #1442
+         * asked -- a count of kWiresRequired OR MORE is a whole ring -- so the population
+         * this issue is about can be counted twice on one binary and the difference is
+         * this comparison and nothing else. Anything but that exact word is ignored, so a
+         * typo reads two-sided rather than silently reading in the behaviour the issue was
+         * filed on. There is deliberately no word for the reverse: the two-sided test is
+         * what this stage IS, not a mode it is in.
+         */
+        bool anyCountFromTwentyUpIsAWholeRing()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_WIRE_COUNT");
+                return e && std::string(e) == "atleast";
+            }();
+            return v;
+        }
+    }
+
+    bool isAWholeRing(int wiresProposed)
+    {
+        // The whole of #1442 is the second half of this line. kWiresRequired carries why
+        // twenty-two is the same fault as nineteen rather than a milder one.
+        return anyCountFromTwentyUpIsAWholeRing()
+                   ? wiresProposed >= kWiresRequired
+                   : wiresProposed == kWiresRequired;
+    }
+
+    RotatedRect regionOf(const DartboardCalibration &calib, const WireRegionParams &params)
+    {
+        // OD_WIRE_REGION=doubles restores the pre-#1441 region whole: the stage's masks
+        // were the fitted doubles ellipse itself, which is a scale of 1.0.
+        const float scale = wireReadsOutToTheDoubles()
+                                ? 1.0f
+                                : (float)wireRegionAsked(params.regionOfDoublesEllipse);
+        RotatedRect region = calib.ellipses.outerDoubleEllipse;
+        region.size.width *= scale;
+        region.size.height *= scale;
+        return region;
+    }
+
     Mat detectMetalWires(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib)
     {
         Mat wireEnhanced;
 
-        // STEP 1: Create ROI mask with 5% buffer around double outer ring
+        // STEP 1: Create ROI mask with 5% buffer around the wire stage's own region
+        // (#1441: `regionOf`, which is a fraction of the FITTED doubles ellipse. At
+        // scale 1.0 this is the outer doubles ring and therefore exactly what this line
+        // read before that issue.)
         Mat roiMask = Mat::zeros(frame.size(), CV_8UC1);
-        RotatedRect bufferedRing = calib.ellipses.outerDoubleEllipse;
+        RotatedRect bufferedRing = regionOf(calib);
         bufferedRing.size.width *= 1.05f;
         bufferedRing.size.height *= 1.05f;
         ellipse(roiMask, bufferedRing, Scalar(255), -1);
@@ -75,9 +179,9 @@ namespace wire_processing
         // Subtract green areas from wireEnhanced (remove doubles/triples)
         subtract(wireEnhanced, greenMask, wireEnhanced);
 
-        // STEP 10: Apply final tighter ROI mask (-5% from doubles ring) to clean up outer artifacts
+        // STEP 10: Apply final tighter ROI mask (-5% from the region) to clean up outer artifacts
         Mat finalRoiMask = Mat::zeros(frame.size(), CV_8UC1);
-        RotatedRect tighterRing = calib.ellipses.outerDoubleEllipse;
+        RotatedRect tighterRing = regionOf(calib);
         tighterRing.size.width *= 0.95f; // -5% instead of +5%
         tighterRing.size.height *= 0.95f;
         ellipse(finalRoiMask, tighterRing, Scalar(255), -1);
@@ -646,6 +750,18 @@ namespace wire_processing
         log_debug("Starting wire detection for camera " + log_string(calib.camera_index));
         log_debug("Frame size: " + log_string(frame.cols) + "x" + log_string(frame.rows));
 
+        // #1441: the region this stage read inside, said out loud. #1378 was invisible
+        // for nineteen merges because a region clipped a ring and no line of any log
+        // mentioned a region at all; this stage now names its own beside the count it is
+        // about to refuse a camera on.
+        const RotatedRect wireRegion = regionOf(calib);
+        log_debug("Camera " + log_string(calib.camera_index + 1) + " wire region: " +
+                  log_string((int)wireRegion.size.width) + "x" + log_string((int)wireRegion.size.height) +
+                  " px, drawn from the doubles ring fitted at STEP 6 (" +
+                  log_string((int)calib.ellipses.outerDoubleEllipse.size.width) + "x" +
+                  log_string((int)calib.ellipses.outerDoubleEllipse.size.height) +
+                  " px) and not from the board finder's search region");
+
         // Choose detection method based on config
         vector<Point2f> colorWires;
 
@@ -666,17 +782,28 @@ namespace wire_processing
             }
         }
 
-        // The one threshold, read from the one place it is stated. This is the guard whose
-        // old spelling -- `result.wireEndpoints.size() == 20` over a std::array<Point2f,20>
-        // -- was a tautology with `// Allow some tolerance` written beside it.
-        result.isValid = (result.wireEndpoints.size() == (size_t)kWiresRequired);
+        // The one threshold, read from the one place it is stated, asked of the count that
+        // was FOUND. Two things were wrong with the spelling this replaces, a merge apart.
+        // #1317 repaired the first: `result.wireEndpoints.size() == 20` over a
+        // std::array<Point2f,20> was a tautology, with `// Allow some tolerance` beside it.
+        // #1442 repairs the second: with a real `.size()` the question was still asked of
+        // a store BOUNDED at twenty, which can read short and can never read long, so
+        // twenty-two filled it to twenty and passed. `isAWholeRing` asks wiresDetected.
+        result.isValid = result.wholeRing();
 
-        // #1317: what was found, not what the array can hold. On the rig this issue was
+        // #1317: what was found, not what the array can hold. On the rig that issue was
         // filed from, the line above this one said "Selected 9 averaged wires" and this
         // one said twenty.
+        //
+        // #1442: and when it says more than twenty it now says what became of the rest.
+        // "keeping the first 20" was true and read as bookkeeping; the endpoints past the
+        // twentieth are still dropped, but they are dropped from a reading this stage is
+        // about to refuse, and the log should not be the only place that knows there were
+        // twenty-two.
         log_debug("Found " + log_string(result.wiresDetected) + " wire boundaries using ensemble" +
                   (result.wiresDetected > kWiresRequired
-                       ? ", keeping the first " + log_string(kWiresRequired)
+                       ? ", which is more than a board has; the first " + log_string(kWiresRequired) +
+                             " are kept for the picture and this camera is refused on the count"
                        : ""));
         if (result.isValid)
         {
@@ -688,7 +815,9 @@ namespace wire_processing
             // camera's failure, and it names the camera and this count. #1321's rule --
             // a reader told three times learns nothing the first telling did not say.
             log_debug("Wire detection did not complete: " + log_string(result.wiresDetected) +
-                      " of the " + log_string(kWiresRequired) + " wire boundaries a board has");
+                      (result.wiresDetected > kWiresRequired
+                           ? " wire boundaries where a board has " + log_string(kWiresRequired)
+                           : " of the " + log_string(kWiresRequired) + " wire boundaries a board has"));
         }
 
         // Handle debug output internally

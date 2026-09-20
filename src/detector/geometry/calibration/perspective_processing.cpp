@@ -34,7 +34,7 @@ namespace perspective_processing
             return result;
         }
 
-        if (calib.wires.wireEndpoints.size() < (size_t)wire_processing::kWiresRequired)
+        if (!calib.wires.wholeRing())
         {
             // A fact of its own, so it says the count. #1317 made it true: `.size()` is
             // now what the wire stage found rather than the capacity it was stored in, so
@@ -44,13 +44,31 @@ namespace perspective_processing
             //
             // It stays ERROR rather than becoming one of #1321's DEBUG echoes because it
             // is not an echo: calibrateSingleCamera refuses a camera on this same count
-            // before step 8.5 is reached, so a calibration arriving here with too few
-            // wires got in some other way -- from the cache, or from a caller of
+            // before step 8.5 is reached, so a calibration arriving here with the wrong
+            // number of wires got in some other way -- from the cache, or from a caller of
             // findAllRingWireIntersections that is not the calibration -- and that is news.
+            //
+            // #1442 MOVED THE QUESTION, NOT THE THRESHOLD. This asked
+            // `wireEndpoints.size() < kWiresRequired` and was therefore one-sided BY
+            // CONSTRUCTION rather than by choice: the store is a std::array bounded at
+            // kWiresRequired, so its size can read short and can never read long, and no
+            // spelling of a comparison against it can catch a camera that proposed
+            // twenty-two. `wholeRing()` asks `wiresDetected`, the count the ensemble
+            // really returned, so both sides are refused by the one question the wire
+            // stage is itself decided by. The number in the message moves with it: "20
+            // wire endpoints" was the true size of a store holding the first twenty of a
+            // bad twenty-two, and the sentence a reader needs names the twenty-two.
+            //
+            // The cache is the reachable half of this, and it is why the guard earns its
+            // keep rather than merely agreeing with the stage upstream. A
+            // DartboardCalibration fwritten by a binary older than #1442 carries `isValid`
+            // true, twenty endpoints and twenty-two in `wiresDetected`, and
+            // `--reuse-calibration` hands it straight past the wire stage to here.
             log_error("Camera " + log_string(calib.camera_index + 1) +
-                      " has a fitted doubles ring but only " + log_string(calib.wires.wireEndpoints.size()) +
-                      " wire endpoints, and at least " + log_string(wire_processing::kWiresRequired) +
-                      " are needed for the perspective fit.");
+                      " has a fitted doubles ring but its wire stage found " +
+                      log_string(calib.wires.wiresDetected) +
+                      " wire boundaries, where the perspective fit needs the " +
+                      log_string(wire_processing::kWiresRequired) + " a board has and no others.");
             return result;
         }
 

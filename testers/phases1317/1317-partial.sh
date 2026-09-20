@@ -32,7 +32,13 @@ BLUR="${BLUR:-0}"
 MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 
 echo "--- the three guards, called directly ---"
+# #1447: wire_processing.cpp joins this line because #1442 moved `isAWholeRing` out of
+# the header and into it, and both of the stages linked below now call it through
+# `WireData::wholeRing()`. Only #1442's own build line was updated, so this one has not
+# linked since -- `undefined reference to wire_processing::isAWholeRing(int)` -- which is
+# a tester that cannot be built rather than one that fails, and reads as neither.
 g++ -std=c++17 -O1 -o /run1317/guards /app/testers/i1317_guards.cpp \
+  /app/src/detector/geometry/calibration/wire_processing.cpp \
   /app/src/detector/geometry/calibration/perspective_processing.cpp \
   /app/src/detector/geometry/detection/score_processing.cpp \
   -I/app/src -I/app/src/utils \

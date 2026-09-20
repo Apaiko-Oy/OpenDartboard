@@ -189,11 +189,29 @@ namespace score_processing
         // A camera with no frame is exactly that case -- calibrateMultipleCameras keeps a
         // blank slot for it on purpose (#1318) and scoreDarts reads calibrations[i] for
         // every camera -- so this now refuses on a real calibration in a real run.
-        if (!calib.ellipses.hasValidDoubles || calib.wires.wireEndpoints.size() < (size_t)wire_processing::kWiresRequired)
+        //
+        // #1442: and the half of it that STILL could not fire is repaired the same way
+        // perspective_processing's twin is. `wireEndpoints.size() < kWiresRequired` reads
+        // a store bounded at kWiresRequired, so it catches a short ring and can never
+        // catch a long one; a camera proposing twenty-two filled that store to twenty and
+        // arrived here indistinguishable from a clean board. And it is exactly this
+        // function that the difference matters in: findWedgeSlot below walks the ring by
+        // ORDINAL and indexes dartboard_numbers with it, so the twenty kept out of
+        // twenty-two -- the twenty smallest angles, the last two dropped, a double-width
+        // gap left behind -- give every wedge past that gap a different number, reported
+        // with the confidence of a whole ring. That is the same fault the sentence above
+        // describes for nineteen wires, reached from the other side.
+        //
+        // #1451: the same expression, with one copy of it, so that the startup census can
+        // ask THIS question rather than a weaker one that happened to agree. It asked
+        // `sees_board && hasValidDoubles` and never the ring, so a camera refused here was
+        // counted a full voter at start and then abstained from every dart in silence --
+        // this refusal is `log_debug`, below the default level.
+        if (!canScoreAPoint(calib))
         {
             log_debug("SCORE: Invalid calibration data: camera " + log_string(calib.camera_index + 1) +
-                      " has " + log_string(calib.wires.wireEndpoints.size()) + " of the " +
-                      log_string(wire_processing::kWiresRequired) + " wire boundaries scoring needs" +
+                      " has " + log_string(calib.wires.wiresDetected) + " wire boundaries where scoring needs the " +
+                      log_string(wire_processing::kWiresRequired) + " a board has" +
                       string(calib.ellipses.hasValidDoubles ? "" : ", and no fitted doubles ring"));
             return out;
         }
@@ -275,7 +293,12 @@ namespace score_processing
         // fall back to the lowest index. Until that vote question is settled, an
         // unanchored camera's wedge is an assertion the vote keeps aside (chooseScore),
         // never a second voter.
-        out.wedge_measured = calib.orientation.anchored && calib.orientation.wedge20WireIndex >= 0;
+        // #1449: the same expression this line always was, with one copy of it. The
+        // startup census asks `wedgeCanBeRead` too, so a camera reported readable at
+        // start is by construction a camera read here -- the two cannot drift, which is
+        // the defect #1449 was filed about one field earlier. NOT a behaviour change:
+        // `wedgeCanBeRead` is `anchored && wedge20WireIndex >= 0` and nothing else.
+        out.wedge_measured = orientation_processing::wedgeCanBeRead(calib.orientation);
         if (!out.wedge_measured && !on_bull)
         {
             log_debug("SCORE: No orientation data, defaulting to 20");

@@ -18,7 +18,10 @@
 //
 //   2. That a calibration really does survive the round trip, field for field, including
 //      a reason long past the small-string buffer travelling the way it now travels --
-//      as words returned beside the geometry and printed, never through the file.
+//      as words returned beside the geometry and printed, never through the file. #1448
+//      completed the orientation half of that comparison and says beside it why the other
+//      blocks are a sample: `anchored` decides whether the board is READ at all, and it
+//      was the one field of OrientationData the fixture never set.
 //
 //   3. That the file's own header refuses what the struct's guarantee cannot see: a
 //      record of a different size, a different number of cameras, a different frame size,
@@ -112,6 +115,20 @@ static DartboardCalibration boardAt(int index, int width, int height, bool sees)
     calib.orientation.cameraPosition = orientation_processing::CameraPosition::MIDDLE;
     calib.orientation.wedgeNumber = 6;
     calib.orientation.avgClipWireCrossProduct = 0.75f;
+    // #1448: ANCHORED, and `true` rather than the default `false` on purpose. A fixture
+    // that sets a field to its own default cannot tell a faithful round trip from a zeroed
+    // one -- the comparison below would pass on a read that returned nothing at all -- so
+    // every field this fixture sets is set away from its default, and this one was the
+    // only field of OrientationData that was not set at all.
+    //
+    // It is worth a line of its own rather than a place in a list because of what it
+    // decides. `scorePoint` computes `wedge_measured = anchored && wedge20WireIndex >= 0`,
+    // so a calibration that comes back unanchored takes #1346's ASSERTED-twenty path --
+    // `sequence_slot = 0`, `dartboard_numbers[0]`, the same number for every tip on any
+    // ring -- while reporting itself perfectly valid. That is the state #1447 found a
+    // scoring fixture sitting in one layer out. Every other field surviving would not save
+    // a board that lost this one.
+    calib.orientation.anchored = true;
 
     return calib;
 }
@@ -151,9 +168,38 @@ static bool same(const DartboardCalibration &a, const DartboardCalibration &b, s
     {
         differs(a.wires.wireEndpoints[i] != b.wires.wireEndpoints[i], "a wire endpoint");
     }
-    differs(a.orientation.cameraPosition != b.orientation.cameraPosition, "orientation.cameraPosition");
+    // #1448: THE ORIENTATION BLOCK IS NAMED WHOLE, AND THE OTHER BLOCKS ARE DELIBERATELY
+    // A SAMPLE.
+    //
+    // This function reads as a statement of what the cache is held to, so the decision has
+    // to be legible rather than arrived at. Three of these ten were named before, and the
+    // one that was not is the one that decides whether the board is read at all: with
+    // `anchored` false `scorePoint` asserts the 20 for every tip on any ring (#1346's path,
+    // which is correct, reached by a fixture that should not be reaching it -- #1447).
+    // Adding that field alone would have left `wedge20WireIndex` unnamed beside it, and the
+    // two are one expression: `wedge_measured = anchored && wedge20WireIndex >= 0`. There
+    // is no third thing to say about the rest of the block, so it is all named.
+    //
+    // The other blocks stay a sample because they are guarded by a different fact. The
+    // failure this file exists for is a WHOLE-RECORD one -- a pointer written where words
+    // were meant (#1321), a member added or retyped so every field after it is at the wrong
+    // offset, a short read -- and any field of a block catches that, which is what choosing
+    // a few per block was for. What orientation has and the others do not is a field whose
+    // default is silently a different board: a zeroed `anchored` reads as a successful load
+    // and scores every dart the same. `look`, `ellipses` and `wires` have no such field --
+    // zeroed geometry is refused upstream or is visibly nonsense -- so completing them
+    // would buy lines rather than a guarantee.
+    differs(a.orientation.camera_index != b.orientation.camera_index, "orientation.camera_index");
+    differs(a.orientation.isStarCamera != b.orientation.isStarCamera, "orientation.isStarCamera");
+    differs(a.orientation.orientation != b.orientation.orientation, "orientation.orientation");
+    differs(a.orientation.southWireIndex != b.orientation.southWireIndex, "orientation.southWireIndex");
+    differs(a.orientation.wedge20WireIndex != b.orientation.wedge20WireIndex, "orientation.wedge20WireIndex");
     differs(a.orientation.angleOffsetFromSouth != b.orientation.angleOffsetFromSouth, "orientation.angleOffsetFromSouth");
+    differs(a.orientation.cameraPosition != b.orientation.cameraPosition, "orientation.cameraPosition");
     differs(a.orientation.wedgeNumber != b.orientation.wedgeNumber, "orientation.wedgeNumber");
+    differs(a.orientation.avgClipWireCrossProduct != b.orientation.avgClipWireCrossProduct,
+            "orientation.avgClipWireCrossProduct");
+    differs(a.orientation.anchored != b.orientation.anchored, "orientation.anchored");
 
     return why.empty();
 }
@@ -242,6 +288,24 @@ int main()
         }
         say(all, all ? "every field of every calibration survives the round trip"
                      : "a field did not survive the round trip: " + why);
+
+        // #1448: and what one of those fields MEANS, in the scorer's own arithmetic rather
+        // than as a byte. `same()` proves the value came back; this proves the value that
+        // came back is one a board can be read on. They are not the same claim and the
+        // distance between them is the whole issue: a cache that returned `anchored` false
+        // for every camera would load, report valid, skip the eight-and-a-half-second
+        // calibration, and then answer `dartboard_numbers[0]` for every dart of the
+        // evening. The expression is `scorePoint`'s, copied so that a reader can see it is.
+        bool every_camera_would_be_read = true;
+        for (size_t i = 0; i < read.size(); i++)
+        {
+            const bool wedge_measured =
+                read[i].orientation.anchored && read[i].orientation.wedge20WireIndex >= 0;
+            every_camera_would_be_read = wedge_measured && every_camera_would_be_read;
+        }
+        say(every_camera_would_be_read,
+            "every calibration comes back one the scorer will READ -- anchored, with a "
+            "wedge-20 wire -- rather than one it silently asserts the 20 on");
     }
 
     // The reason string, in the place it now lives: returned beside the geometry, far past
