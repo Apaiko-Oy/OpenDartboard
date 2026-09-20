@@ -287,7 +287,12 @@ namespace score_processing
         // fall back to the lowest index. Until that vote question is settled, an
         // unanchored camera's wedge is an assertion the vote keeps aside (chooseScore),
         // never a second voter.
-        out.wedge_measured = calib.orientation.anchored && calib.orientation.wedge20WireIndex >= 0;
+        // #1449: the same expression this line always was, with one copy of it. The
+        // startup census asks `wedgeCanBeRead` too, so a camera reported readable at
+        // start is by construction a camera read here -- the two cannot drift, which is
+        // the defect #1449 was filed about one field earlier. NOT a behaviour change:
+        // `wedgeCanBeRead` is `anchored && wedge20WireIndex >= 0` and nothing else.
+        out.wedge_measured = orientation_processing::wedgeCanBeRead(calib.orientation);
         if (!out.wedge_measured && !on_bull)
         {
             log_debug("SCORE: No orientation data, defaulting to 20");

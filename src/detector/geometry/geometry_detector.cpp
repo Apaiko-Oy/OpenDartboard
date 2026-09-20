@@ -538,6 +538,56 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                 applyConfiguredAnchors();
             }
 
+            // #1449: how many of these cameras can be READ for a wedge, said HERE --
+            // after applyConfiguredAnchors on both paths, which is the first moment the
+            // answer is final, and before anything has been scored.
+            //
+            // Until this line the answer first reached a log per dart, from
+            // score_processing's "BOARD: wedge by default", AFTER that dart had been
+            // published. Start is when an operator can still act on it: delete cache/,
+            // aim a camera, or set OD_CAMERA_WEDGES. That is the whole change -- the
+            // board is admitted exactly as before, and nothing here touches `calibrated`.
+            //
+            // It reads the calibrations rather than a count kept beside them for the
+            // reason geometryBreach() rebuilds its fingerprint every cycle: there is no
+            // second copy that could agree with itself while disagreeing with the board.
+            vector<orientation_processing::OrientationData> orientations;
+            for (const auto &calibration : calibrations)
+            {
+                orientations.push_back(calibration.orientation);
+            }
+            const int readable = orientation_processing::camerasWhoseWedgeCanBeRead(orientations);
+            const string each_camera_reads = orientation_processing::namingEachCamera(orientations);
+
+            log_info("ORIENTATION: " + to_string(readable) + " of " + to_string(camera_slots) +
+                     " cameras can be read for a wedge. " + each_camera_reads);
+
+            // #1338's shape, and its reasoning transfers exactly: a WARN rather than an
+            // ERROR because this board really can score -- an unanchored camera is a
+            // LEGAL state (#1363), and refusing it would make the rig OD_CAMERA_WEDGES
+            // was written for unusable. Not silence, because "no camera can tell where
+            // the 20 is, so every dart will publish as an asserted 20" is the sentence
+            // that gets the anchor stated before the evening rather than after.
+            //
+            // NONE, not "fewer than all": a board where SOME cameras are readable is the
+            // ordinary case and not the alarming one, which is #1363's point. Warning
+            // about it would train an operator to ignore the line that matters.
+            //
+            // It repeats the per-camera naming rather than leaning on the INFO above,
+            // because #882's rule is that a decision must not live four hundred lines --
+            // or one severity filter -- away from where it is read. An operator watching
+            // WARN and ERROR alone sees this whole sentence or none of it.
+            if (readable == 0 && camera_slots > 0)
+            {
+                log_warning("No camera on this board can be read for a wedge, so every dart will "
+                            "publish as an asserted 20 whatever wedge it really landed in -- the "
+                            "ring and the radius are measured, the number is not. " +
+                            each_camera_reads +
+                            ". Set OD_CAMERA_WEDGES to the wedge number at each camera's image "
+                            "south, read off the setup view once, to state the anchor this board "
+                            "cannot measure.");
+            }
+
             initialized = true;
             calibrated = true;
         }
