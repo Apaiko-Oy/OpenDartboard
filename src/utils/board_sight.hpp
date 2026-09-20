@@ -37,6 +37,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 
 namespace board_sight
@@ -146,6 +147,172 @@ namespace board_sight
     {
         static std::atomic<uint64_t> v{0};
         return v;
+    }
+
+    // ---------------------------------------------------------------------------------
+    // #1474: how many of this board's cameras are scoring, as three machine counts.
+    // ---------------------------------------------------------------------------------
+    //
+    // #1338 taught this program to COUNT its cameras and #1451 taught it to count the
+    // right ones; both say the answer in a sentence, to a console in another room. Turnaus
+    // has accepted, stored and published the count since #1343, and no board has ever sent
+    // it -- `postBeat` posted `{"condition":"<word>"}` and nothing else, so every board in
+    // the field read as unknown on a page built to draw the number. This is that number,
+    // in the shape the heartbeat states it.
+    //
+    // WHY IT LIVES BESIDE THE CONDITION. It is the same claim, made by the same process
+    // about the same fifteen seconds, and the server retires the two together -- past the
+    // silence window a board's condition is forgotten and its camera count goes with it,
+    // because a page saying *nothing is known about this machine* beside *all three
+    // cameras are scoring* would be a page saying two things about one board. So the
+    // census is written where the condition's facts are written, read where the word is
+    // read, and there is no second path for the two to arrive by.
+    //
+    // ABSENT IS NOT NOUGHT, AND THAT IS THE WHOLE DESIGN OF THIS FILE'S DEFAULT. Nought
+    // scoring cameras is a board that cannot score a dart; *nobody can say* is a board
+    // that has not calibrated yet, a detector that does not count, or a start that faulted
+    // before it had cameras to count. Turnaus distinguishes them and draws the first as a
+    // fault and the second as silence, so sending nought for an unknown board would mark
+    // every board in the country as broken. The stated bit below is therefore off until
+    // something really counts, and `postBeat` omits the whole object while it is off.
+
+    /** The three counts a beat may state. */
+    struct Cameras
+    {
+        int fitted = 0;  // how many cameras this board has: the denominator
+        int scoring = 0; // how many of them a dart is really scored from
+        int dark = 0;    // how many of them delivered no frame at all
+    };
+
+    /**
+     * More cameras than any board anybody has ever fitted.
+     *
+     * `App\Autoscoring\CameraReport::MOST_A_BOARD_HAS`, mirrored -- a beat naming more is
+     * refused with a 422, and a refused beat costs the club the CONDITION as well as the
+     * count. So the bound is asked on this side and an answer outside it is not stated at
+     * all, which is the one failure mode this whole message exists to avoid.
+     */
+    inline constexpr int kMostABoardHas = 16;
+
+    /**
+     * Whether these three numbers can describe one board, and whether this door will take
+     * them.
+     *
+     * The server's `isArithmeticallyPossible()` and its validation bounds, in one
+     * question and asked HERE, before anything is sent. A camera is scoring, or dark, or
+     * neither -- never two of those -- so the first two cannot together exceed what is
+     * fitted. Turnaus drops such a triple rather than refusing the beat, which means a
+     * board sending one would beat happily for ever while its page read unknown and
+     * nothing anywhere failed. That is the state #1474 was filed about, one level down, so
+     * it is refused here instead: a census this board cannot justify is not stated.
+     */
+    inline bool couldBeOneBoard(const Cameras &c)
+    {
+        return c.fitted >= 1 && c.fitted <= kMostABoardHas &&
+               c.scoring >= 0 && c.dark >= 0 &&
+               c.scoring + c.dark <= c.fitted;
+    }
+
+    /**
+     * The census, packed into one word.
+     *
+     * ONE atomic rather than three plus a flag, and the reason is the reader. This is
+     * written on the scoring thread and read on the beat thread, and the two never
+     * synchronise on anything else; three separate stores can be read as a new `fitted`
+     * beside an old `scoring`, which is a triple no board was ever in and which Turnaus
+     * would silently drop -- a beat whose census vanished for a reason nothing logged.
+     * Sixteen bits each is more than `kMostABoardHas` will ever need, the seventeenth word
+     * bit says the census was really taken, and zero is *nothing is known*: the value the
+     * program starts life holding, so absence is the default rather than a state something
+     * has to remember to write.
+     */
+    inline std::atomic<uint64_t> &statedCameras()
+    {
+        static std::atomic<uint64_t> v{0};
+        return v;
+    }
+
+    /** Bit 48: something counted. Below it, three sixteen-bit counts. */
+    inline constexpr uint64_t kCamerasStated = (uint64_t)1 << 48;
+
+    /**
+     * Say how many cameras this board has and how many of them a dart is scored from.
+     *
+     * Written where the numbers are decided and nowhere else -- `GeometryDetector`'s
+     * calibration census -- for the reason every other fact in this file is: a second copy
+     * counted somewhere else is how the board's page and the board's console come to
+     * disagree about the same evening.
+     *
+     * A triple no board can be in clears the census rather than storing it. Saying nothing
+     * is always available and always safe; saying something impossible is not.
+     */
+    inline void countCameras(int fitted, int scoring, int dark)
+    {
+        const Cameras c{fitted, scoring, dark};
+
+        if (!couldBeOneBoard(c))
+        {
+            statedCameras().store(0, std::memory_order_relaxed);
+            return;
+        }
+
+        statedCameras().store(kCamerasStated |
+                                  (uint64_t)(uint16_t)c.fitted |
+                                  ((uint64_t)(uint16_t)c.scoring << 16) |
+                                  ((uint64_t)(uint16_t)c.dark << 32),
+                              std::memory_order_relaxed);
+    }
+
+    /** Nothing is known about this board's cameras. The state it starts in. */
+    inline void forgetCameras()
+    {
+        statedCameras().store(0, std::memory_order_relaxed);
+    }
+
+    /**
+     * The census this board would state right now, or false where it has none.
+     *
+     * False is the honest answer for a board that has not calibrated, one whose detector
+     * does not count, and one that faulted before it had cameras to count -- and the beat
+     * omits the object entirely rather than sending three noughts.
+     */
+    inline bool camerasCounted(Cameras &out)
+    {
+        const uint64_t packed = statedCameras().load(std::memory_order_relaxed);
+
+        if ((packed & kCamerasStated) == 0)
+        {
+            return false;
+        }
+
+        out.fitted = (int)(uint16_t)(packed & 0xffff);
+        out.scoring = (int)(uint16_t)((packed >> 16) & 0xffff);
+        out.dark = (int)(uint16_t)((packed >> 32) & 0xffff);
+        return true;
+    }
+
+    /**
+     * OD_BEAT_CAMERAS=0: beat the pre-#1474 body, `{"condition":"<word>"}` and nothing
+     * else, on this same binary.
+     *
+     * `od_fix`'s convention and `OD_CAMERA_QUORUM`'s spelling, for their reason: one
+     * binary, the rule chosen at run time, so that "a different build" is never a confound
+     * when a tester shows the server's answer moving with the message. A harness that
+     * cannot make this board beat the old shape cannot show that the new shape is what
+     * reached Turnaus -- and the old shape is also the fleet mid-upgrade, which the server
+     * contract has to go on accepting.
+     *
+     * Read once for the life of the process: a board that changed its mind about what it
+     * states halfway through a run would be a worse thing to debug than either shape.
+     */
+    inline bool beatSaysNothingAboutCameras()
+    {
+        static const bool chosen = []
+        {
+            const char *e = std::getenv("OD_BEAT_CAMERAS");
+            return e != nullptr && std::string(e) == "0";
+        }();
+        return chosen;
     }
 
     /**

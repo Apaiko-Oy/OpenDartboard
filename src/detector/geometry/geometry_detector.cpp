@@ -730,6 +730,48 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                                    ? " (" + to_string(camera_slots - seeing) + " not looking at the dartboard)"
                                    : ""));
 
+        // #1474: the same census as three machine counts, for the heartbeat -- the half
+        // #1343 built a page for and no board has ever sent. `scoring_with` above is a
+        // SENTENCE, for a console in the room with the board; this is the number, for the
+        // marking page at the oche, which is where the person who can do something about
+        // it is standing.
+        //
+        // IT IS SAID HERE AND NOT BESIDE THE `SCORING:` LINE, which is the other candidate
+        // site and is wrong for one reason: that line is inside the `if (calibrated)`
+        // branch below, and a board that did NOT calibrate is exactly the board whose
+        // count somebody needs. *This board is calibrating on one of three* is a sentence
+        // a person at the oche can act on; withholding the count from every state that has
+        // a remedy would leave the number arriving only for boards that did not need it.
+        //
+        // `scoring` IS #1451'S COUNT AND NOT `voting`, and the two are a real choice.
+        // `voting` is the cameras that can vote on what is ON the board -- they spike,
+        // they see a dart appear and be taken out -- and it is the population the server's
+        // own wording names ("contributing spikes"). But #1451 measured what that
+        // over-counts: a camera whose wire ring is not whole spikes happily and
+        // `scorePoint` then returns a MISS from it at every dart, so a three-camera board
+        // silently becomes a two-camera board and goes on reporting three. Drawing THAT
+        // board as whole on the marking page is the failure #1343 exists to remove,
+        // reintroduced one field over. `camerasThatCanScoreAPoint` is a strict subset of
+        // `voting` -- both ask `sees_board && hasValidDoubles`, this one asks the ring as
+        // well -- so the choice can only ever under-claim and never draw a broken board as
+        // healthy, which is the direction to be wrong in.
+        //
+        // `dark` is the cameras that delivered NO FRAME AT ALL, which is the same
+        // `answering` the sentence above counts with. Turnaus keeps it apart from the rest
+        // of what is missing because the two remedies differ and send a person to
+        // different ends of the room: nothing at all is cabling or bus bandwidth (#1319,
+        // where a USB hub took two out), frames that would not calibrate is aim, framing
+        // or lighting (#1340).
+        //
+        // The arithmetic Turnaus asks of the triple holds here by construction rather than
+        // by luck: a camera with no frame is refused by `board_look` with `NoFrame`, which
+        // clears `sees_board`, and the cached path clears it too (#1372) -- so no dark
+        // camera is ever counted scoring, and `scoring + dark <= fitted` cannot be
+        // violated by any board this branch can build.
+        board_sight::countCameras(camera_slots,
+                                  score_processing::camerasThatCanScoreAPoint(calibrations),
+                                  camera_slots - answering);
+
         // #1372: the two refusals below are the same refusal, and they name their subject
         // so that an operator reading a log knows whether to go and look at the cameras or
         // to delete cache/. `board_sight::recordFault` is handed the arithmetic sentence

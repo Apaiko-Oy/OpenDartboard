@@ -1410,7 +1410,46 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
     headers["Authorization"] = "Bearer " + credentialFor(binding);
     headers["Accept"] = "application/json";
 
-    const std::string body = std::string("{\"condition\":\"") + condition_word + "\"}";
+    // #1474: and how many of this board's cameras a dart is really scored from, when this
+    // board has counted them. `App\Autoscoring\CameraReport`'s three members, in the
+    // 45.15.0 shape and in no other: `cameras` is a closed object on that side -- a fourth
+    // member is a 422, and a 422 costs the club this board's CONDITION as well as its
+    // count. So nothing about the machine goes in here, ever, and the three names are
+    // spelt once.
+    //
+    // OMITTED RATHER THAN NOUGHT when the board has not counted, which is the whole of the
+    // upgrade story in one branch. A board that has not calibrated yet, one whose detector
+    // does not count, and one that faulted before it had cameras to count all send exactly
+    // the body they sent before this change -- and Turnaus records *unknown*, which is not
+    // nought and is not drawn as a fault. Sending three noughts instead would say *this
+    // board has no working cameras*, the opposite reading, about every board that has not
+    // finished starting up.
+    board_sight::Cameras cameras;
+    const bool states_cameras =
+        !board_sight::beatSaysNothingAboutCameras() && board_sight::camerasCounted(cameras);
+
+    std::string body = std::string("{\"condition\":\"") + condition_word + "\"";
+
+    if (states_cameras)
+    {
+        body += ",\"cameras\":{\"fitted\":" + std::to_string(cameras.fitted) +
+                ",\"scoring\":" + std::to_string(cameras.scoring) +
+                ",\"dark\":" + std::to_string(cameras.dark) + "}";
+
+        // Said once, at default level, because it is the sentence that tells somebody
+        // reading this console that the number they are looking at on the marking page is
+        // this board's own and is arriving. A board that stops stating one has usually
+        // faulted and says so elsewhere; this line is about the beat having a census at
+        // all, which until #1474 it never had.
+        if (!said_it_counts_cameras_.exchange(true))
+        {
+            log_info("TURNAUS: this board states its cameras on every beat -- " +
+                     std::to_string(cameras.scoring) + " of " + std::to_string(cameras.fitted) +
+                     " scoring, " + std::to_string(cameras.dark) + " dark");
+        }
+    }
+
+    body += "}";
 
     odhttp::Response res = odhttp::postJson(url_, heartbeatsPath(binding), body, headers,
                                             config_.connect_timeout_s, config_.read_timeout_s);
