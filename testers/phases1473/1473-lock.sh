@@ -53,6 +53,15 @@ check() { # check <what> <expected> <actual>
 }
 
 announced() { if [ -f "$SVC" ]; then echo yes; else echo no; fi; }
+# Whether a pid has finished, read out of its own /proc entry rather than matched against
+# a process pattern. A child this shell has not reaped yet is a zombie, and a zombie
+# answers `kill -0` as a living process -- which is exactly the pid being asked about, so
+# the state letter is what has to be read.
+stopped() { # stopped <pid>
+  local st
+  st="$(sed 's/.*) //' "/proc/$1/stat" 2> /dev/null | cut -d' ' -f1)"
+  if [ -z "$st" ] || [ "$st" = "Z" ]; then echo yes; else echo no; fi
+}
 announcedAs() { sed -n 's:.*<name>\(.*\)</name>.*:\1:p' "$SVC" 2> /dev/null | head -1; }
 plain() { sed -E 's/\x1b\[[0-9;]*m//g' "$1" 2> /dev/null; }
 logsays() { # logsays <file> <ERE>
@@ -244,14 +253,20 @@ check "p2 who holds the port"                  "http"  "$(who)"
 check "p2 listening sockets on the port"       "1"     "$(portlisten)"
 check "p2 the lock is held once"               "1"     "$(locksockets)"
 
-# The real second process. It is run in the FOREGROUND: what it does is decline and exit,
-# and its exit status is half of what is being measured.
+# The real second process. It is started in the BACKGROUND and measured while it is at
+# its liveliest, because the question is what the kernel holds WHILE two boards are up:
+# run in the foreground it would be gone before anything could be counted, and a tree
+# where it does not decline would be counted after it had finished too, so the headline
+# number would read 0 for two opposite reasons.
+#
+# The sentinel matches BOTH outcomes of the decision under test -- refused, or listening --
+# so a board that does not decline fails an assertion rather than spending this phase's
+# whole budget on a timeout.
 SECOND_T0=$(date +%s)
 OD_MAX_CYCLES=900 "$BIN" --debug $MOCKS --listen --announce-dir "$ANN" --label "Kello 1473 SECOND" $NOPUSH \
-  > /run1473/second.out 2>&1
-SECOND_RC=$?
-echo "p2 the second board exited after $(( $(date +%s) - SECOND_T0 ))s"
-check "p2 the second board's exit status"                   "1"  "$SECOND_RC"
+  > /run1473/second.out 2>&1 &
+SECOND=$!
+echo "p2 the second board decided after $(await /run1473/second.out 'not starting: another opendartboard|server listening on' 300)s"
 check "p2 it declined before it opened a camera"            "no" "$(logsays /run1473/second.out '^Configuration:')"
 check "p2 it says it is not starting, and why"              "yes" \
   "$(logsays /run1473/second.out 'not starting: another opendartboard .* is already running on this host and holds the score port 13520')"
@@ -266,11 +281,31 @@ check "p2 the pid it names is the board that is running"    "$FIRST" "${NAMED_PI
 check "p2 it did NOT claim to be listening"                 "no"  "$(logsays /run1473/second.out 'server listening on')"
 check "p2 it did NOT announce itself"                       "no"  "$(logsays /run1473/second.out 'announced as')"
 
-# What the issue is about, measured in the kernel's own tables rather than in a log.
-check "p2 listening sockets on the port, after the second board tried" "1" "$(portlisten)"
+# What the issue is about, measured in the kernel's own tables rather than in a log, and
+# measured with the second board started.
+check "p2 listening sockets on the port, with the second board started" "1" "$(portlisten)"
 check "p2 the announcement still names the first board" "Kello 1473 FIRST" "$(announcedAs)"
 check "p2 who holds the port now"                       "http" "$(who)"
 check "p2 the lock is still held once"                  "1"    "$(locksockets)"
+
+# And it has to go away by itself. Nothing here waits on a process pattern: the pid this
+# shell started is the pid it asks about.
+GONE=no
+for _ in $(seq 1 25); do
+  [ "$(stopped $SECOND)" = yes ] && { GONE=yes; break; }
+  sleep 1
+done
+check "p2 the second board stopped on its own" "yes" "$GONE"
+if [ "$GONE" = yes ]; then
+  wait $SECOND 2> /dev/null
+  SECOND_RC=$?
+else
+  kill -TERM $SECOND 2> /dev/null
+  wait $SECOND 2> /dev/null
+  SECOND_RC="still-running"
+fi
+echo "p2 the second board was done after $(( $(date +%s) - SECOND_T0 ))s"
+check "p2 the second board's exit status" "1" "$SECOND_RC"
 echo "p2 what the second board said:"
 plain /run1473/second.out | grep -aE 'not starting|one host runs' | sed 's/^/    /'
 
