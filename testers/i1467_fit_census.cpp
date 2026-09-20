@@ -21,6 +21,7 @@
 //            exist at all.
 #include <opencv2/opencv.hpp>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -120,19 +121,25 @@ int main(int argc, char **argv)
 
         DartboardCalibration calib = geometry_calibration::calibrateSingleCamera(frame, camIdx, false);
 
-        std::cout << "I1467" << where
-                  << " doubles=" << (calib.ellipses.hasValidDoubles ? 1 : 0)
-                  << " wires=" << calib.wires.wiresDetected
-                  << " ok=" << (calib.wires.isValid ? 1 : 0)
-                  << " cand=" << calib.wires.fit_candidates
-                  << " asked=" << (calib.wires.fit_asked ? 1 : 0)
-                  << " R=" << calib.wires.fit_coherence
-                  << " inlier=" << calib.wires.fit_inlier_fraction
-                  << " snapped=" << calib.wires.fit_snapped;
+        // ONE WRITE PER ROW, and this is not tidiness. The stages below log to the same
+        // stream, so a row emitted in pieces around a call that WARNs comes out cut in
+        // half -- which is how mocks/cam_1's collapsed conic lost its `conic=` field and
+        // read to the harness as a sound one. The row is built whole and written once.
+        std::ostringstream row;
+        row << "I1467" << where
+            << " doubles=" << (calib.ellipses.hasValidDoubles ? 1 : 0)
+            << " wires=" << calib.wires.wiresDetected
+            << " ok=" << (calib.wires.isValid ? 1 : 0)
+            << " cand=" << calib.wires.fit_candidates
+            << " asked=" << (calib.wires.fit_asked ? 1 : 0)
+            << " R=" << calib.wires.fit_coherence
+            << " inlier=" << calib.wires.fit_inlier_fraction
+            << " snapped=" << calib.wires.fit_snapped;
 
         if (!calib.ellipses.hasValidDoubles)
         {
-            std::cout << " tilt=-1 rms=-1 gaps=-1\n";
+            row << " tilt=-1 rms=-1 gaps=-1 conic=-1";
+            std::cout << row.str() << "\n" << std::flush;
             for (int s = 1; s < spacing; s++) { cv::Mat junk; if (!cap.read(junk)) break; }
             continue;
         }
@@ -147,8 +154,11 @@ int main(int argc, char **argv)
         }
 
         const cv::Point2f bull((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+        // Asked once. It logs when the ray tracer and #1423 disagree, and a census that
+        // asked it per perturbation would say so a hundred and thirty times.
+        const double conicOfDoubles = wire_processing::conicOfDoublesFor(calib);
         const wire_model::Plane plane =
-            wire_model::planeOf(calib.ellipses.outerDoubleEllipse, bull, wire_processing::conicOfDoublesFor(calib));
+            wire_model::planeOf(calib.ellipses.outerDoubleEllipse, bull, conicOfDoubles);
         const wire_model::Fit fit = wire_model::fitTwentyFold(plane, candidates);
 
         // The smallest gap between two of the twenty boundaries the camera really shipped.
@@ -166,11 +176,11 @@ int main(int argc, char **argv)
             }
         }
 
-        std::cout << " tilt=" << plane.tilt
-                  << " rms=" << fit.rmsResidualDeg
-                  << " gaps=" << (kept > 1 ? smallestGap : -1.0)
-                  << " conic=" << wire_processing::conicOfDoublesFor(calib)
-                  << "\n";
+        row << " tilt=" << plane.tilt
+            << " rms=" << fit.rmsResidualDeg
+            << " gaps=" << (kept > 1 ? smallestGap : -1.0)
+            << " conic=" << conicOfDoubles;
+        std::cout << row.str() << "\n" << std::flush;
 
         // Every candidate's residual, for the pooled distribution.
         const std::vector<double> res = wire_model::residualsOf(plane, candidates, fit.offset);
@@ -200,7 +210,7 @@ int main(int argc, char **argv)
                 const double a = 2.0 * kPi * k / 8.0;
                 const cv::Point2f moved(bull.x + (float)(d * std::cos(a)), bull.y + (float)(d * std::sin(a)));
                 const wire_model::Plane p2 =
-                    wire_model::planeOf(calib.ellipses.outerDoubleEllipse, moved, wire_processing::conicOfDoublesFor(calib));
+                    wire_model::planeOf(calib.ellipses.outerDoubleEllipse, moved, conicOfDoubles);
                 const wire_model::Fit f2 = wire_model::fitTwentyFold(p2, candidates);
                 worstR = std::min(worstR, f2.coherence);
                 if (!p2.built || !f2.built) { worstErr = 999.0; continue; }
