@@ -1,4 +1,5 @@
 #include "dart_processing.hpp"
+#include <iostream>
 #include <cstdlib>
 #include "logging.hpp"
 #include "utils.hpp"
@@ -144,6 +145,75 @@ namespace dart_processing
 
     // getDartBoardStateName lives inline in the header since #1350.
 
+    // ---- #1492 measurement instrument, off unless asked for --------------------------
+    //
+    // `detectTipAndCenter` is the whole of what is known about where a tip comes from,
+    // and #1492's first half is a measurement rather than a repair: nobody had said what
+    // a camera that places a dart 176 mm from its neighbours actually FOUND. So this
+    // prints the figure the tip was picked out of -- every contour it admitted, the
+    // centroid it measured from, the convex hull it chose from and the point it chose --
+    // and, where asked, writes the same thing as a picture.
+    //
+    //   OD_TIP_CENSUS=1          one I1492TIP line per call, on stdout
+    //   OD_TIP_PROBE=<dir>       plus an annotated JPEG of the binary figure per call
+    //
+    // Neither is read on an ordinary run and neither changes a pixel of what is decided.
+    static bool tipCensus()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_TIP_CENSUS");
+            return e != nullptr && std::string(e) == "1";
+        }();
+        return v;
+    }
+
+    /**
+     * #1492's falsification, in the shape od_fix, #1339 and #1358 established: one
+     * binary, the contour floor chosen at run time, so "different build" is never a
+     * confound.
+     *
+     * `detectTipAndCenter` admits a contour of more than 400 px into the point cloud the
+     * tip is picked from and drops everything under it. On mocks/rig-20260918 that floor
+     * is what leaves a camera holding the dart's FLIGHT alone -- the shaft below it
+     * arrives as four fragments of 9 to 328 px, every one of them dropped -- and the
+     * "tip" is then a corner of the flight, 250 mm from where the neighbouring cameras
+     * put the same dart.
+     *
+     * OD_TIP_PIECE_FLOOR=<n> pins that number so the obvious repair can be MEASURED
+     * rather than argued, on the binary that ships. It is a pin and nothing reads it on
+     * an ordinary run: unset, and anything that is not a non-negative number, leaves the
+     * floor at 400. #1492 measured `0` and records the answer in
+     * testers/i1492_inside.sh -- it moves 22 of the 51 readings, does not reduce the
+     * off-board count, and walks three currently-good tips off the bottom of the board --
+     * which is why this issue did not change the number.
+     */
+    static double piecesFloor()
+    {
+        static double v = []
+        {
+            const char *e = std::getenv("OD_TIP_PIECE_FLOOR");
+            if (e == nullptr || *e == '\0')
+            {
+                return 400.0;
+            }
+            char *end = nullptr;
+            const double n = std::strtod(e, &end);
+            return (end != e && n >= 0.0) ? n : 400.0;
+        }();
+        return v;
+    }
+
+    static const std::string &tipProbeDir()
+    {
+        static std::string v = []
+        {
+            const char *e = std::getenv("OD_TIP_PROBE");
+            return e != nullptr ? std::string(e) : std::string();
+        }();
+        return v;
+    }
+
     pair<Point2f, Point2f> detectTipAndCenter(const Mat &binary_thresh, bool debug_mode, int camera_id, vector<Mat> &dart_tips)
     {
         Point2f tip_position(0, 0);
@@ -167,7 +237,7 @@ namespace dart_processing
         for (const auto &contour : contours)
         {
             double area = contourArea(contour);
-            if (area > 400 && area < 20000) // More inclusive range for dart pieces
+            if (area > piecesFloor() && area < 20000) // More inclusive range for dart pieces
             {
                 dart_pieces.push_back(contour);
             }
@@ -235,6 +305,105 @@ namespace dart_processing
         else
         {
             log_debug("No tip found - max hull distance too small: " + to_string(max_distance));
+        }
+
+        if (tipCensus() || !tipProbeDir().empty())
+        {
+            static long probe_seq = 0;
+            probe_seq++;
+            // What the floor dropped, and what the tip would have been without it: the
+            // two questions #1492's evidence turns on, asked of the same call.
+            vector<Point> unfloored;
+            std::string dropped;
+            for (const auto &c : contours)
+            {
+                const double a = contourArea(c);
+                if (a >= 20000) continue;
+                unfloored.insert(unfloored.end(), c.begin(), c.end());
+                if (a <= piecesFloor())
+                {
+                    dropped += (dropped.empty() ? "" : ";") + to_string((long)a);
+                }
+            }
+            // Which admitted piece the published tip is a point of. `biggest_shape_center`
+            // is measured from piece 0 alone while the hull spans every piece, so a tip
+            // that is not a point of piece 0 was found on a DIFFERENT object -- the dart
+            // already in the board, a shadow, a second fragment -- and the line from the
+            // centroid to it crosses empty space. Exact, and it needs no threshold.
+            int tip_piece = -1;
+            if (norm(tip_position) > 0)
+            {
+                for (size_t k = 0; k < dart_pieces.size() && tip_piece < 0; k++)
+                {
+                    for (const Point &q : dart_pieces[k])
+                    {
+                        if (q == furthest_hull_point) { tip_piece = (int)k; break; }
+                    }
+                }
+            }
+
+            Point2f tip_unfloored(-1, -1);
+            double unfloored_dist = 0;
+            if (unfloored.size() >= 3)
+            {
+                vector<Point> uh;
+                convexHull(unfloored, uh);
+                for (const Point &hp : uh)
+                {
+                    const double dd = norm(Point2f(hp) - biggest_shape_center);
+                    if (dd > unfloored_dist) { unfloored_dist = dd; tip_unfloored = Point2f(hp); }
+                }
+            }
+
+            std::string census_line = "I1492TIP seq=" + to_string(probe_seq) + " cam=" + to_string(camera_id + 1) +
+                               " pieces=" + to_string(dart_pieces.size()) +
+                               " contours=" + to_string(contours.size()) +
+                               " centroid=" + to_string(biggest_shape_center.x) + "," + to_string(biggest_shape_center.y) +
+                               " maxdist=" + to_string(max_distance) +
+                               " tip=" + to_string(tip_position.x) + "," + to_string(tip_position.y) +
+                               " tipNoFloor=" + to_string(tip_unfloored.x) + "," + to_string(tip_unfloored.y) +
+                               " maxdistNoFloor=" + to_string(unfloored_dist) +
+                               " tipPiece=" + to_string(tip_piece) +
+                               " droppedAreas=" + (dropped.empty() ? std::string("-") : dropped) +
+                               " areas=";
+            for (size_t k = 0; k < dart_pieces.size(); k++)
+            {
+                census_line += (k ? ";" : "") + to_string((long)contourArea(dart_pieces[k]));
+            }
+            census_line += " centroids=";
+            for (size_t k = 0; k < dart_pieces.size(); k++)
+            {
+                Moments mk = moments(dart_pieces[k]);
+                census_line += (k ? ";" : "") +
+                    (mk.m00 > 0 ? to_string((int)(mk.m10 / mk.m00)) + "," + to_string((int)(mk.m01 / mk.m00))
+                                : std::string("-"));
+            }
+            census_line += " hull=";
+            for (size_t k = 0; k < hull.size(); k++)
+            {
+                census_line += (k ? ";" : "") + to_string(hull[k].x) + "," + to_string(hull[k].y);
+            }
+            std::cout << census_line << std::endl;
+
+            if (!tipProbeDir().empty())
+            {
+                Mat pic;
+                cvtColor(binary_thresh, pic, COLOR_GRAY2BGR);
+                vector<vector<Point>> hv = {hull};
+                drawContours(pic, hv, -1, Scalar(255, 200, 0), 1);
+                for (size_t k = 0; k < dart_pieces.size(); k++)
+                {
+                    vector<vector<Point>> pv = {dart_pieces[k]};
+                    drawContours(pic, pv, -1, Scalar(0, 255, 0), 1);
+                }
+                circle(pic, biggest_shape_center, 6, Scalar(255, 0, 255), -1);
+                if (norm(tip_position) > 0)
+                {
+                    circle(pic, tip_position, 9, Scalar(0, 0, 255), 2);
+                    line(pic, biggest_shape_center, tip_position, Scalar(0, 0, 255), 1);
+                }
+                imwrite(tipProbeDir() + "/fig_" + to_string(probe_seq) + "_cam" + to_string(camera_id + 1) + ".jpg", pic);
+            }
         }
 
         // Debug visualization
