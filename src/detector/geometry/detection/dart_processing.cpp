@@ -1,6 +1,7 @@
 #include "dart_processing.hpp"
 #include <iostream>
 #include <cstdlib>
+#include <limits>
 #include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
@@ -227,6 +228,50 @@ namespace dart_processing
         return v;
     }
 
+    /**
+     * #1494's falsification, in the same od_fix shape. `OD_TIP_FIGURE=union` restores the
+     * figure as it was before #1494: every contour between the 400 px floor and the
+     * 20,000 px cap, unioned into one point cloud, one hull over the lot. Anything else,
+     * unset included, takes the group the LARGEST contour belongs to and no floor at all.
+     *
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    static bool figureIsUnion()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_TIP_FIGURE");
+            return e != nullptr && std::string(e) == "union";
+        }();
+        return v;
+    }
+
+    // The smallest distance between two contours, in pixels. Bounding boxes first: a
+    // figure here holds nine contours at its worst (measured over the whole of
+    // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
+    // leaves tens of points on each, so this is a handful of comparisons -- but the board
+    // this runs on is a Pi Zero 2 W and the rejection is free.
+    static double gapBetween(const vector<Point> &a, const vector<Point> &b, double no_further_than)
+    {
+        const Rect ra = boundingRect(a), rb = boundingRect(b);
+        const double dx = std::max({0.0, (double)(rb.x - (ra.x + ra.width)), (double)(ra.x - (rb.x + rb.width))});
+        const double dy = std::max({0.0, (double)(rb.y - (ra.y + ra.height)), (double)(ra.y - (rb.y + rb.height))});
+        if (std::sqrt(dx * dx + dy * dy) > no_further_than)
+        {
+            return std::numeric_limits<double>::max();
+        }
+        double best = std::numeric_limits<double>::max();
+        for (const Point &p : a)
+        {
+            for (const Point &q : b)
+            {
+                const double d = norm(Point2f(p) - Point2f(q));
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    }
+
     static const std::string &tipProbeDir()
     {
         static std::string v = []
@@ -256,24 +301,90 @@ namespace dart_processing
             return make_pair(tip_position, center_position);
         }
 
+        // #1494 and #1495, which are ONE decision. The figure used to be every contour in
+        // a size band, unioned: a 400 px floor at the bottom and a 20,000 px cap at the
+        // top. That is two faults pulling against each other. The floor drops a
+        // fragmenting dart's own shaft -- on mocks/rig-20260918 it left camera 3 holding
+        // dart 3's FLIGHT alone, 1,385 px, with the shaft below it arriving as 9, 16, 146
+        // and 328 px and every one dropped, so the published tip was a corner of the
+        // flight. And the union lets a SECOND object win the tip -- the hull spans every
+        // admitted contour while the centroid is the largest one's alone, so on dart 8
+        // camera 1 the furthest hull point was the top of the older dart's shaft. Removing
+        // the floor makes the second fault worse (measured: off-board readings 14 -> 16)
+        // and restricting the hull to one contour makes the first worse.
+        //
+        // So neither is a question about SIZE. The figure is the dart, and a contour is
+        // part of the dart when it is nearer to the dart than the dart is thick: a shaft
+        // fragment is separated from the flight by a gap the thresholding opened, which is
+        // smaller than the object it opened it in, and a second dart or a shadow at the
+        // rim is not. The tolerance is the largest contour's OWN minimum width -- the
+        // short side of its minAreaRect -- so it is read off the figure in hand and is not
+        // a number fitted to this fixture (#1322, #1478): the same rule reads a dart at
+        // twice the size, and a camera twice as far away, without being told.
+        //
+        // With membership answered, the floor has nothing left to do and there is none.
         vector<vector<Point>> dart_pieces;
-        for (const auto &contour : contours)
+        if (figureIsUnion())
         {
-            double area = contourArea(contour);
-            if (area > piecesFloor() && area < 20000) // More inclusive range for dart pieces
+            for (const auto &contour : contours)
             {
-                dart_pieces.push_back(contour);
+                double area = contourArea(contour);
+                if (area > piecesFloor() && area < 20000) // More inclusive range for dart pieces
+                {
+                    dart_pieces.push_back(contour);
+                }
+            }
+            if (dart_pieces.empty())
+            {
+                return make_pair(tip_position, center_position);
+            }
+            // Sort by area (largest first)
+            sort(dart_pieces.begin(), dart_pieces.end(), [](const vector<Point> &a, const vector<Point> &b)
+                 { return contourArea(a) > contourArea(b); });
+        }
+        else
+        {
+            vector<vector<Point>> candidates;
+            for (const auto &contour : contours)
+            {
+                if (contourArea(contour) < 20000)
+                {
+                    candidates.push_back(contour);
+                }
+            }
+            if (candidates.empty())
+            {
+                return make_pair(tip_position, center_position);
+            }
+            sort(candidates.begin(), candidates.end(), [](const vector<Point> &a, const vector<Point> &b)
+                 { return contourArea(a) > contourArea(b); });
+
+            const RotatedRect seed = minAreaRect(candidates[0]);
+            const double reach = std::min(seed.size.width, seed.size.height);
+            vector<bool> taken(candidates.size(), false);
+            taken[0] = true;
+            dart_pieces.push_back(candidates[0]);
+            // Single linkage: a fragment may join through a fragment that has already
+            // joined, which is how a shaft broken into four pieces comes back whole.
+            for (bool grew = true; grew;)
+            {
+                grew = false;
+                for (size_t k = 1; k < candidates.size(); k++)
+                {
+                    if (taken[k]) continue;
+                    for (const auto &piece : dart_pieces)
+                    {
+                        if (gapBetween(piece, candidates[k], reach) <= reach)
+                        {
+                            taken[k] = true;
+                            dart_pieces.push_back(candidates[k]);
+                            grew = true;
+                            break;
+                        }
+                    }
+                }
             }
         }
-
-        if (dart_pieces.empty())
-        {
-            return make_pair(tip_position, center_position);
-        }
-
-        // Sort by area (largest first)
-        sort(dart_pieces.begin(), dart_pieces.end(), [](const vector<Point> &a, const vector<Point> &b)
-             { return contourArea(a) > contourArea(b); });
 
         // Combine ALL dart pieces into one big point cloud
         vector<Point> all_points;
@@ -365,6 +476,17 @@ namespace dart_processing
                 }
             }
 
+            double tip_gap = 0;
+            if (norm(tip_position) > 0)
+            {
+                tip_gap = 1e9;
+                for (const Point &q : biggest_shape)
+                {
+                    const double d = norm(Point2f(q) - tip_position);
+                    if (d < tip_gap) tip_gap = d;
+                }
+            }
+
             Point2f tip_unfloored(-1, -1);
             double unfloored_dist = 0;
             if (unfloored.size() >= 3)
@@ -387,6 +509,14 @@ namespace dart_processing
                                " tipNoFloor=" + to_string(tip_unfloored.x) + "," + to_string(tip_unfloored.y) +
                                " maxdistNoFloor=" + to_string(unfloored_dist) +
                                " tipPiece=" + to_string(tip_piece) +
+                               // #1494: HOW FAR ACROSS EMPTY SPACE the published line ran --
+                               // the distance from the tip to the nearest point of the very
+                               // contour the centroid was measured from. `tipPiece` says
+                               // whether it left that contour at all; this says by how much,
+                               // and it is the figure the repair is judged on, because a
+                               // dart's own shaft fragment carrying the tip is right and a
+                               // second dart 264 px away is not.
+                               " tipGap=" + to_string((long)tip_gap) +
                                " droppedAreas=" + (dropped.empty() ? std::string("-") : dropped) +
                                " areas=";
             for (size_t k = 0; k < dart_pieces.size(); k++)

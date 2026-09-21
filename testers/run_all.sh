@@ -242,6 +242,16 @@ tester 1492-tips          "bash '$T/i1492_run.sh'"
 # three cameras whose poses are known by construction, which is what makes a residual on
 # the real rig mean anything. No detector binary; OD_SKIP_BUILD changes nothing.
 tester 1493-rays          "bash '$T/i1493_run.sh'"
+# #1494 and #1495: the two mechanisms #1492 measured and refused to repair, repaired
+# together and measured against the tree that had neither. FOUR replays of
+# mocks/rig-20260918 on ONE binary -- the 2x2 of the two pins, because #1492 stopped
+# precisely BECAUSE the two faults pull against each other and a report measuring both
+# repairs together could not say whether one had been traded for the other. Every claim it
+# makes is a comparison between two arms or an exact fact about one reading; there is no
+# millimetre threshold in it (#1322, #1478). No detector binary; OD_SKIP_BUILD changes
+# nothing. MEASURED on the 4-core box: see the pull request for the recorded line.
+tester 1494-figure        "bash '$T/i1494_run.sh'"
+slow 2400
 # #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in
 # pixels. #1498 would anchor the board by reading them instead of by finding four clip
 # wires, and nobody had established there was anything to read. #1493's calibration half
