@@ -256,9 +256,15 @@ tester 1484-confidence    "bash '$T/i1484_run.sh'"
 # (OD_ANCHOR=own is the pre-#1486 rule). Judged on the shipped mocks, because they are the
 # only footage here where any camera anchors itself at all -- the rig anchors none, and what
 # this tester asks of the rig is that nothing was derived there.
-# MEASURED 2026-09-21 on the 4-core box, rc=0: wall 331 s at host_busy_pct=79 and
-# load_at_end=5.9, on a contended box. Three detector runs and seven compiles; well inside
-# the default 1200, so it takes no `slow`.
+# MEASURED 2026-09-21 on the 4-core box, to completion, rc=0: wall 109.4 s at
+# host_busy_pct=37.9 and load_at_end=2.10, and 104.2 s at host_busy_pct=37.0 on the run
+# before it. Three detector runs and seven compiles; well inside the default 1200, so it
+# takes no `slow`.
+#
+# The five plants, measured on the same run: trusts-a-contradiction turns 4 of 25
+# assertions red, believes-one-dart 1, ignores-the-residual 2, loses-the-sign 3 and
+# drops-the-fraction 9. Each flips its own half and none of them is caught by everything,
+# which is what says the assertions are load-bearing rather than decorative.
 tester 1486-anchor        "bash '$T/i1486_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"

@@ -64,11 +64,16 @@ int main()
         ok(a.wedge20WireIndex == 18, "the offset wraps round the ring rather than going negative");
     }
 
-    // The fraction across the wedge is part of the offset, not decoration: two cameras
-    // that put the tip at opposite ends of a wedge disagree by most of one.
+    // The fraction across the wedge is part of the offset, not decoration. A residual is
+    // a distance to the NEAREST whole wedge, so half a wedge is the largest there is: two
+    // cameras that place the tip half a wedge apart have reached the point where the
+    // derived wire is as near its neighbour as to itself.
     {
-        const AnchorSighting a = anchorFromOneDart(seen(7, 0.05f), 3, seen(11, 0.95f), wires);
-        ok(a.residualWedges > 0.8, "a tip placed at opposite ends of a wedge leaves a residual near a whole one");
+        const AnchorSighting a = anchorFromOneDart(seen(7, 0.5f), 3, seen(11, 0.0f), wires);
+        ok(a.residualWedges > 0.49, "a tip placed half a wedge apart leaves the largest residual there is");
+        const AnchorSighting b = anchorFromOneDart(seen(7, 0.05f), 3, seen(11, 0.95f), wires);
+        ok(b.residualWedges > 0.05 && b.residualWedges < 0.2,
+           "and the fractions move the offset rather than being dropped");
     }
 
     // ---- 2. what is believed, and what is not -------------------------------------------
