@@ -133,8 +133,19 @@ int main(int argc, char **argv)
                                           calib.ellipses.outerDoubleEllipse,
                                           cv::Point2f(calib.bullCenter), conicOfDoubles, camDir);
 
-        const bool starAnchored = orientation_processing::wedgeCanBeRead(calib.orientation);
-        const int starIndex = calib.orientation.wedge20WireIndex;
+        // WHAT THE CLIP WIRES SAID, TOLD APART FROM WHAT THE NUMBERS SAID -- and this
+        // distinction is the whole worth of section 5, because calibration has ALREADY
+        // run the reader by the time this census sees the camera. A camera anchored
+        // `READ` carries the reader's own index in `wedge20WireIndex`, so reading it back
+        // and calling it an independent opinion would be the reader agreeing with itself.
+        // `clipIndex` is therefore -1 on such a camera, and is an answer only where the
+        // clip wires really gave one.
+        const bool byNumbers =
+            calib.orientation.cameraPosition == orientation_processing::CameraPosition::READ;
+        const bool starAnchored =
+            calib.orientation.isStarCamera && orientation_processing::wedgeCanBeRead(calib.orientation);
+        const int clipIndex = byNumbers ? -1 : calib.orientation.wedge20WireIndex;
+        const int starIndex = starAnchored ? clipIndex : -1;
         const bool bothAnswer = starAnchored && reading.read;
 
         std::cout << "I1498CAM cam=" << (i + 1)
@@ -143,6 +154,9 @@ int main(int argc, char **argv)
                   << " star=" << (calib.orientation.isStarCamera ? 1 : 0)
                   << " starAnchored=" << (starAnchored ? 1 : 0)
                   << " starWedge20=" << starIndex
+                  << " clipWedge20=" << clipIndex
+                  << " pos=" << orientation_processing::cameraPositionToString(calib.orientation.cameraPosition)
+                  << " disagree=" << (calib.orientation.numbersDisagreeWithClips ? 1 : 0)
                   << " attempted=" << (reading.attempted ? 1 : 0)
                   << " read=" << (reading.read ? 1 : 0)
                   << " readWedge20=" << reading.wedge20WireIndex

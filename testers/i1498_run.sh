@@ -17,6 +17,14 @@ set -u
 
 RUN="$OD_RUNS_BASE/1498"
 docker rm -f "$(od_name i1498)" > /dev/null 2>&1
+# The probe writes its crops as root, so an old run directory is removed from inside a
+# container rather than by this shell (#1484's harness does the same, for the same
+# reason). Left to `rm -rf` on the host it fails on every PNG, quietly, and the next run
+# reports on a mixture of two trees.
+if [ -d "$RUN" ]; then
+  od_run "i1498-clean" --network none -v "$OD_RUNS_BASE":/base "$OD_IMAGE" \
+    rm -rf /base/1498 > /dev/null 2>&1
+fi
 rm -rf "$RUN" 2>/dev/null
 mkdir -p "$RUN"
 

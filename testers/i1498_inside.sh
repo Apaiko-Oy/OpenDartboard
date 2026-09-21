@@ -28,11 +28,10 @@ fi
 probe() {
   local name="$1" dir="$2"; shift 2
   mkdir -p "/run1498/$name"
-  # OD_NUMBER_ANCHOR_MIN=40 is above anything forty candidates can produce, so every
-  # camera reports `read=0` and the CENSUS below reads the separations rather than the
-  # cut's opinion of them. The cut is measured here; it is not allowed to decide what is
-  # measured.
-  env "$@" OD_NUMBER_ANCHOR_MIN=40 "$PROBE" "/run1498/$name" \
+  # THE SHIPPED CUT IS LEFT ALONE. A separation is printed whatever the cut is, so the
+  # sweep below reads the numbers themselves, and `read=` then says what the cut this
+  # binary really ships with made of each one -- which is the half that can be asserted.
+  env "$@" "$PROBE" "/run1498/$name" \
     "$dir/cam_1.mp4" "$dir/cam_2.mp4" "$dir/cam_3.mp4" \
     > "/run1498/$name.rows.txt" 2> "/run1498/$name.log"
   local rc=$?
@@ -44,6 +43,12 @@ probe() {
 }
 
 field() { sed -n "s/.* $2=\([^ ]*\).*/\1/p" <<< "$1"; }
+
+# `grep -c` prints 0 AND exits 1 when it matches nothing, so `$(grep -c ... || echo 0)`
+# -- which is what this file had, and what read as a passing check reporting "believed 0
+# 0" -- yields TWO lines. One of them then falls out of the comparison as a word of its
+# own. Counted here once, in the one place that can be wrong.
+count() { local n; n=$(grep -c "$1" "$2" 2>/dev/null); echo "${n:-0}"; }
 
 RIG="$SRC/mocks/rig-20260918"
 MOCKS="$SRC/mocks"
@@ -105,13 +110,36 @@ echo "=== 4. what the reader must say, and what it must not ====================
 # fitted to these two clips, which is the thing #1322 refuses.
 READ_ALL=1
 for FIX in rig mocks; do
-  ATT=$(grep -c 'attempted=1' "/run1498/$FIX.rows.txt" 2>/dev/null || echo 0)
-  CELLS=$(grep -c '^I1498CELL ' "/run1498/$FIX.rows.txt" 2>/dev/null || echo 0)
+  ATT=$(count 'attempted=1' "/run1498/$FIX.rows.txt")
+  CELLS=$(count '^I1498CELL ' "/run1498/$FIX.rows.txt")
   if [ "$ATT" = 3 ] && [ "$CELLS" = 60 ]; then
     say "OK   $FIX: every camera's number ring was cut into twenty cells and read" ok
   else
     say "FAIL $FIX: $ATT of 3 cameras were read and $CELLS of 60 cells came out" no
     READ_ALL=0
+  fi
+  # AT LEAST ONE, deliberately, and not three. "A camera on this fixture reports anchored
+  # from the printed numbers" is the claim; "all three of them do, on these two clips" is
+  # a number off this footage, and asserting it would make the harness go red the first
+  # time somebody films the board in worse light -- which is the case the fallback exists
+  # for and not a defect.
+  HOWMANY=$(count ' read=1' "/run1498/$FIX.rows.txt")
+  if [ "$HOWMANY" -ge 1 ]; then
+    say "OK   $FIX: $HOWMANY of 3 cameras cleared the shipped cut and are anchored by the board itself" ok
+  else
+    say "FAIL $FIX: no camera cleared the shipped cut, so nothing on this fixture is anchored by its numbers" no
+  fi
+done
+
+# The direction that MATTERS is the other one: a ring with nothing printed in it must
+# never be believed, whatever it scores, because a confidently wrong anchor is every dart
+# of a run on the wrong wedge.
+for FIX in null-rig null-mocks; do
+  BELIEVED=$(count ' read=1' "/run1498/$FIX.rows.txt")
+  if [ "$BELIEVED" = 0 ]; then
+    say "OK   $FIX: the shipped cut believed none of the three numberless rings" ok
+  else
+    say "FAIL $FIX: the shipped cut believed $BELIEVED numberless ring(s) -- it is admitting chance" no
   fi
 done
 
@@ -153,6 +181,10 @@ echo "=== 5. beside the clip wires, and disagreement is a finding ==============
 # wires. It is therefore the only independent check of the reader that exists here, and
 # it is an independent one: the clips are a different part of the board from the numbers.
 STAR=$(grep '^I1498CAM ' /run1498/mocks.rows.txt 2>/dev/null | grep 'starAnchored=1' | head -1)
+# The reader has already run by the time a camera reaches this census, so a camera it
+# anchored carries ITS OWN index -- see the probe's own note. `starWedge20` is the clip
+# wires' answer and is -1 on every camera they did not anchor, which is what makes this
+# comparison an independent one rather than the reader agreeing with itself.
 if [ -z "$STAR" ]; then
   say "FAIL the shipped mocks anchored no camera from its clip wires, so there is nothing to agree with" no
 else
@@ -169,7 +201,7 @@ fi
 echo
 echo "=== 6. the falsifier: the same binary, not asked ==============================="
 probe off-rig "$RIG" OD_NUMBER_ANCHOR=off
-OFF=$(grep -c 'attempted=0' /run1498/off-rig.rows.txt 2>/dev/null || echo 0)
+OFF=$(count 'attempted=0' /run1498/off-rig.rows.txt)
 if [ "$OFF" = 3 ]; then
   say "OK   OD_NUMBER_ANCHOR=off: no camera's numbers were read, on the binary that can read them" ok
 else
