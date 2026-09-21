@@ -269,6 +269,27 @@ tester 1474-beat-census   "bash '$T/i1474_run.sh'"
 # default 1200 even there, and the number is here rather than in nobody's head, which is
 # how 1317-asan's 1200 got to be wrong.
 tester 1484-confidence    "bash '$T/i1484_run.sh'"
+
+# #1486: an anchor a camera did not measure itself. `chooseScore` needs TWO cameras that
+# measured a wedge before a dart can publish at 0.9, and one branch of orientation_processing
+# ever set `anchored` -- so 0.9 had never been published on either fixture. This derives the
+# missing anchors from a dart every camera saw: an anchored camera says which WEDGE, an
+# unanchored one says which of its own wire slots, and the difference is the rotation between
+# the two rings. Three phases: the decisions compiled from the pure header, five planted
+# mutations of that header which the check must catch, and the detector twice on ONE binary
+# (OD_ANCHOR=own is the pre-#1486 rule). Judged on the shipped mocks, because they are the
+# only footage here where any camera anchors itself at all -- the rig anchors none, and what
+# this tester asks of the rig is that nothing was derived there.
+# MEASURED 2026-09-21 on the 4-core box, to completion, rc=0: wall 109.4 s at
+# host_busy_pct=37.9 and load_at_end=2.10, and 104.2 s at host_busy_pct=37.0 on the run
+# before it. Three detector runs and seven compiles; well inside the default 1200, so it
+# takes no `slow`.
+#
+# The five plants, measured on the same run: trusts-a-contradiction turns 4 of 25
+# assertions red, believes-one-dart 1, ignores-the-residual 2, loses-the-sign 3 and
+# drops-the-fraction 9. Each flips its own half and none of them is caught by everything,
+# which is what says the assertions are load-bearing rather than decorative.
+tester 1486-anchor        "bash '$T/i1486_run.sh'"
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
