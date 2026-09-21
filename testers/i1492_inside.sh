@@ -3,6 +3,19 @@
 # writes to /run1492.
 #
 # It never ends on an `echo` (#1479): the last statement is `exit $FAILED`.
+#
+# MUTATION PROOF, run 2026-09-21 on the 4-core box, each plant flipping its own half:
+#
+#   A  `furthest_hull_point = hull[0]` in detectTipAndCenter -- the tip becomes an
+#      arbitrary extreme of the figure rather than the end furthest from the piece that
+#      was measured. The census claim goes RED ("the worst all-on-board dart is 25.8 mm
+#      and the best dart with an off-board camera is 19.6 mm"); the pin's own check --
+#      that OD_TIP_PIECE_FLOOR is live -- stays GREEN.
+#   B  `piecesFloor()` reading `nullptr` instead of the environment. The pin's check goes
+#      RED ("moved nothing, so the run below measures the same binary twice") and BOTH
+#      census claims stay GREEN, because the same binary was then measured twice.
+#
+# Green on the tree: 201 s, load_at_end 5.87.
 set -u
 
 FAILED=0
