@@ -1,6 +1,7 @@
 #include "dart_processing.hpp"
 #include <iostream>
 #include <cstdlib>
+#include <limits>
 #include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
@@ -204,6 +205,73 @@ namespace dart_processing
         return v;
     }
 
+    /**
+     * #1495's falsification, in the od_fix shape #1339, #1358 and #1492 established: one
+     * binary, the rule chosen at run time, so "different build" is never a confound.
+     *
+     * `OD_ADVANCE_RESET=per-camera` restores the reference move as it was before #1495 --
+     * `working_backgrounds[i] = averaged_frame` inside the per-camera loop, made from
+     * THIS camera's own candidate, before the vote that can refuse it. Anything else,
+     * unset included, makes the move after the vote and for every camera, from the
+     * reconciled final state, which is where #1349 put the CLEAN reset for the same
+     * reason.
+     *
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    static bool advanceResetIsPerCamera()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_ADVANCE_RESET");
+            return e != nullptr && std::string(e) == "per-camera";
+        }();
+        return v;
+    }
+
+    /**
+     * #1494's falsification, in the same od_fix shape. `OD_TIP_FIGURE=union` restores the
+     * figure as it was before #1494: every contour between the 400 px floor and the
+     * 20,000 px cap, unioned into one point cloud, one hull over the lot. Anything else,
+     * unset included, takes the group the LARGEST contour belongs to and no floor at all.
+     *
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    static bool figureIsUnion()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_TIP_FIGURE");
+            return e != nullptr && std::string(e) == "union";
+        }();
+        return v;
+    }
+
+    // The smallest distance between two contours, in pixels. Bounding boxes first: a
+    // figure here holds nine contours at its worst (measured over the whole of
+    // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
+    // leaves tens of points on each, so this is a handful of comparisons -- but the board
+    // this runs on is a Pi Zero 2 W and the rejection is free.
+    static double gapBetween(const vector<Point> &a, const vector<Point> &b, double no_further_than)
+    {
+        const Rect ra = boundingRect(a), rb = boundingRect(b);
+        const double dx = std::max({0.0, (double)(rb.x - (ra.x + ra.width)), (double)(ra.x - (rb.x + rb.width))});
+        const double dy = std::max({0.0, (double)(rb.y - (ra.y + ra.height)), (double)(ra.y - (rb.y + rb.height))});
+        if (std::sqrt(dx * dx + dy * dy) > no_further_than)
+        {
+            return std::numeric_limits<double>::max();
+        }
+        double best = std::numeric_limits<double>::max();
+        for (const Point &p : a)
+        {
+            for (const Point &q : b)
+            {
+                const double d = norm(Point2f(p) - Point2f(q));
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    }
+
     static const std::string &tipProbeDir()
     {
         static std::string v = []
@@ -233,24 +301,90 @@ namespace dart_processing
             return make_pair(tip_position, center_position);
         }
 
+        // #1494 and #1495, which are ONE decision. The figure used to be every contour in
+        // a size band, unioned: a 400 px floor at the bottom and a 20,000 px cap at the
+        // top. That is two faults pulling against each other. The floor drops a
+        // fragmenting dart's own shaft -- on mocks/rig-20260918 it left camera 3 holding
+        // dart 3's FLIGHT alone, 1,385 px, with the shaft below it arriving as 9, 16, 146
+        // and 328 px and every one dropped, so the published tip was a corner of the
+        // flight. And the union lets a SECOND object win the tip -- the hull spans every
+        // admitted contour while the centroid is the largest one's alone, so on dart 8
+        // camera 1 the furthest hull point was the top of the older dart's shaft. Removing
+        // the floor makes the second fault worse (measured: off-board readings 14 -> 16)
+        // and restricting the hull to one contour makes the first worse.
+        //
+        // So neither is a question about SIZE. The figure is the dart, and a contour is
+        // part of the dart when it is nearer to the dart than the dart is thick: a shaft
+        // fragment is separated from the flight by a gap the thresholding opened, which is
+        // smaller than the object it opened it in, and a second dart or a shadow at the
+        // rim is not. The tolerance is the largest contour's OWN minimum width -- the
+        // short side of its minAreaRect -- so it is read off the figure in hand and is not
+        // a number fitted to this fixture (#1322, #1478): the same rule reads a dart at
+        // twice the size, and a camera twice as far away, without being told.
+        //
+        // With membership answered, the floor has nothing left to do and there is none.
         vector<vector<Point>> dart_pieces;
-        for (const auto &contour : contours)
+        if (figureIsUnion())
         {
-            double area = contourArea(contour);
-            if (area > piecesFloor() && area < 20000) // More inclusive range for dart pieces
+            for (const auto &contour : contours)
             {
-                dart_pieces.push_back(contour);
+                double area = contourArea(contour);
+                if (area > piecesFloor() && area < 20000) // More inclusive range for dart pieces
+                {
+                    dart_pieces.push_back(contour);
+                }
+            }
+            if (dart_pieces.empty())
+            {
+                return make_pair(tip_position, center_position);
+            }
+            // Sort by area (largest first)
+            sort(dart_pieces.begin(), dart_pieces.end(), [](const vector<Point> &a, const vector<Point> &b)
+                 { return contourArea(a) > contourArea(b); });
+        }
+        else
+        {
+            vector<vector<Point>> candidates;
+            for (const auto &contour : contours)
+            {
+                if (contourArea(contour) < 20000)
+                {
+                    candidates.push_back(contour);
+                }
+            }
+            if (candidates.empty())
+            {
+                return make_pair(tip_position, center_position);
+            }
+            sort(candidates.begin(), candidates.end(), [](const vector<Point> &a, const vector<Point> &b)
+                 { return contourArea(a) > contourArea(b); });
+
+            const RotatedRect seed = minAreaRect(candidates[0]);
+            const double reach = std::min(seed.size.width, seed.size.height);
+            vector<bool> taken(candidates.size(), false);
+            taken[0] = true;
+            dart_pieces.push_back(candidates[0]);
+            // Single linkage: a fragment may join through a fragment that has already
+            // joined, which is how a shaft broken into four pieces comes back whole.
+            for (bool grew = true; grew;)
+            {
+                grew = false;
+                for (size_t k = 1; k < candidates.size(); k++)
+                {
+                    if (taken[k]) continue;
+                    for (const auto &piece : dart_pieces)
+                    {
+                        if (gapBetween(piece, candidates[k], reach) <= reach)
+                        {
+                            taken[k] = true;
+                            dart_pieces.push_back(candidates[k]);
+                            grew = true;
+                            break;
+                        }
+                    }
+                }
             }
         }
-
-        if (dart_pieces.empty())
-        {
-            return make_pair(tip_position, center_position);
-        }
-
-        // Sort by area (largest first)
-        sort(dart_pieces.begin(), dart_pieces.end(), [](const vector<Point> &a, const vector<Point> &b)
-             { return contourArea(a) > contourArea(b); });
 
         // Combine ALL dart pieces into one big point cloud
         vector<Point> all_points;
@@ -342,6 +476,17 @@ namespace dart_processing
                 }
             }
 
+            double tip_gap = 0;
+            if (norm(tip_position) > 0)
+            {
+                tip_gap = 1e9;
+                for (const Point &q : biggest_shape)
+                {
+                    const double d = norm(Point2f(q) - tip_position);
+                    if (d < tip_gap) tip_gap = d;
+                }
+            }
+
             Point2f tip_unfloored(-1, -1);
             double unfloored_dist = 0;
             if (unfloored.size() >= 3)
@@ -364,6 +509,14 @@ namespace dart_processing
                                " tipNoFloor=" + to_string(tip_unfloored.x) + "," + to_string(tip_unfloored.y) +
                                " maxdistNoFloor=" + to_string(unfloored_dist) +
                                " tipPiece=" + to_string(tip_piece) +
+                               // #1494: HOW FAR ACROSS EMPTY SPACE the published line ran --
+                               // the distance from the tip to the nearest point of the very
+                               // contour the centroid was measured from. `tipPiece` says
+                               // whether it left that contour at all; this says by how much,
+                               // and it is the figure the repair is judged on, because a
+                               // dart's own shaft fragment carrying the tip is right and a
+                               // second dart 264 px away is not.
+                               " tipGap=" + to_string((long)tip_gap) +
                                " droppedAreas=" + (dropped.empty() ? std::string("-") : dropped) +
                                " areas=";
             for (size_t k = 0; k < dart_pieces.size(); k++)
@@ -384,6 +537,47 @@ namespace dart_processing
                 census_line += (k ? ";" : "") + to_string(hull[k].x) + "," + to_string(hull[k].y);
             }
             std::cout << census_line << std::endl;
+
+            // #1494's instrument: the GEOMETRY the two mechanisms turn on, which the line
+            // above cannot carry -- for every contour under the 20,000 px cap, how far it
+            // is from the piece the centroid was measured from, and how wide that piece
+            // is. A fragment of the same dart and a second dart in the same figure are
+            // both "another contour" to the census above; this is what tells them apart,
+            // and it is printed so a rule can be chosen from measurement rather than from
+            // a number somebody liked.
+            if (tipCensus())
+            {
+                RotatedRect r0 = minAreaRect(biggest_shape);
+                const double p0w = std::min(r0.size.width, r0.size.height);
+                const double p0l = std::max(r0.size.width, r0.size.height);
+                for (const auto &c : contours)
+                {
+                    const double a = contourArea(c);
+                    if (a >= 20000) continue;
+                    double gap = 1e9, far = 0, nearest_hull = 1e9;
+                    for (const Point &q : c)
+                    {
+                        for (const Point &b : biggest_shape)
+                        {
+                            const double d = norm(Point2f(q) - Point2f(b));
+                            if (d < gap) gap = d;
+                        }
+                        const double dc = norm(Point2f(q) - biggest_shape_center);
+                        if (dc > far) far = dc;
+                        const double dh = norm(Point2f(q) - Point2f(furthest_hull_point));
+                        if (dh < nearest_hull) nearest_hull = dh;
+                    }
+                    std::cout << "I1494PC seq=" << probe_seq << " cam=" << (camera_id + 1)
+                              << " area=" << (long)a
+                              << " admitted=" << (a > piecesFloor() ? 1 : 0)
+                              << " isbiggest=" << (gap <= 0.0 && (long)a == (long)contourArea(biggest_shape) ? 1 : 0)
+                              << " gap=" << (long)gap
+                              << " far=" << (long)far
+                              << " toTip=" << (long)nearest_hull
+                              << " p0w=" << (long)p0w << " p0l=" << (long)p0l
+                              << std::endl;
+                }
+            }
 
             if (!tipProbeDir().empty())
             {
@@ -628,6 +822,12 @@ namespace dart_processing
         // Process all cameras - use pre-computed averages
         vector<DartBoardState> camera_states;
 
+        // #1495: the averaged frame each camera brought to THIS window, kept so the
+        // reference that isolates the newest dart can be moved after the vote -- from the
+        // reconciled board state -- rather than inside the per-camera loop. See
+        // `advanceResetIsPerCamera` and the block below the vote.
+        vector<Mat> window_frames(current_frames.size());
+
         // debuging verctors of frames
         vector<Mat> dart_diffs;
         vector<Mat> dart_threshs;
@@ -671,6 +871,7 @@ namespace dart_processing
 
             Mat averaged_frame;
             accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_accumulated[i]);
+            window_frames[i] = averaged_frame;
 
             // Calculate difference from background
             Mat diff;
@@ -840,9 +1041,15 @@ namespace dart_processing
                         candidate_state = DartBoardState::DART_3; // Stay in DART_3
                     }
 
-                    // The reference moves to this dart exactly when a dart was called;
-                    // an occupied-but-still window keeps the reference where it was.
-                    working_backgrounds[i] = averaged_frame.clone();
+                    // #1495: the reference moves when a dart was CALLED, and a camera
+                    // is not what calls one. Under the falsifier this is the pre-#1495
+                    // line -- this camera's own candidate advancing, decided here,
+                    // before the vote that can refuse it. Ordinarily the move is made
+                    // below, from the reconciled final state, for every camera at once.
+                    if (advanceResetIsPerCamera())
+                    {
+                        working_backgrounds[i] = averaged_frame.clone();
+                    }
 
                     // Use smart tip detection
                     auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips);
@@ -1013,6 +1220,30 @@ namespace dart_processing
         for (size_t i = 0; i < result.camera_results.size(); i++)
         {
             previous_states[i] = final_state;
+        }
+
+        // #1495: #1349's sentence, one branch over. The board gained a dart when the
+        // VOTE says so, and from that moment every camera's reference is one dart out of
+        // date -- including the cameras that did not see it. Until this block existed the
+        // move was made inside the per-camera loop, for a camera whose OWN candidate
+        // advanced, so a camera that missed the dart the board called carried it into the
+        // next window's diff and its next tip was picked from a figure holding two darts.
+        // Measured in mocks/rig-20260918: camera 1 found no tip at dart 7 and dart 8's
+        // figure held both, camera 2 at dart 16 and dart 17's did, camera 3 at dart 5 and
+        // dart 6's did.
+        //
+        // A camera that brought no frame to this window has no average to move to, and is
+        // left alone: it abstained, and the frame it last saw is still the best reference
+        // it has.
+        if (!advanceResetIsPerCamera() && final_state > best_previous_state)
+        {
+            for (size_t i = 0; i < working_backgrounds.size() && i < window_frames.size(); i++)
+            {
+                if (!window_frames[i].empty())
+                {
+                    working_backgrounds[i] = window_frames[i].clone();
+                }
+            }
         }
 
         // #1349: the reset the mid-loop wipe was reaching for, made from the decision
