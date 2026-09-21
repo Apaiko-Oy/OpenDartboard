@@ -218,6 +218,18 @@ tester 1489-ringonly      "bash '$T/i1489_run.sh'"
 # it: it compiles the calibration and detection stages and replays the whole of
 # mocks/rig-20260918 through them, to the end of the footage and with no cycle cap.
 tester 1490-spread        "bash '$T/i1490_run.sh'"
+# #1493: whether the three board planes compose into camera poses good enough to
+# TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
+# in millimetres per dart. #1490's harness with one extra column: the same replay, the same
+# stages, the plane printed as a matrix rather than as its two scalars. A PROBE, on the
+# same terms -- it changes nothing, asserts no threshold and concludes no architecture
+# (#1488 is the decision and it is the maintainer's). Residuals are partitioned by whether
+# both cameras put their tip on the board and the counts are said plainly, because #1492
+# measured the between-camera tip spread at median 73.6 mm and a residual from a wrong tip
+# is not evidence about a pose. Section 1 is the control: the same arithmetic asked about
+# three cameras whose poses are known by construction, which is what makes a residual on
+# the real rig mean anything. No detector binary; OD_SKIP_BUILD changes nothing.
+tester 1493-rays          "bash '$T/i1493_run.sh'"
 # #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
 # shipped the server half -- Turnaus stores the census and the marking page draws it -- and
 # no board ever posted it, so the feature was live and inert and every board read as
