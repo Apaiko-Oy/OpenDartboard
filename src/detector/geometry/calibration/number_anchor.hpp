@@ -44,8 +44,12 @@
  *
  *   3. NOTHING IS FITTED TO THIS BOARD (#1322). The annulus is the standard board's own
  *      millimetres; the glyph heights are a BRACKET of the annulus depth, every one of
- *      them tried for every cell and every number, so no size is assumed; the position of
- *      the glyph inside its cell is searched rather than stated; and the one place a
+ *      them tried for every cell and every number, so no size is assumed; the position
+ *      of the glyph inside its cell is searched rather than stated, and the one constant
+ *      that WAS borrowed for it -- the wire model's `kSnapDeg`, to hold a template near
+ *      the middle of its own wedge -- was built, measured on both fixtures and removed
+ *      again, because it cost confidence on every ring and changed no camera's answer;
+ *      and the one place a
  *      radius would have had to be invented -- separating a numeral from the white circle
  *      it touches, which is what #1497 removed its own tape measure for needing -- does
  *      not arise, because nothing here segments a glyph. It correlates a whole cell.
@@ -128,17 +132,19 @@ namespace number_anchor
      * same reader on the NUMBERLESS annulus of the same six -- twelve rings, of which six
      * have numbers printed in them and six do not.
      *
-     *     number ring     2.76  3.61  3.84  4.10  4.71  4.79
-     *     numberless ring 1.43  1.87  2.02  2.06  2.19  2.23
+     *     number ring     3.50  3.52  3.75  4.12  4.28  4.54
+     *     numberless ring 1.62  1.63  1.78  1.88  1.94  1.99
      *
-     * 2.5 is the middle of the gap between the two populations rather than a row of a
-     * table, and there is no row to choose: every cut from 2.3 to 2.7 refuses all six
-     * numberless rings and admits all six number rings alike. The honest half, said out
-     * loud: THE GAP IS ONE FIXTURE WIDE. Six cameras is not a population, the nearest
-     * real ring clears the cut by ten per cent, and that ring is rig camera 1 -- so a
-     * board a little worse lit than this one is a board that falls back and says so,
-     * which is the outcome this reader is built to make safe rather than the one it is
-     * built to avoid.
+     * 2.75 is the middle of the gap between the two populations rather than a row of a
+     * table, and there is no row to choose: every cut from 2.0 to 3.5 refuses all six
+     * numberless rings and admits all six number rings alike, so the table the sweep
+     * prints is flat across that whole span. The honest half, said out loud: THE GAP IS
+     * TWO FIXTURES WIDE AND NO MORE. Twelve rings is not a population, and what the cut
+     * rests on is that the two halves of those twelve do not overlap and are nowhere near
+     * overlapping -- the nearest real ring clears it by 27% and the nearest numberless one
+     * misses it by 28%. A board worse lit than either of these is a board that falls back
+     * and says so, which is the outcome this reader is built to make safe rather than the
+     * one it is built to avoid.
      *
      * `OD_NUMBER_ANCHOR_MIN=<x>` moves it on one binary, which is how that sweep was
      * taken. A value outside (0, 40] names no separation forty candidates can produce, so

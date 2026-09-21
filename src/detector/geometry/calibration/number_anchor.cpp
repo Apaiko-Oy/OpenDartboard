@@ -172,7 +172,7 @@ namespace number_anchor
             return (v > 0.0 && v <= 40.0) ? v : -1.0;
         }();
         // MEASURED, not chosen: testers/i1498_run.sh section 3's sweep.
-        return (asked > 0.0) ? asked : 2.5;
+        return (asked > 0.0) ? asked : 2.75;
     }
 
     Reading readTheNumbers(const cv::Mat &frame,
@@ -344,23 +344,22 @@ namespace number_anchor
                     {
                         cv::Mat result;
                         cv::matchTemplate(cell, t, result, cv::TM_CCOEFF_NORMED);
-                        // WHERE THE TEMPLATE IS ALLOWED TO SIT, and why it is not
-                        // anywhere. A board's number is printed CENTRED ON ITS WEDGE --
-                        // that is true of every board, not of this one -- so the angular
-                        // position is not a free parameter and letting it be one is what
-                        // lets a numberless ring find a rotation. The tolerance is the
-                        // wire model's own `kSnapDeg`: the cell's edges are wires placed
-                        // to that accuracy, so its centre is known to it and to nothing
-                        // better. The RADIAL position stays free, because how far out in
-                        // the annulus a board prints its numbers is not universal.
-                        const int tol = std::max(1, (int)std::lround(rectW * wire_model::kSnapDeg /
-                                                                     (wire_model::kSector * 180.0 / wire_model::kPi)));
-                        const int centre = (result.cols - 1) / 2;
-                        const int from = std::max(0, centre - tol);
-                        const int to = std::min(result.cols - 1, centre + tol);
-                        cv::Mat band = result(cv::Range::all(), cv::Range(from, to + 1));
+                        // WHERE THE TEMPLATE IS ALLOWED TO SIT: anywhere in the cell,
+                        // and that was MEASURED rather than left alone. A board's number
+                        // is printed centred on its wedge -- true of every board, not of
+                        // this one -- so the angular position is not really free, and
+                        // holding the template to the cell's own centre plus the wire
+                        // model's `kSnapDeg` was written, run on both fixtures and
+                        // removed again. It changed no camera's answer and it cost
+                        // confidence on every one of the twelve rings: the six number
+                        // rings fell from 3.50-4.54 to 2.76-4.79 while the six numberless
+                        // ones barely moved, which took the worst real ring from 71% clear
+                        // of the cut to 10%. The freedom a numberless ring gains from a
+                        // free search is already paid for by `doubleCentre`, and the real
+                        // glyph gains more from it -- the ring is cut by fitted wires, so
+                        // a cell's idea of its own centre is worth less than a glyph's.
                         double lo = 0, hi = 0;
-                        cv::minMaxLoc(band, &lo, &hi);
+                        cv::minMaxLoc(result, &lo, &hi);
                         best = std::max(best, hi);
                     }
                     scores[flip][j][m] = best;
