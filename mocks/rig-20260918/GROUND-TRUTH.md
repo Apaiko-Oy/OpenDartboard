@@ -116,3 +116,38 @@ score* from *no anchor* without needing this file at all.
 The shipped mocks (`mocks/cam_*.mp4`) have no ground truth and **must not be used to judge
 accuracy**: they are upstream footage that every calibration constant in this repository was
 fitted against (#1478), so a good result there is circular.
+
+## Definitive measurement on merged `main` (`04d1902`), 2026-09-21
+
+Taken by `1484-confidence` after a rebuild, whole clip, no cycle cap. This supersedes every
+earlier figure in this file: those were measured on trees missing #1485 or #1489.
+
+```
+0.9  two or more cameras MEASURED a wedge and agreed      0
+0.7  measured, but no two agreed                          0
+0.5  by_default: NO camera measured a wedge              19
+     darts detected                                      19
+```
+
+**The board published `S20` for all nineteen darts**, because no camera measured a wedge and
+#1346's fallback asserts the 20. Two are "correct" only because two 20s were thrown.
+
+| | |
+| --- | --- |
+| correct | **2** — both the asserted 20 landing on a thrown 20 |
+| a different number entirely | **14** |
+| a score published where a miss was thrown | **2** |
+| undetected | **2** |
+
+**The ring is essentially repaired and the wedge has never worked.** #1485 removed every
+`OUTER` — no dart is called a 25 any more — and every published score is a *single*, which is
+right for every single thrown. Only the three trebles are wrong, the ~8% residual #1485
+deliberately refused to close by moving a constant.
+
+**The shipped mocks in the same run: 4 darts, all at 0.7, zero `by_default`.** There a camera
+*is* anchored and the wedge *is* measured. **The fixture every constant in this repository was
+fitted against cannot exhibit this fault** (#1478), which is why it survived this long.
+
+So the open faults, in order of what they cost: the **wedge anchor** (#1486, 19 of 19
+asserted), **tip detection** (#1492, median 73.6 mm between cameras), and the treble ring's
+8% (no issue; deliberately left).
