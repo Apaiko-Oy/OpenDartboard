@@ -255,6 +255,20 @@ tester 1493-rays          "bash '$T/i1493_run.sh'"
 # matching, no classifier), it asserts no threshold and it concludes nothing. No detector
 # binary; OD_SKIP_BUILD changes nothing.
 tester 1497-numbers       "bash '$T/i1497_run.sh'"
+# #1498: whether the board's printed numbers say WHERE THE SEQUENCE STARTS, which is the
+# anchor, and how strongly. #1497 established the numbers are legible; this reads them --
+# twenty candidate rotations (forty, because the half-turn a glyph lands at in a rectified
+# cell is measured rather than assumed) scored against the sequence the scorer already
+# carries, over cells the wire model's own plane rectifies into board space. Four things
+# it asserts and none of them is a number off this footage: that every camera of both
+# fixtures produced twenty cells and read them; that the reader scores HIGHER on the
+# number ring than the same reader on an annulus with no numbers printed in it, which is
+# the only thing that tells reading numbers from scoring twenty cells of anything; that
+# the reader and the four clip wires agree on mocks/cam_2, the one camera in this
+# repository that anchors itself; and that OD_NUMBER_ANCHOR=off on the same binary reads
+# nothing. Section 3 prints the sweep the cut came from. No detector binary;
+# OD_SKIP_BUILD changes nothing.
+tester 1498-anchor-read   "bash '$T/i1498_run.sh'"
 # #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
 # shipped the server half -- Turnaus stores the census and the marking page draws it -- and
 # no board ever posted it, so the feature was live and inert and every board read as

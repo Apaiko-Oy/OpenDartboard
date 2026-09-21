@@ -6,6 +6,7 @@
 #include "orientation_processing.hpp"
 #include "perspective_processing.hpp"
 #include "geometry_calibration.hpp"
+#include "number_anchor.hpp"
 #include "utils.hpp"
 
 using namespace cv;
@@ -346,6 +347,92 @@ namespace orientation_processing
         return result;
     }
 
+    /**
+     * #1498: read the printed number ring, and decide what to do with what it said.
+     *
+     * THREE OUTCOMES, AND ALL THREE ARE SAID OUT LOUD AT DEFAULT LEVEL.
+     *
+     *   Both instruments answered and AGREED. The strongest state this pipeline has ever
+     *   been in, and it is reported, because two independent anchors agreeing is the
+     *   evidence that either can be believed.
+     *
+     *   Both answered and DISAGREED. The star camera's measurement is kept -- it is what
+     *   every release before this one shipped, and the mocks' anchoring rides on it -- and
+     *   the disagreement is a WARNING naming both wires, because one of the two is wrong
+     *   about the board and neither this function nor anything downstream can tell which.
+     *
+     *   Only the reader answered. It anchors the camera. This is the Blade 6 case and it
+     *   is the whole point of the issue.
+     *
+     * And when the reader refuses -- a weak match, bad light, a dart across a numeral --
+     * nothing becomes worse than it was and the camera stays unanchored, which is a LEGAL
+     * state (#1363, #1449): the operator states the anchor with OD_CAMERA_WEDGES and
+     * #1486's derivation spreads it. What must not happen is that this is quiet. A silent
+     * fallback is how the asserted 20 went unnoticed for six weeks, so the refusal names
+     * itself at default level with the separation it measured and the cut it missed.
+     */
+    static void readTheBoardsOwnNumbers(const Mat &frame, const DartboardCalibration &calib,
+                                        OrientationData &result)
+    {
+        const vector<Point2f> endpoints(calib.wires.wireEndpoints.begin(),
+                                        calib.wires.wireEndpoints.end());
+        const number_anchor::Reading reading = number_anchor::readTheNumbers(
+            frame, endpoints, calib.ellipses.outerDoubleEllipse, Point2f(calib.bullCenter),
+            wire_processing::conicOfDoublesFor(calib));
+
+        result.numbersRead = reading.read;
+        result.numberWedge20WireIndex = reading.read ? reading.wedge20WireIndex : -1;
+        result.numberSeparation = (float)reading.separation;
+
+        const string who = "camera " + to_string(calib.camera_index + 1);
+        if (!reading.attempted)
+        {
+            log_info("ORIENTATION: " + who + " " + reading.why);
+            return;
+        }
+
+        const bool clipsAnchored = wedgeCanBeRead(result);
+        if (!reading.read)
+        {
+            log_warning("ORIENTATION: " + who + " " + reading.why +
+                        (clipsAnchored
+                             ? "; it stays anchored by its clip wires"
+                             : "; it stays UNANCHORED, so its wedge is asserted -- state the "
+                               "anchor with OD_CAMERA_WEDGES"));
+            return;
+        }
+
+        if (clipsAnchored)
+        {
+            if (result.wedge20WireIndex == reading.wedge20WireIndex)
+            {
+                log_info("ORIENTATION: " + who + " " + reading.why +
+                         ", which is where its clip wires put it too -- two independent "
+                         "instruments agree about this board");
+                return;
+            }
+            result.numbersDisagreeWithClips = true;
+            log_warning("ORIENTATION: " + who + " DISAGREES WITH ITSELF about the board: its "
+                        "clip wires put the 20 at wire " + to_string(result.wedge20WireIndex) +
+                        " and its printed numbers put it at wire " +
+                        to_string(reading.wedge20WireIndex) + " (" + reading.why +
+                        "). The clip-wire measurement is kept, because it is what every "
+                        "release before this one scored with; one of the two is wrong about "
+                        "this board and nothing here can say which");
+            return;
+        }
+
+        result.wedge20WireIndex = reading.wedge20WireIndex;
+        result.cameraPosition = CameraPosition::READ;
+        result.wedgeNumber = southWedgeFromWedge20(result.southWireIndex,
+                                                   reading.wedge20WireIndex,
+                                                   (int)endpoints.size());
+        result.anchored = true;
+        log_info("ORIENTATION: " + who + " " + reading.why +
+                 ", so it is anchored by the board itself: wedge " +
+                 to_string(result.wedgeNumber) + " at its image south");
+    }
+
     OrientationData processOrientation(
         const Mat &frame,
         const Mat &colorMask,
@@ -382,6 +469,15 @@ namespace orientation_processing
 
         // STEP 3: Determine comprehensive orientation data
         OrientationData result = determineCameraPosition(clipWires, calib);
+
+        // STEP 3.5: #1498 -- ASK THE BOARD, WHICH STATES ITS ORIENTATION IN PRINT.
+        //
+        // Beside STEP 3 and never instead of it. On a board with a wire number ring both
+        // instruments answer and they must agree; on a Winmau Blade 6 the numbers are
+        // printed on the surround and there are no clips to find, so only this one does,
+        // and before this step such a board could not be anchored by any measurement at
+        // all -- `ORIENTATION: 0 of 3`, every dart published as #1346's asserted 20.
+        readTheBoardsOwnNumbers(frame, calib, result);
 
         // STEP 4: Comprehensive debug visualization
         if (enableDebug)

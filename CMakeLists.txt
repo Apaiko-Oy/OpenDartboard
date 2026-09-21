@@ -147,6 +147,7 @@ add_executable(opendartboard
     src/detector/geometry/calibration/wire_processing.cpp
     src/detector/geometry/calibration/perspective_processing.cpp
     src/detector/geometry/calibration/orientation_processing.cpp
+    src/detector/geometry/calibration/number_anchor.cpp
     src/detector/geometry/calibration/ring_identity.cpp
     src/detector/geometry/calibration/wire_model.cpp
     # detection files

@@ -38,7 +38,8 @@ namespace orientation_processing
         TOP = 1,
         MIDDLE = 2,
         BOTTOM = 3,
-        CONFIGURED = 4 // #1363: the operator stated this camera's south wedge
+        CONFIGURED = 4, // #1363: the operator stated this camera's south wedge
+        READ = 5        // #1498: the board's own printed numbers were read
     };
 
     // Result structure for orientation detection
@@ -64,6 +65,18 @@ namespace orientation_processing
         // Adding the field moves sizeof(DartboardCalibration), which the cache header's
         // record_bytes refusal turns into one clean recalibration (#1330).
         bool anchored = false;
+
+        // #1498: what the board's own printed numbers said, kept beside what the clip
+        // wires said rather than instead of it. `numbersRead` is the reader's own verdict
+        // -- a rotation that cleared the separation cut -- and is NOT the same question as
+        // `anchored`, which is whether the scorer may read this camera's wedge at all and
+        // may have been answered by the star camera or by the operator. They are kept
+        // apart so that the one case worth knowing about can be seen: two independent
+        // instruments that both answered and did not agree.
+        bool numbersRead = false;          // the printed numbers set the sequence
+        int numberWedge20WireIndex = -1;   // where they put the 20
+        float numberSeparation = 0.0f;     // deviations clear of chance
+        bool numbersDisagreeWithClips = false; // both instruments answered, differently
     };
 
     // Helper function to convert enum to string for display
@@ -79,6 +92,8 @@ namespace orientation_processing
             return "BOTTOM";
         case CameraPosition::CONFIGURED:
             return "CONFIGURED";
+        case CameraPosition::READ:
+            return "READ";
         default:
             return "UNKNOWN";
         }
@@ -124,6 +139,28 @@ namespace orientation_processing
             index += wireCount;
         }
         return index;
+    }
+
+    /**
+     * #1498: the other way round -- which wedge a camera's image south points into, given
+     * where its 20 is. `wedge20WireFromSouthWedge`'s inverse, and it exists for the same
+     * reason that one does: a reader that finds the 20 by reading the ring still has to
+     * say, in the log and in `wedgeNumber`, the one thing an operator can check by
+     * looking at the board. -1 where there is nothing to answer from.
+     */
+    inline int southWedgeFromWedge20(int southWireIndex, int wedge20WireIndex, int wireCount)
+    {
+        static const int sequence[20] = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
+        if (southWireIndex < 0 || wedge20WireIndex < 0 || wireCount != 20)
+        {
+            return -1;
+        }
+        int step = (southWireIndex - wedge20WireIndex) % wireCount;
+        if (step < 0)
+        {
+            step += wireCount;
+        }
+        return sequence[step];
     }
 
     /**
@@ -461,10 +498,21 @@ namespace orientation_processing
     {
         if (wedgeCanBeRead(orientation))
         {
-            return string(orientation.cameraPosition == CameraPosition::CONFIGURED
-                              ? "anchored by configuration"
-                              : "anchored by its own star-pattern measurement") +
-                   ", wedge " + to_string(orientation.wedgeNumber) +
+            string how = "anchored by its own star-pattern measurement";
+            if (orientation.cameraPosition == CameraPosition::CONFIGURED)
+            {
+                how = "anchored by configuration";
+            }
+            else if (orientation.cameraPosition == CameraPosition::READ)
+            {
+                how = "anchored by reading the board's own printed numbers";
+            }
+            if (orientation.numbersDisagreeWithClips)
+            {
+                how += " (and its clip wires named a DIFFERENT wedge -- see the ORIENTATION "
+                       "warning at calibration)";
+            }
+            return how + ", wedge " + to_string(orientation.wedgeNumber) +
                    " at its image south, so its wedge is read";
         }
         if (orientation.anchored)
@@ -486,8 +534,9 @@ namespace orientation_processing
         {
             return "found no south wire to index a wedge from, so its wedge is asserted";
         }
-        return "found neither the star pattern nor the four clips the heuristic needs, so its "
-               "wedge is asserted; state it with OD_CAMERA_WEDGES";
+        return "found neither the star pattern nor the four clips the heuristic needs, and "
+               "could not read the board's own printed numbers either, so its wedge is "
+               "asserted; state it with OD_CAMERA_WEDGES";
     }
 
     /**
