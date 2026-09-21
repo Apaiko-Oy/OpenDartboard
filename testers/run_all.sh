@@ -242,6 +242,19 @@ tester 1492-tips          "bash '$T/i1492_run.sh'"
 # three cameras whose poses are known by construction, which is what makes a residual on
 # the real rig mean anything. No detector binary; OD_SKIP_BUILD changes nothing.
 tester 1493-rays          "bash '$T/i1493_run.sh'"
+# #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in
+# pixels. #1498 would anchor the board by reading them instead of by finding four clip
+# wires, and nobody had established there was anything to read. #1493's calibration half
+# with the replay removed -- the averaged frame the detector really calibrates on, because
+# anchoring happens once -- cut into the twenty cells of the annulus between the doubles
+# (170 mm) and the rim (225.5 mm), each one measured for depth, width, scale, obliquity and
+# whether it is inside the frame at all, and each one SAVED as a crop so a person can judge
+# legibility rather than take a number's word for it. Both fixtures: the rig, which is what
+# #1498 is about, and the shipped mocks as the contrast, because they anchor today. A
+# PROBE on #1493's terms -- it changes nothing, it builds no reader (no OCR, no template
+# matching, no classifier), it asserts no threshold and it concludes nothing. No detector
+# binary; OD_SKIP_BUILD changes nothing.
+tester 1497-numbers       "bash '$T/i1497_run.sh'"
 # #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
 # shipped the server half -- Turnaus stores the census and the marking page draws it -- and
 # no board ever posted it, so the feature was live and inert and every board read as

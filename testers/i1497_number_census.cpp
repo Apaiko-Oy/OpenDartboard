@@ -258,15 +258,21 @@ int main(int argc, char **argv)
             // Sampled straight through the plane map: output row v is a board radius,
             // output column u is a board angle. Outer radius at the TOP, because that is
             // the way a board's numbers read.
+            // The cell is drawn THE WAY THE GLYPH READS: the first run put the outer
+            // radius at the top and every one of the twenty came out rotated by half a
+            // turn, which is a fact about the handedness of the board space this plane
+            // fits, measured rather than reasoned about. So the inner radius is at the
+            // top and the angle runs the other way, and a reader of the contact sheet is
+            // looking at numbers rather than at a puzzle.
             cv::Mat mapX(rectH, rectW, CV_32F), mapY(rectH, rectW, CV_32F);
             for (int v = 0; v < rectH; v++)
             {
                 const double t = (rectH == 1) ? 0.0 : (double)v / (rectH - 1);
-                const double r = kRingOuter + t * (kRingInner - kRingOuter);
+                const double r = kRingInner + t * (kRingOuter - kRingInner);
                 for (int u = 0; u < rectW; u++)
                 {
                     const double s = (rectW == 1) ? 0.5 : (double)u / (rectW - 1);
-                    const double th = centre - halfSector + s * wire_model::kSector;
+                    const double th = centre + halfSector - s * wire_model::kSector;
                     const cv::Point2f p = mapBoard(plane, th, r);
                     mapX.at<float>(v, u) = p.x;
                     mapY.at<float>(v, u) = p.y;
@@ -317,6 +323,17 @@ int main(int argc, char **argv)
             cv::Scalar lmu, lsd;
             cv::meanStdDev(lap, lmu, lsd);
 
+            // WHY THERE IS NO AUTOMATIC MEASUREMENT OF THE GLYPH ITSELF HERE, and it
+            // was written and thrown away rather than never tried. An Otsu tape measure
+            // over the cell was built, run on both fixtures, and reported a mark in 6 of
+            // camera 1's twenty cells and 4 of camera 2's. The reason is in the crops: the
+            // board prints a white CIRCLE round the outside of its numbers, it crosses
+            // every cell from edge to edge, several numerals touch it, and a numeral fused
+            // to it is one component spanning the cell. Every rule that separated the two
+            // was a radius or a fraction fitted to THIS board's ring -- which is the thing
+            // #1322 exists to refuse -- and the rows it did produce were the GEN6 TEC
+            // sticker measured as if it were a number. So the cell is what is measured
+            // here, and the glyph inside it is what the saved crop is for.
             std::cout << "I1497CELL cam=" << (i + 1)
                       << " wedge=" << k
                       << " centreDeg=" << fmt(centre * 180.0 / kPi)

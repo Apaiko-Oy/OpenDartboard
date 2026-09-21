@@ -51,8 +51,8 @@ def main(path):
             continue
         print("  camera %s -- doubles semi-axis %s px, tilt %s, anchored=%s"
               % (idx, cam.get("doublesPx"), cam.get("tilt"), cam.get("anchored")))
-        print("    wedge  centre   radial  tangent   px/mm     px/mm   obliq  corners   grey    grey   lap")
-        print("            deg        px       px     max       min     deg  inframe  p05-p95    sd    sd")
+        print("    wedge  centre   ring    wedge   px/mm    px/mm   obliq  corners   grey     grey   lap")
+        print("            deg   depth px width px    max      min     deg  inframe  p05-p95    sd    sd")
         for c in mine:
             print("    %5s  %6.1f  %7.1f  %7.1f  %6.3f  %6.3f  %6.1f  %4s/4  %4s-%-4s  %5.1f %5.1f"
                   % (c.get("wedge"), num(c, "centreDeg"), num(c, "radialPx"),
