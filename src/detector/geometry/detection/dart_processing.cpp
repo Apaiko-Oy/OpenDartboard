@@ -554,7 +554,12 @@ namespace dart_processing
                 {
                     const double a = contourArea(c);
                     if (a >= 20000) continue;
-                    double gap = 1e9, far = 0, nearest_hull = 1e9;
+                    // `far` and `near` are macros from windows.h -- leftovers of the 16-bit
+                    // segmented memory model that MSVC still expands, so a variable named
+                    // `far` compiles on Linux, on the Pi and through the whole tester suite
+                    // and breaks only on MSVC, with `syntax error: '='` on this line and a
+                    // cascade after it. #1355's M_PI, one identifier over. Hence `far_edge`.
+                    double gap = 1e9, far_edge = 0, nearest_hull = 1e9;
                     for (const Point &q : c)
                     {
                         for (const Point &b : biggest_shape)
@@ -563,7 +568,7 @@ namespace dart_processing
                             if (d < gap) gap = d;
                         }
                         const double dc = norm(Point2f(q) - biggest_shape_center);
-                        if (dc > far) far = dc;
+                        if (dc > far_edge) far_edge = dc;
                         const double dh = norm(Point2f(q) - Point2f(furthest_hull_point));
                         if (dh < nearest_hull) nearest_hull = dh;
                     }
@@ -572,7 +577,7 @@ namespace dart_processing
                               << " admitted=" << (a > piecesFloor() ? 1 : 0)
                               << " isbiggest=" << (gap <= 0.0 && (long)a == (long)contourArea(biggest_shape) ? 1 : 0)
                               << " gap=" << (long)gap
-                              << " far=" << (long)far
+                              << " far=" << (long)far_edge
                               << " toTip=" << (long)nearest_hull
                               << " p0w=" << (long)p0w << " p0l=" << (long)p0l
                               << std::endl;
