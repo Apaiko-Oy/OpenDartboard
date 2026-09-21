@@ -186,7 +186,8 @@ namespace score_processing
 
     // Clean, angle-based scoring function. #1186: the same decision upstream made, stated
     // as fields; `score` is composed from them and is byte-for-byte what it was.
-    PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib)
+    PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib,
+                          const orientation_processing::DerivedAnchor &derived)
     {
         PointScore out;
 
@@ -313,7 +314,17 @@ namespace score_processing
         // at all -- and it is now kept apart from `wedge_measured`, which is a fact about
         // THIS READING. Every line below that asks whether there is an angular ruler to
         // use asks `anchored`, so none of them moves; the field says the narrower thing.
-        const bool anchored = orientation_processing::wedgeCanBeRead(calib.orientation);
+        //
+        // #1486: or an anchor DERIVED from a camera that did measure one. The rotation
+        // between two cameras' wire rings is a rigid fact about the rig, measured off
+        // darts both cameras placed and believed only once two darts agreed on it
+        // (`orientation_processing::noteAnchorSighting`). It is deliberately NOT written
+        // back into `calib.orientation`: #1450 seals `read=` and `wedge20=` into the
+        // geometry fingerprint at the end of `initialize`, so a scoring-time inference
+        // stored there would read as the rig having moved. A derived anchor is a fact
+        // about this RUN, held beside the geometry rather than in it.
+        const bool ownAnchor = orientation_processing::wedgeCanBeRead(calib.orientation);
+        const bool anchored = ownAnchor || derived.trusted;
 
         // #1489, stated rather than arrived at: on a bull and on an outer bull the ring
         // ellipses are the whole of the score and the wedge is no part of it. The reading
@@ -337,7 +348,7 @@ namespace score_processing
         }
 
         float fraction = 0.0f;
-        int start = anchored ? calib.orientation.wedge20WireIndex : 0;
+        int start = ownAnchor ? calib.orientation.wedge20WireIndex : (derived.trusted ? derived.wedge20WireIndex : 0);
         int slot = findWedgeSlot(pixel, calib, start, fraction);
         if (slot < 0)
         {
@@ -385,6 +396,145 @@ namespace score_processing
             out.score = ring_prefix + to_string(number);
         }
         return out;
+    }
+
+    // ---- #1486: anchors derived from darts every camera saw -----------------------------
+    //
+    // Held here rather than in `calibrations` on purpose, and the reason is #1450: the
+    // geometry fingerprint sealed at the end of `initialize` carries `read=` and
+    // `wedge20=`, so writing a scoring-time derivation back into a calibration would
+    // announce itself as the rig having moved. This is a fact about the run.
+    //
+    // A file-static beside `initialized`, which is this file's existing shape for
+    // per-process state. The DECISION is pure and lives in orientation_processing.hpp,
+    // where a tester holds it without building a detector (#1338).
+    static vector<orientation_processing::DerivedAnchor> derived_anchors;
+
+    /**
+     * Where this camera placed the tip in its OWN wire ring, or nothing.
+     *
+     * `findWedgeSlot` from wire 0 is the whole of it -- the same angular ruler the score
+     * is read with, asked without an anchor, so the two cannot drift. A tip off the board
+     * is refused a sighting: its angle is still an angle, but a tip finder that has put it
+     * outside the doubles ring is not a witness to where on the board anything is.
+     */
+    static orientation_processing::WedgeSighting sightingOf(Point2f pixel, const DartboardCalibration &calib)
+    {
+        orientation_processing::WedgeSighting out;
+        if (!aDartIsScoredFrom(calib) || !isPointInEllipse(pixel, calib.ellipses.outerDoubleEllipse))
+        {
+            return out;
+        }
+        float fraction = 0.0f;
+        const int slot = findWedgeSlot(pixel, calib, 0, fraction);
+        if (slot < 0)
+        {
+            return out;
+        }
+        out.present = true;
+        out.wireSlot = slot;
+        out.fraction = fraction;
+        return out;
+    }
+
+    /**
+     * Let this dart say what it can about the cameras that cannot anchor themselves.
+     *
+     * The leader is the first camera the scorer would read a wedge from on its own
+     * measurement -- `wedgeCanBeRead`, the one expression #1449 left in the codebase --
+     * and it is never a derived one: a derivation derived from a derivation would let one
+     * camera's reading travel round the board and come back as its own corroboration.
+     *
+     * Called BEFORE the scoring loop, so the dart that completes a derivation is itself
+     * scored with it.
+     */
+    static void deriveAnchorsFromThisDart(const dart_processing::DartStateResult &dart_result,
+                                          const vector<DartboardCalibration> &calibrations)
+    {
+        if (derived_anchors.size() != calibrations.size())
+        {
+            derived_anchors.assign(calibrations.size(), orientation_processing::DerivedAnchor());
+        }
+        if (orientation_processing::anchorsComeFromOneCameraOnly())
+        {
+            return; // #1486's falsifier: a camera is anchored by its own measurement or not at all
+        }
+
+        vector<orientation_processing::WedgeSighting> sightings(calibrations.size());
+        for (size_t i = 0; i < calibrations.size() && i < dart_result.camera_results.size(); i++)
+        {
+            if (!dart_result.camera_results[i].frame_available || !dart_result.camera_results[i].tip_found)
+            {
+                continue;
+            }
+            sightings[i] = sightingOf(dart_result.camera_results[i].tip_position, calibrations[i]);
+        }
+
+        int leader = -1;
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            if (sightings[i].present && orientation_processing::wedgeCanBeRead(calibrations[i].orientation))
+            {
+                leader = (int)i;
+                break;
+            }
+        }
+        if (leader < 0)
+        {
+            return; // nothing to propagate FROM. #1486 propagates an anchor; it cannot create one.
+        }
+
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            if ((int)i == leader || !sightings[i].present ||
+                orientation_processing::wedgeCanBeRead(calibrations[i].orientation))
+            {
+                continue;
+            }
+            orientation_processing::DerivedAnchor &anchor = derived_anchors[i];
+            const bool wasTrusted = anchor.trusted;
+            const bool wasRefused = anchor.refused;
+            const orientation_processing::AnchorSighting sighting =
+                orientation_processing::anchorFromOneDart(sightings[leader],
+                                                          calibrations[leader].orientation.wedge20WireIndex,
+                                                          sightings[i], (int)calibrations[i].wires.wireEndpoints.size());
+            orientation_processing::noteAnchorSighting(anchor, sighting, leader);
+
+            // While a camera is undecided every sighting is said out loud, because those
+            // are the sightings that decide; once it is trusted it goes quiet, and the
+            // only thing that speaks again is the refusal -- which is said once, because a
+            // camera that has been refused meets every later dart the same way and a line
+            // per dart for the rest of the evening is not a second finding.
+            if (!wasRefused && (!wasTrusted || anchor.refused))
+            {
+                log_info("ANCHOR: " + orientation_processing::howItDerived((int)i, anchor) +
+                         " (this dart: offset " + to_string(sighting.offsetWedges) +
+                         " wedges, residual " + to_string(sighting.residualWedges) + ")");
+            }
+            // #1486's acceptance criterion about the TOP/BOTTOM guess, measured rather
+            // than argued: that branch computed an index from an assumption about where
+            // the camera is bolted, and #797 measured it one wedge loose. It is still
+            // computed and still trusted by nothing; where the board has now said what
+            // the index really is, the two are printed against each other.
+            if (anchor.trusted && !wasTrusted &&
+                (calibrations[i].orientation.cameraPosition == orientation_processing::CameraPosition::TOP ||
+                 calibrations[i].orientation.cameraPosition == orientation_processing::CameraPosition::BOTTOM))
+            {
+                log_info("ANCHOR: camera " + to_string(i + 1) + "'s positional guess (" +
+                         orientation_processing::cameraPositionToString(calibrations[i].orientation.cameraPosition) +
+                         ", assuming wedge " + to_string(calibrations[i].orientation.wedgeNumber) +
+                         " at its image south) put wedge 20 at wire " +
+                         to_string(calibrations[i].orientation.wedge20WireIndex) +
+                         "; the board says wire " + to_string(anchor.wedge20WireIndex) +
+                         ". The guess is not what was used.");
+            }
+        }
+    }
+
+    /** This camera's derived anchor, or an untrusted one, which changes nothing. */
+    static orientation_processing::DerivedAnchor anchorFor(size_t camera)
+    {
+        return camera < derived_anchors.size() ? derived_anchors[camera] : orientation_processing::DerivedAnchor();
     }
 
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
@@ -435,6 +585,10 @@ namespace score_processing
             vector<PointScore> point_scores(dart_result.camera_results.size()); // #1186: each camera's decision, as fields
             vector<bool> may_vote(dart_result.camera_results.size(), false);    // #1346: a tip and not a MISS, as it always was
 
+            // #1486: what this dart says about the cameras that cannot anchor themselves,
+            // before anything is scored with it.
+            deriveAnchorsFromThisDart(dart_result, calibrations);
+
             for (size_t i = 0; i < dart_result.camera_results.size(); i++)
             {
                 // #798: no frame from this camera in the window, so calibrations[i] has
@@ -460,7 +614,7 @@ namespace score_processing
                 }
 
                 log_debug("-------");
-                PointScore point = scorePoint(dart_result.camera_results[i].tip_position, calibrations[i]);
+                PointScore point = scorePoint(dart_result.camera_results[i].tip_position, calibrations[i], anchorFor(i));
                 string score_test = point.score;
                 point_scores[i] = point;
                 log_debug("-------");

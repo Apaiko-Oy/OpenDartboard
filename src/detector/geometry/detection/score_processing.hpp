@@ -391,7 +391,14 @@ namespace score_processing
 
     // #1186: score one tip against one camera's calibration. The string the vote counts
     // is PointScore::score; the rest is the same decision stated as fields.
-    PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib);
+    //
+    // #1486: `derived` is an anchor this camera did not measure itself and the scorer may
+    // nonetheless read a wedge from -- the rotation between this camera's wire ring and an
+    // anchored camera's, measured off darts both of them placed. An untrusted one (the
+    // default) leaves every line below exactly as it was.
+    PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib,
+                          const orientation_processing::DerivedAnchor &derived =
+                              orientation_processing::DerivedAnchor());
 
     // Process dart scoring from tip detection results
     ScoreResult processScore(

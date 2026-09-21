@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -167,6 +168,235 @@ namespace orientation_processing
             start = comma + 1;
         }
         return 0;
+    }
+
+
+    // ---- #1486: an anchor DERIVED from the board, never from where a camera is bolted ----
+    //
+    // WHAT WAS WRONG. Exactly one branch of STEP 3 above sets `anchored`: the star
+    // camera's own measurement. The other two derive `wedge20WireIndex` from an
+    // ASSUMPTION about the mount -- TOP looks at the 12 and subtracts 18, BOTTOM looks at
+    // the 7 and subtracts 12 -- and #797 measured that guess one wedge loose, so #1346
+    // refused to trust it and #1363 gave the refusal its own field. The consequence is
+    // `chooseScore`'s: consensus needs TWO cameras that measured a wedge, and a board
+    // with one anchored camera can never have two. On mocks/rig-20260918 it is worse
+    // still -- no camera anchors at all, so all nineteen darts publish #1346's asserted
+    // 20 at confidence 0.5.
+    //
+    // THE PREMISE #1486 WAS FILED WITH, AND WHY IT IS FALSE AS WRITTEN. The issue
+    // proposes that #1467's per-camera board plane carries the anchor: "an anchored
+    // camera's wedge 20 should be expressible in the board's frame and read back out in
+    // another camera's". It cannot, and the reason is in `wire_model::planeOf`. That
+    // plane is built from the fitted conic and the bull ALONE, and its board-space
+    // x-axis is the fitted ellipse's own major axis (`conic.angle`) -- a direction that
+    // belongs to this camera's view of the board, not to the board. The projective maps
+    // of the plane fixing a conic and a point inside it are an O(2), which is precisely
+    // the statement that each camera's board frame is pinned only up to an UNKNOWN
+    // ROTATION. Two cameras therefore hold two board frames that differ by the very
+    // quantity the anchor needs, and that quantity is the cameras' relative azimuth about
+    // the board -- "where it is bolted" arriving by a side door. A plane per camera is
+    // not a shared frame and no amount of it becomes one.
+    //
+    // WHAT DOES CARRY AN ANCHOR: A SHARED OBSERVATION. A dart is one physical point on
+    // the board that every camera sees at the same instant. An anchored camera says which
+    // WEDGE that point is in; an unanchored one says which of its own twenty wire slots
+    // the point is in. The difference of those two is the rotation between the two
+    // frames, measured rather than assumed -- and, being a fact about the rig, it then
+    // places the unanchored camera's wedge 20 for every later dart. The wires are the
+    // board plane's own rays, so this is the plane's answer in the discrete form the
+    // scorer already computes; what the continuous fraction across a wedge adds is a
+    // RESIDUAL, and the residual is what makes a wrong derivation refusable.
+    //
+    // WHAT IT STILL CANNOT DO, SAID PLAINLY. It propagates an anchor; it does not create
+    // one. A board on which no camera is anchored has nothing to derive from and this
+    // module anchors nobody -- which is the rig fixture's state, and the honest answer
+    // there is OD_CAMERA_WEDGES (#1363) or a star pattern the clip finder can see.
+
+    /** One camera's reading of one dart, in its OWN wire ring. */
+    struct WedgeSighting
+    {
+        bool present = false; // this camera placed the tip between two of its wires
+        int wireSlot = -1;    // the wire the tip's wedge starts at, 0..wires-1
+        float fraction = 0.f; // where across that wedge the tip is, 0..1
+    };
+
+    /**
+     * What one shared dart says about a camera's wedge 20, and how well the two cameras
+     * agreed about the dart at all.
+     *
+     * `residualWedges` is the whole of the refusal. The offset between two frames is a
+     * rigid property of the rig, so it must come out a WHOLE number of wedges; anything
+     * left over is the two cameras disagreeing about where on the board this tip is, and
+     * a derivation built on that disagreement would be a confident wrong answer.
+     */
+    struct AnchorSighting
+    {
+        bool usable = false;       // both cameras placed the tip, so an offset exists
+        int wedge20WireIndex = -1; // what this dart says the follower's wedge 20 is
+        double offsetWedges = 0.0; // the raw offset before it was rounded
+        double residualWedges = 0.0; // |offset - nearest whole wedge|, 0 .. 0.5
+    };
+
+    /**
+     * How far from a whole wedge an offset may sit and still be believed.
+     *
+     * NOT MEASURED ON A FIXTURE, and deliberately so (#1322). Half a wedge is where the
+     * rounding is a coin toss -- the derived index is as near its neighbour as to itself
+     * -- so the cut is the midpoint between "the two cameras agree exactly" and "the
+     * answer is ambiguous". A quarter of a wedge is 4.5 degrees of board.
+     */
+    inline constexpr double kAnchorResidualWedges = 0.25;
+
+    /**
+     * How many darts must say the same thing before a derived anchor is used.
+     *
+     * Two, for the reason one is not enough rather than for a number that worked: a
+     * single sighting is a statement with nothing able to contradict it, and two darts
+     * are the fewest that can disagree. Both must clear `kAnchorResidualWedges`.
+     */
+    inline constexpr int kAnchorSightingsNeeded = 2;
+
+    /**
+     * #1486's falsifier, in the shape #1339, #1442, #1450 and #1489 established: one
+     * binary, the spelling chosen at run time, so "a different build" is never a
+     * confound. `OD_ANCHOR=own` restores the rule every build before this issue had --
+     * a camera is anchored by its OWN measurement or not at all -- so the derivation can
+     * be switched off on the very binary that carries it. Anything but that exact word is
+     * ignored rather than obeyed.
+     */
+    inline bool anchorsComeFromOneCameraOnly()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_ANCHOR");
+            return e != nullptr && string(e) == "own";
+        }();
+        return v;
+    }
+
+    /**
+     * The offset between an anchored camera's ring and another camera's, from one dart
+     * both of them placed.
+     *
+     * `leaderWedge20` is the anchored camera's own index, so `leader` is first expressed
+     * as a position in the SEQUENCE -- wedges clockwise from the 20 -- which is the one
+     * quantity both cameras can be asked about. The follower's position is in its own
+     * ring, and the difference between the two is where that ring's 20 starts.
+     */
+    inline AnchorSighting anchorFromOneDart(const WedgeSighting &leader, int leaderWedge20,
+                                            const WedgeSighting &follower, int wires)
+    {
+        AnchorSighting out;
+        if (!leader.present || !follower.present || wires <= 0 || leaderWedge20 < 0)
+        {
+            return out;
+        }
+        if (leader.wireSlot < 0 || leader.wireSlot >= wires || follower.wireSlot < 0 || follower.wireSlot >= wires)
+        {
+            return out;
+        }
+        int sequenceSlot = (leader.wireSlot - leaderWedge20) % wires;
+        if (sequenceSlot < 0)
+        {
+            sequenceSlot += wires;
+        }
+        const double leaderPosition = (double)sequenceSlot + (double)leader.fraction;
+        const double followerPosition = (double)follower.wireSlot + (double)follower.fraction;
+        const double offset = followerPosition - leaderPosition;
+        const double nearest = std::floor(offset + 0.5);
+        int index = (int)std::fmod(nearest, (double)wires);
+        if (index < 0)
+        {
+            index += wires;
+        }
+        out.usable = true;
+        out.wedge20WireIndex = index;
+        out.offsetWedges = offset;
+        out.residualWedges = std::fabs(offset - nearest);
+        return out;
+    }
+
+    /**
+     * What one camera's sightings have come to, over a run.
+     *
+     * A derived anchor is used only once `kAnchorSightingsNeeded` darts have agreed on
+     * it. A dart that names a DIFFERENT index refuses the camera for the rest of the run
+     * rather than replacing the index or averaging the two: the cameras have contradicted
+     * each other about the board, and a second opinion held confidently is worse than an
+     * abstention (#1451's lesson, one field over). A dart whose residual is past the cut
+     * is not a vote at all -- it is the two cameras disagreeing about this tip, which is
+     * a statement about the tip finder and not about the rig.
+     */
+    struct DerivedAnchor
+    {
+        bool trusted = false;        // the scorer may read this camera's wedge from it
+        bool refused = false;        // two darts contradicted each other; never trusted again
+        int wedge20WireIndex = -1;   // what they agreed on
+        int agreeing = 0;            // how many darts have said it
+        int discarded = 0;           // sightings past the residual cut
+        int leader = -1;             // the camera it was derived from
+        double worstResidualWedges = 0.0; // over the sightings that were counted
+    };
+
+    /**
+     * Record one sighting against a camera's derivation and answer what changed.
+     *
+     * Pure: the caller holds the state, so a tester holds it too (#1338's shape).
+     */
+    inline void noteAnchorSighting(DerivedAnchor &anchor, const AnchorSighting &sighting, int leaderCamera)
+    {
+        if (anchor.refused || !sighting.usable)
+        {
+            return;
+        }
+        if (sighting.residualWedges > kAnchorResidualWedges)
+        {
+            anchor.discarded++;
+            return;
+        }
+        if (anchor.agreeing == 0)
+        {
+            anchor.wedge20WireIndex = sighting.wedge20WireIndex;
+            anchor.leader = leaderCamera;
+            anchor.agreeing = 1;
+            anchor.worstResidualWedges = sighting.residualWedges;
+        }
+        else if (sighting.wedge20WireIndex == anchor.wedge20WireIndex)
+        {
+            anchor.agreeing++;
+            anchor.worstResidualWedges = max(anchor.worstResidualWedges, sighting.residualWedges);
+        }
+        else
+        {
+            anchor.refused = true;
+            anchor.trusted = false;
+            return;
+        }
+        anchor.trusted = anchor.agreeing >= kAnchorSightingsNeeded;
+    }
+
+    /** This camera's derivation, in the words a reader of the log needs. */
+    inline string howItDerived(int camera, const DerivedAnchor &anchor)
+    {
+        const string who = "camera " + to_string(camera + 1);
+        if (anchor.refused)
+        {
+            return who + " is REFUSED an anchor: two darts placed its wedge 20 at different "
+                         "wires, so the cameras contradict each other about the board and a "
+                         "derived wedge here would be a confident wrong answer";
+        }
+        if (anchor.trusted)
+        {
+            return who + " derived wedge 20 at wire " + to_string(anchor.wedge20WireIndex) +
+                   " from camera " + to_string(anchor.leader + 1) + ", agreed by " +
+                   to_string(anchor.agreeing) + " darts, worst residual " +
+                   to_string(anchor.worstResidualWedges) + " of an allowed " +
+                   to_string(kAnchorResidualWedges) + " wedges";
+        }
+        return who + " has " + to_string(anchor.agreeing) + " of " + to_string(kAnchorSightingsNeeded) +
+               " darts agreeing on wire " + to_string(anchor.wedge20WireIndex) + " and has discarded " +
+               to_string(anchor.discarded) + " whose cameras disagreed about the tip by more than " +
+               to_string(kAnchorResidualWedges) + " wedges";
     }
 
     // ---- #1449: whether this board can be READ for a wedge, and how each camera reads ----
