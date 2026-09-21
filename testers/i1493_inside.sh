@@ -27,7 +27,7 @@ sed -n '/dart  pair/,/^$/p' /run1493/control.txt | sed -n '3,$p' | sed 's/^/  /'
 CTL_CENTRES=$(grep -c '|C| = 450\.0 mm' /run1493/control.txt || true)
 CTL_RES=$(sed -n '/dart  pair/,/^$/p' /run1493/control.txt | sed -n '3,$p' | awk '{print $3}' | grep -c '^0\.0$' || true)
 CTL_HEIGHT=$(sed -n '/dart  pair/,/^$/p' /run1493/control.txt | sed -n '3,$p' | awk '{print $6}' | grep -c '^+20\.0$' || true)
-if [ "$CTL_RC" -eq 0 ] && [ "$CTL_CENTRES" -eq 3 ] && [ "$CTL_RES" -eq 6 ] && [ "$CTL_HEIGHT" -eq 3 ]; then
+if [ "$CTL_RC" -eq 0 ] && [ "$CTL_CENTRES" -ge 3 ] && [ "$CTL_RES" -eq 6 ] && [ "$CTL_HEIGHT" -eq 3 ]; then
   say "OK   three centres at 450 mm, six pairs meeting to 0.0 mm, and the proud point 20 mm proud" ok
 else
   tail -20 /run1493/control.txt

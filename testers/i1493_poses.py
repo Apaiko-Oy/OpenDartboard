@@ -489,11 +489,13 @@ else:
     print("  is worth in millimetres, per pair, over all twenty relative sectors:")
     print()
     ks = sorted(aligned)
+    sweep = {}
     for i, a in enumerate(ks):
         for b in ks[i + 1:]:
             print("    cameras %d-%d" % (a, b))
             print("      k   b turned   baseline   on-board residual      where it meets")
             print("      --  --------  ---------   -----------------   ------------------")
+            rowsk = []
             for k in range(20):
                 turned = setup_of(rotate_board_frame(raw[b]["H"], raw[b]["phase"] + k * 18.0),
                                   raw[b]["cx"], raw[b]["cy"], focal_for(b))
@@ -502,12 +504,16 @@ else:
                 two = {a: aligned[a], b: turned}
                 ps = [p for p in pairs_over(two) if p["onBoard"]]
                 base = norm(sub(scale(aligned[a]["C"], MM), scale(turned["C"], MM)))
+                rec = {"k": k, "base": base, "n": len(ps),
+                       "res": median([p["residual"] for p in ps]) if ps else None,
+                       "hgt": median([abs(p["height"]) for p in ps]) if ps else None}
+                rowsk.append(rec)
                 print("      %2d  %6.0f deg  %7.1f mm   %-17s   %s"
                       % (k, k * 18.0, base,
-                         ("median %6.1f mm over %d" % (median([p["residual"] for p in ps]), len(ps)))
+                         ("median %6.1f mm over %d" % (rec["res"], rec["n"]))
                          if ps else "no on-board pair",
-                         ("|height| %6.1f mm" % median([abs(p["height"]) for p in ps]))
-                         if ps else ""))
+                         ("|height| %6.1f mm" % rec["hgt"]) if ps else ""))
+            sweep[(a, b)] = rowsk
             print()
     print("  NOTHING HERE PICKS A k. The row with the smallest residual is not evidence that")
     print("  that sector is the right one -- twenty hypotheses against fourteen pairs will")
@@ -517,6 +523,43 @@ else:
     print("  is beside it because that is the half that does move -- two rays can pass close")
     print("  to each other 300 mm out of the board's plane, where no dart has ever been.")
     print()
+    print("  WHERE EACH PAIR'S TWO COLUMNS POINT, AND WHETHER THE THREE AGREE ROUND THE LOOP.")
+    print("  Reported, not chosen: this is a property of the table above, and the counts it")
+    print("  rests on are printed beside it because a preference over four pairs is not one.")
+    print()
+    print("    pair   smallest residual   smallest |height|   on-board pairs it rests on")
+    print("    ----   -----------------   -----------------   --------------------------")
+    best = {}
+    for key in sorted(sweep):
+        have = [r for r in sweep[key] if r["res"] is not None]
+        if not have:
+            continue
+        br = min(have, key=lambda r: r["res"])
+        bh = min(have, key=lambda r: r["hgt"])
+        best[key] = (br, bh)
+        print("    %d-%d      k=%-2d  %6.1f mm     k=%-2d  %6.1f mm     %d"
+              % (key[0], key[1], br["k"], br["res"], bh["k"], bh["hgt"], br["n"]))
+    print()
+    if len(best) == 3:
+        (a1, b1), (a2, b2), (a3, b3) = sorted(best)
+        # (1,2), (1,3), (2,3): a sector assignment is consistent when k12 + k23 == k13.
+        for label, idx in (("residual", 0), ("|height|", 1)):
+            k12 = best[(a1, b1)][idx]["k"]
+            k13 = best[(a2, b2)][idx]["k"]
+            k23 = best[(a3, b3)][idx]["k"]
+            closes = (k12 + k23 - k13) % 20
+            print("    by %-9s  k(%d-%d)=%-2d  k(%d-%d)=%-2d  k(%d-%d)=%-2d  ->  "
+                  "k(%d-%d)+k(%d-%d)-k(%d-%d) = %d mod 20%s"
+                  % (label, a1, b1, k12, a3, b3, k23, a2, b2, k13,
+                     a1, b1, a3, b3, a2, b2, closes,
+                     "   THE LOOP CLOSES" if closes == 0 else ""))
+        print()
+        print("    A loop that closes is the one thing in this section that three independent")
+        print("    pairwise readings could not produce by accident in twenty ways each: the")
+        print("    sector each pair prefers is a statement about that pair alone, and nothing")
+        print("    above makes them agree. A loop that does not close is equally worth having")
+        print("    and means only that the preference is not yet a measurement.")
+        print()
 
 print("=" * 88)
 print("  HOW MUCH OF THE ABOVE IS THE FOCAL LENGTH THIS FILE ASSUMED")
