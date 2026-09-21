@@ -13,13 +13,19 @@ Seven visits, twenty-one throws, two of them misses.
 
 | visit | 1 | 2 | 3 |
 | --- | --- | --- | --- |
-| 1 | **T13** | 13 | 19 |
+| 1 | **T13** | 19 | 13 |
 | 2 | 19 | **T14** | 5 |
 | 3 | 10 | 7 | **T20** |
 | 4 | 19 | 20 | *miss* |
 | 5 | 15 | 4 | 18 |
 | 6 | *miss* | 7 | 2 |
 | 7 | 5 | 20 | 20 |
+
+**Visit 1's second and third darts were transposed in the first recording of this file and
+were corrected on 2026-09-21.** They read 19 then 13, not 13 then 19. The error was the
+transcription's, not the maintainer's reading, and it is recorded rather than quietly fixed
+because it cost a real conclusion: visit 1 was the one visit the detector appeared to get
+wholly wrong, and that appearance was this row.
 
 Every dart here was confirmed against more than one camera. An earlier draft of this file
 flagged the 2 in visit 6 as uncertain because it had been read from `cam_1` alone; the
@@ -68,7 +74,7 @@ quoted as if they were the clip's — they were not. **This fixture needs no cap
 | | |
 | --- | --- |
 | detected | 19 (visits 1–5 complete, visits 6 and 7 two apiece) |
-| correct | **2** — both a thrown 20 published `S20` |
+| correct | see the definitive section below |
 | `OUTER`, i.e. published as a **25** | **8** |
 | a different number entirely | 7 |
 | a score published where a *miss* was thrown | 2 — **both misses were missed** |
