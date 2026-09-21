@@ -218,6 +218,18 @@ tester 1489-ringonly      "bash '$T/i1489_run.sh'"
 # it: it compiles the calibration and detection stages and replays the whole of
 # mocks/rig-20260918 through them, to the end of the footage and with no cycle cap.
 tester 1490-spread        "bash '$T/i1490_run.sh'"
+# #1492: WHAT each camera found on the darts where they disagree most -- the first half
+# of that issue is a measurement and not a repair. It splits #1490's census by whether any
+# camera placed the dart OFF the board, prints the mechanism census dart_processing keeps
+# about its own figure (OTHER-PIECE: the published tip is not a point of the contour the
+# centroid was measured from; FLOOR-BOUND: the tip moves when the 400 px contour floor is
+# removed), and asserts the two things that are claims rather than constants -- that the
+# two populations are disjoint, and that NO off-board reading came out of a whole single
+# figure, so no third mechanism is hiding in this fixture. It then measures the obvious
+# repair instead of arguing about it: OD_TIP_PIECE_FLOOR=0 on the same binary, which moves
+# readings and does NOT reduce the off-board count (#1322). No detector binary, no cycle
+# cap, mocks/rig-20260918 only (#1478); two full replays of the clip.
+tester 1492-tips          "bash '$T/i1492_run.sh'"
 # #1493: whether the three board planes compose into camera poses good enough to
 # TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
 # in millimetres per dart. #1490's harness with one extra column: the same replay, the same
