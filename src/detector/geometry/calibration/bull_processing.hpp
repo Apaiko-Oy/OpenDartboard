@@ -330,10 +330,41 @@ namespace bull_processing
      */
     struct Region
     {
-        double area = 0.0;
+        double area = 0.0; // what it encloses: see creditWhatEachSurrounds
         Rect box;
         double span = 0.0; // radius of the circle around it, px
     };
+
+    /**
+     * Adds to each region's area the area of every other region whose middle lies inside
+     * its hull. A board's outer ring surrounds the rest of the board and nothing in a room
+     * surrounds anything: on the maintainer's rig on 2026-09-22 camera 1's doubles ring was
+     * broken at the top, so its outline enclosed only its own 34k px, and a 39k px strip of
+     * carpet above it was measured as the board. An unbroken ring is unchanged by this --
+     * what lies inside it is not an outermost region and was never a candidate.
+     */
+    inline void creditWhatEachSurrounds(const vector<vector<Point>> &outlines, vector<Region> &regions)
+    {
+        vector<Point2f> middles(outlines.size());
+        vector<double> own(outlines.size());
+        vector<vector<Point>> hulls(outlines.size());
+        for (size_t i = 0; i < outlines.size(); i++)
+        {
+            const Moments m = moments(outlines[i]);
+            middles[i] = m.m00 > 0 ? Point2f((float)(m.m10 / m.m00), (float)(m.m01 / m.m00))
+                                   : Point2f((float)outlines[i][0].x, (float)outlines[i][0].y);
+            own[i] = regions[i].area;
+            convexHull(outlines[i], hulls[i]);
+        }
+        for (size_t i = 0; i < outlines.size(); i++)
+        {
+            for (size_t j = 0; j < outlines.size(); j++)
+            {
+                if (i != j && hulls[i].size() >= 3 && pointPolygonTest(hulls[i], middles[j], false) > 0)
+                    regions[i].area += own[j];
+            }
+        }
+    }
 
     inline int chooseBoardRegion(const vector<Region> &regions, const Size &frame, double minSpan)
     {

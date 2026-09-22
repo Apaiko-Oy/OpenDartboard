@@ -105,7 +105,9 @@ namespace bull_processing
             // The board's region, by chooseBoardRegion: the largest outermost one unless the
             // room outgrew it. OD_BOARD=frame keeps the old choice whole, largest outright.
             vector<int> outermost;
+            vector<vector<Point>> outlines;
             vector<Region> regions;
+            vector<double> own;
             for (size_t i = 0; i < contours.size(); i++)
             {
                 if (hierarchy[i][3] != -1) // not an outermost contour
@@ -118,12 +120,17 @@ namespace bull_processing
                 minEnclosingCircle(contours[i], c, span);
                 r.span = span;
                 regions.push_back(r);
+                own.push_back(r.area);
+                outlines.push_back(contours[i]);
                 outermost.push_back(static_cast<int>(i));
             }
-            const double inShotFloor = boardMeasuredAgainstTheFrame() ? 1e300 : params.minBoardRadius();
+            const bool legacy = boardMeasuredAgainstTheFrame();
+            if (!legacy)
+                creditWhatEachSurrounds(outlines, regions);
+            const double inShotFloor = legacy ? 1e300 : params.minBoardRadius();
             const int chosen = chooseBoardRegion(regions, frameSize, inShotFloor);
             const int boardIndex = chosen >= 0 ? outermost[chosen] : -1;
-            const double boardArea = chosen >= 0 ? regions[chosen].area : 0.0;
+            const double boardArea = chosen >= 0 ? own[chosen] : 0.0;
 
             Point2f boardSpanCenter(static_cast<float>(frameCenter.x), static_cast<float>(frameCenter.y));
             float boardSpan = 0.0f;

@@ -334,7 +334,9 @@ namespace color_processing
                 r.span = span;
                 regions.push_back(r);
             }
-            boardIndex = bull_processing::chooseBoardRegion(regions, enhancedMask.size(),
+            vector<bull_processing::Region> credited = regions;
+            bull_processing::creditWhatEachSurrounds(boardContours, credited);
+            boardIndex = bull_processing::chooseBoardRegion(credited, enhancedMask.size(),
                                                             bull_processing::BullParams().minBoardRadius());
             if (boardIndex >= 0)
                 boardArea = regions[boardIndex].area;
