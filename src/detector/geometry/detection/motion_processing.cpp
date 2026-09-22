@@ -158,10 +158,13 @@ namespace motion_processing
             previous_frames.clear();
             regions.clear(); // #1339: a fresh board is measured against a fresh region
 
-            // check if we have any frames to initialize
-            if (current_frames.size() != 3)
+            // There is no three-camera invariant in the state kept below: every
+            // per-camera structure is sized from the frames that arrived.  A two-camera
+            // board which met camera_quorum is therefore a usable board, not a zeroed
+            // motion stream.  Only an empty input has nothing to initialise from.
+            if (current_frames.empty())
             {
-                log_warning("Motion processing initialized with " + to_string(current_frames.size()) + " cameras, but expected 3 cameras. Skipping initialization.");
+                log_warning("Motion processing received no camera frames. Skipping initialization.");
                 return vector<MotionData>(current_frames.size());
             }
 

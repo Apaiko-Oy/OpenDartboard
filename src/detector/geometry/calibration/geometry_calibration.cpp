@@ -435,7 +435,7 @@ namespace geometry_calibration
 
         // [===STEP 4:===] BULL dectection using the new bull processing module
         bull_processing::BullSighting bull = bull_processing::processBull(redGreenFrame, frameCenter, cameraIdx, debugMode, bullParams);
-        const Point bullCenter = bull.center;
+        Point bullCenter = bull.center;
         calibration.bullCenter = bullCenter;
 
         // #1320: a centre nothing can vouch for is not a centre to calibrate from. Every
@@ -499,9 +499,36 @@ namespace geometry_calibration
         // #1330: the stage hands back its geometry and, if it failed, the words for it.
         // Only the geometry is kept on the calibration, because the calibration is what
         // is fwritten to the cache; the reason is read four statements below and printed.
-        const ellipse_processing::EllipseReport ellipseReport = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
+        ellipse_processing::EllipseReport ellipseReport = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter, frameCenter, cameraIdx, debugMode, ellipseParams);
         const ellipse_processing::EllipseBoundaryData &ellipseData = ellipseReport.ellipses;
         calibration.ellipses = ellipseData;
+
+        // The bull mask has one job: find a plausible initial centre.  On the third
+        // supplied mock it lands eight pixels from the centre that the board's wires
+        // support, which makes the twenty-fold plane fail despite a clear wire signal.
+        // Ask that independent evidence only in its narrow failure band, then rebuild
+        // every bull-dependent mask and ellipse from the accepted centre.  In particular
+        // this does not change the wire threshold or use a shifted plane beside geometry
+        // that was fitted from the old bull.
+        const wire_processing::BullCentreCorrection wireCorrection =
+            wire_processing::correctBullCentreFromWires(orginalFrame, redGreenFrame, calibration);
+        if (wireCorrection.accepted)
+        {
+            bullCenter = wireCorrection.centre;
+            calibration.bullCenter = bullCenter;
+            log_info("Camera " + log_string(cameraIdx + 1) +
+                     " bull centre corrected by its wire evidence from (" +
+                     log_string(bull.center.x) + "," + log_string(bull.center.y) + ") to (" +
+                     log_string(bullCenter.x) + "," + log_string(bullCenter.y) + "): twenty-fold " +
+                     "coherence rose from " + log_string(wireCorrection.before) + " to " +
+                     log_string(wireCorrection.after) + " over " +
+                     log_string(wireCorrection.candidates) + " candidates; rebuilding board geometry.");
+            masks = mask_processing::processMask(redGreenFrame, bullCenter, bull.boardRadius,
+                                                  cameraIdx, debugMode, maskParams);
+            ellipseReport = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter,
+                                                               frameCenter, cameraIdx, debugMode, ellipseParams);
+            calibration.ellipses = ellipseData;
+        }
 
         // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step
         // that looks at the picture on its own terms and before the three that assume a

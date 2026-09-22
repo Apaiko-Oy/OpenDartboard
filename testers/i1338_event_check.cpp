@@ -119,14 +119,36 @@ int main()
         "and the event census turns over exactly where the vote's floor is, so a board "
         "the vote could never move is never admitted by the motion stage either");
 
-    // ---- the second fact the same function carries --------------------------------------
-    // detectMotion refuses to initialise on any number of slots but 3, returns zeroed
-    // MotionData and never sets `initialized`, so a two-camera board reports no motion on
-    // any camera on any cycle however many of them are answering.
+    // ---- a reduced board uses the same quorum -------------------------------------------
+    // Motion keeps its state per slot, so two cameras that both have a board may form
+    // events and advance the two-camera state vote.  The old exact-three restriction
+    // made an auto-discovered pair calibrate and then fail before scoring could start.
     const std::string two_slots = motion_processing::whyNoEventIsPossible(2, 2);
     std::cout << "2 slots, 2 answering: " << (two_slots.empty() ? "(possible)" : two_slots) << std::endl;
-    say(!two_slots.empty() && two_slots.find("only initialises on 3") != std::string::npos,
-        "a board running two cameras is refused, and told that motion detection needs 3");
+    say(two_slots.empty(),
+        "two cameras that can report motion meet the same two-camera quorum as the state vote");
+    say(!motion_processing::whyNoEventIsPossible(1, 1).empty(),
+        "one camera remains refused because the two-camera state-vote quorum is unchanged");
+
+    // The admission sentence above must describe the detector, not merely be willing
+    // prose.  A first calm frame seeds the two slots; a full-board change on the next
+    // frame must enter the motion state machine.  Before the reduced-board repair,
+    // detectMotion returned two zeroed MotionData objects on both calls and this stayed
+    // IDLE forever.
+    std::vector<cv::Mat> backgrounds(2, cv::Mat::zeros(96, 96, CV_8UC3));
+    std::vector<cv::Mat> calm(2, cv::Mat::zeros(96, 96, CV_8UC3));
+    std::vector<cv::Mat> changed(2, cv::Mat(96, 96, CV_8UC3, cv::Scalar(255, 255, 255)));
+    motion_processing::BoardExtent board;
+    board.known = true;
+    board.edge = cv::RotatedRect(cv::Point2f(48, 48), cv::Size2f(80, 80), 0.0f);
+    std::vector<motion_processing::BoardExtent> boards(2, board);
+    motion_processing::MotionParams motion;
+    motion.spike_threshold = 0.01;
+    motion_processing::processMotion(calm, backgrounds, boards, false, motion);
+    const motion_processing::MotionResult spike =
+        motion_processing::processMotion(changed, backgrounds, boards, false, motion);
+    say(spike.current_state == motion_processing::DartEventState::SPIKE_DETECTED,
+        "two calibrated cameras seed motion and a board-sized change starts an event");
 
     std::cout << (failures ? "EVENT_CHECK_FAILED=" : "EVENT_CHECK_OK=") << failures << std::endl;
     return failures ? 1 : 0;

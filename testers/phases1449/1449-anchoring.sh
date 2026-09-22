@@ -18,10 +18,9 @@ set -u
 # worth more than a switch would be: a hatch proves a board the program can be TOLD to
 # pretend to be, and this proves one it really becomes.
 #
-# A two-camera board was the first attempt and it is not this board: measured on this
-# binary, cam_1+cam_3 is refused by `whyNoEventIsPossible` ("running 2 cameras and motion
-# detection only initialises on 3") before anchoring is ever reached. So the unanchored
-# board has to have three slots.
+# The unanchored board uses three slots because the ordinary rig has three cameras and
+# this phase compares its complete orientation census. Two-camera boards that meet the
+# state-vote quorum are also valid motion shapes.
 #
 # Four phases, and the first is what makes the other three mean anything:
 #

@@ -359,5 +359,24 @@ namespace wire_processing
                                         const DartboardCalibration &calib,
                                         const WireDetectionConfig &config = WireDetectionConfig());
 
+    /**
+     * A narrowly-evidenced correction to a bull centre that made an otherwise sound
+     * twenty-wire fit fail. The colour bull remains the initial measurement; this is
+     * accepted only when the wire candidates independently show a strong 20-fold signal
+     * at a nearby centre. Callers must rebuild all geometry from `centre` before using it.
+     */
+    struct BullCentreCorrection
+    {
+        bool accepted = false;
+        Point centre;
+        double before = 0.0;
+        double after = 0.0;
+        int candidates = 0;
+    };
+
+    BullCentreCorrection correctBullCentreFromWires(
+        const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib,
+        const WireDetectionConfig &config = WireDetectionConfig());
+
     WireData processWires(const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib, bool enableDebug = false, const WireDetectionConfig &config = WireDetectionConfig());
 }

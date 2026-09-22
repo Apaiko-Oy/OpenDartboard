@@ -131,6 +131,24 @@ namespace board_cameras
         log_info("CAMERAS: looking through " + std::to_string(devices.size()) +
                  " video device(s) for the dartboard");
 
+#ifdef _WIN32
+        // A Windows board with exactly the three devices it needs has no alternative
+        // source for this probe to distinguish.  Opening one MSMF reader at a time here
+        // opens, configures, calibrates and tears down all three, only for Scorer to
+        // open the same trio again.  On the live board that churn leaves the final
+        // reader waiting indefinitely even though 0,1,2 open and calibrate together.
+        // Open the known trio once instead; Scorer's normal calibration still refuses
+        // any slot that cannot see the board, so this is not treating an opened camera
+        // as a calibrated one.
+        if ((int)devices.size() == want)
+        {
+            log_info("CAMERAS: exactly " + std::to_string(want) +
+                     " Windows video devices are present; opening them together instead of "
+                     "probing and reopening each Media Foundation reader.");
+            return devices;
+        }
+#endif
+
         for (const std::string &source : devices)
         {
             Probed probed = probe(source, width, height, fps, frames);

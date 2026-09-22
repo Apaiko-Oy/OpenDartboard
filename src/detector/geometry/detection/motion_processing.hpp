@@ -220,9 +220,9 @@ namespace motion_processing
      *      at least one seeing camera -- and that is exactly the kind of agreement that
      *      stops holding the next time somebody moves a constant.
      *
-     *   2. `camera_slots` must be exactly 3. `detectMotion`'s initialisation refuses any
-     *      other number, returns zeroed MotionData and never sets `initialized`, so a
-     *      two-camera board reports no motion on any camera on any cycle.
+     *   2. `camera_slots` is the number of camera slots this board actually opened.
+     *      Motion keeps one frame, one region and one result per slot, so it supports a
+     *      two-camera board when it satisfies the same quorum as the state vote.
      *
      * #1321's rule on the sentence: every count is stated against the threshold it fell
      * short of, so a line reporting the wrong number can be seen to be wrong.
@@ -230,15 +230,6 @@ namespace motion_processing
     inline std::string whyNoEventIsPossible(int camera_slots, int cameras_that_can_spike,
                                             int quorum = camera_quorum::cameras())
     {
-        // camera-quorum-exempt: detectMotion initialises on exactly three slots and on no
-        // other number. That is the rig's shape (ADR-0080: three cameras bolted to one
-        // frame), not the floor, and it is a different fact from how many of them work.
-        if (camera_slots != 3)
-        {
-            return "this board is running " + std::to_string(camera_slots) +
-                   " cameras and motion detection only initialises on 3, so no camera ever "
-                   "reports motion and no dart can be scored";
-        }
         if (cameras_that_can_spike < quorum)
         {
             return "only " + std::to_string(cameras_that_can_spike) + " of " + std::to_string(camera_slots) +

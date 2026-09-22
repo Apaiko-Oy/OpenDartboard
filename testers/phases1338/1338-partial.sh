@@ -123,7 +123,8 @@ echo "D_RC=$?"
 
 echo "=== E: the arithmetic, with min_cameras_for_event moved under a fixed board ==="
 g++ -std=c++17 -O1 -I /app/src -I /app/src/utils -o /run1338/event_check \
-  /app/testers/i1338_event_check.cpp $(pkg-config --cflags --libs opencv4) || exit 1
+  /app/testers/i1338_event_check.cpp /app/src/detector/geometry/detection/motion_processing.cpp \
+  $(pkg-config --cflags --libs opencv4) || exit 1
 /run1338/event_check > /run1338/e.txt 2>&1
 echo "E_RC=$?"
 sed 's/^/    /' /run1338/e.txt

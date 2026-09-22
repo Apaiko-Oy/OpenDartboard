@@ -697,6 +697,84 @@ namespace wire_processing
         return allWires;
     }
 
+    BullCentreCorrection correctBullCentreFromWires(
+        const Mat &frame, const Mat &colorMask, const DartboardCalibration &calib,
+        const WireDetectionConfig &config)
+    {
+        BullCentreCorrection correction;
+        correction.centre = calib.bullCenter;
+        if (frame.empty() || colorMask.empty() || !calib.ellipses.hasValidDoubles ||
+            wire_model::modelNotAsked())
+        {
+            return correction;
+        }
+
+        const vector<Point2f> candidates = wireCandidates(frame, colorMask, calib, config);
+        correction.candidates = (int)candidates.size();
+        if (correction.candidates < kWiresRequired)
+        {
+            return correction;
+        }
+
+        const double conicOfDoubles = conicOfDoublesFor(calib);
+        const Point2f initial(calib.bullCenter);
+        const wire_model::Plane originalPlane =
+            wire_model::planeOf(calib.ellipses.outerDoubleEllipse, initial, conicOfDoubles);
+        const wire_model::Fit originalFit = wire_model::fitTwentyFold(originalPlane, candidates);
+        correction.before = originalFit.coherence;
+
+        // A lower score has too little structure for a grid search to distinguish a
+        // misplaced bull from noise. A passing score already needs no correction.
+        const double minimum = wire_model::minimumCoherence();
+        if (!originalFit.built || originalFit.coherence >= minimum || originalFit.coherence < 0.40)
+        {
+            return correction;
+        }
+
+        constexpr int kMaximumShiftPx = 10;
+        constexpr double kAcceptedCoherence = 0.65;
+        constexpr double kRequiredGain = 0.15;
+        constexpr double kPeriodicLead = 0.15;
+        wire_model::Fit bestFit;
+        wire_model::Plane bestPlane;
+        int bestX = 0, bestY = 0;
+        for (int dy = -kMaximumShiftPx; dy <= kMaximumShiftPx; ++dy)
+        {
+            for (int dx = -kMaximumShiftPx; dx <= kMaximumShiftPx; ++dx)
+            {
+                if (dx * dx + dy * dy > kMaximumShiftPx * kMaximumShiftPx)
+                    continue;
+                const wire_model::Plane plane = wire_model::planeOf(
+                    calib.ellipses.outerDoubleEllipse,
+                    Point2f(initial.x + dx, initial.y + dy), conicOfDoubles);
+                const wire_model::Fit fit = wire_model::fitTwentyFold(plane, candidates);
+                if (fit.built && fit.coherence > bestFit.coherence)
+                {
+                    bestFit = fit;
+                    bestPlane = plane;
+                    bestX = dx;
+                    bestY = dy;
+                }
+            }
+        }
+
+        correction.after = bestFit.coherence;
+        const double strongestOtherFold = max({wire_model::coherenceAtFold(bestPlane, candidates, 18),
+                                               wire_model::coherenceAtFold(bestPlane, candidates, 19),
+                                               wire_model::coherenceAtFold(bestPlane, candidates, 21),
+                                               wire_model::coherenceAtFold(bestPlane, candidates, 22)});
+        if (bestFit.coherence < max(minimum, kAcceptedCoherence) ||
+            bestFit.coherence - originalFit.coherence < kRequiredGain ||
+            bestFit.coherence - strongestOtherFold < kPeriodicLead)
+        {
+            return correction;
+        }
+
+        correction.accepted = true;
+        correction.centre = Point(cvRound(initial.x + bestX), cvRound(initial.y + bestY));
+        return correction;
+    }
+
     // Ensemble method combining both approaches - AVERAGE VERSION
     vector<Point2f> findWiresByEnsemble(const Mat &mask, const Mat &colorMask, const DartboardCalibration &calib, bool debug_mode, const WireDetectionConfig &config)
     {

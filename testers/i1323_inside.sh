@@ -84,14 +84,11 @@ else
   say "FAIL off-aimed: the bull is not at the control's bull plus the shift" no
 fi
 # #1331 note, and the reason this is not `Initial calibration completed successfully`:
-# #1338 landed after #1323 and a ONE-camera board can no longer claim a calibration at
-# all. `calibrated` is `seeing >= 1 && whyNoEventIsPossible(slots, answering).empty()`,
-# and that function's first branch is `camera_slots != 3` -- so every single-camera run
-# in this repository now ends `Initial calibration failed: this board is running 1
-# cameras and motion detection only initialises on 3`, whatever it saw. This assertion
-# was therefore red on main for reasons that have nothing to do with the camera's aim,
-# which is what it is about. The census line is the same claim about the same thing: this
-# camera has geometry to score a tip against.
+# a ONE-camera board cannot claim a calibration because the state vote requires two
+# cameras. A two-camera board that meets that quorum is now a supported motion shape, so
+# this assertion remains about the camera's geometry rather than admission. The census
+# line is the same claim about the same thing: this camera has geometry to score a tip
+# against.
 if grep -q 'CAMERAS: 1 of 1 are looking at the dartboard (1)' /run1323/plain.txt; then
   say "OK   off-aimed: the camera calibrates" ok
 else say "FAIL off-aimed: the camera did not calibrate" no; fi
