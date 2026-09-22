@@ -220,6 +220,71 @@ namespace bull_processing
         return measureBoardFrom(contours, hierarchy, frameCenter, redGreenFrame.size(), params);
     }
 
+    // The colour stage labels red and green explicitly. Preserve that distinction:
+    // blurring their union can connect a perfectly visible bull to nearby spokes.
+    // A bull supplies stronger evidence than a round blob: a compact green ellipse
+    // enclosing a concentric red centre. Require exactly one such candidate, with
+    // the existing board-relative size/position limits, before using it as a fallback.
+    static BullSighting nestedColourBull(const Mat &colours, const BoardSighting &board,
+                                         const BullParams &params)
+    {
+        BullSighting result;
+        Mat green, red;
+        inRange(colours, Scalar(0, 200, 0), Scalar(0, 255, 0), green);
+        inRange(colours, Scalar(0, 0, 200), Scalar(0, 0, 255), red);
+        vector<vector<Point>> contours;
+        vector<Vec4i> hierarchy;
+        findContours(green, contours, hierarchy, RETR_TREE, CHAIN_APPROX_NONE);
+        int candidates = 0;
+        for (size_t i = 0; i < contours.size(); ++i)
+        {
+            if (hierarchy[i][3] != -1 || hierarchy[i][2] < 0 || contours[i].size() < 5)
+                continue;
+            const RotatedRect outer = fitEllipse(contours[i]);
+            const double minor = min(outer.size.width, outer.size.height);
+            const double major = max(outer.size.width, outer.size.height);
+            const double area = contourArea(contours[i]);
+            const double radius = discRadius(area);
+            const double ideal = board.radius * params.bullRadiusOfBoardRadius;
+            if (minor < 6 || minor / major < 0.25 ||
+                radius < ideal * params.minBullRadiusFactor ||
+                radius > ideal * params.maxBullRadiusFactor ||
+                norm(outer.center - Point2f(board.center)) > board.radius * params.maxOffsetOfBoardRadius)
+                continue;
+            const double filled = area / (CV_PI * minor * major / 4.0);
+            if (filled < 0.85 || filled > 1.15)
+                continue;
+            bool redCentre = false;
+            for (int hole = hierarchy[i][2]; hole >= 0; hole = hierarchy[hole][0])
+            {
+                if (contours[hole].size() < 5)
+                    continue;
+                const double holeArea = contourArea(contours[hole]);
+                // The physical inner/outer bull area ratio is about 0.16.
+                if (holeArea < 0.05 * area || holeArea > 0.5 * area)
+                    continue;
+                const RotatedRect inner = fitEllipse(contours[hole]);
+                if (norm(inner.center - outer.center) > 0.20 * minor)
+                    continue;
+                Mat inside = Mat::zeros(colours.size(), CV_8U);
+                drawContours(inside, contours, hole, Scalar(255), FILLED);
+                if (countNonZero(inside & red) >= 0.5 * countNonZero(inside))
+                    redCentre = true;
+            }
+            if (!redCentre)
+                continue;
+            ++candidates;
+            result.center = Point(cvRound(outer.center.x), cvRound(outer.center.y));
+            result.radius = radius;
+            result.boardRadius = board.radius;
+            result.boardCenter = board.center;
+            result.basis = "green bull ellipse enclosing a concentric red centre, axes " +
+                           decimals(major, 1) + "x" + decimals(minor, 1) + " px";
+        }
+        result.found = candidates == 1;
+        return result;
+    }
+
     BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
     {
         log_debug("Bull detection camera " + log_string(camera_idx) + " starting...");
@@ -395,6 +460,24 @@ namespace bull_processing
         }
 
         const int refused = refusedOnSize + refusedOnPosition + refusedOnShape;
+
+        const BullSighting nested = nestedColourBull(redGreenFrame, board, params);
+        if (nested.found &&
+            (bestContourIndex == -1 || norm(nested.center - sighting.center) > nested.radius))
+        {
+            // This only proposes a centre. The normal ring, wire and board-plane
+            // checks downstream still decide whether this camera calibrates.
+            if (debug_mode)
+            {
+                Mat bullDebug = redGreenFrame * 0.3;
+                circle(bullDebug, nested.center, cvRound(nested.radius), Scalar(255, 255, 0), 2);
+                drawMarker(bullDebug, nested.center, Scalar(255, 255, 255), MARKER_CROSS, 12, 2);
+                putText(bullDebug, nested.basis, Point(15, 30),
+                        FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 255, 255), 1);
+                imwrite("debug_frames/bull_processing/bull_detection_" + to_string(camera_idx) + ".jpg", bullDebug);
+            }
+            return nested;
+        }
 
         if (bestContourIndex == -1)
         {
