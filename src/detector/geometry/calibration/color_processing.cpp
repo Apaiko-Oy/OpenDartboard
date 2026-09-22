@@ -12,6 +12,7 @@ using namespace std;
 
 namespace color_processing
 {
+
     namespace
     {
         /**
@@ -201,15 +202,27 @@ namespace color_processing
         Mat labels, stats, centroids;
         int nLabels = connectedComponentsWithStats(enhancedMask, labels, stats, centroids);
 
+        // The region every rule below is sized off, by bull_processing::chooseBoardRegion:
+        // the largest unless the room outgrew the board.
         int largestIdx = 0;
         int largestArea = 0;
-        for (int i = 1; i < nLabels; i++)
         {
-            int area = stats.at<int>(i, CC_STAT_AREA);
-            if (area > largestArea)
+            vector<bull_processing::Region> regions;
+            for (int i = 1; i < nLabels; i++)
             {
-                largestArea = area;
-                largestIdx = i;
+                bull_processing::Region r;
+                r.area = stats.at<int>(i, CC_STAT_AREA);
+                r.box = Rect(stats.at<int>(i, CC_STAT_LEFT), stats.at<int>(i, CC_STAT_TOP),
+                             stats.at<int>(i, CC_STAT_WIDTH), stats.at<int>(i, CC_STAT_HEIGHT));
+                r.span = 0.5 * max(r.box.width, r.box.height);
+                regions.push_back(r);
+            }
+            const int chosen = bull_processing::chooseBoardRegion(regions, enhancedMask.size(),
+                                                                  bull_processing::BullParams().minBoardRadius());
+            if (chosen >= 0)
+            {
+                largestIdx = chosen + 1;
+                largestArea = static_cast<int>(regions[chosen].area);
             }
         }
 
@@ -308,14 +321,23 @@ namespace color_processing
         findContours(enhancedMask, boardContours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
         double boardArea = 0.0;
         int boardIndex = -1;
-        for (size_t c = 0; c < boardContours.size(); c++)
         {
-            const double enclosed = contourArea(boardContours[c]);
-            if (enclosed > boardArea)
+            vector<bull_processing::Region> regions;
+            for (size_t c = 0; c < boardContours.size(); c++)
             {
-                boardArea = enclosed;
-                boardIndex = static_cast<int>(c);
+                bull_processing::Region r;
+                r.area = contourArea(boardContours[c]);
+                r.box = boundingRect(boardContours[c]);
+                Point2f centre;
+                float span = 0.0f;
+                minEnclosingCircle(boardContours[c], centre, span);
+                r.span = span;
+                regions.push_back(r);
             }
+            boardIndex = bull_processing::chooseBoardRegion(regions, enhancedMask.size(),
+                                                            bull_processing::BullParams().minBoardRadius());
+            if (boardIndex >= 0)
+                boardArea = regions[boardIndex].area;
         }
 
         Point2f boardCenter = imageCenter;

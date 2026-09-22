@@ -310,8 +310,52 @@ namespace bull_processing
         Point center{0, 0};      // The middle of the smallest circle enclosing it
         double radius = 0.0;     // That circle's radius, in pixels
         double area = 0.0;       // What its boundary encloses, in pixels
-        string failure;          // Why there is no board here; empty when found
+        vector<Point> outline;   // That boundary, so a caller can ask what lies near the board
+        string failure;         // Why there is no board here; empty when found
     };
+
+    /**
+     * Which of several coloured regions is the board's, as an index, or -1 for none.
+     *
+     * The largest, unless it runs off the frame and a region wholly in shot could be the
+     * board beside it. The room runs off the picture and a board in shot does not: the
+     * maintainer's rig on 2026-09-22, in daylight, keyed its red carpet at 100k px beside
+     * a 72k px treble ring, and every stage that took "the largest region" took the
+     * carpet. "Could be the board" is two things, because a board genuinely cut by the
+     * frame must still be measured as the cut board it is and refused as clipped, not
+     * swapped for a speck beside it: the in-shot region spans at least the board floor
+     * (`minSpan`, BullParams::minBoardRadius), and it has at least a quarter of the
+     * larger region's area -- the carpet's board was 0.72 of it, and the specks beside
+     * a board shifted off the frame were under 0.1.
+     */
+    struct Region
+    {
+        double area = 0.0;
+        Rect box;
+        double span = 0.0; // radius of the circle around it, px
+    };
+
+    inline int chooseBoardRegion(const vector<Region> &regions, const Size &frame, double minSpan)
+    {
+        int largest = -1, largestInShot = -1;
+        for (size_t i = 0; i < regions.size(); i++)
+        {
+            const Region &r = regions[i];
+            if (largest < 0 || r.area > regions[largest].area)
+                largest = static_cast<int>(i);
+            const bool inShot = r.box.x > 0 && r.box.y > 0 && r.box.x + r.box.width < frame.width &&
+                                r.box.y + r.box.height < frame.height;
+            if (inShot && (largestInShot < 0 || r.area > regions[largestInShot].area))
+                largestInShot = static_cast<int>(i);
+        }
+        if (largestInShot >= 0 && largestInShot != largest &&
+            regions[largestInShot].span >= minSpan &&
+            regions[largestInShot].area >= regions[largest].area / 4.0)
+        {
+            return largestInShot;
+        }
+        return largest;
+    }
 
     // Measure the board in a red/green frame, or say why there is not one.
     BoardSighting measureBoard(

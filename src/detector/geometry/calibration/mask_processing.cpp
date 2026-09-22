@@ -62,7 +62,13 @@ namespace mask_processing
     }
 
     // Moved from ellipse_processing - preprocess mask to remove artifacts
-    Mat preprocessMask(const Mat &inputMask, const MaskParams &params)
+    // `around` is the bull. A ring of a dartboard goes around its bull and nothing else in
+    // the room does -- the maintainer's red carpet on 2026-09-22 was the largest component
+    // inside camera 2's region and was fitted as its doubles ring -- so the component kept
+    // is the largest whose hull contains the bull, and the largest of all only when none
+    // does. A ring the colour stage broke still qualifies: a C's hull still holds its
+    // middle.
+    Mat preprocessMask(const Mat &inputMask, const MaskParams &params, Point around = Point(-1, -1))
     {
         Mat cleanedMask = inputMask.clone();
 
@@ -98,6 +104,34 @@ namespace mask_processing
                 {
                     largestArea = area;
                     largestIdx = i;
+                }
+            }
+
+            if (around.x >= 0 && around.y >= 0)
+            {
+                vector<vector<Point>> outlines;
+                findContours(cleanedMask.clone(), outlines, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+                int ringIdx = -1;
+                int ringArea = 0;
+                for (const vector<Point> &outline : outlines)
+                {
+                    const int label = labels.at<int>(outline[0]);
+                    if (label <= 0)
+                        continue;
+                    const int area = stats.at<int>(label, CC_STAT_AREA);
+                    if (area <= ringArea)
+                        continue;
+                    vector<Point> hull;
+                    convexHull(outline, hull);
+                    if (pointPolygonTest(hull, Point2f((float)around.x, (float)around.y), false) > 0)
+                    {
+                        ringArea = area;
+                        ringIdx = label;
+                    }
+                }
+                if (ringIdx > 0)
+                {
+                    largestIdx = ringIdx;
                 }
             }
 
@@ -186,18 +220,18 @@ namespace mask_processing
         result.fullMask.setTo(0, bullRedMask); // Carve out bull to reveal underlying rings
 
         // Step 4: Create doubles mask (preprocessed, for ellipse detection)
-        result.doublesMask = preprocessMask(result.fullMask, params); // Apply preprocessing to carved mask
+        result.doublesMask = preprocessMask(result.fullMask, params, bullCenter); // Apply preprocessing to carved mask
 
         // Step 5: Create triples mask by subtracting doubles from full mask
         Mat triplesMaskRaw = result.fullMask.clone();
         triplesMaskRaw.setTo(0, result.doublesMask);                 // Remove doubles area from full mask
-        result.triplesMask = preprocessMask(triplesMaskRaw, params); // Preprocess the remaining triples area
+        result.triplesMask = preprocessMask(triplesMaskRaw, params, bullCenter); // Preprocess the remaining triples area
 
         // Step 6: Create outer bull mask by subtracting both doubles and triples
         Mat outerBullMaskRaw = result.fullMask.clone();
         outerBullMaskRaw.setTo(0, result.doublesMask);                   // Remove doubles
         outerBullMaskRaw.setTo(0, result.triplesMask);                   // Remove triples
-        result.outerBullMask = preprocessMask(outerBullMaskRaw, params); // Preprocess the remaining outer bull area
+        result.outerBullMask = preprocessMask(outerBullMaskRaw, params, bullCenter); // Preprocess the remaining outer bull area
 
         result.isValid = true;
 

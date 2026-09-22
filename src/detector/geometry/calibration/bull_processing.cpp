@@ -102,19 +102,28 @@ namespace bull_processing
                 return board;
             }
 
-            int boardIndex = -1;
-            double boardArea = 0.0;
+            // The board's region, by chooseBoardRegion: the largest outermost one unless the
+            // room outgrew it. OD_BOARD=frame keeps the old choice whole, largest outright.
+            vector<int> outermost;
+            vector<Region> regions;
             for (size_t i = 0; i < contours.size(); i++)
             {
                 if (hierarchy[i][3] != -1) // not an outermost contour
                     continue;
-                const double area = contourArea(contours[i]);
-                if (area > boardArea)
-                {
-                    boardArea = area;
-                    boardIndex = static_cast<int>(i);
-                }
+                Region r;
+                r.area = contourArea(contours[i]);
+                r.box = boundingRect(contours[i]);
+                Point2f c;
+                float span = 0.0f;
+                minEnclosingCircle(contours[i], c, span);
+                r.span = span;
+                regions.push_back(r);
+                outermost.push_back(static_cast<int>(i));
             }
+            const double inShotFloor = boardMeasuredAgainstTheFrame() ? 1e300 : params.minBoardRadius();
+            const int chosen = chooseBoardRegion(regions, frameSize, inShotFloor);
+            const int boardIndex = chosen >= 0 ? outermost[chosen] : -1;
+            const double boardArea = chosen >= 0 ? regions[chosen].area : 0.0;
 
             Point2f boardSpanCenter(static_cast<float>(frameCenter.x), static_cast<float>(frameCenter.y));
             float boardSpan = 0.0f;
@@ -152,6 +161,7 @@ namespace bull_processing
                 }
                 board.found = true;
                 board.radius = discRadius(boardArea);
+                board.outline = contours[boardIndex];
                 const Moments boardMoments = moments(contours[boardIndex]);
                 board.center = (boardMoments.m00 > 0)
                                    ? Point(static_cast<int>(boardMoments.m10 / boardMoments.m00),
@@ -177,6 +187,7 @@ namespace bull_processing
 
             board.found = true;
             board.radius = boardSpan;
+            board.outline = contours[boardIndex];
             board.center = Point(cvRound(boardSpanCenter.x), cvRound(boardSpanCenter.y));
             return board;
         }

@@ -32,6 +32,83 @@ namespace geometry_calibration
     static constexpr int kRegionRimPx = 3;
     static constexpr double kRegionRimColourShare = 0.01;
 
+    // ADR-0079 §2's edge gap is a question about the BOARD's colour, and a room can be red.
+    // The board's region is scaled about its own middle by `kBoardReachOfOutline`: the
+    // region `measureBoard` picks is the doubles ring on a whole board and the treble ring
+    // on one whose doubles dropped out, and the doubles ring is 170/107 = 1.59 of the
+    // treble ring, so 1.8 holds every piece of a board with margin for perspective. A
+    // coloured region belongs to the board when at least `kBoardReachInsideShare` of it
+    // lies inside that; the carpet, a shirt, a wall run out of it.
+    static constexpr double kBoardReachOfOutline = 1.8;
+    static constexpr double kBoardReachInsideShare = 0.95;
+
+    // The kept colour that is the board's, as a 0/255 mask. `reach` receives the region it
+    // was judged against and `setAside` the pixels that were not. No outline, no judgement:
+    // everything is kept, which is what this measurement did before.
+    static Mat colourOfTheBoard(const Mat &colourGray, const vector<Point> &outline, Mat &reach, int &setAside)
+    {
+        const Mat colour = colourGray > 0;
+        setAside = 0;
+        reach = Mat::zeros(colourGray.size(), CV_8U);
+        if (outline.size() < 3)
+        {
+            reach.setTo(255);
+            return colour;
+        }
+
+        // Its hull, because a doubles ring the colour stage broke is traced as a C-shaped
+        // band, and a band scaled about its middle is a band that misses the board inside
+        // it -- the rig of 2026-09-22 again, camera 1.
+        vector<Point> hull;
+        convexHull(outline, hull);
+        const Moments m = moments(hull);
+        const Point2d middle = (m.m00 > 0) ? Point2d(m.m10 / m.m00, m.m01 / m.m00) : Point2d(hull[0]);
+        vector<Point> scaled;
+        scaled.reserve(hull.size());
+        for (const Point &p : hull)
+        {
+            scaled.emplace_back(cvRound(middle.x + kBoardReachOfOutline * (p.x - middle.x)),
+                                cvRound(middle.y + kBoardReachOfOutline * (p.y - middle.y)));
+        }
+        fillPoly(reach, vector<vector<Point>>{scaled}, Scalar(255));
+
+        Mat labels, stats, centroids;
+        const int n = connectedComponentsWithStats(colour, labels, stats, centroids, 8, CV_32S);
+        vector<int> inside(n, 0);
+        for (int y = 0; y < labels.rows; y++)
+        {
+            const int *l = labels.ptr<int>(y);
+            const uchar *r = reach.ptr<uchar>(y);
+            for (int x = 0; x < labels.cols; x++)
+            {
+                if (l[x] > 0 && r[x])
+                    inside[l[x]]++;
+            }
+        }
+
+        vector<uchar> keep(n, 0);
+        for (int i = 1; i < n; i++)
+        {
+            const int area = stats.at<int>(i, CC_STAT_AREA);
+            keep[i] = inside[i] >= kBoardReachInsideShare * area;
+            if (!keep[i])
+                setAside += area;
+        }
+
+        Mat boardColour = Mat::zeros(colourGray.size(), CV_8U);
+        for (int y = 0; y < labels.rows; y++)
+        {
+            const int *l = labels.ptr<int>(y);
+            uchar *b = boardColour.ptr<uchar>(y);
+            for (int x = 0; x < labels.cols; x++)
+            {
+                if (l[x] > 0 && keep[l[x]])
+                    b[x] = 255;
+            }
+        }
+        return boardColour;
+    }
+
     // This function orchestrates the entire calibration pipeline for one camera
     DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode)
     {
@@ -84,8 +161,8 @@ namespace geometry_calibration
         // The evidence a refusal below is argued from, taken here because these numbers
         // exist from this point on whether or not the camera gets any further.
         //
-        // ADR-0079 §2 is the second of them and it is asked of EVERYTHING the colour stage
-        // kept, not of the board region alone. The board region is the largest outermost
+        // ADR-0079 §2 is the second of them and it is asked of everything the colour stage
+        // kept within the board's reach, not of the board region alone. The board region is the largest outermost
         // one, and when a board is cut by the frame the doubles ring breaks and the largest
         // survivor is the INNER part of the board, which touches no edge: mocks/cam_1.mp4
         // shifted 430 px right -- a third of the board off the picture -- measures as a
@@ -115,7 +192,40 @@ namespace geometry_calibration
             // circle to be a share of.
             calibration.look.board_span_px = board.found ? board.radius : 0.0;
 
-            const Rect kept = boundingRect(fullColourGray);
+            // Of the board, not of the room. Until this line the union was taken of every
+            // pixel on the frame that keys as red or green, and a room is allowed to have
+            // red in it: the maintainer's rig on 2026-09-22, in daylight, keyed its red
+            // carpet in all three cameras, the carpet ran off the top and sides of every
+            // picture, and three cameras each looking at a whole board with 100+ px to spare
+            // were refused as clipped at a gap of exactly 0.
+            //
+            // So a region counts when it lies within the board's reach and not otherwise.
+            // The clipped case above still refuses: its broken doubles arcs are 170/107 of
+            // the surviving treble ring out from the middle, inside the reach, and the arc
+            // cut by the frame is hard against the frame. The carpet is not the board's --
+            // it runs out of the reach -- and it is logged as set aside, not dropped.
+            Mat reach;
+            int setAside = 0;
+            const Mat boardColour = colourOfTheBoard(fullColourGray, board.found ? board.outline : vector<Point>(),
+                                                     reach, setAside);
+            if (setAside > 0)
+            {
+                log_debug("Camera " + log_string(cameraIdx + 1) + ": " + log_string(setAside) +
+                          " red/green px lie outside 1.8x the board's own region and are the room's, "
+                          "not the board's; the edge gap is measured without them");
+            }
+            if (debugMode)
+            {
+                Mat vis = fullFrameColours.clone();
+                vis.setTo(Scalar(255, 0, 255), (fullColourGray > 0) & (boardColour == 0));
+                vector<vector<Point>> reachOutline;
+                findContours(reach.clone(), reachOutline, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+                polylines(vis, reachOutline, true, Scalar(255, 255, 0), 2);
+                odfs::ensureDirectory("debug_frames/geometry_calibration");
+                imwrite("debug_frames/geometry_calibration/board_reach_" + to_string(cameraIdx) + ".jpg", vis);
+            }
+
+            const Rect kept = boundingRect(boardColour);
             calibration.look.board_edge_gap = min(min(kept.x, kept.y),
                                                   min(fullColourGray.cols - (kept.x + kept.width),
                                                       fullColourGray.rows - (kept.y + kept.height)));
