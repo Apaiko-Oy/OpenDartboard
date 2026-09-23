@@ -250,11 +250,54 @@ namespace ellipse_processing
      */
     inline std::string holdRingsToTheBoard(EllipseBoundaryData &e)
     {
-        const double board = ringReach(e.outerDoubleEllipse);
-        if (!e.hasValidDoubles || !(board > 0.0))
+        const double outerReach = ringReach(e.outerDoubleEllipse);
+        if (!e.hasValidDoubles || !(outerReach > 0.0))
         {
             return "no ray-traced doubles ring, so there is nothing to read the other "
                    "rings against and none of them was held to anything";
+        }
+
+        // #1499: THE BOARD IS TAKEN BETWEEN THE TWO DOUBLES MARKS, NOT OFF THE OUTER ONE.
+        //
+        // The ray trace reads a COLOUR mask that has been through the colour stage's
+        // bilateral filter and closing and preprocessMask's own dilation, so every traced
+        // edge sits a few pixels PAST the paint, away from the band's middle: the outer
+        // doubles mark reads beyond the 170 mm wire and the inner mark short of the
+        // 162 mm one, by the same bloom. A span divided by the outer mark alone therefore
+        // under-reads everything, by an amount that is a fact of the footage rather than
+        // of any board: measured with i1499_band_census's morphology-free HSV read of the
+        // frame's own paint, the treble band sits at 0.553-0.557 / 0.605-0.612 of the
+        // outer mark on mocks/rig-20260918 and at 0.561-0.570 / 0.607-0.617 on the
+        // upstream Unicorn mocks -- a DIFFERENT board under DIFFERENT cameras, so neither
+        // a Blade 6 fact nor a fact of our rig's optics -- where the millimetres say
+        // 0.5824 / 0.6294. Rescaled by the same footage's inner-doubles mark, the paint
+        // lands on the millimetres (0.580-0.584 / 0.630 on the best cameras of both
+        // fixtures). The bias lives in the traced reference, not in the boards.
+        //
+        // So the two marks are averaged as two estimates of one board: the outer mark
+        // over 170/170 and the inner mark over 162/170, each a measurement of the board
+        // radius, and their bloom errors point opposite ways and cancel. Both figures are
+        // DartboardSpec millimetres; nothing here is fitted to footage. The inner mark is
+        // trusted for this only where it sits inside the same band the loop below holds
+        // it to -- no new constant -- and a camera whose inner mark is elsewhere keeps
+        // the outer mark alone, which is what this function did before #1499.
+        //
+        // What it buys, measured: on mocks/rig-20260918 the outer treble edge read
+        // 0.6067/0.6112/0.6100 of the outer mark against a band low of 0.6054 -- margins
+        // of 0.0013 to 0.0058, one lighting change from a correct treble ring being
+        // zeroed and every treble becoming a single. mocks/rig-20260922 crossed that
+        // line on all three cameras through the C-contour fit repaired beside SECTION 2
+        // in the .cpp; the de-biased board is what gives the repaired fit the margin a
+        // band check needs (0.62-0.63 against the same 0.6054).
+        double board = outerReach;
+        const double innerReach = ringReach(e.innerDoubleEllipse);
+        if (innerReach > 0.0)
+        {
+            const double asSeen = innerReach / outerReach;
+            if (asSeen >= ringBandLow(kInnerDouble) && asSeen <= ringBandHigh(kInnerDouble))
+            {
+                board = 0.5 * (outerReach + innerReach / ringTruth(kInnerDouble));
+            }
         }
 
         std::string said;

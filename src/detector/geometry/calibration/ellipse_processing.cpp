@@ -337,69 +337,82 @@ namespace ellipse_processing
             }
         }
 
-        // SECTION 2: CONTOUR FITTING for TRIPLES (efficient method)
+        // SECTION 2: RAY TRACING for TRIPLES -- the same trace the doubles ring gets.
+        //
+        // #1499: this was contour fitting -- fitEllipse over the largest contour for the
+        // outer edge, and over any contour at least 10% smaller for the inner -- and what
+        // it fitted was not the edge it was named after. A treble mask whose annulus is
+        // broken anywhere (a wire gap the closing did not bridge, a dart) is ONE C-shaped
+        // contour holding BOTH edges, fitEllipse lands in the MIDDLE of the band, and
+        // there is no second contour so no inner edge exists at all. Measured on
+        // mocks/rig-20260922, the deployment hardware: all three cameras fitted the
+        // "outer" treble at 0.5766/0.5814/0.5791 of the board -- the band's own middle,
+        // (99+107)/2/170 = 0.6059 in millimetres, read through the few percent the traced
+        // reference overstates (see holdRingsToTheBoard) -- and the band hold refused
+        // every one, correctly, as not being the outer edge. With the outer treble zeroed
+        // on every camera a treble is unpublishable by construction: scorePoint's
+        // in_outer_triple is false for every dart, which is #1499's title.
+        //
+        // The ray trace does not have that failure: first white pixel out of the bull is
+        // the inner edge, last white before sustained black is the outer, per ray, and a
+        // break in the annulus only costs the rays that cross it. Measured against the
+        // frame's own paint (testers/i1499_band_census.cpp, morphology-free HSV, medians
+        // over ~108 rays): on mocks/rig-20260918 the traced treble edges sit on the
+        // painted band within 0.02 of the board span on every camera, and the paint
+        // band's midpoint lies inside the traced band on 108 of 108 rays, all three
+        // cameras.
         if (!masks.triplesMask.empty())
         {
-            log_debug("Processing triples ring with contour fitting...");
+            log_debug("Processing triples ring with ray tracing...");
 
-            // Find ALL contours
-            vector<vector<Point>> allTriplesContours;
-            findContours(masks.triplesMask, allTriplesContours, RETR_LIST, CHAIN_APPROX_SIMPLE);
-
-            log_debug("Found " + log_string(allTriplesContours.size()) + " total contours");
-
-            // Sort by area (largest first)
-            sort(allTriplesContours.begin(), allTriplesContours.end(),
-                 [](const vector<Point> &a, const vector<Point> &b)
-                 {
-                     return contourArea(a) > contourArea(b);
-                 });
-
-            // Debug contour areas
-            for (size_t i = 0; i < allTriplesContours.size(); i++)
+            vector<Point> tAllInner, tAllOuter;
+            vector<bool> tFlags;
+            vector<Point> tBoundary = performDoubleRayTrace(masks.triplesMask, bullCenter, params,
+                                                            tAllInner, tAllOuter, tFlags);
+            if (tBoundary.size() >= params.minValidRays)
             {
-                log_debug("Contour " + log_string(i) + " area: " + log_string(contourArea(allTriplesContours[i])));
-            }
-
-            try
-            {
-                // Fit outer ellipse to largest contour
-                if (allTriplesContours.size() >= 1 && allTriplesContours[0].size() >= 5)
+                try
                 {
-                    result.outerTripleEllipse = fitEllipse(allTriplesContours[0]);
-                    log_debug("SUCCESS - Fitted outer triple ellipse from largest contour (area: " + log_string(contourArea(allTriplesContours[0])) + ")");
-                }
+                    result.outerTripleEllipse = fitEllipse(tBoundary);
+                    log_debug("SUCCESS - Fitted outer triple ellipse from " + log_string(tBoundary.size()) + " ray boundary points");
 
-                // Find a DIFFERENT contour for inner (skip the one we just used)
-                bool foundInner = false;
-                for (size_t i = 1; i < allTriplesContours.size(); i++)
-                {
-                    if (allTriplesContours[i].size() >= 5)
+                    // The validated rays' inner points, the way the doubles fit keeps
+                    // only the inner points whose outer point survived validation.
+                    set<pair<int, int>> acceptedTripleOuter;
+                    for (const Point &pt : tBoundary)
                     {
-                        double areaRatio = contourArea(allTriplesContours[i]) / contourArea(allTriplesContours[0]);
-                        log_debug("Checking contour " + log_string(i) + " - area ratio: " + log_string(areaRatio));
-
-                        // Only use if it's significantly different in size (not the same contour)
-                        if (areaRatio < 0.9) // At least 10% smaller
+                        acceptedTripleOuter.insert({pt.x, pt.y});
+                    }
+                    vector<Point> validatedTripleInner;
+                    for (size_t i = 0; i < tAllOuter.size(); i++)
+                    {
+                        if (acceptedTripleOuter.count({tAllOuter[i].x, tAllOuter[i].y}) > 0 &&
+                            i < tAllInner.size())
                         {
-                            result.innerTripleEllipse = fitEllipse(allTriplesContours[i]);
-                            log_debug("SUCCESS - Fitted inner triple ellipse from contour " + log_string(i) + " (area: " + log_string(contourArea(allTriplesContours[i])) + ")");
-                            foundInner = true;
-                            break;
+                            validatedTripleInner.push_back(tAllInner[i]);
                         }
                     }
-                }
+                    if (validatedTripleInner.size() >= 5)
+                    {
+                        result.innerTripleEllipse = fitEllipse(validatedTripleInner);
+                        log_debug("SUCCESS - Fitted inner triple ellipse from " + log_string(validatedTripleInner.size()) + " inner points");
+                    }
+                    else
+                    {
+                        log_debug("FAILED - Not enough validated inner points for the inner triple edge");
+                    }
 
-                if (!foundInner)
+                    result.hasValidTriples = (result.outerTripleEllipse.size.area() > 0 && result.innerTripleEllipse.size.area() > 0);
+                }
+                catch (const cv::Exception &e)
                 {
-                    log_debug("FAILED - No suitable inner contour found, all contours too similar");
+                    log_debug("FAIL - Triple ellipse fitting failed: " + string(e.what()));
+                    result.hasValidTriples = false;
                 }
-
-                result.hasValidTriples = (result.outerTripleEllipse.size.area() > 0 && result.innerTripleEllipse.size.area() > 0);
             }
-            catch (const cv::Exception &e)
+            else
             {
-                log_debug("FAIL - Triple ellipse fitting failed: " + string(e.what()));
+                log_debug("Not enough boundary points for triples: " + log_string(tBoundary.size()));
                 result.hasValidTriples = false;
             }
         }
