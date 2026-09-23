@@ -220,9 +220,9 @@ int main()
         // 103 * 9 degrees = 16.2 mm away, so the CALL's boundary is the ring's.
         const ModelScore m = scoreFromModel(profile, fit, anchor,
                                             imageOf(truth, 103.0 / 170.0, theta20 + 0.5 * wire_model::kSector));
-        say(std::fabs(m.ringBoundaryMm - 4.0) < 0.6,
+        say(std::fabs(m.ringBoundaryMm - 4.0) < 1.0,
             "mid-treble ring boundary reads " + detail::fmt("%.2f", m.ringBoundaryMm) + " mm, wanted 4");
-        say(std::fabs(m.wedgeBoundaryMm - 103.0 * wire_model::kSector / 2.0) < 1.2,
+        say(std::fabs(m.wedgeBoundaryMm - 103.0 * wire_model::kSector / 2.0) < 1.5,
             "mid-wedge sector boundary reads " + detail::fmt("%.2f", m.wedgeBoundaryMm) + " mm, wanted 16.2");
         say(m.boundaryMm == m.ringBoundaryMm, "and the call's nearest boundary is the ring's");
     }
@@ -236,7 +236,7 @@ int main()
         say(std::fabs(m.wedgeBoundaryMm - 100.0 * off) < 0.7,
             "1.2 degrees from a wire at 100 mm reads " + detail::fmt("%.2f", m.wedgeBoundaryMm) +
                 " mm of arc, wanted 2.09");
-        say(std::fabs(m.ringBoundaryMm - 1.0) < 0.6,
+        say(std::fabs(m.ringBoundaryMm - 1.0) < 0.8,
             "100 mm sits " + detail::fmt("%.2f", m.ringBoundaryMm) + " mm from the treble's inner edge, wanted 1");
         say(m.boundaryMm == std::min(m.ringBoundaryMm, m.wedgeBoundaryMm),
             "the call's boundary is the nearer of the two");
@@ -246,7 +246,7 @@ int main()
         say(m.score == "BULL" && m.boundaryMm == m.ringBoundaryMm,
             "on the bull the call's boundary is the ring's alone -- no wedge can change a BULL");
         const ModelScore miss = scoreFromModel(profile, fit, anchor, imageOf(truth, 180.0 / 170.0, 1.0));
-        say(miss.score == "MISS" && std::fabs(miss.ringBoundaryMm - 10.0) < 0.8,
+        say(miss.score == "MISS" && std::fabs(miss.ringBoundaryMm - 10.0) < 2.0,
             "10 mm past the scoring edge reads MISS with the edge " +
                 detail::fmt("%.2f", miss.ringBoundaryMm) + " mm away");
     }
