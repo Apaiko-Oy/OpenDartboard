@@ -4,6 +4,8 @@
 #include "utils/streamer.hpp"
 #include "../calibration/geometry_calibration.hpp"
 #include "../calibration/perspective_processing.hpp"
+#include "../calibration/board_model.hpp"
+#include "../calibration/wire_processing.hpp"
 
 using namespace cv;
 using namespace std;
@@ -577,6 +579,74 @@ namespace score_processing
         return camera < derived_anchors.size() ? derived_anchors[camera] : orientation_processing::DerivedAnchor();
     }
 
+    // ---- #1510 Phase 2: the model's answer, measured BESIDE the published one ----------
+    //
+    // OD_MODEL_SCORE=on prints, for every camera that scored a tip, what the fitted
+    // board model (board_model::scoreFromModel) says about the SAME pixel the existing
+    // per-ring machinery just scored -- one I1510P2 line per camera per dart, parsed by
+    // testers/i1510p2_census.py into the paint-containment census. It is a shadow: the
+    // published score comes from `point_scores` exactly as before, on and off alike,
+    // and the default is off, so the binary's scores do not move in this slice. The
+    // convention is OD_RING=span's: anything but the exact word `on` is ignored.
+    static bool modelScoreShadowed()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_MODEL_SCORE");
+            return e != nullptr && string(e) == "on";
+        }();
+        return v;
+    }
+
+    static void logModelShadow(int camera, const DartboardCalibration &calib, Point2f tip,
+                               const PointScore &existing,
+                               const orientation_processing::DerivedAnchor &derived)
+    {
+        // Refit per dart rather than caching: pure over the calibration, a few hundred
+        // quadratics, and a cache keyed on camera index would go stale the day a
+        // mid-run recalibration lands. Measurement-only code buys simplicity first.
+        const board_model::BoardProfile profile =
+            board_model::profileFromSpec(perspective_processing::DartboardSpec());
+        const board_model::BoardFit fit =
+            board_model::fitBoardToCamera(profile, calib, wire_processing::conicOfDoublesFor(calib));
+
+        // The same anchor decision scorePoint just took: the camera's own wire first,
+        // then a derived one (#1486), else unresolved -- the model never asserts a 20.
+        int wedge20 = -1;
+        const char *anchorWord = "none";
+        if (orientation_processing::wedgeCanBeRead(calib.orientation))
+        {
+            wedge20 = calib.orientation.wedge20WireIndex;
+            anchorWord = "own";
+        }
+        else if (derived.trusted)
+        {
+            wedge20 = derived.wedge20WireIndex;
+            anchorWord = "derived";
+        }
+        vector<Point2f> endpoints(calib.wires.wireEndpoints.begin(), calib.wires.wireEndpoints.end());
+        const board_model::ModelAnchor anchor = board_model::anchorOnBoard(fit, endpoints, wedge20);
+        const board_model::ModelScore model = board_model::scoreFromModel(profile, fit, anchor, tip);
+
+        // One line, greppable, every number the census needs. The wire-coherence margin
+        // is here because of the watch item on #1510: an admission that scraped past
+        // 0.60 must say by how much, per camera, where a dart was actually scored.
+        char line[512];
+        snprintf(line, sizeof(line),
+                 "I1510P2 MODEL cam=%d tip=(%.1f,%.1f) existing=%s model=%s agree=%d "
+                 "mm=(%.1f,%.1f) r=%.1f ringB=%.1f wedgeB=%.1f boundary=%.1f "
+                 "fit=%s R=%.3f margin=%+.3f anchor=%s",
+                 camera + 1, tip.x, tip.y, existing.score.c_str(),
+                 model.valid ? model.score.c_str() : "NONE",
+                 model.valid && model.score == existing.score ? 1 : 0,
+                 model.boardMm.x, model.boardMm.y, model.radiusMm,
+                 model.ringBoundaryMm, model.wedgeBoundaryMm, model.boundaryMm,
+                 fit.accepted ? "ACCEPTED" : "REJECTED",
+                 fit.wireCoherence, fit.wireCoherence - wire_model::minimumCoherence(),
+                 anchorWord);
+        log_info(line);
+    }
+
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
     {
 
@@ -658,6 +728,15 @@ namespace score_processing
                 string score_test = point.score;
                 point_scores[i] = point;
                 log_debug("-------");
+
+                // #1510 Phase 2, shadow only (OD_MODEL_SCORE=on): what the fitted board
+                // model says about the same tip, beside what was just scored. Nothing
+                // below reads `model`'s answer; the published score is `point`'s.
+                if (modelScoreShadowed())
+                {
+                    logModelShadow((int)i, calibrations[i], dart_result.camera_results[i].tip_position,
+                                   point, anchorFor(i));
+                }
 
                 // print image
                 if (debug_mode)
