@@ -38,8 +38,9 @@ case "$NAME" in
   # origin/main and on origin/issue-1485 alike while carrying #1489.
   1451) SRC=i1451_scoring_check.cpp;     EXTRA="src/detector/geometry/calibration/wire_processing.cpp src/detector/geometry/calibration/wire_model.cpp" ;;
   1477) SRC=i1477_probe_format_check.cpp; EXTRA= ;;
+  1517) SRC=i1517_vote_check.cpp;        EXTRA= ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1346 1347 1349 1350 1351 1363 1451 1477" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1346 1347 1349 1350 1351 1363 1451 1477 1517" >&2
     exit 2
     ;;
 esac

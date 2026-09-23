@@ -66,9 +66,12 @@ namespace score_processing
         // agreement is real and still wins a consensus; it is just not agreement about a
         // wedge, and `ScoreChoice::ring_only` is where the published reading says so.
         bool ring_only = false;
-        // Whether this camera fitted every ring a single can be told from a treble or a
-        // double by. A camera missing its treble ring calls every treble a single, so where
-        // no two cameras agree it is not the one the vote falls back to (chooseScore).
+        // #1517 (rescued Codex design): whether this camera fitted every ring a single
+        // can be told from a treble or a double by. #1485 zeroes a ring the band check
+        // refused and a zeroed ellipse contains no point, so a camera missing its treble
+        // ring calls every treble a single -- structurally, on every dart, with nothing
+        // in the reading saying so. Where no two cameras agree it is therefore not the
+        // one the vote falls back to (chooseScore).
         bool rings_complete = true;
         BoardPosition board;
     };
@@ -123,6 +126,12 @@ namespace score_processing
         int agreeing = 0;
         bool by_default = false;
         bool ring_only = false;
+        // #1517: the no-consensus fallback passed over a lower-index camera whose ring
+        // set was incomplete to publish this reading. False on a consensus, false when
+        // readings[0] was itself complete, and false when no camera was -- true exactly
+        // where the preference DECIDED, so the vote's account line can say it did
+        // instead of a passed-over calibration failure reading like any other 0.7.
+        bool preferred_complete = false;
     };
 
     /**
@@ -220,8 +229,16 @@ namespace score_processing
             }
             else
             {
-                // No two cameras agree: the first camera that can tell every ring apart,
-                // and the first of all only when none can.
+                // #1517: no two cameras agree -- the first camera that can tell every
+                // ring apart, and the first of all only when none can. Taking
+                // readings[0] by index alone let a camera whose treble ring the band
+                // check had zeroed (#1485) stand alone with the single it is
+                // structurally bound to read, over a whole camera's treble beside it,
+                // on every dart, at the 0.7 of any lone reading. The preference moves
+                // the CHOICE and never the count or the confidence; a consensus is
+                // deliberately left alone (re-weighing agreement by completeness would
+                // be a new vote, #797's open territory), and so is the asserted-wedge
+                // fallback below (a complete constant is still a constant).
                 out.camera = readings[0];
                 for (int index : readings)
                 {
@@ -231,6 +248,7 @@ namespace score_processing
                         break;
                     }
                 }
+                out.preferred_complete = out.camera != readings[0];
                 out.agreeing = 1;
                 out.confidence = 0.7f;
             }
