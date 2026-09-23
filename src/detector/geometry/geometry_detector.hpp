@@ -6,13 +6,14 @@
 #include "../detector_interface.hpp"
 #include "calibration/geometry_calibration.hpp"
 #include "calibration/geometry_agreement.hpp"
+#include "calibration/board_model.hpp"
 #include "detection/motion_processing.hpp"
 #include "streamer.hpp"
 
 using namespace cv;
 using namespace std;
 
-class GeometryDetector : public DetectorInterface
+class GeometryDetector : public DetectorInterface, public CalibrationProvenance
 {
 public:
     GeometryDetector(bool debug_mode, int target_width, int target_height, int target_fps);
@@ -43,6 +44,8 @@ public:
     // #1388: empty while `calibrations` is still what `initialize` sealed, or the two
     // lines that differ. See detector_interface.hpp for why anything asks.
     virtual string geometryBreach() const override;
+    virtual void offerCameraIdentities(const vector<string> &identities) override
+    { camera_identities = identities; }
 
 protected:
     // #1363: apply OD_CAMERA_WEDGES -- the operator's stated orientation anchors -- to
@@ -75,6 +78,9 @@ protected:
     int target_height;
     int target_fps;
     vector<DartboardCalibration> calibrations;
+    vector<board_model::Model> physical_models;
+    vector<string> camera_identities;
+    string sealed_physical_geometry;
     vector<Mat> background_frames;
 
     // #1338: what `initialize` concluded, in the words it concluded it in. Written once,

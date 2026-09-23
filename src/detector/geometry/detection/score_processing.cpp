@@ -187,7 +187,8 @@ namespace score_processing
     // Clean, angle-based scoring function. #1186: the same decision upstream made, stated
     // as fields; `score` is composed from them and is byte-for-byte what it was.
     PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib,
-                          const orientation_processing::DerivedAnchor &derived)
+                          const orientation_processing::DerivedAnchor &derived,
+                          const board_model::Model *physical)
     {
         PointScore out;
 
@@ -228,6 +229,28 @@ namespace score_processing
         }
 
         // 1. RING DETECTION - Check from inside out
+        if (physical)
+        {
+            cv::Point2d mm;
+            const string scored = board_model::score(*physical, pixel, &mm);
+            if (scored.empty()) return out;
+            out.score = scored;
+            out.board.has_radius = true;
+            out.board.radius = (float)(cv::norm(mm) / physical->profile.radii.back());
+            out.board.has_angle = true;
+            double degrees = std::atan2(mm.x, mm.y) * 180.0 / CV_PI;
+            out.board.angle = (float)(degrees < 0 ? degrees + 360 : degrees);
+            out.ring_only = scored == "BULL" || scored == "OUTER";
+            out.wedge_measured = !out.ring_only && scored != "MISS";
+            if (out.ring_only) out.ring = scored == "BULL" ? "bull" : "outer";
+            else if (scored != "MISS")
+            {
+                out.segment = std::stoi(scored.substr(1));
+                out.ring = scored[0] == 'T' ? "triple" : (scored[0] == 'D' ? "double" : "single");
+            }
+            return out;
+        }
+
         bool in_inner_bull = isPointInEllipse(pixel, calib.ellipses.innerBullEllipse);
         bool in_outer_bull = !in_inner_bull && isPointInEllipse(pixel, calib.ellipses.outerBullEllipse);
         bool on_bull = in_inner_bull || in_outer_bull;
@@ -537,7 +560,8 @@ namespace score_processing
         return camera < derived_anchors.size() ? derived_anchors[camera] : orientation_processing::DerivedAnchor();
     }
 
-    ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
+    ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode,
+                             const vector<board_model::Model> *physical)
     {
 
         if (!initialized)
@@ -614,7 +638,8 @@ namespace score_processing
                 }
 
                 log_debug("-------");
-                PointScore point = scorePoint(dart_result.camera_results[i].tip_position, calibrations[i], anchorFor(i));
+                PointScore point = scorePoint(dart_result.camera_results[i].tip_position, calibrations[i], anchorFor(i),
+                    physical && i < physical->size() ? &(*physical)[i] : nullptr);
                 string score_test = point.score;
                 point_scores[i] = point;
                 log_debug("-------");

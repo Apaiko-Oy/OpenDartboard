@@ -60,6 +60,15 @@ struct GeometryReview
 };
 
 // Abstract interface for any dart detection method
+// Optional supplementary interface. Keeps the existing detector plugin vtable intact.
+// Identifiers are provenance only; capture and device ownership stay in Scorer.
+class CalibrationProvenance
+{
+public:
+    virtual ~CalibrationProvenance() = default;
+    virtual void offerCameraIdentities(const vector<string> &identities) = 0;
+};
+
 class DetectorInterface
 {
 public:
@@ -147,6 +156,7 @@ public:
      * none is complete without it, and `initialize` is still the only thing that decides.
      */
     virtual void offerFurtherLooks(function<vector<camera::Frame>()> /*look*/) {}
+
 
     // Whether the detector is ready
     virtual bool isInitialized() const = 0;

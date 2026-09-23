@@ -291,6 +291,9 @@ tester 1498-anchor-read   "bash '$T/i1498_run.sh'"
 # the board's condition as well as its count.
 # MEASURED 2026-09-20 on the 4-core box: see the recorded line in the pull request.
 tester 1474-beat-census   "bash '$T/i1474_run.sh'"
+# #1510: synthetic controls and acceptance of all three selected rig camera fits.
+# Fit acceptance is not an end-to-end dart accuracy claim.
+tester 1510-board-model   "bash '$T/i1510_run.sh'"
 # #1484: HOW a run's darts were scored, not only what they scored. chooseScore has
 # published the distinction since #1346 -- 0.9 two or more cameras measured a wedge and
 # agreed, 0.7 measured with no two agreeing, 0.5 no camera measured a wedge at all -- and

@@ -7,6 +7,7 @@
 #include <vector>
 #include "dart_processing.hpp"
 #include "../calibration/geometry_calibration.hpp"
+#include "../calibration/board_model.hpp"
 
 using namespace cv;
 using namespace std;
@@ -398,13 +399,15 @@ namespace score_processing
     // default) leaves every line below exactly as it was.
     PointScore scorePoint(Point2f pixel, const DartboardCalibration &calib,
                           const orientation_processing::DerivedAnchor &derived =
-                              orientation_processing::DerivedAnchor());
+                              orientation_processing::DerivedAnchor(),
+                          const board_model::Model *physical = nullptr);
 
     // Process dart scoring from tip detection results
     ScoreResult processScore(
         const vector<Mat> &background_frames,
         const dart_processing::DartStateResult &dart_result,
         const vector<DartboardCalibration> &calib,
-        bool debug_mode = false);
+        bool debug_mode = false,
+        const vector<board_model::Model> *physical = nullptr);
 
 } // namespace score_processing

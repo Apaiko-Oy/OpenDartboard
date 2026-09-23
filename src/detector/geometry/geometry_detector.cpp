@@ -316,7 +316,8 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
     dart_processing::DartStateResult dart_result = dart_processing::processDartState(images, background_frames, board_extents, motion_result.motion_finished, debug_mode);
 
     // Process scoring using the new scoring system
-    score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode);
+    score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode,
+        physical_models.empty() ? nullptr : &physical_models);
 
     // Only return result if scoring system says it's valid (state changed)
     if (score_result.valid)
@@ -436,6 +437,10 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     // operator does ask, the board says on that start that it did not look at the picture
     // and how old the geometry it is scoring with is.
     calibrations = cache::geometry::load(initial_frames);
+    // A physical model is always revalidated on current images and numbered anchors.
+    // Reusing the legacy bytes cannot certify camera identity or board rotation.
+    if (board_model::enabled()) calibrations.clear();
+    physical_models.clear();
 
     // #1372: WHERE THE GEOMETRY CAME FROM IS THE ONLY THING THIS FLAG DECIDES.
     //
@@ -568,6 +573,51 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
 
             // And only now the census, because only now is the answer final (#1318,
             // #1338, #1389). See the note where this used to be printed.
+            geometry_calibration::sayWhichCamerasSeeTheBoard(calibrations);
+        }
+
+        if (board_model::enabled())
+        {
+            applyConfiguredAnchors();
+            board_model::Profile profile;
+            bool profileValid = true;
+            try
+            {
+                const char *path = std::getenv("OD_BOARD_PROFILE");
+                if (path && *path) profile = board_model::Profile::load(path);
+            }
+            catch (const std::exception &e)
+            {
+                profileValid = false;
+                log_error(string("BOARD MODEL profile refused: ") + e.what());
+            }
+            physical_models.resize(calibrations.size());
+            odfs::ensureDirectory("cache/physical_board");
+            odfs::ensureDirectory("debug_frames/physical_board");
+            for (size_t i = 0; i < calibrations.size(); ++i)
+            {
+                if (!profileValid || i >= initial_frames.size() || initial_frames[i].empty())
+                { calibrations[i].sees_board = false; continue; }
+                auto measurement = board_model::measure(initial_frames[i], calibrations[i], profile);
+                auto &model = measurement.model;
+                model.cameraIdentity = (i < camera_identities.size() ? camera_identities[i] : "unknown-source") +
+                    ":slot=" + to_string(i) + ":fps=" + to_string(capture_fps);
+                physical_models[i] = model;
+                log_info("Camera " + to_string(i + 1) + " " + board_model::describe(model));
+                if (!model.valid)
+                {
+                    calibrations[i].sees_board = false;
+                    board_sight::recordFault("camera " + to_string(i + 1) + " physical board model refused: " + model.reason);
+                }
+                try
+                {
+                    board_model::save("cache/physical_board/camera_" + to_string(i) + ".json", model);
+                    imwrite("debug_frames/physical_board/camera_" + to_string(i) + ".jpg",
+                            board_model::overlay(initial_frames[i], measurement));
+                }
+                catch (const std::exception &e)
+                { log_warning(string("Could not save physical board evidence: ") + e.what()); }
+            }
             geometry_calibration::sayWhichCamerasSeeTheBoard(calibrations);
         }
 
@@ -1043,6 +1093,7 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
     // calibration, and the three failures, which seal the empty geometry they are going
     // to fault on. A board that seals nothing is a board that could not be shown to have
     // adopted anything later, which is the one outcome this must not have.
+    sealed_physical_geometry = board_model::fingerprint(physical_models);
     sealed_geometry = geometry_agreement::fingerprint(calibrations);
     log_info("GEOMETRY SEALED: " + sealed_geometry);
 
@@ -1066,6 +1117,8 @@ string GeometryDetector::geometryBreach() const
         // initialize() has not finished. There is nothing to have departed from.
         return "";
     }
+    if (board_model::fingerprint(physical_models) != sealed_physical_geometry)
+        return "the physical board model changed after calibration was sealed";
     const string now = geometry_agreement::fingerprint(calibrations);
     if (now == sealed_geometry)
     {
@@ -1122,6 +1175,9 @@ GeometryReview GeometryDetector::reviewGeometry(const vector<camera::Frame> &fra
         if (i >= images.size() || images[i].empty())
         {
             still_missing++;
+            if(!physical_models.empty())
+                return GeometryReview{GeometryReview::Verdict::Unreadable,
+                    "physical board review is waiting for camera " + to_string(i+1)};
             continue;
         }
 
@@ -1133,10 +1189,33 @@ GeometryReview GeometryDetector::reviewGeometry(const vector<camera::Frame> &fra
             // cannot be used as a witness, and it is said by name because a lens that
             // somebody has turned to face the room looks exactly like this.
             no_longer_sees++;
+            if(!physical_models.empty())
+                return GeometryReview{GeometryReview::Verdict::Unreadable,
+                    "physical board landmarks are unreadable in camera " + to_string(i+1)};
             log_warning("GEOMETRY REVIEW: camera " + to_string(i + 1) +
                         " is answering but no longer sees a dartboard - " +
                         board_look::refusal(fresh.look));
             continue;
+        }
+
+        if(!physical_models.empty())
+        {
+            if(i>=physical_models.size() || !physical_models[i].valid)
+                return GeometryReview{GeometryReview::Verdict::Unreadable,"physical board model missing for a scoring camera"};
+            const auto &sealed=physical_models[i];
+            const auto measured=board_model::measure(images[i],fresh,sealed.profile);
+            if(!measured.model.valid)
+                return GeometryReview{GeometryReview::Verdict::Unreadable,
+                    "camera " + to_string(i+1) + " cannot validate its physical board mapping: " + measured.model.reason};
+            const double shift=board_model::displacementMm(sealed,measured.model);
+            const string account="camera " + to_string(i+1) + " physical board displacement " + to_string(shift) + " mm";
+            if(shift>sealed.profile.boundaryToleranceMm)
+            {
+                log_error("GEOMETRY REVIEW: " + account);
+                return GeometryReview{GeometryReview::Verdict::Moved,account};
+            }
+            // Review never adopts the new fit or changes sealed scoring geometry.
+            log_info("GEOMETRY REVIEW: " + account);
         }
 
         const geometry_agreement::Movement movement =

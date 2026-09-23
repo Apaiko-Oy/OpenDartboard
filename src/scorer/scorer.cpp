@@ -217,6 +217,8 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
 
     // Create detector
     detector = DetectorFactory::createDetector(detector_type_name, debug_display, width, height, fps);
+    if (auto *provenance = dynamic_cast<CalibrationProvenance *>(detector.get()))
+        provenance->offerCameraIdentities(camera_sources);
 
     // Acquire the frames the detector calibrates on. The detector is handed frames; it is
     // not handed the capture.
