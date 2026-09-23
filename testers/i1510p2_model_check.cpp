@@ -137,10 +137,19 @@ int main()
     const ModelAnchor anchor = anchorOnBoard(fit, endpoints, calib.orientation.wedge20WireIndex);
     say(anchor.resolved, "the anchor resolves from twenty endpoints and a wire index");
     say(anchor.advance > 0.0, "this truth preserves orientation, and the anchor reads advance +1");
+    // The fit's board frame is the TRUTH's rotated by an arbitrary O(2) element -- the
+    // ambiguity the plane construction leaves and the anchor exists to resolve -- so
+    // theta20 is never compared against the planted comb value. What snapping promises
+    // is narrower and testable: theta20 is wire 3's own board angle THROUGH THE FIT,
+    // moved at most a hair onto the fitted comb.
+    const double wire3 = wire_model::boardAngleOf(fit.plane, endpoints[3]);
+    say(std::fabs(board_model::detail::wrapToPi(anchor.theta20 - wire3)) < 0.02,
+        "theta20 is wire 3's comb line in the fit's own frame (wire at " +
+            board_model::detail::fmt("%.3f", wire3) + ", read " +
+            board_model::detail::fmt("%.3f", anchor.theta20) + ")");
+    // The planted truth angle of that same wire, for the planted points below: every
+    // plant goes through the TRUTH's frame, and the model answers in its own.
     const double theta20 = comb + 3 * wire_model::kSector;
-    say(std::fabs(board_model::detail::wrapToPi(anchor.theta20 - theta20)) < 0.02,
-        "theta20 is wire 3's comb line (planted " + detail::fmt("%.3f", theta20) +
-            ", read " + detail::fmt("%.3f", anchor.theta20) + ")");
 
     // ---- ring classification at planted radii, through the fit ------------------------
     struct RingCase
@@ -159,7 +168,7 @@ int main()
         const cv::Point2f p = imageOf(truth, c.mm / 170.0, theta20 + 1.5 * wire_model::kSector);
         const ModelScore m = scoreFromModel(profile, fit, anchor, p);
         say(m.valid && m.ringWord == c.word && m.score == c.score,
-            detail::fmt("%.0f", c.mm) + " mm planted reads " + m.score + " (ring '" + m.ringWord +
+            board_model::detail::fmt("%.0f", c.mm) + " mm planted reads " + m.score + " (ring '" + m.ringWord +
                 "'), wanted " + c.score);
     }
     {
@@ -221,9 +230,9 @@ int main()
         const ModelScore m = scoreFromModel(profile, fit, anchor,
                                             imageOf(truth, 103.0 / 170.0, theta20 + 0.5 * wire_model::kSector));
         say(std::fabs(m.ringBoundaryMm - 4.0) < 1.0,
-            "mid-treble ring boundary reads " + detail::fmt("%.2f", m.ringBoundaryMm) + " mm, wanted 4");
+            "mid-treble ring boundary reads " + board_model::detail::fmt("%.2f", m.ringBoundaryMm) + " mm, wanted 4");
         say(std::fabs(m.wedgeBoundaryMm - 103.0 * wire_model::kSector / 2.0) < 1.5,
-            "mid-wedge sector boundary reads " + detail::fmt("%.2f", m.wedgeBoundaryMm) + " mm, wanted 16.2");
+            "mid-wedge sector boundary reads " + board_model::detail::fmt("%.2f", m.wedgeBoundaryMm) + " mm, wanted 16.2");
         say(m.boundaryMm == m.ringBoundaryMm, "and the call's nearest boundary is the ring's");
     }
     {
@@ -234,12 +243,25 @@ int main()
         const ModelScore m = scoreFromModel(profile, fit, anchor,
                                             imageOf(truth, 100.0 / 170.0, theta20 + wire_model::kSector - off));
         say(std::fabs(m.wedgeBoundaryMm - 100.0 * off) < 0.7,
-            "1.2 degrees from a wire at 100 mm reads " + detail::fmt("%.2f", m.wedgeBoundaryMm) +
+            "1.2 degrees from a wire at 100 mm reads " + board_model::detail::fmt("%.2f", m.wedgeBoundaryMm) +
                 " mm of arc, wanted 2.09");
         say(std::fabs(m.ringBoundaryMm - 1.0) < 0.8,
-            "100 mm sits " + detail::fmt("%.2f", m.ringBoundaryMm) + " mm from the treble's inner edge, wanted 1");
+            "100 mm sits " + board_model::detail::fmt("%.2f", m.ringBoundaryMm) + " mm from the treble's inner edge, wanted 1");
         say(m.boundaryMm == std::min(m.ringBoundaryMm, m.wedgeBoundaryMm),
             "the call's boundary is the nearer of the two");
+    }
+    {
+        // And a case where the WEDGE is the near boundary, so dropping the min would
+        // show: 130 mm sits 23 mm from the treble's outer edge but 1.2 degrees is
+        // 130 * 0.0209 = 2.72 mm of arc.
+        const double off = 1.2 * CV_PI / 180.0;
+        const ModelScore m = scoreFromModel(profile, fit, anchor,
+                                            imageOf(truth, 130.0 / 170.0, theta20 + wire_model::kSector - off));
+        say(m.score == "S20" && std::fabs(m.wedgeBoundaryMm - 130.0 * off) < 0.9 &&
+                m.boundaryMm == m.wedgeBoundaryMm && m.boundaryMm < m.ringBoundaryMm,
+            "1.2 degrees from a wire at 130 mm: the call's boundary is the WEDGE's " +
+                board_model::detail::fmt("%.2f", m.wedgeBoundaryMm) + " mm, not the ring's " +
+                board_model::detail::fmt("%.2f", m.ringBoundaryMm));
     }
     {
         const ModelScore m = scoreFromModel(profile, fit, anchor, imageOf(truth, 5.0 / 170.0, 1.0));
@@ -248,7 +270,7 @@ int main()
         const ModelScore miss = scoreFromModel(profile, fit, anchor, imageOf(truth, 180.0 / 170.0, 1.0));
         say(miss.score == "MISS" && std::fabs(miss.ringBoundaryMm - 10.0) < 2.0,
             "10 mm past the scoring edge reads MISS with the edge " +
-                detail::fmt("%.2f", miss.ringBoundaryMm) + " mm away");
+                board_model::detail::fmt("%.2f", miss.ringBoundaryMm) + " mm away");
     }
 
     // ---- no anchor means no wedge ------------------------------------------------------
@@ -256,7 +278,7 @@ int main()
         const ModelAnchor none = anchorOnBoard(fit, endpoints, -1);
         say(!none.resolved, "a negative wire index resolves nothing");
         const ModelScore m = scoreFromModel(profile, fit, none,
-                                            imageOf(truth, 100.0 / 170.0, theta20 + 0.5 * wire_model::kSector));
+                                            imageOf(truth, 130.0 / 170.0, theta20 + 0.5 * wire_model::kSector));
         say(m.score == "S?" && m.segment == -1 && !m.wedgeResolved,
             "unanchored, a single is S? and never an asserted 20 (got " + m.score + ")");
         say(m.wedgeBoundaryMm < 0.0 && m.boundaryMm == m.ringBoundaryMm,
