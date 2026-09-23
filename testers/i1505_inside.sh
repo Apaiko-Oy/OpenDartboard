@@ -33,24 +33,26 @@ set -u
 #
 # MUTATION PROOF, run 2026-09-23 on this box, predictions stated before each run:
 #
-#   A  `aVoteIsCast` loses the pin gate (a surround MISS always votes). PREDICTED: the
-#      fresh-mode unit run fails its two tree-rule claims (the surround MISS votes, so
-#      both the abstention claim and the phantom-publishes control go red -- 2 reds)
-#      and the harness's "the tree reproduces today's census" probe claim goes red.
-#      MEASURED: fresh unit 2 reds, votes unit 0 reds, probe claim red as predicted.
+#   A  `aVoteIsCast` loses the pin gate (a surround MISS always votes). PREDICTED:
+#      fresh-mode unit 2 reds (the abstention claim and the phantom-publishes control),
+#      votes-mode 0, and the probe's "the tree reproduces today's census" claim red.
+#      MEASURED: exactly that -- fresh 2, votes 0, probe red on that claim. (A's FIRST
+#      run also tripped a same-events claim this harness no longer makes: the replay
+#      lost visit 6's marginal dart between the two runs, which is detection variance
+#      and not a vote finding, and the comparison was made per-visit because of it.)
 #   B  scorePoint loses the rim bound (every outside tip is on_surround). PREDICTED:
-#      the two beyond-rim unit claims go red in BOTH modes (2 reds apiece); the probe
-#      halves survive, because on this replay's windows every artifact still loses by
-#      index or by abstention elsewhere -- the plant is caught by the unit half, which
-#      is why the unit half exists. MEASURED: fresh unit 2 reds, votes unit 3 reds
-#      (the beyond-rim chooseScore scenario turns with them), probe green.
-#   C  `surroundMissesVote` never fires (the pin is dead). PREDICTED: the votes-mode
-#      unit fails its pin claim and every chooseScore claim that publishes a MISS
-#      (3 of them -- {MISS,S7}, {MISS,MISS}, and the pin claim itself makes 5 with the
-#      {S7,MISS} scenario still green), and the probe's pinned run is identical to the
-#      tree's, so the "pin repairs visit 6's dart" claim goes red. MEASURED: votes unit
-#      3 reds (pin claim, {surround MISS,S7}, {MISS,MISS}), fresh unit 0, probe claim
-#      red as predicted.
+#      fresh-mode unit 1 red (beyond-rim not on_surround; the abstention claim stays
+#      green there because the pin is off), votes-mode 2 reds (that claim plus
+#      "abstains in every mode"; the beyond-rim chooseScore scenario is built from
+#      constructed readings and cannot see this plant), and the probe's pinned run
+#      flips darts 8 and 13 -- the CORRECT S7 and S15 -- so the outside-visit-6 claim
+#      goes red, which is the refusal's own mechanism demonstrated live. MEASURED:
+#      exactly that -- fresh 1, votes 2, probe red naming darts 8 and 13.
+#   C  `surroundMissesVote` never fires (the pin is dead). PREDICTED: fresh-mode 0,
+#      votes-mode 2 reds (the pin claim, and {surround MISS, S7} whose votes are
+#      computed through aVoteIsCast; the other scenarios pass literal vote flags and
+#      cannot see it), and the probe's "under the pin the dart publishes MISS" claim
+#      red. MEASURED: exactly that -- fresh 0, votes 2, probe red on that claim.
 #
 # Each plant flips its own half and no plant is caught by everything, which is what says
 # the claims are load-bearing rather than decorative.
@@ -105,10 +107,12 @@ if [ $? -ne 0 ]; then
 fi
 
 # The probe replays the detector's own calibration, motion, dart and scoring stages
-# synchronously off the clips, so unlike the paced binary it is deterministic: the same
-# tree read it twice to the dart while the binary's three runs read 18-18-17
-# (GROUND-TRUTH.md's marginal-dart note). Determinism is what lets the two rules be
-# compared dart for dart, and it is asserted below rather than assumed.
+# synchronously off the clips. It is NOT fully deterministic -- measured on this box:
+# five runs of one binary read the clip 19-19-19-18-19 darts, the odd run losing
+# exactly visit 6's second dart, which is GROUND-TRUTH.md's marginal dart -- so the
+# comparison below aligns per VISIT (the boundaries were identical in every run) and
+# compares dart for dart only as far as both runs detected, reporting a count mismatch
+# as the detection variance it is rather than as a vote finding.
 $OUT/edge_probe "" $CLIPS > $OUT/probe-tree.txt 2> $OUT/probe-tree.err
 RC1=$?
 OD_SURROUND=votes $OUT/edge_probe "" $CLIPS > $OUT/probe-pinned.txt 2> $OUT/probe-pinned.err
@@ -149,9 +153,14 @@ t_darts = [d for v in tree for d in v]
 p_darts = [d for v in pinned for d in v]
 say(len(t_darts) >= 15 and len(p_darts) >= 15,
     "both runs read the fixture (tree %d darts, pinned %d)" % (len(t_darts), len(p_darts)))
-say(len(t_darts) == len(p_darts) and t_ends == p_ends,
-    "the two runs saw the SAME events, so they can be compared dart for dart -- the "
-    "probe is a synchronous replay and the rule under test cannot change detection")
+say(t_ends == p_ends and len(tree) == len(pinned),
+    "the two runs saw the same VISITS, so they can be aligned visit for visit")
+for v in range(min(len(tree), len(pinned))):
+    if len(tree[v]) != len(pinned[v]):
+        print("NOTE visit %d was read with %d darts by one run and %d by the other -- "
+              "the marginal-dart detection variance GROUND-TRUTH.md records, not a vote "
+              "finding; the comparison covers the darts both runs detected"
+              % (v + 1, len(tree[v]), len(pinned[v])))
 if failed:
     sys.exit(failed)
 
@@ -175,11 +184,13 @@ say(p0[1] == "MISS",
     "shrug" % p0[2])
 
 # Every difference the pin makes is a dart it publishes as MISS: the pin admits one
-# reading class and changes nothing else.
-changed = [(a, b) for a, b in zip(t_darts, p_darts) if a[1] != b[1]]
-say(all(b[1] == "MISS" for a, b in changed),
+# reading class and changes nothing else. Aligned per visit, as far as both runs
+# detected.
+changed = [(v, a, b) for v in range(min(len(tree), len(pinned)))
+           for a, b in zip(tree[v], pinned[v]) if a[1] != b[1]]
+say(all(b[1] == "MISS" for v, a, b in changed),
     "every dart the two rules disagree on became MISS under the pin (%s)"
-    % ", ".join("dart %d %s->%s@%s" % (a[0], a[1], b[1], b[2]) for a, b in changed))
+    % ", ".join("dart %d %s->%s@%s" % (a[0], a[1], b[1], b[2]) for v, a, b in changed))
 
 # In THIS replay's windows the trade does not show (the flight artifact lands beyond
 # the rim here and abstains); on the real binary's windows it flipped visit 3's
