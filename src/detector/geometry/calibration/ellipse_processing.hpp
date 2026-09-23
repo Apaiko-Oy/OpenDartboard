@@ -239,6 +239,34 @@ namespace ellipse_processing
     }
 
     /**
+     * #1499's de-biased board reach, in pixels: the radius the 170 mm wire sits at
+     * according to BOTH doubles marks, not the bloomed outer one alone. The arithmetic
+     * and its measurement live in the long comment inside holdRingsToTheBoard below;
+     * #1510 lifted the expression here because the board-model fit divides by the same
+     * board the ring hold does, and two spellings of one board is how the single-mark
+     * bias survived to #1499 in the first place. Answers 0.0 where there is no
+     * ray-traced doubles ring to read anything against.
+     */
+    inline double deBiasedBoardReach(const EllipseBoundaryData &e)
+    {
+        const double outerReach = ringReach(e.outerDoubleEllipse);
+        if (!e.hasValidDoubles || !(outerReach > 0.0))
+        {
+            return 0.0;
+        }
+        const double innerReach = ringReach(e.innerDoubleEllipse);
+        if (innerReach > 0.0)
+        {
+            const double asSeen = innerReach / outerReach;
+            if (asSeen >= ringBandLow(kInnerDouble) && asSeen <= ringBandHigh(kInnerDouble))
+            {
+                return 0.5 * (outerReach + innerReach / ringTruth(kInnerDouble));
+            }
+        }
+        return outerReach;
+    }
+
+    /**
      * Hold the five fitted rings to the board the doubles ring says this is, and zero the
      * ones that are not where the board puts them. Returns the sentence to print: every
      * ring, its reading and its band, because a refusal nobody can read is the silence
@@ -289,16 +317,7 @@ namespace ellipse_processing
         // line on all three cameras through the C-contour fit repaired beside SECTION 2
         // in the .cpp; the de-biased board is what gives the repaired fit the margin a
         // band check needs (0.62-0.63 against the same 0.6054).
-        double board = outerReach;
-        const double innerReach = ringReach(e.innerDoubleEllipse);
-        if (innerReach > 0.0)
-        {
-            const double asSeen = innerReach / outerReach;
-            if (asSeen >= ringBandLow(kInnerDouble) && asSeen <= ringBandHigh(kInnerDouble))
-            {
-                board = 0.5 * (outerReach + innerReach / ringTruth(kInnerDouble));
-            }
-        }
+        const double board = deBiasedBoardReach(e);
 
         std::string said;
         int refused = 0;

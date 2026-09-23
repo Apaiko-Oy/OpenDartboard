@@ -19,6 +19,7 @@
 #include "perspective_processing.hpp"
 #include "ring_identity.hpp"
 #include "wire_model.hpp"
+#include "board_model.hpp"
 
 using namespace cv;
 using namespace std;
@@ -697,6 +698,28 @@ namespace geometry_calibration
         orientation_processing::OrientationParams orientationParams;
         orientation_processing::OrientationData orientationData = orientation_processing::processOrientation(orginalFrame, redGreenFrame, calibration, debugMode, orientationParams);
         calibration.orientation = orientationData;
+
+        // [===STEP 10:===] #1510: THE ONE PHYSICAL BOARD, FITTED AND JUDGED. Nothing
+        // consumes this yet -- scoring still walks the per-ring ellipses, and nothing of
+        // it is cached (the fit owns strings, DartboardCalibration may not, #1330). What
+        // it buys today is the sentence: every camera's residuals against one board's
+        // millimetres, held-out rings marked, and a rejection by name where the fit is
+        // ambiguous -- the fit-quality line in the normal log, #1458's demand, at the
+        // level a reader without --debug sees. Generating the scoring boundaries FROM
+        // this fit is #1510's second half.
+        {
+            const board_model::BoardProfile profile = board_model::profileFromSpec(perspectiveSpec);
+            const board_model::BoardFit boardFit = board_model::fitBoardToCamera(
+                profile, calibration, wire_processing::conicOfDoublesFor(calibration));
+            log_info("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(boardFit.story));
+            if (debugMode && boardFit.planeBuilt)
+            {
+                Mat overlay = orginalFrame.clone();
+                board_model::drawModelOverlay(overlay, profile, calibration, boardFit);
+                odfs::ensureDirectory("debug_frames/board_model");
+                imwrite("debug_frames/board_model/model_overlay_" + to_string(cameraIdx) + ".jpg", overlay);
+            }
+        }
 
         return calibration;
     }
