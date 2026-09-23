@@ -292,8 +292,34 @@ namespace score_processing
             }
             else
             {
-                log_debug("SCORE: Point outside dartboard");
-                return out; // MISS, and nothing on the board to place
+                // #1505: WHERE outside is measured, though it decides nothing on an
+                // ordinary run. Within the physical rim (the tip mask's own region,
+                // #1364) the MISS is a measurement of a dart on the surround --
+                // `aVoteIsCast` records why letting it vote was measured and refused,
+                // and OD_SURROUND=votes is the pin that re-measures it. The ruler's
+                // radius is kept on the surround reading (it extrapolates past the
+                // outer mark), so a published MISS's BOARD line can say how far off
+                // the board the tip was.
+                RotatedRect rim = calib.ellipses.outerDoubleEllipse;
+                rim.size.width *= kPhysicalRimOverBoard;
+                rim.size.height *= kPhysicalRimOverBoard;
+                if (isPointInEllipse(pixel, rim))
+                {
+                    out.on_surround = true;
+                    float radius = boardRadius(pixel, calib);
+                    if (radius >= 0.0f)
+                    {
+                        out.board.has_radius = true;
+                        out.board.radius = radius;
+                    }
+                    log_debug("SCORE: Point outside dartboard, on the surround (radius " +
+                              log_string(out.board.radius) + " of the board)");
+                }
+                else
+                {
+                    log_debug("SCORE: Point outside dartboard");
+                }
+                return out; // MISS; on_surround says whether it was measured there
             }
         }
 
@@ -649,9 +675,11 @@ namespace score_processing
                     points_on_screen.push_back(some_mat);
                 }
 
-                // #1346: whether this camera may vote is unchanged -- a found tip and
-                // not a MISS. How its vote COUNTS is chooseScore's decision now.
-                may_vote[i] = dart_result.camera_results[i].tip_found && score_test != "MISS";
+                // #1346: whether this camera may vote -- a found tip and not a MISS,
+                // as it always was. #1505 stated the MISS half as `aVoteIsCast`, where
+                // the measurement that says why a surround MISS still may not vote is
+                // recorded beside the decision. How a vote COUNTS is chooseScore's.
+                may_vote[i] = dart_result.camera_results[i].tip_found && aVoteIsCast(point);
             }
 
             if (debug_mode && point_on_screen_streamer)

@@ -339,6 +339,19 @@ tester 1484-confidence    "bash '$T/i1484_run.sh'"
 # cannot be reached is the same as one that cannot fail (#1463, 1423-ringidentity's
 # story retold).
 tester 1514-stall         "bash '$T/i1514_run.sh'"
+# #1505: a dart outside the board was published as a score, and WHY is measured before
+# anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
+# BOARD PLANE, so one physical tip projects to a different board radius from every
+# camera (215 mm on the surround from camera 1, 150 mm INSIDE the board from camera 3,
+# for one dart); the radial ruler's edge is refuted as the mechanism (bloom is 2-4 mm,
+# the errors are 20-51 mm). The repair anybody would reach for -- let the camera that
+# measured the dart on the surround vote its MISS -- was measured on the real binary
+# and REFUSED: the same run that repaired visit 6's phantom flipped visit 3's CORRECT
+# S7 to MISS off a flight artifact 3% away in radius from the honest witness.
+# OD_SURROUND=votes pins the refused repair (i1492's shape) so the refusal stays
+# re-measurable; the harness holds the tree's rule, the pin, and the measurement.
+# MEASURED 2026-09-23 on this box: see the recorded line in the pull request.
+tester 1505-surround      "bash '$T/i1505_run.sh'"
 
 # #1486: an anchor a camera did not measure itself. `chooseScore` needs TWO cameras that
 # measured a wedge before a dart can publish at 0.9, and one branch of orientation_processing
