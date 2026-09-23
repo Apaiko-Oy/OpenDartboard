@@ -132,15 +132,46 @@ namespace update_manifest
          * bytes. This is what `openssl dgst -sign` writes and what PHP's `openssl_verify`
          * reads, so it is what is on the wire; CNG wants the two integers raw and
          * concatenated instead, which is what this produces.
+         *
+         * IT IS CANONICAL DER OR IT IS NOTHING (#1531). Until #1531 this reader accepted
+         * two spellings it should not have, and neither of them was a forgery -- both were
+         * a SECOND encoding of one perfectly valid signature. A leading zero on an integer
+         * whose high bit does not call for one was taken (the `length == 33` branch asked
+         * only that the pad byte was zero, never that it was needed), and a SEQUENCE length
+         * written in DER's long form was skipped straight over. Both were measured rather
+         * than argued: on the tree before this repair, the corpus's `der-leading-zero-pad`
+         * and `der-overlong-length` were ACCEPTED, by both arms.
+         *
+         * Why that matters when neither one forges anything: ADR-0077's chain is
+         * signature -> digest -> bytes, and it is a chain only while one signature has one
+         * encoding. A reader taking two spellings hands out a second manifest that is
+         * byte-for-byte different and equally valid, which is a fingerprint, a cache key
+         * and a "have I seen this one before" that all stop working at once.
+         *
+         * A P-256 signature is at most 72 bytes, so every length in it is DER's short form
+         * and none of this costs a real signature anything: OpenSSL, which mints every
+         * manifest this project publishes, writes canonical DER. The strictness runs in the
+         * safe direction against the other half of this description too -- Turnaus'
+         * App\Autoscoring\Updates\SignedManifest reads through `openssl_verify`, the more
+         * forgiving of the two -- so a board refuses a spelling the deployment would have
+         * published, rather than the other way round.
+         *
+         * PINNED BY testers/corpus1531, through testers/i1531_run.sh (label 1531-corpus)
+         * on this arm and through release.yml's own step on CNG.
          */
         inline bool derSignature(const std::string &der, uint8_t r[32], uint8_t s[32])
         {
-            if (der.size() < 8 || uint8_t(der[0]) != 0x30)
+            // 2 + (2 + 33) + (2 + 33) is the longest a P-256 signature can be.
+            if (der.size() < 8 || der.size() > 72 || uint8_t(der[0]) != 0x30)
             {
                 return false;
             }
-            uint8_t sequence_length = uint8_t(der[1]);
-            size_t i = (sequence_length < 0x80) ? 2 : 2 + size_t(sequence_length & 0x7f);
+            // The short form, stating exactly what is really there.
+            if (uint8_t(der[1]) >= 0x80 || size_t(uint8_t(der[1])) + 2 != der.size())
+            {
+                return false;
+            }
+            size_t i = 2;
             uint8_t *into[2] = {r, s};
             for (int which = 0; which < 2; which++)
             {
@@ -155,6 +186,14 @@ namespace update_manifest
                 }
                 const uint8_t *bytes = reinterpret_cast<const uint8_t *>(der.data()) + i + 2;
                 size_t length = stated;
+                if (bytes[0] & 0x80)
+                {
+                    return false; // a negative INTEGER, and r and s are unsigned
+                }
+                if (length > 1 && bytes[0] == 0x00 && !(bytes[1] & 0x80))
+                {
+                    return false; // a leading zero the high bit does not call for
+                }
                 if (length == 33)
                 {
                     // DER writes a leading zero when the high bit would make the integer
@@ -176,7 +215,7 @@ namespace update_manifest
                 }
                 i += 2 + stated;
             }
-            return true;
+            return i == der.size(); // and nothing trailing inside the SEQUENCE
         }
 
         /** One anchor's verdict on one signature. */

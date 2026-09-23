@@ -464,6 +464,54 @@ jobs:
             if (-not $printed.Contains($needle)) { throw "the launcher's output did not carry '$needle'" }
           }
 
+      # #1531, and #1337's decision of 2026-09-23: keep the hand-written P-256 arm, and
+      # hold BOTH arms of src/update/manifest.hpp to ONE corpus of manifests that must be
+      # refused. This is where the arm that actually ships answers it.
+      #
+      # THE STEP IS NOT `if: github.event_name != 'pull_request'`, and that is the point of
+      # putting it here rather than beside the signing steps below. Everything about the
+      # release's own manifest needs `secrets.ODPRIVATE` and therefore a tag; this needs
+      # nothing. testers/corpus1531/ carries its own throwaway anchor, minted by
+      # testers/i1531_corpus.py from a key pair whose private half was destroyed before that
+      # script exited, so CNG can be asked the whole corpus on an ordinary pull request --
+      # which is the half #1337 was filed about. Before this, the shipping arm was asked
+      # about exactly two manifests and only on a tag.
+      #
+      # HOW THIS AND THE LINUX GATE HOLD EACH OTHER, with no channel between them. The two
+      # arms never meet: this one compiles here, the hand-written one compiles in the
+      # od-amd64:bullseye container under testers/i1531_run.sh (label 1531-corpus), on
+      # another machine. What meets is testers/corpus1531/cases.tsv -- one committed table
+      # of case names and the verdict each must get. Both arms read the same bytes and are
+      # held to the same column, so an arm that answers differently is red by name on its
+      # own machine, and the two cannot disagree about a case without one of them being red.
+      #
+      # It compiles testers/i1531_corpus_check.cpp, which is the same program the Linux gate
+      # compiles. The only difference between the two runs is which side of manifest.hpp's
+      # `#ifdef _WIN32` the compiler takes, which is exactly the difference being measured --
+      # so the check asserts it really got CNG before it believes anything it printed.
+      - name: Both signature arms answer to one corpus (#1531)
+        shell: cmd
+        run: |
+          call "%OD_VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cl /nologo /std:c++17 /EHsc /MT /O1 /utf-8 /FIod_platform_first.hpp ^
+            /I src /I src\utils /I build-win-static\_deps\nlohmann_json-src\include ^
+            /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
+            /Fe:%RUNNER_TEMP%\i1531_check.exe /Fo:%RUNNER_TEMP%\i1531_check. ^
+            testers\i1531_corpus_check.cpp /link bcrypt.lib || exit /b 1
+          %RUNNER_TEMP%\i1531_check.exe testers\corpus1531 > %RUNNER_TEMP%\corpus1531.log 2>&1
+          set RC=%ERRORLEVEL%
+          type %RUNNER_TEMP%\corpus1531.log
+          findstr /C:"ARM  CNG" %RUNNER_TEMP%\corpus1531.log > nul
+          if errorlevel 1 (
+            echo ::error title=one corpus::this compiled the hand-written arm rather than CNG, so it measured nothing this step exists for
+            exit /b 1
+          )
+          if not "%RC%"=="0" (
+            echo ::error title=one corpus::CNG answered %RC% case or cases differently from testers/corpus1531/cases.tsv -- which the hand-written arm is held to as well, so this is the two arms disagreeing. Each case is named in the log above.
+            exit /b %RC%
+          )
+          echo the arm that ships refuses every manifest in testers/corpus1531 and accepts the control
+
       - name: Ask the artefact what it depends on
         shell: cmd
         run: |

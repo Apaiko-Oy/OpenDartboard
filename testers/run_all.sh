@@ -377,6 +377,15 @@ tester 1305-manifest     "bash '$T/i1305_check.sh'"
 # a throwaway key and the script release.yml really calls. It sits here beside the reading
 # half rather than with the pure checks, because what it is about is the pair.
 tester 1408-signing      "bash '$T/i1408_sign_check.sh'"
+# #1531 is the reading half held to ONE corpus, on whichever arm the machine has. Here it
+# is the hand-written p256_verify.hpp; the same committed corpus and the same check program
+# are compiled with cl.exe and run against CNG by a step in .github/workflows/release.yml,
+# on pull requests as well as tags, because the corpus carries its own throwaway anchor and
+# needs no secret. It starts no detector and touches no network: one compile of
+# manifest.hpp plus five more for the plants, thirteen verifications apiece.
+# MEASURED 2026-09-23 on the 4-core box, to completion, rc=0: wall 38 s at load 2.4-2.9,
+# so it takes no `slow` and the number is here rather than in nobody's head.
+tester 1531-corpus       "bash '$T/i1531_run.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"
