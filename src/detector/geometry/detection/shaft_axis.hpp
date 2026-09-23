@@ -60,6 +60,28 @@
  * WHICH end is the point is #1512's cross-camera question, not answerable from one
  * silhouette without the tip evidence that stays separate.
  *
+ * MEASURED ON THE FIXTURES (testers/i1511_run.sh, 2026-09-24), and two findings a
+ * consumer must carry. Accuracy against hand-measured shaft lines
+ * (testers/i1511_annotations/): rig-20260918, 34 annotated pairs, median angle error
+ * 1.25/1.96/5.51 degrees by camera; rig-20260922, 7 pairs, 2.42/3.14 -- at or near
+ * the annotation's own 1.5-4 degree floor. Coverage over every advanced window,
+ * abstentions included: 89/58/47 percent valid by camera on rig-18 and 0/53/65 on
+ * rig-22 (its camera 1 has no fitted board on this box and says so 17 of 17 times),
+ * the rest refusing by name -- "not straight" is the working gate on real figures,
+ * because a fresh diff there carries shadows and neighbouring darts. The gate pin on
+ * real footage: gated 37 valid with 11 gate refusals, ungated 48 valid -- the +11 is
+ * exact, so the gates bind on fixtures too, not only on synthetics. FINDING ONE: the
+ * DIRECTION is the trustworthy half. On rig-20260922's hard-shadow scene an accepted
+ * axis can be laterally displaced -- a shadow parallel to the shaft averages into the
+ * spine -- so angle errors stayed at 0.03-9.1 degrees while the line missed the
+ * annotated entry point by up to 192 px sideways. #1512 must weight the axis as a
+ * direction constraint first and a position constraint with caution. FINDING TWO:
+ * `sigmaDeg` states the CENTRELINE SCATTER only, which is the statistical half; the
+ * segmentation's systematic part (bloom, shadow pull) is outside it, and err/sigma
+ * against the hand annotations ran a median of 19-31 (the annotation floor dominates
+ * the numerator). A consumer floors the direction uncertainty at that ~1.5-4 degree
+ * annotation floor until something measures the systematic part (#1513's territory).
+ *
  * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds every
  * verdict below with synthetic figures and the real pipeline holds it with real ones.
  * testers/i1511_axis_check.cpp does.
@@ -104,7 +126,10 @@ namespace shaft_axis
         // Everything one line does not explain measures FAR side: two crossing rods
         // 7.99, an off-axis end blob 7.04, a bent silhouette 7.62, a parallel older
         // dart 5.20 (all i1511_axis_check). 2.5 px: just over the worst clean survivor,
-        // half the nearest composite.
+        // half the nearest composite. ON THE FIXTURES it is the gate that earns its
+        // keep: 11 refusals across rig-18's cameras and 10 on rig-22's, at measured
+        // 3.23-11.84 px, every one a figure carrying a shadow or a neighbouring dart;
+        // accepted axes there measured 0.28-2.23 px (i1511_run.sh, 2026-09-24).
         double max_centreline_rms_px = 2.5;
 
         // The usability gate on the direction itself, degrees at one sigma. #1512
