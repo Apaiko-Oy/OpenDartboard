@@ -6,9 +6,11 @@
 #
 # Sections 1-4 and 6 need NO detector binary: they compile the calibration stages and
 # `score_processing::scorePoint` directly and ask the shipped decision itself. Section 5
-# runs `build/opendartboard` over the whole of `mocks/rig-20260918/` twice -- once as this
-# tree scores it and once with the falsifier -- so OD_SKIP_BUILD does change what it
-# measures, the same way it does for every other detector tester here.
+# runs `build/opendartboard` over the whole of `mocks/rig-20260918/` -- so OD_SKIP_BUILD
+# does change what it measures, the same way it does for every other detector tester
+# here. (Its OD_RINGS=asfitted 'before' run was retired by #1515: 77bb5b1 mended the
+# fits the switch used to expose, so it changes nothing on this footage any more;
+# section 4 reproduces the defect by undoing 77bb5b1 in a planted tree instead.)
 #
 # The script ends on `exit`, never on an `echo`: #1463.
 set -u
