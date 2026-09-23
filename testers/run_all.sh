@@ -102,12 +102,10 @@ tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
 # choice saying when the preference decided. Pure; costs one compile.
 tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 
-<<<<<<< HEAD
 # #1510: the one-board fit against a PLANTED homography -- recovery within tolerance,
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
 tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
-=======
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which
@@ -117,7 +115,6 @@ tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
 # unit_check.sh row because the measurement is that TRIPLE on one binary, and
 # unit_check.sh compiles and runs a check once (1450-seal's reason).
 tester 1518-reference     "bash '$T/i1518_check.sh'"
->>>>>>> origin/issue-1518-clean-reference
 
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
