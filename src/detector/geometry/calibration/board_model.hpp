@@ -512,8 +512,12 @@ namespace board_model
         }
         else
         {
-            rotationStory = "the twenty-sector rotation is UNRESOLVED: " +
-                            orientation_processing::howItReads(calib.orientation);
+            // The remedy is said here even where howItReads' own branch does not carry
+            // it, because for THIS fit an unresolved rotation is always answerable the
+            // same two ways: an observed anchor or the operator's statement.
+            rotationStory = "the twenty-sector rotation is UNRESOLVED (" +
+                            orientation_processing::howItReads(calib.orientation) +
+                            "); observe an anchor or state one with OD_CAMERA_WEDGES";
         }
 
         fit.accepted = fit.geometryAccepted && fit.rotationResolved;

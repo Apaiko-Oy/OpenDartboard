@@ -102,6 +102,11 @@ tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
 # choice saying when the preference decided. Pure; costs one compile.
 tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 
+# #1510: the one-board fit against a PLANTED homography -- recovery within tolerance,
+# and every rejection the issue names (no anchor, wrong ring identity, no held-out
+# support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
+tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
+
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
 # plain and OD_SEAL=star -- and unit_check.sh compiles and runs a check once. Costs a
