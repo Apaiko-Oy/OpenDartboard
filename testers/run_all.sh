@@ -106,6 +106,14 @@ tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
 tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
+# #1510 Phase 2: the model ANSWERS scoring questions, unwired. The pure check holds
+# anchorOnBoard and scoreFromModel against the planted homography (both handednesses,
+# the boundary distances #1512 will climb on); the census runs the real binary over
+# both rig fixtures with OD_MODEL_SCORE=on -- one shadow line per camera per dart,
+# existing verdict beside the model's beside the ground truth -- after a control run
+# proving the guard's default prints nothing. Three whole-clip replays, i1499's cost.
+tester 1510p2-modelcheck  "bash '$T/unit_check.sh' 1510p2"
+tester 1510p2-census      "bash '$T/i1510p2_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which
