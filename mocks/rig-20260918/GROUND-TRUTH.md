@@ -123,7 +123,14 @@ The shipped mocks (`mocks/cam_*.mp4`) have no ground truth and **must not be use
 accuracy**: they are upstream footage that every calibration constant in this repository was
 fitted against (#1478), so a good result there is circular.
 
-## Definitive measurement on merged `main` (`04d1902`), 2026-09-21
+## Measurement on merged `main` (`04d1902`), 2026-09-21 — **superseded on 2026-09-23**
+
+**This section is a record of the tree it was measured on, not of today's.** It was taken
+the day before the wedge anchors landed (#1486, #1497, #1498), when no camera could measure
+a wedge and #1346's fallback asserted `S20` for every dart. It stood under the heading
+"definitive" for two days after the anchors made it false, which is exactly the reader this
+file exists to protect being misled by it (#1515). The definitive section is now the dated
+one below.
 
 Taken by `1484-confidence` after a rebuild, whole clip, no cycle cap. This supersedes every
 earlier figure in this file: those were measured on trees missing #1485 or #1489.
@@ -157,3 +164,48 @@ fitted against cannot exhibit this fault** (#1478), which is why it survived thi
 So the open faults, in order of what they cost: the **wedge anchor** (#1486, 19 of 19
 asserted), **tip detection** (#1492, median 73.6 mm between cameras), and the treble ring's
 8% (no issue; deliberately left).
+
+## Definitive measurement on `main` at `f529ecf`, 2026-09-23
+
+Taken for #1515 by `1484-confidence` after a rebuild, whole clip, no cycle cap — the same
+instrument as the superseded section above, on a tree carrying the wedge anchors (#1486,
+#1497, #1498) and the treble ray trace with its doubles-marks hold (#1499). It reproduces
+what #1499's gate measured on `8d0ca0b` to the dart. This file is a truth record about the
+recording, not the recording: correcting it is what it exists for, and nothing in
+`cam_*.mp4` moves.
+
+```
+0.9  two or more cameras MEASURED a wedge and agreed      9
+0.7  measured, but no two agreed                          9
+0.5  by_default: NO camera measured a wedge               0
+     darts detected                                      18
+```
+
+**18 darts detected of 21 thrown. 13 of the 18 scored correctly, and two of the three
+trebles come back as trebles.** Not one dart publishes `by_default`, not one publishes
+`OUTER`: the asserted-20 fallback and the 25 ring — the two faults the sections above
+record — are both gone from this clip.
+
+| visit | detected vs thrown, aligned from visit 1 |
+| --- | --- |
+| 1 | S13 vs **T13** [ring] · S19 [correct] · S13 [correct] |
+| 2 | S7 vs 19 [wedge] · **T14 [correct]** · S5 [correct] |
+| 3 | S10 [correct] · S7 [correct] · **T20 [correct]** |
+| 4 | S7 vs 19 [wedge] · S20 [correct] · *miss* undetected |
+| 5 | S15 [correct] · S4 [correct] · S18 [correct] |
+| 6 | S7 vs *miss* [on-board] · S2 vs 7 [wedge] · 2 undetected |
+| 7 | S5 [correct] · S20 [correct] · 20 undetected |
+
+| | |
+| --- | --- |
+| correct | **13** |
+| a different number entirely | **3** — S19→S7 twice, S7→S2 |
+| right number, wrong ring | **1** — T13→S13, a tip measured 5.5 mm short of the band: #1492's fault, not the ring's |
+| a score published where a miss was thrown | **1** — visit 6's miss reads S7 |
+| undetected | **3** — visit 4's miss, visit 6's 2, visit 7's 20 |
+
+So the open faults on this fixture, in order of what they cost: **detection** (3 of 21
+never seen, and the two thrown misses produce one phantom score and one silence), **the
+wedge** (3 of 18 a different number entirely), and **tip radius** (#1492, the one ring
+error). The wedge anchor and the 25 ring are repaired and measured so, and the treble
+ring reads trebles.
