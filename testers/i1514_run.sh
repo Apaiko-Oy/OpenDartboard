@@ -6,13 +6,16 @@
 #
 # One detector run of mocks/rig-20260922 to the end of its footage with the
 # window census on, then the census of what every completed window voted.
-# testers/i1514_inside.sh holds what is measured and the finding it reproduces:
-# a dart parked in the board at calibration is pulled before the first throw,
-# so the CLEAN test's cumulative figure carries its silhouette for ever and no
-# takeout can be reconciled -- the board wedges at DART_3 and publishes no END.
+# testers/i1514_inside.sh holds what is measured and the finding it was filed
+# on: a dart parked in the board at calibration was pulled before the first
+# throw, the CLEAN test's cumulative figure carried its silhouette for ever,
+# no takeout could be reconciled and the board wedged at DART_3 with no END.
 #
-# It asserts nothing about the numbers the detector produced (#1322, i1484's
-# rule): it fails on a run it could not READ.
+# Since #1518 repaired the reference, this is a CHECK as well as a census: it
+# fails on a run it could not READ (#1322, i1484's rule, unchanged), and on
+# either of the stall's two figures reading zero again -- no window with any
+# camera CLEAN, or no END over the whole clip. The inside script says why and
+# names the mutation proof.
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u

@@ -1,5 +1,6 @@
 set -u
-# #1514: why detection on mocks/rig-20260922 stalls after the first visit.
+# #1514: why detection on mocks/rig-20260922 stalled after the first visit --
+# and, since #1518, the check that it stays repaired.
 #
 # THE FINDING THIS REPRODUCES, so it is a command rather than an hour of log
 # reading. The fixture's calibration frames hold a dart PARKED in the board
@@ -15,14 +16,23 @@ set -u
 #                            before the silhouette's shadow fully developed
 #   CLEAN ceiling (0.10%)    cam 1 215 px, cam 2 215 px, cam 3 182 px
 #
-# So no camera can ever read CLEAN, `goes_clean` never reaches the quorum of 2,
-# no takeout is reconciled, no END is published, and after three advances the
-# board wedges at DART_3 -- every later window is refused "0 up, 0 clean". The
-# motion half is healthy the whole clip: ~30 events form, settle and END.
+# So no camera could ever read CLEAN, `goes_clean` never reached the quorum of
+# 2, no takeout was reconciled, no END was published, and after three advances
+# the board wedged at DART_3 -- every later window refused "0 up, 0 clean". The
+# motion half was healthy the whole clip: ~30 events formed, settled and ENDed.
 #
-# IT IS A MEASUREMENT AND NOT A CHECK (#1322, i1484's rule): nothing below
-# asserts anything about a number the detector produced. It fails only on a run
-# it could not READ -- no binary, no fixture, a run that never opened a window.
+# #1518 repaired the reference -- adoption of the settled scene at every
+# reconciled CLEAN, and a takeout read from the DIRECTION of change (the
+# reversion vote; the census is on readsAsReversion in dart_processing.hpp) --
+# so the two figures this census was filed on are no longer allowed to be zero:
+# a run of this fixture where NO window reads CLEAN, or NO END publishes, is
+# the wedge back, and it fails below by name instead of reading as a report
+# somebody must interpret. Everything else stays #1322's rule: no other number
+# the detector produced is asserted, and the read-failures above are unchanged.
+#
+# The needle's mutation proof: OD_CLEAN_REFERENCE=calibration on the same
+# binary restores the pre-#1518 rule, and this census goes red on both figures
+# (measured; #1518's report quotes the run).
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 
@@ -117,8 +127,22 @@ END {
     }
 }'
 echo
-echo "    The last window census lines, so the wedged state is quoted rather than believed:"
+echo "    The last window census lines, so the final state is quoted rather than believed:"
 grep -a 'WINDOW CENSUS' $RUN/i1514.txt | tail -3 | sed 's/^/    /'
 echo
-echo "CHECK_RC=0  (this harness fails on a run it could not READ, never on what the run said)"
+
+# #1518: the two figures the stall was measured by may no longer be zero. See the
+# header for why this is a check now and what its mutation proof is.
+if [ "$CLEAN_WINDOWS" -eq 0 ]; then
+  echo "FAIL no window in $WINDOWS saw any camera read CLEAN: the CLEAN reference cannot"
+  echo "     recover from this fixture's parked dart again -- #1514's wedge is back."
+  exit 1
+fi
+if [ "$ENDS" -eq 0 ]; then
+  echo "FAIL no END was published over the whole clip: no takeout reconciled -- #1514's"
+  echo "     wedge is back."
+  exit 1
+fi
+echo "CHECK_RC=0  (this harness fails on a run it could not READ, and on the two figures"
+echo "             #1518 repaired: any-camera-CLEAN windows and published ENDs are nonzero)"
 exit 0

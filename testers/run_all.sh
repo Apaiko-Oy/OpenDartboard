@@ -102,10 +102,22 @@ tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
 # choice saying when the preference decided. Pure; costs one compile.
 tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 
+<<<<<<< HEAD
 # #1510: the one-board fit against a PLANTED homography -- recovery within tolerance,
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
 tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
+=======
+# #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
+# a board the reference no longer matches is read from the DIRECTION of change -- a
+# dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which
+# #1514 refused by overlap. One compile of dart_processing plus three runs of the same
+# check binary: the tree's rule, the OD_CLEAN_REFERENCE=calibration pin reproducing
+# #1514's stall, and the mutation proof with its prediction stated before the run. Not a
+# unit_check.sh row because the measurement is that TRIPLE on one binary, and
+# unit_check.sh compiles and runs a check once (1450-seal's reason).
+tester 1518-reference     "bash '$T/i1518_check.sh'"
+>>>>>>> origin/issue-1518-clean-reference
 
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
@@ -320,6 +332,16 @@ tester 1474-beat-census   "bash '$T/i1474_run.sh'"
 # default 1200 even there, and the number is here rather than in nobody's head, which is
 # how 1317-asan's 1200 got to be wrong.
 tester 1484-confidence    "bash '$T/i1484_run.sh'"
+
+# #1514: the rig-20260922 stall census, which #1518 flipped from a reporter into a check:
+# a whole-clip run of the fixture whose calibration held a parked dart, asserting that
+# some window reads CLEAN and some END publishes -- the two figures that were 0 for the
+# life of the stall. One detector run of the whole clip, i1484's shape and cost.
+# Registered here by #1518 because it was NOT: #1514 shipped i1514_run.sh and no line in
+# this file, so the label existed and the suite would never have run it -- a tester that
+# cannot be reached is the same as one that cannot fail (#1463, 1423-ringidentity's
+# story retold).
+tester 1514-stall         "bash '$T/i1514_run.sh'"
 
 # #1486: an anchor a camera did not measure itself. `chooseScore` needs TWO cameras that
 # measured a wedge before a dart can publish at 0.9, and one branch of orientation_processing
