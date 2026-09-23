@@ -1,5 +1,6 @@
-// #1477's proof that a camera --autocams REJECTS says which of two things happened to it,
-// and that the sentence it says is #1319's sentence rather than a second spelling of it.
+// #1477's proof that --autocams says which thing happened to a camera it rejects -- or,
+// since #1336, keeps without being able to verify -- and that the sentence it says is
+// #1319's sentence rather than a second spelling of it.
 //
 // No camera is opened and no Windows is needed. autocam::probe() is #ifdef _WIN32 -- which
 // is why #1319 repaired the open site and deliberately left this one alone -- but the
