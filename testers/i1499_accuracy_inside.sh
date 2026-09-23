@@ -2,14 +2,15 @@
 # #1499, inside the container: the accuracy census over mocks/rig-20260922, the fixture
 # the i1484 harness predates. Whole clip, no cycle cap, judged with the same
 # i1484_confidence_census.py against a table transcription of the fixture's own
-# GROUND-TRUTH.md line (the transcription is handed in at /run1499/truth-rig-20260922.md;
-# nothing under mocks/ is edited).
+# GROUND-TRUTH.md line (testers/i1499_truth_rig20260922.md; nothing under mocks/ is
+# edited, and a copy at /run1499/truth-rig-20260922.md wins so a run can override it).
 set -u
 
 BIN=/app/build/opendartboard
 DIR=/app/mocks/rig-20260922
 CAMS=$DIR/cam_1.mp4,$DIR/cam_2.mp4,$DIR/cam_3.mp4
 TRUTH=/run1499/truth-rig-20260922.md
+[ -s "$TRUTH" ] || TRUTH=/app/testers/i1499_truth_rig20260922.md
 RUN=/run1499
 
 if [ ! -x $BIN ]; then echo "FAIL no $BIN"; exit 1; fi
