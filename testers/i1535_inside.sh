@@ -96,13 +96,17 @@ for line in open(sys.argv[1], errors="replace"):
 sys.exit(0 if darts >= 3 else 1)
 V4
 }
-probe_run() { # $1 out-prefix, $2.. env pin
-  env "$@" $OUT/edge_probe "" $CLIPS > "$OUT/$1.txt" 2> "$OUT/$1.err"
+probe_run() { # $1 out-prefix, $2.. env pin. The prefix is shifted away BEFORE env
+  # sees the argv -- its first draft was not, so env tried to execute "probe-tree"
+  # and every probe claim failed on rc 127.
+  local out="$1"
+  shift
+  env "$@" $OUT/edge_probe "" $CLIPS > "$OUT/$out.txt" 2> "$OUT/$out.err"
   local rc=$?
-  if [ $rc -eq 0 ] && ! visit4_whole "$OUT/$1.txt"; then
-    echo "NOTE $1: visit 4's third event was not detected (the marginal-event variance"
+  if [ $rc -eq 0 ] && ! visit4_whole "$OUT/$out.txt"; then
+    echo "NOTE $out: visit 4's third event was not detected (the marginal-event variance"
     echo "     GROUND-TRUTH.md records) -- re-running once so the claims judge the vote"
-    env "$@" $OUT/edge_probe "" $CLIPS > "$OUT/$1.txt" 2> "$OUT/$1.err"
+    env "$@" $OUT/edge_probe "" $CLIPS > "$OUT/$out.txt" 2> "$OUT/$out.err"
     rc=$?
   fi
   return $rc
@@ -112,7 +116,7 @@ RC1=$?
 probe_run probe-pinned OD_TIP_IDENTITY=off
 RC2=$?
 [ $RC1 -eq 0 ] && [ $RC2 -eq 0 ] || {
-  tail -10 $OUT/probe-tree.err $OUT/probe-pinned.err
+  tail -n 10 $OUT/probe-tree.err $OUT/probe-pinned.err
   say "FAIL a probe run did not reach the end of the footage (rc $RC1/$RC2)" no
 }
 
