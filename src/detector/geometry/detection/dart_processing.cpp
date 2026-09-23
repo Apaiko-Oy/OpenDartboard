@@ -121,6 +121,29 @@ namespace dart_processing
         return v;
     }
 
+    /**
+     * #1518's falsification switch, in the od_fix shape #1339, #1348 and #1495
+     * established: one binary, the rule chosen at run time, so "different build" is
+     * never a confound.
+     *
+     * `OD_CLEAN_REFERENCE=calibration` restores the rule as it was before #1518: the
+     * CLEAN test's reference is the calibration background for ever -- no adoption at a
+     * reconciled CLEAN, no reversion vote -- which is the rule #1514 measured wedging
+     * mocks/rig-20260922 at DART_3 for 26 windows. Anything else, unset included, lets
+     * the reference track the scene.
+     *
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    static bool cleanReferenceIsCalibration()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_CLEAN_REFERENCE");
+            return e != nullptr && std::string(e) == "calibration";
+        }();
+        return v;
+    }
+
     // Static state tracking. #1355: no count is written here -- processDartState sizes
     // it from the frames it was handed, beside the other three per-camera arrays.
     static vector<DartBoardState> previous_states;
@@ -137,6 +160,21 @@ namespace dart_processing
 
     // Working backgrounds - one per camera
     static vector<Mat> working_backgrounds;
+
+    // #1518: what CLEAN currently looks like, one grayscale frame per camera. Empty
+    // until the first reconciled CLEAN adopts a window's settled frames; until then the
+    // calibration background is the reference, exactly as it always was. #1349's
+    // working backgrounds one level up: those track the board per DART, this tracks the
+    // scene per TAKEOUT, and both move only on the reconciled vote, never on one
+    // camera's candidate.
+    static vector<Mat> clean_references;
+
+    // #1518: each camera's cumulative board figure from the LAST completed window, which
+    // is what a reversion is a fall FROM (readsAsReversion, dart_processing.hpp). -1 is
+    // "no previous window", which is no verdict; it is reset to 0 when the reference is
+    // adopted, because the adopted scene is by definition what zero change looks like
+    // and a fall measured from before the adoption would read a new dart as a departure.
+    static vector<int> previous_board_change;
 
     // Streamers for debugging
     static unique_ptr<streamer> dart_diff_streamer;
@@ -717,12 +755,16 @@ namespace dart_processing
         if (previous_states.size() != current_frames.size() ||
             accumulated_frames.size() != current_frames.size() ||
             frames_accumulated.size() != current_frames.size() ||
-            working_backgrounds.size() != current_frames.size())
+            working_backgrounds.size() != current_frames.size() ||
+            clean_references.size() != current_frames.size() ||
+            previous_board_change.size() != current_frames.size())
         {
             previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
             accumulated_frames.resize(current_frames.size());
             frames_accumulated.resize(current_frames.size(), 0);
             working_backgrounds.resize(current_frames.size());
+            clean_references.resize(current_frames.size());
+            previous_board_change.resize(current_frames.size(), -1);
         }
 
         // Check if we have initialized
@@ -871,8 +913,22 @@ namespace dart_processing
                 continue;
             }
 
+            // #1518: the CLEAN reference is the last scene the vote reconciled as CLEAN,
+            // and the calibration background only until there has been one. Until #1518
+            // the calibration background was the reference for ever, so any permanent
+            // scene change after calibration -- mocks/rig-20260922's parked dart, pulled
+            // ~1 s in -- sat in every later window's cumulative diff and CLEAN was
+            // arithmetically unreachable (#1514's census, 26 windows wedged at DART_3).
             Mat background_gray;
-            cvtColor(background_frames[i], background_gray, COLOR_BGR2GRAY);
+            if (!cleanReferenceIsCalibration() && !clean_references[i].empty() &&
+                clean_references[i].size() == accumulated_frames[i].size())
+            {
+                background_gray = clean_references[i];
+            }
+            else
+            {
+                cvtColor(background_frames[i], background_gray, COLOR_BGR2GRAY);
+            }
 
             Mat averaged_frame;
             accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_accumulated[i]);
@@ -963,6 +1019,41 @@ namespace dart_processing
                                                 ? params.board_change_percent_threshold
                                                 : params.change_percent_threshold;
 
+            // #1518: whether this window's cumulative change just REVERTED by at least a
+            // dart's worth. The cumulative diff is an absdiff and has no sign, so a
+            // takeout on a board whose reference no longer matches the scene --
+            // mocks/rig-20260922's calibration holds a parked dart -- leaves the board
+            // over the CLEAN ceiling for ever and no takeout can reconcile (#1514: the
+            // board wedged at DART_3 for 26 windows). The direction of change still
+            // tells: a takeout is a simultaneous dart-sized FALL of this figure on a
+            // quorum of cameras, and nothing else in either fixture is (the census is on
+            // readsAsReversion in dart_processing.hpp). A falling camera votes CLEAN; if
+            // the vote agrees, the adoption below re-bases every reference to this
+            // window's settled scene and the ordinary CLEAN test works again.
+            bool change_reads_as_removal = false;
+            if (!cleanReferenceIsCalibration() && decides_on_board &&
+                cumulative_share >= decide_threshold)
+            {
+                const int ceiling_pixels =
+                    (int)((double)board_pixels * params.board_change_percent_threshold / 100.0);
+                if (readsAsReversion(previous_board_change[i], board_changed_pixels, ceiling_pixels))
+                {
+                    change_reads_as_removal = true;
+                    log_info("CLEAN BY REVERSION: camera " + to_string(i + 1) +
+                             "'s cumulative board change fell from " +
+                             to_string(previous_board_change[i]) + " to " +
+                             to_string(board_changed_pixels) +
+                             " px in one window -- at least a dart-sized departure (the CLEAN "
+                             "ceiling is " + to_string(ceiling_pixels) + " px) -- so what it is "
+                             "still over the reference by is something that LEFT the board, and "
+                             "this camera votes CLEAN (#1518)");
+                }
+            }
+            if (decides_on_board)
+            {
+                previous_board_change[i] = board_changed_pixels;
+            }
+
             if (any_board_fitted && !decides_on_board)
             {
                 // #1354: another camera brought a board and this one did not, so it has
@@ -972,6 +1063,24 @@ namespace dart_processing
                 result.camera_results[i].abstained_no_board = true;
                 candidate_state = previous_states[i];
                 single_thresh = thresh.clone();
+            }
+            else if (change_reads_as_removal)
+            {
+                // #1518: the board's change is a departure, so this camera's candidate
+                // is CLEAN however large the remaining figure is -- what is left over
+                // the reference is the silhouette of what left the scene. The reconciled
+                // vote decides, exactly as it does for every other candidate, and that
+                // is load-bearing rather than form: the thrower's shadow produces
+                // single-camera falls of up to 133,021 px on rig-20260922 (w08, cam 3),
+                // and the quorum is what stops one of those calling a takeout -- the
+                // same way it stops one camera calling a dart (#1348, #1349).
+                candidate_state = DartBoardState::CLEAN;
+                single_thresh = thresh.clone();
+                if (debug_mode)
+                {
+                    Mat black_image = Mat::zeros(single_thresh.size(), CV_8UC1);
+                    imwrite("debug_frames/dart_processing/tip_detection_cam_" + to_string(i) + ".jpg", black_image);
+                }
             }
             else if (cumulative_share >= decide_threshold) // the board is occupied
             {
@@ -1263,6 +1372,47 @@ namespace dart_processing
             for (size_t i = 0; i < working_backgrounds.size(); i++)
             {
                 working_backgrounds[i] = Mat();
+            }
+
+            // #1518: and the CLEAN reference adopts the scene, from the same decision.
+            // A reconciled CLEAN is the one moment the board is known to hold nothing,
+            // so this window's settled frames ARE what clean looks like -- including
+            // whatever changed since calibration: a sticker, a moved shadow line, the
+            // hole where mocks/rig-20260922's parked dart stood. On a scene that never
+            // changed this adopts frames that match the calibration background and moves
+            // nothing, which is why both rig censuses hold (see the pull request); on
+            // one that did, it is the difference between the next takeout reconciling
+            // and the board wedging at DART_3 for the evening (#1514).
+            //
+            // Said at INFO because a board that re-based its own idea of clean must say
+            // so (ADR-0055's posture: a change of reference must not be able to happen
+            // silently). A camera that brought no frame keeps its old reference -- the
+            // last scene it saw is still the best reference it has (#1495's rule).
+            if (!cleanReferenceIsCalibration())
+            {
+                string adopted;
+                for (size_t i = 0; i < clean_references.size() && i < window_frames.size(); i++)
+                {
+                    if (!window_frames[i].empty())
+                    {
+                        clean_references[i] = window_frames[i].clone();
+                        // The adopted scene is what zero change now looks like; a fall
+                        // measured from a pre-adoption figure would read the NEXT dart
+                        // as a departure.
+                        if (i < previous_board_change.size())
+                        {
+                            previous_board_change[i] = 0;
+                        }
+                        adopted += (adopted.empty() ? "" : ", ") + to_string(i + 1);
+                    }
+                }
+                if (!adopted.empty())
+                {
+                    log_info("CLEAN REFERENCE ADOPTED: the board reconciled CLEAN, so camera(s) " +
+                             adopted + " re-based their clean reference to this window's settled "
+                             "frames -- the scene as it is now, not the calibration picture, is "
+                             "what CLEAN is measured against from here (#1518)");
+                }
             }
         }
 

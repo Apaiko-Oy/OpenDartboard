@@ -224,6 +224,76 @@ namespace dart_processing
         return "";
     }
 
+    /**
+     * #1518: a board still over the CLEAN ceiling whose change just REVERTED by at least
+     * a dart's worth -- the takeout, read from the direction of change rather than from
+     * its size.
+     *
+     * The CLEAN test's cumulative diff is an absdiff against the reference, and an
+     * absdiff has no sign: a dart standing in the board and the hole where a dart used
+     * to stand are the same figure to it. On mocks/rig-20260922 that is the whole stall
+     * (#1514) -- a dart parked in the board at calibration is pulled ~1 s in, every
+     * later window's cumulative diff carries its silhouette (0.56-2.76% of the board
+     * against the 0.10% ceiling), no camera ever reads CLEAN, no takeout reconciles and
+     * the board wedges at DART_3 for 26 windows. #1514 refused every threshold move by
+     * overlap, so the repair cannot be a size.
+     *
+     * What a takeout has that nothing else in either fixture has is a SIMULTANEOUS,
+     * dart-sized FALL of the cumulative figure on a quorum of cameras: the darts leave
+     * every camera's view in one window. Both halves are measured, on the whole of
+     * rig-20260922's stalled trajectory (30 windows, OD_WINDOW_CENSUS=1, 2026-09-23):
+     *
+     *   - all 7 retrieval windows (w07 w11 w15 w19 w23 w27 w30) have >= 2 cameras whose
+     *     cumulative board figure fell by >= that camera's own CLEAN ceiling at once
+     *     (falls of 620 to 27,397 px against ceilings of 182-215 px);
+     *   - ZERO of the other 22 windows have more than ONE such camera. The thrower's
+     *     shadow produces enormous single-camera falls (cam 3: -133,021 px, w08; cam 1:
+     *     -12,953 px, w07's neighbour w03) -- which is why one camera's reversion is a
+     *     VOTE and never a verdict: the same quorum that stops one camera calling a
+     *     dart (#1348) stops one shadow calling a takeout.
+     *
+     * The falling camera votes CLEAN; the reconciled CLEAN then re-bases every camera's
+     * reference to this window's settled frames (the adoption in dart_processing.cpp),
+     * so the next round is measured against the scene as it now is and the ordinary
+     * under-the-ceiling CLEAN test works again. On a healthy fixture the vote never
+     * fires: a takeout there lands UNDER the ceiling, which votes CLEAN one branch
+     * earlier (measured on rig-20260918: no window has 2 simultaneous over-ceiling
+     * falls; see the pull request).
+     *
+     * The fall's floor is the camera's own CLEAN ceiling -- the number that already
+     * defines "a dart-sized amount of board change" (board_change_percent_threshold,
+     * whose census is above) -- deliberately not a new constant: the smallest measured
+     * true-takeout fall is 620 px (2.9x the ceiling) and the largest thing that must
+     * not trip a quorum is handled by the quorum, not by this floor.
+     *
+     * THE CANDIDATE THIS WON AGAINST, refused by measurement the #1514 way: an
+     * add-versus-remove discriminator reading the PICTURES -- per changed region, the
+     * mean absolute deviation of the region's pixels from the median of its own
+     * unchanged surround, asked of the current frame and of the reference; the image
+     * holding the object should deviate more. On synthetic figures it separates
+     * perfectly; on the real fixture it does not separate AT ALL: the board's own
+     * texture (wedge boundaries, wires, print) puts both scores at 45-102 with the
+     * object's contribution buried -- the pull window read 1.28-1.95x
+     * (reference/current, 3 cameras) while ordinary ADDITION windows read up to 1.80x
+     * in the same direction (w02 cam 1: 81.6 vs 45.2). No margin separates 1.95 from
+     * 1.80. Measured 2026-09-23, one whole-clip run, 90 camera-windows; the probe and
+     * its numbers are in #1518's report.
+     *
+     * `previous_pixels < 0` means there is no previous window to fall from, and that is
+     * NO verdict -- which is also why the pull of the parked dart itself (window #1 of
+     * rig-20260922, a RISE from zero) is out of this function's reach: the phantom score
+     * it publishes is deferred, by name, in #1518's report.
+     *
+     * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds the
+     * rule without building the detector, and testers/i1518_check.sh does.
+     */
+    inline bool readsAsReversion(int previous_pixels, int current_pixels, int ceiling_pixels)
+    {
+        return previous_pixels >= 0 && ceiling_pixels > 0 &&
+               current_pixels >= ceiling_pixels &&
+               previous_pixels - current_pixels >= ceiling_pixels;
+    }
+
     // Per-camera detection result
     struct CameraDetectionResult
     {
