@@ -224,24 +224,37 @@ else
 fi
 
 echo
-echo "=== 6. THE MUTATION PROOF: widen the bands and watch this file go red ========="
+echo "=== 6. THE MUTATION PROOF: a bad fit meets a band that cannot refuse it ======="
 # A tester that has never been shown to fail is a tester nobody can trust (#1412, #1463).
-# The break is a band that cannot refuse anything -- which is the defect itself, reached
-# through the source rather than through the switch section 4 uses, so the two are not one
-# measurement written twice.
+# RE-POINTED BY #1515. The break used to be the band alone, widened to 50x -- which was
+# fatal while the fits held the defect, because the widened band ADMITTED the huge 25
+# ring. 77bb5b1's mask repair mended the fits, so on every tree since 2026-09-22 a
+# widened band had nothing bad left to admit, 0 probes went wrong, and this section was
+# red on main with nothing wrong (#1499's gate measured it). The plant now recreates both
+# halves of the day the band exists for: 77bb5b1 undone (the fit goes bad, section 4's
+# mutation) AND the band at 50x (the hold cannot refuse it), run with the rings HELD --
+# so what is proved is that the band's arithmetic is the one thing standing between a bad
+# fit and a published 25, which is section 3's whole subject. Section 4 proves the hold
+# refuses the bad fit; this section proves that WITHOUT the band it would not.
 PLANT=/run1485/planted
 rm -rf "$PLANT"; mkdir -p "$PLANT"
 cp -r "$SRC/src" "$SRC/testers" "$PLANT/"
+sed -i 's|if (around.x >= 0 \&\& around.y >= 0)|if (false /* #1515: 77bb5b1 undone -- the fit goes bad */)|' \
+  "$PLANT/src/detector/geometry/calibration/mask_processing.cpp"
 sed -i 's|inline double ringBandHigh(int ring) { return std::sqrt(ringTruth(ring) \* ringTruth(ring + 1)); }|inline double ringBandHigh(int ring) { return ringTruth(ring) * 50.0; }|' \
   "$PLANT/src/detector/geometry/calibration/ellipse_processing.hpp"
-if ! grep -q 'ringTruth(ring) \* 50.0' "$PLANT/src/detector/geometry/calibration/ellipse_processing.hpp"; then
-  say "FAIL the plant did not land -- ringBandHigh was not where this proof expects it, so nothing below proves anything" no
+if ! grep -q '77bb5b1 undone' "$PLANT/src/detector/geometry/calibration/mask_processing.cpp" \
+   || ! grep -q 'ringTruth(ring) \* 50.0' "$PLANT/src/detector/geometry/calibration/ellipse_processing.hpp"; then
+  say "FAIL a plant did not land -- the hull test or ringBandHigh is not where this proof expects it, so nothing below proves anything" no
 else
   if ! build_census "$PLANT" /run1485/planted_census; then
     tail -20 /run1485/planted_census.build.log
     say "FAIL the planted tree did not build, so the mutation proves nothing" no
   else
-    collect /run1485/planted_census /run1485/planted_rows.txt
+    : > /run1485/planted_rows.txt
+    for c in 1 2 3; do
+      /run1485/planted_census "$SRC/mocks/rig-20260918/cam_$c.mp4" $((c-1)) 1 90 2>/dev/null >> /run1485/planted_rows.txt
+    done
     P=$(python3 - /run1485/planted_rows.txt <<'PY'
 import sys
 bad = 0
@@ -252,9 +265,9 @@ for line in open(sys.argv[1]):
 print(bad)
 PY
 )
-    echo "    with the band at 50x each ring, $P on-board probes publish as a 25"
+    echo "    with the fit bad and the band at 50x, $P on-board probes publish as a 25 THROUGH the hold"
     if [ "$P" -gt 0 ]; then
-      say "OK   the mutation is fatal: section 3 goes red on it" ok
+      say "OK   the mutation is fatal: the band is what refuses section 4's bad fit, and section 3 goes red without it" ok
     else
       say "FAIL the mutation changed nothing, so section 3 cannot fail and measures nothing" no
     fi
