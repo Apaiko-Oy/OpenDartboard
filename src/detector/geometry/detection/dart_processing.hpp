@@ -296,6 +296,108 @@ namespace dart_processing
                previous_pixels - current_pixels >= ceiling_pixels;
     }
 
+    /**
+     * #1535: a camera re-reporting, for a NEW dart, a pixel it already reported for an
+     * earlier dart of the same visit is not a second witness.
+     *
+     * THE FACT THIS SEPARATES ON, measured by #1505's edge probe on rig-20260918,
+     * visit 4's third dart (thrown OFF the board, published S20@0.9): camera 2's "new"
+     * tip (847,336) sat 2.2 px from the tip it had already reported for the PREVIOUS
+     * dart (848,338) -- the thrown 20 standing in the board -- while the fresh diff's
+     * actual change was 82 px away across empty space (I1492TIP tipGap=82, tipPiece=1:
+     * the chosen point was not on the piece the centroid was measured from). That
+     * re-report plus camera 3's parallax projection made two agreeing "S20" strings,
+     * and agreement earned 0.9 for a dart that missed the board. #1505 measured that
+     * no vote rule can reach this -- the vote contains no MISS reading to admit -- so
+     * the separator is which OBJECT the tip was found on, asked here, in the tip
+     * machinery, per camera.
+     *
+     * A candidate is a re-report when BOTH hold:
+     *
+     *   - it lies within `near_px` of a tip this camera already reported for an
+     *     earlier dart of this visit (the vote accepted that dart; the memory is reset
+     *     at the reconciled CLEAN, beside the working backgrounds -- #1349's point);
+     *   - the fresh figure's own nearest point is at least `elsewhere_px` away
+     *     (`gap_to_fresh_figure` is the distance from the candidate to the nearest
+     *     point of the largest fresh-diff contour -- I1492TIP's tipGap, computed on
+     *     every call since #1535).
+     *
+     * The second condition is what spares a LEGITIMATE dart landing beside an earlier
+     * one: its tip is a point of the fresh figure (or of a shaft fragment a few px
+     * from it), so its gap stays small whatever its distance to the earlier tip.
+     *
+     * THE CENSUS the thresholds are read off (2026-09-23, #1505's probe over the whole
+     * of rig-20260918, one binary under OD_TIP_IDENTITY=off so it is the UNGUARDED
+     * machinery being measured; 48 accepted tips over 19 darts, 28 of them with an
+     * earlier same-camera tip in their visit -- the denominator every number below is
+     * out of):
+     *
+     *   - TWO tips sit within 3 px of an earlier one: the needle (v4 d3 cam 2,
+     *     near=2.2 px, gap=82 px) and v5 d2 cam 3 (near=2.2 px, gap=128 px) -- the
+     *     same mechanism on a scored dart: camera 3 re-reported its previous dart's
+     *     tip as "T15" while cameras 1 and 2 agreed on the correct S4, so removing it
+     *     changes nothing and the phantom witness is silenced there too.
+     *   - The closest LEGITIMATE adjacency is 27.8 px (v5 d3 cam 1), and its gap is
+     *     13 px -- inside the fresh figure's own fragment reach, spared by both
+     *     conditions at once. The next is 52.8 px (v7 d2 cam 1), gap 0.
+     *   - Legitimate first-tip gaps run 0..172 px (fragmenting darts carry their tip
+     *     on a shaft fragment), which is why the gap alone decides nothing and the
+     *     rule is an AND.
+     *
+     * So `near_px = 12` sits 5.5x above the needles' 2.2 and 2.3x under the closest
+     * legitimate adjacency (27.8 px), and `elsewhere_px = 40` sits 3.1x above the
+     * largest gap on any near-adjacent legitimate tip (13 px) and 2.05x under the
+     * nearer needle's 82. A tip must fail BOTH margins at once to be eaten.
+     * mocks/rig-20260922 is measured at the outcome level (the probe cannot calibrate
+     * its cameras -- its fixed seek lands on the parked dart; the real binary
+     * calibrates 3/3), whole clip, one binary, both modes, 2026-09-24: the rule fires
+     * exactly ONCE, on visit 1's second dart, and the firing is the mechanism itself.
+     * Camera 2's "new" tip at (718,212) sat 1 px from the tip it had already reported
+     * for the first dart, with the fresh change 42 px away, and it was the LONE
+     * witness: under OD_TIP_IDENTITY=off that re-report published S5@0.7 against a
+     * thrown 16 (the ghost of dart 1 as camera 2 read it), and under the rule the
+     * dart publishes MISS with no witness at all -- a wrong score became an honest
+     * abstention. Everything else is line-identical: 21 of 24 detected both ways,
+     * 1 of 21 correct both ways, no correct dart moved.
+     *
+     * LIMITATION, stated with its mechanism: a dart landing with its tip within 12 px
+     * of an earlier tip AND detected only as change 40+ px away (its own tip region
+     * swallowed by the earlier dart's silhouette in the fresh diff) would abstain that
+     * camera honestly -- one witness fewer, not a phantom. True tip-on-tip adjacency
+     * is indistinguishable from a re-report by construction here, because the fresh
+     * diff cannot show change where the scene did not change; the cross-camera
+     * geometry that could tell them apart is #1512's landing-position intersection.
+     *
+     * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds
+     * the rule without building the detector, and testers/i1535_identity_check.cpp
+     * does. OD_TIP_IDENTITY=off restores the unguarded machinery (tipIdentityIsOff
+     * below), so before/after is two runs of one binary.
+     */
+    inline bool isAReReportOfAnEarlierTip(cv::Point2f candidate,
+                                          double gap_to_fresh_figure,
+                                          const std::vector<cv::Point2f> &tips_reported_this_visit,
+                                          double near_px = 12.0,
+                                          double elsewhere_px = 40.0)
+    {
+        if (gap_to_fresh_figure < elsewhere_px)
+        {
+            return false;
+        }
+        for (const cv::Point2f &earlier : tips_reported_this_visit)
+        {
+            if (norm(candidate - earlier) <= near_px)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // #1535 falsification switch: OD_TIP_IDENTITY=off restores the tip machinery as it
+    // was before #1535 -- every found tip is reported, a re-report of an earlier dart's
+    // pixel included. Defined in dart_processing.cpp, where the other pins live.
+    bool tipIdentityIsOff();
+
     // Per-camera detection result
     struct CameraDetectionResult
     {
