@@ -209,3 +209,9 @@ never seen, and the two thrown misses produce one phantom score and one silence)
 wedge** (3 of 18 a different number entirely), and **tip radius** (#1492, the one ring
 error). The wedge anchor and the 25 ring are repaired and measured so, and the treble
 ring reads trebles.
+
+**Visit 6's second detected dart is marginal.** Three runs of the byte-identical binary
+on 2026-09-23 read this clip 18–18–17 darts: the odd run lost exactly that dart — the
+throw at 7 that publishes as `S2@0.7` above — and nothing else, every other verdict
+identical. A census differing from this table by that one dart is run-to-run detection
+variance, not a regression; chase it only if it stays missing on a quiet box.
