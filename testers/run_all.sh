@@ -365,6 +365,15 @@ tester 1505-surround      "bash '$T/i1505_run.sh'"
 # the fixture both ways through #1505's edge probe.
 tester 1535-rereport      "bash '$T/i1535_run.sh'"
 
+# #1336: a CAP_PROP_FOURCC read-back that cannot name a wire format does not reject a
+# camera from --autocams. Measured on the rig 2026-09-24: all three board cameras --
+# which stream MJPG 1280x720@30, the rig fixtures are recorded off them -- read back
+# 0x00000016 (OpenCV's own RGB conversion target on MSMF) and every one was rejected.
+# judgeProbedFormat now keeps a camera on an uninformative read (0, or an unprintable
+# code) and warns; only a NAMED non-MJPG format rejects, the bus-bandwidth reason
+# standing. Admission stays with board_look (#1318).
+tester 1336-probe-admission "bash '$T/unit_check.sh' 1336"
+
 # #1486: an anchor a camera did not measure itself. `chooseScore` needs TWO cameras that
 # measured a wedge before a dart can publish at 0.9, and one branch of orientation_processing
 # ever set `anchored` -- so 0.9 had never been published on either fixture. This derives the
