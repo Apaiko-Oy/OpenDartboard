@@ -257,8 +257,10 @@ namespace dart_processing
      * so the next round is measured against the scene as it now is and the ordinary
      * under-the-ceiling CLEAN test works again. On a healthy fixture the vote never
      * fires: a takeout there lands UNDER the ceiling, which votes CLEAN one branch
-     * earlier (measured on rig-20260918: no window has 2 simultaneous over-ceiling
-     * falls; see the pull request).
+     * earlier. Measured on the whole of rig-20260918 (25 windows, same census, same
+     * day): not one window holds even ONE camera falling dart-sized while still over
+     * the ceiling, zero reversion votes were cast in the run, and its i1484 census is
+     * byte for byte #1515's table -- 18 of 21 detected, 13 correct of 18, 6 ENDs.
      *
      * The fall's floor is the camera's own CLEAN ceiling -- the number that already
      * defines "a dart-sized amount of board change" (board_change_percent_threshold,
