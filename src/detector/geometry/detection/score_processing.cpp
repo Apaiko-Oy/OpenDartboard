@@ -227,6 +227,13 @@ namespace score_processing
             return out;
         }
 
+        // A ring refused by the band check is a zeroed ellipse (#1485), so it is the
+        // ellipses that are asked and not the fitting flags.
+        out.rings_complete = calib.ellipses.innerTripleEllipse.size.area() > 0 &&
+                             calib.ellipses.outerTripleEllipse.size.area() > 0 &&
+                             calib.ellipses.innerDoubleEllipse.size.area() > 0 &&
+                             calib.ellipses.outerDoubleEllipse.size.area() > 0;
+
         // 1. RING DETECTION - Check from inside out
         bool in_inner_bull = isPointInEllipse(pixel, calib.ellipses.innerBullEllipse);
         bool in_outer_bull = !in_inner_bull && isPointInEllipse(pixel, calib.ellipses.outerBullEllipse);

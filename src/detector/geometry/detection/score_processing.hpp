@@ -66,6 +66,10 @@ namespace score_processing
         // agreement is real and still wins a consensus; it is just not agreement about a
         // wedge, and `ScoreChoice::ring_only` is where the published reading says so.
         bool ring_only = false;
+        // Whether this camera fitted every ring a single can be told from a treble or a
+        // double by. A camera missing its treble ring calls every treble a single, so where
+        // no two cameras agree it is not the one the vote falls back to (chooseScore).
+        bool rings_complete = true;
         BoardPosition board;
     };
 
@@ -216,7 +220,17 @@ namespace score_processing
             }
             else
             {
+                // No two cameras agree: the first camera that can tell every ring apart,
+                // and the first of all only when none can.
                 out.camera = readings[0];
+                for (int index : readings)
+                {
+                    if (points[index].rings_complete)
+                    {
+                        out.camera = index;
+                        break;
+                    }
+                }
                 out.agreeing = 1;
                 out.confidence = 0.7f;
             }
