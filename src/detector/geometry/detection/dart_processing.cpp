@@ -138,6 +138,37 @@ namespace dart_processing
     // Working backgrounds - one per camera
     static vector<Mat> working_backgrounds;
 
+    // #1518: the state stage's OWN reference -- what this stage means by "an empty
+    // board" -- one grayscale frame per camera.
+    //
+    // Until #1518 that was the calibration background for the life of the run, and
+    // #1514 measured what a permanent change to the scene after calibration then costs:
+    // on mocks/rig-20260922 a dart parked in the board at calibration is pulled a second
+    // into scoring, and from that moment every window's cumulative diff carries its
+    // silhouette -- 0.56-2.76% of the board against a 0.10% ceiling -- so no camera can
+    // read CLEAN again, no takeout reconciles, no END is published and the board wedges
+    // at DART_3 for the remaining 26 windows of the clip.
+    //
+    // It is seeded from the calibration background, and adopted at every reconciled
+    // CLEAN: a board the VOTE says is empty is, by definition, what empty looks like
+    // from here. That is the same move `working_backgrounds` already makes one level
+    // down (#1349, #1495) -- a reference that tracks the darts -- taken one level up to
+    // a reference that tracks the room. The calibration frames are not touched: motion
+    // and scoring go on reading `background_frames`, and this stage's copy is a copy.
+    static vector<Mat> state_references;
+
+    // #1518: the emptiest board each camera has seen since its own reference was taken,
+    // in board pixels; -1 before it has completed a window against that reference. It is
+    // the whole of the poisoned-bootstrap reading and it is reset, per camera, wherever
+    // that camera adopts -- a floor measured against a reference that has been replaced
+    // is a number about a picture nothing is compared to any more.
+    static vector<int> reference_floor;
+
+    // #1518: and what the window BEFORE this one measured, per camera; -1 where there
+    // was none since this camera's reference was taken. A floor is only evidence of an
+    // empty board if the figure LEFT it and came back -- see `reverted_to_its_floor`.
+    static vector<int> previous_window_px;
+
     // Streamers for debugging
     static unique_ptr<streamer> dart_diff_streamer;
     static unique_ptr<streamer> dart_thresh_streamer;
@@ -145,6 +176,38 @@ namespace dart_processing
     static unique_ptr<streamer> dart_tip_streamer;
 
     // getDartBoardStateName lives inline in the header since #1350.
+
+    /**
+     * #1518: how much EDGE an image carries inside a mask -- mean Sobel magnitude over
+     * the masked pixels, x1000 so a census line can carry it as an integer.
+     *
+     * This is the whole of the add-versus-remove reading. A dart is a hard object with a
+     * shaft, a barrel and a flight and it sits proud of the paint; the board it covers is
+     * flat. So of the two images a changed region was measured between, the one with more
+     * edge inside that region is the one holding the dart -- which gives a DIFF the sign
+     * it does not have. Measured on both images over the SAME pixels, so the wires,
+     * numbers and paint the mask also covers are in both figures and cancel.
+     *
+     * -1 where the question cannot be asked: no image, or a mask with nothing in it.
+     */
+    static long edgeEnergy(const Mat &gray, const Mat &mask)
+    {
+        if (gray.empty() || mask.empty() || gray.size() != mask.size())
+        {
+            return -1;
+        }
+        if (countNonZero(mask) <= 0)
+        {
+            return -1;
+        }
+        Mat gx, gy, mag;
+        Sobel(gray, gx, CV_16S, 1, 0, 3);
+        Sobel(gray, gy, CV_16S, 0, 1, 3);
+        convertScaleAbs(gx, gx);
+        convertScaleAbs(gy, gy);
+        addWeighted(gx, 0.5, gy, 0.5, 0, mag);
+        return lround(1000.0 * mean(mag, mask)[0]);
+    }
 
     // ---- #1492 measurement instrument, off unless asked for --------------------------
     //
@@ -717,12 +780,20 @@ namespace dart_processing
         if (previous_states.size() != current_frames.size() ||
             accumulated_frames.size() != current_frames.size() ||
             frames_accumulated.size() != current_frames.size() ||
-            working_backgrounds.size() != current_frames.size())
+            working_backgrounds.size() != current_frames.size() ||
+            state_references.size() != current_frames.size() ||
+            reference_floor.size() != current_frames.size() ||
+            previous_window_px.size() != current_frames.size())
         {
             previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
             accumulated_frames.resize(current_frames.size());
             frames_accumulated.resize(current_frames.size(), 0);
             working_backgrounds.resize(current_frames.size());
+            // #1518: and this stage's own reference beside them, for the reason the
+            // other four are sized here rather than once.
+            state_references.resize(current_frames.size());
+            reference_floor.resize(current_frames.size(), -1);
+            previous_window_px.resize(current_frames.size(), -1);
         }
 
         // Check if we have initialized
@@ -871,8 +942,15 @@ namespace dart_processing
                 continue;
             }
 
-            Mat background_gray;
-            cvtColor(background_frames[i], background_gray, COLOR_BGR2GRAY);
+            // #1518: the reference this stage measures CLEAN against. Seeded from the
+            // calibration background the first time this camera brings a frame, and
+            // moved only by the adoption below the vote -- never by one camera's own
+            // reading, which is #1349's rule about the working background, one level up.
+            if (state_references[i].empty())
+            {
+                cvtColor(background_frames[i], state_references[i], COLOR_BGR2GRAY);
+            }
+            const Mat &background_gray = state_references[i];
 
             Mat averaged_frame;
             accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_accumulated[i]);
@@ -956,12 +1034,66 @@ namespace dart_processing
             // Where no camera has a board, the frame figure decides as it always did.
             auto candidate_state = DartBoardState::CLEAN;
             const bool decides_on_board = region.known;
+            // #1518: the emptiest this camera's board has been since its reference was
+            // taken, and the ceiling the ordinary CLEAN test reads that figure against.
+            // Both are read BEFORE this window joins the record, so the floor is always
+            // a level some EARLIER window really held.
+            const int floor_px = i < reference_floor.size() ? reference_floor[i] : -1;
+            const int last_px = i < previous_window_px.size() ? previous_window_px[i] : -1;
+            const int ceiling_px = decides_on_board
+                                       ? (int)(board_pixels * params.board_change_percent_threshold / 100.0)
+                                       : -1;
             const double cumulative_share = decides_on_board
                                                 ? 100.0 * (double)board_changed_pixels / (double)board_pixels
                                                 : change_ratio;
             const double decide_threshold = decides_on_board
                                                 ? params.board_change_percent_threshold
                                                 : params.change_percent_threshold;
+
+            // #1518: THE POISONED-BOOTSTRAP READING, and it writes no new constant.
+            //
+            // The adoption below recovers from a scene that changed after calibration,
+            // but it cannot bootstrap itself on a fixture whose CALIBRATION already held
+            // a dart: the board never reads CLEAN, so there is never a reconciled CLEAN
+            // to adopt at, and #1514 measured mocks/rig-20260922 wedged at DART_3 for 26
+            // windows because of it.
+            //
+            // A camera whose reference is sound reads CLEAN on an empty board, so its
+            // floor is UNDER the ceiling and this reading does not exist for it -- which
+            // is what makes it a no-op on a healthy fixture by construction rather than
+            // by a tolerance. A camera whose floor sits ABOVE its own CLEAN ceiling is
+            // telling us something about itself: since its reference was taken it has
+            // never once seen a board it would call empty. For that camera the emptiest
+            // board it HAS seen is the best evidence of what empty looks like, and a
+            // window that comes back to that floor is a board something came out of.
+            //
+            // The tolerance is the CLEAN ceiling itself, so the question asked is the
+            // ordinary one measured from a floor instead of from zero. It takes two
+            // windows -- the floor is a level an earlier window held -- which is why the
+            // very first window of a run cannot be read this way; on rig-20260922 that
+            // window is the pull itself, and the phantom it publishes is #1518's
+            // deferred half.
+            // The floor has to have been LEFT to be evidence of anything, and the
+            // window before this one is where that is asked. Without this clause the
+            // reading fires on any two consecutive windows that measure the same thing,
+            // and there are such pairs in both fixtures -- #1358's second window on one
+            // event. MEASURED on mocks/rig-20260918 without it: an END inside a round,
+            // 8 visits seen where 7 were thrown, and the per-visit alignment fell from
+            // 19 darts of 21 to 17, 13 correct to 9. With it, that fixture is untouched.
+            const bool reference_is_poisoned = decides_on_board && floor_px > ceiling_px;
+            const bool left_its_floor = last_px > floor_px + ceiling_px;
+            const bool reverted_to_its_floor = reference_is_poisoned && left_its_floor &&
+                                               board_changed_pixels <= floor_px + ceiling_px;
+
+            // and this window joins the record, for the windows after it.
+            if (decides_on_board && i < reference_floor.size())
+            {
+                if (floor_px < 0 || board_changed_pixels < floor_px)
+                {
+                    reference_floor[i] = board_changed_pixels;
+                }
+                previous_window_px[i] = board_changed_pixels;
+            }
 
             if (any_board_fitted && !decides_on_board)
             {
@@ -1007,9 +1139,15 @@ namespace dart_processing
                 // that projects past the rim (its flight, from a side-on camera) is
                 // clipped, which biases the hull toward the end that scored.
                 double fresh_share;
+                // #1518: the changed region the add-versus-remove reading is made over.
+                // It is the FRESH mask -- what arrived since the last dart -- because
+                // that is the region the advance below is about, and it is taken here
+                // rather than after, because `single_thresh` is narrowed to the tip mask
+                // three lines down.
+                Mat sign_mask;
                 if (decides_on_board)
                 {
-                    Mat fresh_inside;
+                    Mat &fresh_inside = sign_mask;
                     bitwise_and(single_thresh, region.mask, fresh_inside);
                     const int fresh_pixels = countNonZero(fresh_inside);
                     result.camera_results[i].fresh_board_pixels = fresh_pixels;
@@ -1024,9 +1162,45 @@ namespace dart_processing
                 else
                 {
                     fresh_share = 100.0 * (double)countNonZero(single_thresh) / (double)total_pixels;
+                    sign_mask = single_thresh.clone();
                 }
 
-                if (fresh_share >= decide_threshold) // and something new arrived on it
+                // #1518: which way the change went. A diff has no sign -- a dart pulled
+                // out and a dart thrown in make the same silhouette in |cur - ref| -- so
+                // the sign is read out of the two IMAGES, over the same changed pixels:
+                // whichever carries more edge inside them is the one holding the dart.
+                // The reference is the one the fresh figure was measured against, so the
+                // question asked is always about the change that is being voted on.
+                // Nothing decides on it and an ordinary run does not pay for the two
+                // Sobels, so it is computed only where it is going to be printed.
+                if (windowCensus())
+                {
+                    const Mat &sign_reference = !working_backgrounds[i].empty() ? working_backgrounds[i] : background_gray;
+                    result.camera_results[i].reference_edge = edgeEnergy(sign_reference, sign_mask);
+                    result.camera_results[i].current_edge = edgeEnergy(averaged_frame, sign_mask);
+                    result.camera_results[i].sign_pixels = sign_mask.empty() ? 0 : countNonZero(sign_mask);
+                }
+
+                if (reverted_to_its_floor)
+                {
+                    // #1518: a DART CAME OUT. Before this branch the board could only
+                    // ever read a change as a dart arriving, so a fixture whose
+                    // calibration held a parked dart -- mocks/rig-20260922 -- scored the
+                    // PULL as its first dart and then wedged for the rest of the clip
+                    // (#1514). This camera votes CLEAN, which is the same word a camera
+                    // under the ceiling says; the board still takes a quorum to move,
+                    // and the reference is adopted below only from the reconciled vote.
+                    candidate_state = DartBoardState::CLEAN;
+                    single_thresh = Mat::zeros(thresh.size(), CV_8UC1); // nothing arrived, so there is no tip in it
+                    log_info("TAKEOUT BY REVERSION: camera " + to_string(i + 1) + " cannot read CLEAN against its own "
+                             "reference -- the emptiest board it has seen since that reference was taken still "
+                             "changes " + to_string(floor_px) + " px of its " + to_string(board_pixels) +
+                             " px board, where CLEAN is " + to_string(ceiling_px) + " px -- and this window is back "
+                             "at " + to_string(board_changed_pixels) + " px after " + to_string(last_px) +
+                             " px in the window before it, which is that floor again. Something "
+                             "came OUT, so it votes CLEAN; its reference is re-based if the board agrees");
+                }
+                else if (fresh_share >= decide_threshold) // and something new arrived on it
                 {
                     // CHECK FROM CLEAN AND OR UNKNOW STATES TOO (MAYBE NOT DEFINED YET)
                     if (previous_states[i] == DartBoardState::CLEAN)
@@ -1264,6 +1438,69 @@ namespace dart_processing
             {
                 working_backgrounds[i] = Mat();
             }
+
+            // #1518: and the stage's own reference with them. A board the VOTE calls
+            // empty is what empty looks like from here, so the frames that settled on
+            // this takeout become what CLEAN is measured against -- which is the whole
+            // of the repair, because it is the only thing in this stage that can ever
+            // let go of a scene that changed after calibration.
+            //
+            // A camera adopts only where its OWN reading was CLEAN. That is not caution
+            // for its own sake: on rig-20260922 a person stands in front of camera 3 at
+            // several takeouts (134,932 px of its 182,113 px board), and a camera that
+            // is looking at somebody's back has not seen an empty board whatever the
+            // other cameras reconciled. It keeps the reference it had and adopts at the
+            // next CLEAN it can see for itself.
+            string carried;
+            bool anything_moved = false;
+            for (size_t i = 0; i < state_references.size() && i < window_frames.size(); i++)
+            {
+                if (window_frames[i].empty() || i >= result.camera_results.size())
+                {
+                    continue;
+                }
+                const CameraDetectionResult &r = result.camera_results[i];
+                if (!r.frame_available || r.abstained_no_board ||
+                    r.detected_state != DartBoardState::CLEAN)
+                {
+                    continue;
+                }
+                state_references[i] = window_frames[i].clone();
+                reference_floor[i] = -1; // a floor against a reference nothing reads any more
+                previous_window_px[i] = -1;
+                const int ceiling = r.board_pixels > 0
+                                        ? (int)(r.board_pixels * params.board_change_percent_threshold / 100.0)
+                                        : 0;
+                if (r.board_pixels > 0 && r.board_changed_pixels > ceiling)
+                {
+                    anything_moved = true;
+                }
+                char share[32];
+                snprintf(share, sizeof(share), "%.2f",
+                         r.board_pixels > 0 ? 100.0 * (double)r.board_changed_pixels / (double)r.board_pixels : 0.0);
+                carried += (carried.empty() ? "" : ", ");
+                carried += "camera " + to_string(i + 1) + " was carrying " +
+                           to_string(r.board_changed_pixels) + " px against its old reference (" + share +
+                           "% of its board, where CLEAN is " + to_string(ceiling) + " px)";
+            }
+            if (!carried.empty())
+            {
+                // Said out loud only when the reference really MOVED -- a board that was
+                // already clean re-bases on a figure of a few pixels every takeout, and
+                // thirty of those lines a clip would bury the one that matters. ADR-0055's
+                // posture: a board that changed its idea of clean says so.
+                const string sentence =
+                    "REFERENCE ADOPTED: the board reconciled CLEAN, so what these cameras can see now is "
+                    "what an empty board means from here -- " + carried;
+                if (anything_moved)
+                {
+                    log_info(sentence);
+                }
+                else
+                {
+                    log_debug(sentence);
+                }
+            }
         }
 
         // set new best previous state
@@ -1289,7 +1526,19 @@ namespace dart_processing
                 line += " | cam" + to_string(i + 1) + " " + getDartBoardStateName(r.detected_state) +
                         " board=" + to_string(r.board_changed_pixels) + "/" + to_string(r.board_pixels) +
                         " fresh=" + to_string(r.fresh_board_pixels) +
-                        " frame=" + to_string(r.total_changed_pixels);
+                        " frame=" + to_string(r.total_changed_pixels) +
+                        // #1518: the add-versus-remove reading, and the two figures it
+                        // was made from -- mean Sobel magnitude x1000 over the changed
+                        // pixels, of the reference and of this window's frame, with
+                        // their ratio x1000. -1 is a question that was not asked (the
+                        // board read empty, or this camera abstained). They decide
+                        // nothing: #1518 measured this ratio and refused it.
+                        " refedge=" + to_string(r.reference_edge) +
+                        " curedge=" + to_string(r.current_edge) +
+                        " signpx=" + to_string(r.sign_pixels) +
+                        " refratio=" + (r.reference_edge > 0 && r.current_edge > 0
+                                              ? to_string((int)(1000.0 * (double)r.reference_edge / (double)r.current_edge))
+                                              : string("-"));
                 if (!r.frame_available)
                     line += " NOFRAME";
                 if (r.abstained_no_board)

@@ -126,6 +126,45 @@ namespace dart_processing
         // from a permanent scene change (issue #1514), not a move of this number.
         double board_change_percent_threshold = 0.10; // % of a camera's own fitted board
 
+        // #1518 MEASURED AND REFUSED: an add-versus-remove discriminator on EDGE.
+        //
+        // The state stage's reference is adopted at every reconciled CLEAN (see
+        // dart_processing.cpp), so the scene it calls clean tracks the room. That repair
+        // cannot bootstrap itself on a fixture whose CALIBRATION already held a dart:
+        // the board never reads CLEAN, so there is never a reconciled CLEAN to adopt at,
+        // and #1514 measured mocks/rig-20260922 wedged at DART_3 for 26 windows because
+        // of it. The discriminating fact is the SIGN of the change, and a diff has no
+        // sign: a pull and a throw both make the same silhouette appear in |cur - ref|.
+        // It is in the two IMAGES. A dart is a hard, high-contrast object; the board it
+        // covers is flat paint. So whichever of the two carries more EDGE inside the
+        // changed region is the one holding the dart -- the reference means a removal,
+        // the current frame means a throw.
+        //
+        // The figure tried was the mean Sobel magnitude over the changed pixels, of the
+        // reference over that of the averaged window frame -- one ratio, both halves
+        // measured on the same pixels of the same camera, so no unit and no rig
+        // constant. IT DOES NOT SEPARATE. Census over all 34 windows of
+        // mocks/rig-20260922, both voting cameras, whole clip (the run
+        // testers/i1518_run.sh prints, `sign=` and `refedge`/`curedge` on every
+        // WINDOW CENSUS line):
+        //
+        //   camera 2   the 8 takeout windows          1.28 - 1.29   (8,66x-8,71x px)
+        //              the 25 other windows           1.03 - 1.24
+        //   camera 3   the 3 unblocked takeouts       1.22 - 1.27
+        //              a person LEAVING the frame     1.32          (window 12)
+        //              real throws                    0.72 - 1.19
+        //
+        // So the widest gap anywhere is 0.04 on one camera, and the single highest
+        // reading in the whole fixture is not a takeout at all. A dart is only a few
+        // thousand of a two-hundred-thousand-pixel board and the mask the morphology
+        // leaves is much bigger than the dart, so the paint, wires and numbers that are
+        // in BOTH images dominate both means and pull every ratio to 1. The figures are
+        // kept in the window census because a refusal somebody can re-measure is worth
+        // more than a sentence saying it was tried; nothing decides on them.
+        //
+        // What ships instead is the REVERSION reading below, which writes no constant
+        // at all: it reuses this threshold as its tolerance.
+
         // #1348: the vote's quorum, and the population it is measured against.
         //
         // `min_cameras_to_move_the_board` is the CORROBORATION rule and it is a floor: a
@@ -253,6 +292,15 @@ namespace dart_processing
         // frame instead is how the rig's camera 1 voted DART_1 on the thrower's shoes,
         // six windows out of six (#1345).
         bool abstained_no_board = false;
+        // #1518: the two edge figures the add-versus-remove reading was made from, mean
+        // Sobel magnitude x1000 over the changed pixels -- of the reference this camera
+        // measured against, and of the frame it brought. -1 where the question was not
+        // asked (an unoccupied board, a camera that abstained). They are a MEASUREMENT
+        // and decide nothing -- see the refusal beside `board_change_percent_threshold`
+        // above -- and they are computed only under OD_WINDOW_CENSUS.
+        long reference_edge = -1;
+        long current_edge = -1;
+        int sign_pixels = 0;
     };
 
     // Result of dart state detection
