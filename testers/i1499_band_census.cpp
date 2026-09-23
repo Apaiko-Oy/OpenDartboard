@@ -163,7 +163,9 @@ int main(int argc, char **argv)
     cv::Mat frame;
     if (!averageOf(cap, 30, frame)) { std::cerr << "no frames in " << clip << "\n"; return 2; }
 
-    DartboardCalibration calib = geometry_calibration::calibrateSingleCamera(frame, camIdx, false);
+    // Debug drawings on when a still is asked for: the mask grids and ellipse stills the
+    // pipeline itself writes are the pictures that settle which contour became which ring.
+    DartboardCalibration calib = geometry_calibration::calibrateSingleCamera(frame, camIdx, !annotate.empty());
     const auto &E = calib.ellipses;
     if (!calib.sees_board || !E.hasValidDoubles)
     {
