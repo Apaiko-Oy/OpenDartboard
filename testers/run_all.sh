@@ -114,6 +114,17 @@ tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
 # proving the guard's default prints nothing. Three whole-clip replays, i1499's cost.
 tester 1510p2-modelcheck  "bash '$T/unit_check.sh' 1510p2"
 tester 1510p2-census      "bash '$T/i1510p2_run.sh'"
+# #1511: the shaft-axis observation. The pure check builds every figure it judges --
+# rotation, scale, fragmentation, a flight-dominated shape, shadows, two competing
+# objects, near-end-on -- and measures the issue's required mutation on every run: each
+# negative control is refused gated AND accepted with the gate off (AxisParams::gated,
+# the same switch OD_AXIS_GATE=off throws in the pipeline), so the gates are proved
+# load-bearing rather than decorative. Costs one compile, no extra translation units.
+tester 1511-axischeck     "bash '$T/unit_check.sh' 1511"
+# #1511's fixture half: the axis census on both rig fixtures against hand-measured
+# shaft annotations (testers/i1511_annotations), plus the control run proving
+# OD_SHAFT_CENSUS defaults off. Whole-clip replays, i1510p2's shape and cost.
+tester 1511-axis          "bash '$T/i1511_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which

@@ -88,33 +88,46 @@ namespace shaft_axis
 
         // The shaft-evidence gate: support extent along the axis over the median column
         // width across it. A DART fact, not a tuned number: a dart's visible
-        // shaft-plus-flight is several times longer than the figure is anywhere wide
-        // (the rig fixtures' accepted figures measure 4.4-26.7, i1511's census), while
-        // a near-end-on dart's figure is a blob about as long as wide (the synthetic
-        // end-on control measures 1.2-1.5). 3.0 halves the gap from the blob side.
+        // shaft-plus-flight is several times longer than the figure is anywhere wide,
+        // while a dart seen nearly end-on is a blob about as long as wide. MEASURED, by
+        // i1511_axis_check on figures whose truth is built: every accepted synthetic
+        // rod, flight and fragment figure reads 11.7-27.0, the end-on blob 1.19 and the
+        // short jittery fragment 2.31, so 3.0 sits above everything that must refuse
+        // with a factor of ~4 of clear air below the leanest real shaft shape.
         double min_elongation = 3.0;
 
-        // The straightness gate on the kept centreline, px RMS about the fitted line.
-        // An OPTICAL fact: a straight rod's one-pixel-column means scatter by
-        // quantisation and morphology at well under a pixel (synthetic straight
-        // controls measure 0.03-0.33 px; the rig fixtures' accepted figures 0.10-1.98
-        // px over 217 axes), while a spine bent by a shadow lobe or a second object
-        // measures several (the synthetic bent control 3.6 px). 2.5 px.
+        // The straightness gate on the kept centreline, px RMS about the fitted line --
+        // the gate that refuses a composite figure, and the detector of a violated
+        // straight-axis assumption. An OPTICAL fact at the clean end: a straight rod's
+        // one-pixel-column means scatter by quantisation at 0.00-0.49 px (every clean
+        // synthetic control), and a rod that survives a small trimmed lobe reads 2.26.
+        // Everything one line does not explain measures FAR side: two crossing rods
+        // 7.99, an off-axis end blob 7.04, a bent silhouette 7.62, a parallel older
+        // dart 5.20 (all i1511_axis_check). 2.5 px: just over the worst clean survivor,
+        // half the nearest composite.
         double max_centreline_rms_px = 2.5;
-
-        // The competing-structure gate: columns the robust band trimmed, over columns
-        // seen. Trimming is HOW the fit survives a distractor, so a little is health
-        // and a lot means the figure is not one object: synthetic clean controls trim
-        // 0.00-0.08, a two-dart figure that still fits trims its minority object
-        // wholesale (0.36-0.45 measured). 0.30.
-        double max_trim_fraction = 0.30;
 
         // The usability gate on the direction itself, degrees at one sigma. #1512
         // intersects axes across cameras; a direction looser than this constrains
-        // nothing there. The formula below ties sigma to residual over extent, so this
-        // also floors the extent: at the 2.5 px residual ceiling a figure needs ~25 px
-        // of spread before its direction can pass. 6.0 degrees.
+        // nothing there, and a sigma that could not be measured at all (kept <= 2
+        // columns) is refused here by name. RECORDED: on every figure measured so far,
+        // synthetic and fixture alike, some other gate refuses first -- the arithmetic
+        // couples sigma to rms over extent^1.5, so a figure loose enough to fail 6.0
+        // degrees with a clean rms is too short to pass elongation or the support
+        // floor. It is kept as the backstop and as the CONTRACT the observation makes
+        // to #1512, not as the gate expected to fire.
         double max_sigma_deg = 6.0;
+
+        // A max_trim_fraction gate ("not one object") was DESIGNED AND REFUSED by
+        // measurement, and the numbers are recorded so nobody re-adds it without new
+        // ones: on every synthetic composite built to trip it, the contaminated first
+        // fit tilts toward the distractor, the residual MAD inflates, the band widens
+        // and NOTHING is trimmed -- off-axis end blob trim 0.000 rms 7.04, two
+        // crossing rods trim 0.000 rms 7.99, parallel older dart trim 0.000 rms 5.20
+        // -- so the RMS gate above is what actually refuses every such figure, and a
+        // trim gate would be dead code wearing a meaning. `trimmedFraction` stays
+        // REPORTED: where trimming works (a small lobe: 0.131 trimmed, axis saved
+        // within 0.3 deg) it is the overlay's rejected-distractor census.
 
         // Robust-band shape, not gates: a column is trimmed when its residual exceeds
         // max(3 * 1.4826 * MAD, floor). The floor keeps one-pixel quantisation from
@@ -502,14 +515,6 @@ namespace shaft_axis
                        detail::fmt("%.2f", out.centrelineRmsPx) + " px RMS about the line against a " +
                        detail::fmt("%.1f", params.max_centreline_rms_px) +
                        " px gate -- a bent silhouette, a shadow lobe, or two objects one line does not explain");
-            }
-            if (out.trimmedFraction > params.max_trim_fraction)
-            {
-                refuse("not one object: " + std::to_string(out.trimmedColumns) + " of " +
-                       std::to_string(out.columns) + " centreline columns were trimmed (" +
-                       detail::fmt("%.2f", out.trimmedFraction) + " against a " +
-                       detail::fmt("%.2f", params.max_trim_fraction) +
-                       " gate), so a competing structure holds too much of this figure");
             }
             if (out.sigmaDeg < 0.0 || out.sigmaDeg > params.max_sigma_deg)
             {
