@@ -109,6 +109,21 @@ namespace dart_processing
         // repository has. On the rig's ~197,000 px boards 0.10% is ~197 px; darts there
         // measured 348-15,556 px on the board (shadows inflate the big end), and an
         // empty window's residue measured 0 px on the rig, 13-271 px on the mocks.
+        //
+        // #1514: on mocks/rig-20260922 the empty-window residue is NOT near zero, and no
+        // value of this constant can be. That fixture's calibration frames hold a dart
+        // parked in the board (frame 0 of every camera shows it); it is pulled before
+        // the first throw, so every settled window's cumulative diff carries its
+        // silhouette for ever: 5,767-5,968 px on cam 1 (2.7% of its 215,925 px board),
+        // 1,175-1,254 px on cam 2 (0.56%), 1,021-1,175 px on cam 3 (0.58%) -- measured
+        // across all 30 completed windows of the whole clip (testers/i1514_run.sh
+        // reproduces the census). The residue OVERLAPS the darts' own cumulative range
+        // above (0.18-7.9% of the board on rig-20260918), so no threshold separates
+        // them: raising this past 2.7% would swallow every one-dart board, and at any
+        // value below it no camera on that fixture ever reads CLEAN, `goes_clean` never
+        // reaches its quorum, no takeout is reconciled and the board wedges at DART_3
+        // with detection stalled at 3 of 24. The repair is a reference that can recover
+        // from a permanent scene change (issue #1514), not a move of this number.
         double board_change_percent_threshold = 0.10; // % of a camera's own fitted board
 
         // #1348: the vote's quorum, and the population it is measured against.
