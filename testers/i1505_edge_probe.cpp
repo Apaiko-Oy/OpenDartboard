@@ -203,7 +203,7 @@ int main(int argc, char **argv)
 
             const score_processing::PointScore ps = score_processing::scorePoint(cam.tip_position, calib);
             point_scores[i] = ps;
-            may_vote[i] = cam.tip_found && ps.score != "MISS";
+            may_vote[i] = cam.tip_found && score_processing::aVoteIsCast(ps);
 
             const cv::Point2f bull = cv::Point2f(calib.bullCenter);
             const cv::Point2f rel = cam.tip_position - bull;
@@ -263,11 +263,20 @@ int main(int argc, char **argv)
             }
         }
 
+        // The published verdict comes from processScore itself -- the same call the
+        // detector makes -- so the vote path this probe reports is the one that ships,
+        // the `may_vote` line included (#1505 moved the MISS half of that line into
+        // `aVoteIsCast`; a probe voting by its own copy of the old rule would measure a
+        // rule that no longer runs). The per-camera chooseScore above is kept only as a
+        // cross-check that the two agree on the same readings.
+        const score_processing::ScoreResult published =
+            score_processing::processScore(background_frames, dart_result, calibrations, false);
         const score_processing::ScoreChoice choice = score_processing::chooseScore(point_scores, may_vote);
         std::cout << "I1505VOTE dart=" << dart
-                  << " published=" << (choice.camera >= 0 ? point_scores[choice.camera].score : std::string("MISS"))
-                  << " confidence=" << (choice.camera >= 0 ? fmt(choice.confidence) : std::string("0.50"))
-                  << " camera=" << choice.camera
+                  << " published=" << (published.valid ? published.score : std::string("(invalid)"))
+                  << " confidence=" << fmt(published.confidence)
+                  << " camera=" << published.camera_index
+                  << " replayAgrees=" << ((choice.camera >= 0 ? point_scores[choice.camera].score : std::string("MISS")) == published.score ? 1 : 0)
                   << " agreeing=" << choice.agreeing << std::endl;
     }
 

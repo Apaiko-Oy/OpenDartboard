@@ -73,6 +73,24 @@ namespace score_processing
         // in the reading saying so. Where no two cameras agree it is therefore not the
         // one the vote falls back to (chooseScore).
         bool rings_complete = true;
+        // #1505: the tip was MEASURED past the outer double but within the board's
+        // physical rim -- on the surround, the one place a missed dart really lands and
+        // the region the tip search is deliberately masked out to (#1364). False for a
+        // MISS from an invalid calibration, from an anchored camera whose wedge walk
+        // failed, and for a "tip" beyond the physical rim, which is not a place a dart
+        // can be. It is a measurement and it decides nothing on an ordinary run: the
+        // repair it makes possible -- letting this eyewitness vote -- was measured and
+        // REFUSED, and `aVoteIsCast` below carries the numbers.
+        //
+        // Measured on mocks/rig-20260918 (i1505_edge_probe, 19 dart events): 8 readings
+        // came back MISS with a tip found. TWO were on the surround -- visit 6's
+        // off-board dart at 215 mm (camera 1, the honest witness the vote silences)
+        // and visit 1's leaning dart at 175 mm on one camera of three. SIX were beyond
+        // the rim in that replay, at 238..256 mm -- flight and shaft artifacts on five
+        // darts that were scored CORRECTLY -- and the real binary's windows put one of
+        // those same flights ON the surround at 1.177, which is the measured reason
+        // the franchise stays shut.
+        bool on_surround = false;
         BoardPosition board;
     };
 
@@ -150,12 +168,91 @@ namespace score_processing
     }
 
     /**
+     * #1505: the physical board's radius over the scoring area's, 225.5/170 -- the same
+     * ratio dart_processing's tip mask is widened by (#1364), spelled here because the
+     * scorer must agree with the mask about where a tip can BE at all. A tip between
+     * the outer double and this rim is on the surround; one beyond it is not a place a
+     * dart can land, and on this fixture every such "tip" was a flight or a shaft.
+     * The boundary does NOT separate honest surround tips from artifacts -- the real
+     * binary read one flight at 1.177 of the board, inside it -- which is half of why
+     * `aVoteIsCast` refuses the repair this measurement makes possible.
+     * (dart_processing carries its own copy of the ratio; it is another slice's file,
+     * so the two are held together by the sentence in both places rather than by an
+     * include.)
+     */
+    inline constexpr float kPhysicalRimOverBoard = 225.5f / 170.0f;
+
+    /**
+     * #1505's pin, in the shape #1492 established for a repair that was MEASURED AND
+     * REFUSED: OD_SURROUND=votes lets a MISS measured on the surround vote, on the
+     * shipping binary, so the refusal below can be re-measured rather than re-argued.
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    inline bool surroundMissesVote()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_SURROUND");
+            return e != nullptr && std::string(e) == "votes";
+        }();
+        return v;
+    }
+
+    /**
+     * #1505: whether this reading is a vote -- what processScore has always required, a
+     * reading that is not a MISS, stated as a decision so the measurement below stays
+     * attached to it.
+     *
+     * THE REPAIR ANYBODY WOULD REACH FOR WAS MEASURED AND REFUSED, and the refusal is
+     * the finding. Camera 1 measured visit 6's off-board dart ON THE SURROUND at
+     * 215 mm, said MISS, and this rule silenced it, so a camera whose tip -- the same
+     * dart's, out of the board plane -- projected 20 mm INSIDE the board stood alone
+     * and a dart that never hit the board published S7 at 0.7. Admitting the surround
+     * MISS as a reading (OD_SURROUND=votes) repairs exactly that dart: MISS at 0.7,
+     * the census's one on-board error gone.
+     *
+     * Measured on the real binary over the whole of mocks/rig-20260918, the SAME run
+     * then flipped visit 3's second dart -- a thrown 7, scored CORRECTLY as S7 -- to
+     * MISS: camera 1 held a "tip" on the new dart's own flight at ruler radius 1.177,
+     * on the surround by every measure this file has, and outvoted the correct lone S7
+     * by the fallback's index order. The honest witness reads 1.147 and the artifact
+     * 1.177, three percent apart with the honest one NEARER the board, so no radius
+     * separates them -- and the artifact is detection noise: the synchronous replay's
+     * window read the same dart's flight at 1.44 and refused it, so the verdict on a
+     * correct dart would flicker run to run. One dart repaired, one correct dart
+     * broken, in one run: the trade is 1:1 and the acceptance criterion (nothing that
+     * is right may go wrong) refuses it. What separates the two readings is WHICH
+     * OBJECT the tip was found on, which is the tip machinery's question
+     * (#1494/#1495's family), not the vote's.
+     *
+     * Inline for #1338's reason: a tester holds the decision without a detector.
+     */
+    inline bool aVoteIsCast(const PointScore &point)
+    {
+        if (point.score != "MISS")
+        {
+            return true;
+        }
+        return point.on_surround && surroundMissesVote();
+    }
+
+    /**
      * #1489: how a published reading came by its wedge, in the words the BOARD line has
      * always used. The first two spellings are byte-for-byte what they were; the third
      * is the state that had no name and was printed as the second.
+     *
+     * #1505: and a published MISS is the fourth state -- the tip was measured off the
+     * board and no wedge is any part of the reading. It must not print "wedge by
+     * default": that is the census's needle for #1346's asserted 20 (i1484 reads the
+     * BOARD line as the independent witness for the 0.5 bucket), and a measured
+     * off-board reading printed in those words would count as an assertion nobody made.
      */
     inline string howTheWedgeWasRead(const PointScore &point)
     {
+        if (point.score == "MISS")
+        {
+            return "no wedge, the tip is off the board";
+        }
         if (point.ring_only)
         {
             return "wedge not in this reading";
@@ -185,8 +282,13 @@ namespace score_processing
      * from a number that only ever counted cameras.
      *
      * `may_vote[i]` is what processScore has always required of a voter: the camera
-     * participated in the window, is calibrated, found a tip, and did not read MISS.
-     * Inline for #1338's reason: a tester holds the vote without building the detector.
+     * participated in the window, is calibrated, found a tip, and cast a vote --
+     * `aVoteIsCast`, the same MISS exclusion it always was, stated as a decision
+     * (#1505). Under that issue's pin a surround MISS needs nothing special here: its
+     * string is "MISS", it is neither asserted nor ring-only, so it lands in
+     * `readings` and votes like any other -- which is how the refused repair was
+     * measured without touching this function. Inline for #1338's reason: a tester
+     * holds the vote without building the detector.
      */
     inline ScoreChoice chooseScore(const vector<PointScore> &points, const vector<bool> &may_vote)
     {
