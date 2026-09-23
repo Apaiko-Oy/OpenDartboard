@@ -169,6 +169,15 @@ namespace dart_processing
     // camera's candidate.
     static vector<Mat> clean_references;
 
+    // #1535: the tips each camera has reported for the darts the VOTE accepted this
+    // visit -- the memory isAReReportOfAnEarlierTip reads. Appended after the vote
+    // advances the board (a camera is not what calls a dart, #1495's sentence), and
+    // cleared at the reconciled CLEAN beside the working backgrounds (#1349's point;
+    // deliberately NOT inside the OD_CLEAN_REFERENCE guard, so that pin cannot change
+    // this rule's behaviour). A tip found in a window whose vote refused the advance is
+    // never recorded: no dart was called, so nothing was reported.
+    static vector<vector<Point2f>> reported_tips;
+
     // #1518: each camera's cumulative board figure from the LAST completed window, which
     // is what a reversion is a fall FROM (readsAsReversion, dart_processing.hpp). -1 is
     // "no previous window", which is no verdict; it is reset to 0 when the reference is
@@ -284,6 +293,30 @@ namespace dart_processing
         return v;
     }
 
+    /**
+     * #1535's falsification, in the od_fix shape #1339, #1358, #1492, #1494, #1495 and
+     * #1518 established: one binary, the rule chosen at run time, so "different build"
+     * is never a confound.
+     *
+     * `OD_TIP_IDENTITY=off` restores the tip machinery as it was before #1535: every
+     * found tip is reported, including a "new" tip that is the pixel this camera
+     * already reported for an earlier dart of the same visit -- the false second
+     * witness that earned rig-20260918 visit 4's off-board dart its S20@0.9 (#1505's
+     * measurement; the census is on isAReReportOfAnEarlierTip in dart_processing.hpp).
+     * Anything else, unset included, applies the rule.
+     *
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    bool tipIdentityIsOff()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_TIP_IDENTITY");
+            return e != nullptr && std::string(e) == "off";
+        }();
+        return v;
+    }
+
     // The smallest distance between two contours, in pixels. Bounding boxes first: a
     // figure here holds nine contours at its worst (measured over the whole of
     // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
@@ -320,7 +353,13 @@ namespace dart_processing
         return v;
     }
 
-    pair<Point2f, Point2f> detectTipAndCenter(const Mat &binary_thresh, bool debug_mode, int camera_id, vector<Mat> &dart_tips)
+    // #1535: `gap_to_figure`, where asked for, is the distance in px from the chosen tip
+    // to the nearest point of the largest fresh-diff contour -- the piece the centroid
+    // was measured from. 0 for a tip that is a point of that piece; the census line
+    // below has printed the same figure as tipGap since #1494. It is what
+    // isAReReportOfAnEarlierTip means by "the fresh change lies elsewhere".
+    pair<Point2f, Point2f> detectTipAndCenter(const Mat &binary_thresh, bool debug_mode, int camera_id, vector<Mat> &dart_tips,
+                                              double *gap_to_figure = nullptr)
     {
         Point2f tip_position(0, 0);
         Point2f center_position(0, 0);
@@ -479,6 +518,25 @@ namespace dart_processing
             log_debug("No tip found - max hull distance too small: " + to_string(max_distance));
         }
 
+        // #1535: how far the chosen tip sits from the piece the centroid was measured
+        // from -- the fresh figure itself. The census below has printed this as tipGap
+        // since #1494; it is now computed on every call because the re-report rule
+        // decides on it (isAReReportOfAnEarlierTip, dart_processing.hpp).
+        double tip_gap = 0;
+        if (norm(tip_position) > 0)
+        {
+            tip_gap = 1e9;
+            for (const Point &q : biggest_shape)
+            {
+                const double d = norm(Point2f(q) - tip_position);
+                if (d < tip_gap) tip_gap = d;
+            }
+        }
+        if (gap_to_figure != nullptr)
+        {
+            *gap_to_figure = tip_gap;
+        }
+
         if (tipCensus() || !tipProbeDir().empty())
         {
             static long probe_seq = 0;
@@ -514,17 +572,7 @@ namespace dart_processing
                 }
             }
 
-            double tip_gap = 0;
-            if (norm(tip_position) > 0)
-            {
-                tip_gap = 1e9;
-                for (const Point &q : biggest_shape)
-                {
-                    const double d = norm(Point2f(q) - tip_position);
-                    if (d < tip_gap) tip_gap = d;
-                }
-            }
-
+            // tip_gap is computed above, on every call, since #1535.
             Point2f tip_unfloored(-1, -1);
             double unfloored_dist = 0;
             if (unfloored.size() >= 3)
@@ -757,7 +805,8 @@ namespace dart_processing
             frames_accumulated.size() != current_frames.size() ||
             working_backgrounds.size() != current_frames.size() ||
             clean_references.size() != current_frames.size() ||
-            previous_board_change.size() != current_frames.size())
+            previous_board_change.size() != current_frames.size() ||
+            reported_tips.size() != current_frames.size())
         {
             previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
             accumulated_frames.resize(current_frames.size());
@@ -765,6 +814,7 @@ namespace dart_processing
             working_backgrounds.resize(current_frames.size());
             clean_references.resize(current_frames.size());
             previous_board_change.resize(current_frames.size(), -1);
+            reported_tips.resize(current_frames.size());
         }
 
         // Check if we have initialized
@@ -1166,16 +1216,51 @@ namespace dart_processing
                     }
 
                     // Use smart tip detection
-                    auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips);
+                    double gap_to_figure = 0;
+                    auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips,
+                                                             &gap_to_figure);
                     Point2f tip_pos = tip_and_center.first;
                     Point2f center_pos = tip_and_center.second;
 
                     // If tip position is valid, update the camera result
                     if (norm(tip_pos) > 0)
                     {
-                        result.camera_results[i].tip_position = tip_pos;
-                        result.camera_results[i].center_position = tip_and_center.second;
-                        result.camera_results[i].tip_found = true;
+                        // #1535: a "new" tip that is a pixel this camera already
+                        // reported for an earlier dart of this visit, with the fresh
+                        // figure elsewhere, is a re-report and not a second witness --
+                        // this camera abstains from scoring the new dart, honestly.
+                        // The vote is untouched: with one false witness silent, two
+                        // "agreeing" strings cannot form (rig-20260918 visit 4's
+                        // S20@0.9 -- the census on isAReReportOfAnEarlierTip).
+                        double nearest_reported = -1;
+                        if (i < reported_tips.size())
+                        {
+                            for (const Point2f &earlier : reported_tips[i])
+                            {
+                                const double d = norm(tip_pos - earlier);
+                                if (nearest_reported < 0 || d < nearest_reported)
+                                {
+                                    nearest_reported = d;
+                                }
+                            }
+                        }
+                        if (!tipIdentityIsOff() && i < reported_tips.size() &&
+                            isAReReportOfAnEarlierTip(tip_pos, gap_to_figure, reported_tips[i]))
+                        {
+                            log_info("TIP IDENTITY: camera " + to_string(i + 1) + " found its \"new\" tip at (" +
+                                     to_string((int)tip_pos.x) + "," + to_string((int)tip_pos.y) + "), " +
+                                     to_string(nearest_reported >= 0 ? (long)(nearest_reported + 0.5) : -1L) +
+                                     " px from a tip it already reported for an earlier dart of this visit, "
+                                     "while the fresh change's nearest point is " + to_string((long)(gap_to_figure + 0.5)) +
+                                     " px away -- a re-report of an earlier dart, not a second witness, so "
+                                     "this camera abstains from scoring this dart (#1535)");
+                        }
+                        else
+                        {
+                            result.camera_results[i].tip_position = tip_pos;
+                            result.camera_results[i].center_position = tip_and_center.second;
+                            result.camera_results[i].tip_found = true;
+                        }
                     }
                 }
                 else
@@ -1360,6 +1445,23 @@ namespace dart_processing
             }
         }
 
+        // #1535: the board gained a dart, so what each camera reported FOR IT is now on
+        // the record isAReReportOfAnEarlierTip reads. Recorded from the vote's decision
+        // and not inside the per-camera loop, for #1495's reason: a camera is not what
+        // calls a dart, and a tip from a window the vote refused was never reported to
+        // anybody. Recorded whatever the OD_TIP_IDENTITY and OD_ADVANCE_RESET pins say,
+        // so a pinned run measures the rule against the same memory the tree rule holds.
+        if (final_state > best_previous_state)
+        {
+            for (size_t i = 0; i < result.camera_results.size() && i < reported_tips.size(); i++)
+            {
+                if (result.camera_results[i].tip_found)
+                {
+                    reported_tips[i].push_back(result.camera_results[i].tip_position);
+                }
+            }
+        }
+
         // #1349: the reset the mid-loop wipe was reaching for, made from the decision
         // that can make it: the board is CLEAN when the VOTE says so, and only then is
         // every camera's working background stale. Sized by the vector rather than
@@ -1372,6 +1474,15 @@ namespace dart_processing
             for (size_t i = 0; i < working_backgrounds.size(); i++)
             {
                 working_backgrounds[i] = Mat();
+            }
+
+            // #1535: the visit is over, so its reported tips are nobody's earlier dart
+            // any more. Reset here, beside the working backgrounds and OUTSIDE the
+            // OD_CLEAN_REFERENCE guard below, so that pin cannot change what the
+            // re-report rule remembers.
+            for (size_t i = 0; i < reported_tips.size(); i++)
+            {
+                reported_tips[i].clear();
             }
 
             // #1518: and the CLEAN reference adopts the scene, from the same decision.

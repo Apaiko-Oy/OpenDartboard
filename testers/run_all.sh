@@ -353,6 +353,18 @@ tester 1514-stall         "bash '$T/i1514_run.sh'"
 # MEASURED 2026-09-23 on this box: see the recorded line in the pull request.
 tester 1505-surround      "bash '$T/i1505_run.sh'"
 
+# #1535: a camera that re-reports a pixel it already reported this visit is not a
+# second witness. rig-20260918 visit 4's off-board third dart earned S20@0.9 because
+# camera 2's "new" tip was the PREVIOUS dart's tip -- 2.2 px from where it had already
+# reported it, the fresh diff's real change 82 px away -- and camera 3's parallax
+# projection agreed with the ghost (#1505's measurement; the vote-side repair was
+# measured there and REFUSED). isAReReportOfAnEarlierTip (pure, inline,
+# dart_processing.hpp, census in its docblock) makes that camera abstain for the new
+# dart, so two witnesses cannot form; OD_TIP_IDENTITY=off restores the unguarded
+# machinery on one binary. The harness holds the rule to its own census and replays
+# the fixture both ways through #1505's edge probe.
+tester 1535-rereport      "bash '$T/i1535_run.sh'"
+
 # #1486: an anchor a camera did not measure itself. `chooseScore` needs TWO cameras that
 # measured a wedge before a dart can publish at 0.9, and one branch of orientation_processing
 # ever set `anchored` -- so 0.9 had never been published on either fixture. This derives the
