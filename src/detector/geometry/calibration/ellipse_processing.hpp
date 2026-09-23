@@ -268,11 +268,22 @@ namespace ellipse_processing
                 continue; // nothing was fitted for this ring; it is already absent
             }
             const double spans = reach / board;
-            const bool where = spans >= ringBandLow(ring) && spans <= ringBandHigh(ring);
+            // The treble ring's two edges are one ring, fitted together, and 8 mm apart:
+            // the boundary between them sits so close to both that a doubles ring
+            // over-measured by 4% puts the outer edge across it -- the maintainer's rig on
+            // 2026-09-22, camera 1, whose outer treble edge read 0.5919 of the board
+            // against a line at 0.6054 while standing 0.653 of its own inner doubles edge,
+            // the board's 0.660. So each edge is held to the treble RING's band -- nearer
+            // the treble ring than the 25 ring or the doubles ring -- which still refuses
+            // everything #1485 was filed about.
+            const bool treble = ring == kInnerTriple || ring == kOuterTriple;
+            const double low = treble ? ringBandLow(kInnerTriple) : ringBandLow(ring);
+            const double high = treble ? ringBandHigh(kOuterTriple) : ringBandHigh(ring);
+            const bool where = spans >= low && spans <= high;
             char row[256];
             snprintf(row, sizeof(row), "%s%s %.4f of the board (%.4f..%.4f)%s",
                      said.empty() ? "" : "; ", ringName(ring), spans,
-                     ringBandLow(ring), ringBandHigh(ring), where ? "" : " REFUSED");
+                     low, high, where ? "" : " REFUSED");
             said += row;
             if (!where && !ringsAreTakenAsFitted())
             {

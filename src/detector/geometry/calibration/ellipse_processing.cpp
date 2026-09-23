@@ -402,6 +402,54 @@ namespace ellipse_processing
                 log_debug("FAIL - Triple ellipse fitting failed: " + string(e.what()));
                 result.hasValidTriples = false;
             }
+
+            // A treble ring broken into a C has one contour and no hole: there is no inner
+            // contour to fit, and one ellipse through both edges of the C lands between
+            // them. The maintainer's rig on 2026-09-22, camera 1: that fit read 0.575 of the
+            // board, between the ring's real 0.537 and 0.611, the band check refused it,
+            // and the camera could only ever call a treble a single. So where the contours
+            // do not give both edges, the ring is traced the way the doubles ring is --
+            // rays from the bull, which do not care where the ring is broken.
+            if (!result.hasValidTriples)
+            {
+                vector<Point> rayInner, rayOuter;
+                vector<bool> rayValid;
+                const vector<Point> outerPoints =
+                    performDoubleRayTrace(masks.triplesMask, bullCenter, params, rayInner, rayOuter, rayValid);
+                if (outerPoints.size() >= params.minValidRays)
+                {
+                    set<pair<int, int>> accepted;
+                    for (const Point &pt : outerPoints)
+                        accepted.insert({pt.x, pt.y});
+                    vector<Point> innerPoints;
+                    for (size_t i = 0; i < rayOuter.size() && i < rayInner.size(); i++)
+                    {
+                        if (accepted.count({rayOuter[i].x, rayOuter[i].y}) > 0)
+                            innerPoints.push_back(rayInner[i]);
+                    }
+                    if (innerPoints.size() >= 5)
+                    {
+                        try
+                        {
+                            result.outerTripleEllipse = fitEllipse(outerPoints);
+                            result.innerTripleEllipse = fitEllipse(innerPoints);
+                            result.hasValidTriples = true;
+                            log_debug("SUCCESS - Fitted triple ellipses by ray trace from " +
+                                      log_string(outerPoints.size()) + " outer and " +
+                                      log_string(innerPoints.size()) + " inner points");
+                        }
+                        catch (const cv::Exception &e)
+                        {
+                            log_debug("FAIL - Triple ray-trace fit failed: " + string(e.what()));
+                        }
+                    }
+                }
+                else
+                {
+                    log_debug("Triple ray trace gave " + log_string(outerPoints.size()) + " points, " +
+                              log_string(params.minValidRays) + " needed");
+                }
+            }
         }
 
         // SECTION 3: CONTOUR FITTING for BULL RINGS (simple method)
