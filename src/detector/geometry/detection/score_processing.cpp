@@ -227,6 +227,20 @@ namespace score_processing
             return out;
         }
 
+        // #1517: a ring refused by the band check is a zeroed ellipse (#1485), so it is
+        // the ellipses that are asked and not the fitting flags -- the flags are
+        // recomputed after the hold, but the ellipses are what scoring below consults,
+        // so asking them cannot drift from what this camera will actually do. The four
+        // asked are the ones that tell a single from a treble or a double, which is the
+        // measured failure the vote's preference exists for (#1485's zeroed treble ring
+        // on the rig). The bull ellipses are deliberately not in it: a zeroed bull
+        // degrades a different reading, and widening the field is a decision to take
+        // on its own measurement rather than in passing.
+        out.rings_complete = calib.ellipses.innerTripleEllipse.size.area() > 0 &&
+                             calib.ellipses.outerTripleEllipse.size.area() > 0 &&
+                             calib.ellipses.innerDoubleEllipse.size.area() > 0 &&
+                             calib.ellipses.outerDoubleEllipse.size.area() > 0;
+
         // 1. RING DETECTION - Check from inside out
         bool in_inner_bull = isPointInEllipse(pixel, calib.ellipses.innerBullEllipse);
         bool in_outer_bull = !in_inner_bull && isPointInEllipse(pixel, calib.ellipses.outerBullEllipse);
@@ -671,7 +685,14 @@ namespace score_processing
                 }
                 else if (!choice.by_default)
                 {
-                    log_info("No consensus, using single camera score: " + final_score + " from camera " + to_string(best_camera));
+                    // #1517: when the fallback passed over a camera missing a ring, the
+                    // account says so -- a lone 0.7 that was chosen for completeness must
+                    // not read like a lone 0.7 that was merely first. The base sentence
+                    // is byte-for-byte what it was; i1484's census greps it.
+                    log_info("No consensus, using single camera score: " + final_score + " from camera " + to_string(best_camera) +
+                             (choice.preferred_complete
+                                  ? " (preferred: it fitted every ring, a lower camera did not)"
+                                  : ""));
                 }
                 else
                 {

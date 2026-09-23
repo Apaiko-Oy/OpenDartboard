@@ -93,6 +93,15 @@ tester 1451-scorable      "bash '$T/unit_check.sh' 1451"
 # sentences capture.hpp prints at the OPEN site, held to each other so one cannot drift.
 tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
 
+# #1517: the no-consensus fallback and a camera whose ring set is incomplete. #1485
+# zeroes a ring the band check refused, and a zeroed ellipse contains no point, so a
+# camera whose treble ring was refused reads every treble as the single at the same
+# radius -- and chooseScore took readings[0] BY INDEX, so a calibration failure on the
+# lowest-index camera outranked a whole camera's treble on every dart, at the 0.7 of
+# any lone reading. Rescued Codex design (wip-rescue-rings, 4bc3bd9), landed with the
+# choice saying when the preference decided. Pure; costs one compile.
+tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
+
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
 # plain and OD_SEAL=star -- and unit_check.sh compiles and runs a check once. Costs a
