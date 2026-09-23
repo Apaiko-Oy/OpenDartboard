@@ -350,10 +350,15 @@ namespace dart_processing
      * nearer needle's 82. A tip must fail BOTH margins at once to be eaten.
      * mocks/rig-20260922 is measured at the outcome level (the probe cannot calibrate
      * its cameras -- its fixed seek lands on the parked dart; the real binary
-     * calibrates 3/3): the whole-clip census under the rule is line-identical to the
-     * census under OD_TIP_IDENTITY=off, 21 of 24 detected both ways, and the rule
-     * fires nowhere on it (no TIP IDENTITY line in the run log) -- no legitimate
-     * second dart near an earlier one is eaten.
+     * calibrates 3/3), whole clip, one binary, both modes, 2026-09-24: the rule fires
+     * exactly ONCE, on visit 1's second dart, and the firing is the mechanism itself.
+     * Camera 2's "new" tip at (718,212) sat 1 px from the tip it had already reported
+     * for the first dart, with the fresh change 42 px away, and it was the LONE
+     * witness: under OD_TIP_IDENTITY=off that re-report published S5@0.7 against a
+     * thrown 16 (the ghost of dart 1 as camera 2 read it), and under the rule the
+     * dart publishes MISS with no witness at all -- a wrong score became an honest
+     * abstention. Everything else is line-identical: 21 of 24 detected both ways,
+     * 1 of 21 correct both ways, no correct dart moved.
      *
      * LIMITATION, stated with its mechanism: a dart landing with its tip within 12 px
      * of an earlier tip AND detected only as change 40+ px away (its own tip region
