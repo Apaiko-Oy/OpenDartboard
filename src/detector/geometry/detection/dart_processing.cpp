@@ -317,6 +317,54 @@ namespace dart_processing
         return v;
     }
 
+    // ---- #1511: the shaft-axis observation's three switches ---------------------------
+    //
+    // The observation itself is ALWAYS computed and carried on CameraDetectionResult --
+    // it is a struct nothing reads yet, so computing it moves no published byte -- and
+    // everything that PRINTS is behind a pin, because a probe nobody asked for is a
+    // probe somebody will one day parse by accident (i1510p2_inside.sh's control run
+    // asserts the same zero about this census).
+    //
+    //   OD_SHAFT_CENSUS=1   one I1511AXIS line per camera per window the vote advanced,
+    //                       on stdout -- the line i1511's harness parses.
+    //   OD_SHAFT_PROBE=<dir>  plus the annotated overlay per camera: support, kept and
+    //                       trimmed centreline columns, the fitted axis, the sigma fan.
+    //   OD_AXIS_GATE=off    the falsification switch, in the od_fix shape #1339, #1492
+    //                       and #1535 established: the fit still MEASURES every gate
+    //                       figure but refuses on none of them, so one binary shows the
+    //                       gates are load-bearing -- the issue's own required mutation
+    //                       ("removing the quality gate must make negative controls
+    //                       fail"). Anything else, unset included, leaves the gates on.
+    static bool shaftCensusOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_SHAFT_CENSUS");
+            return e != nullptr && std::string(e) == "1";
+        }();
+        return v;
+    }
+
+    static const std::string &shaftProbeDir()
+    {
+        static const std::string v = []
+        {
+            const char *e = std::getenv("OD_SHAFT_PROBE");
+            return e != nullptr ? std::string(e) : std::string();
+        }();
+        return v;
+    }
+
+    static bool axisGateIsOff()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_AXIS_GATE");
+            return e != nullptr && std::string(e) == "off";
+        }();
+        return v;
+    }
+
     // The smallest distance between two contours, in pixels. Bounding boxes first: a
     // figure here holds nine contours at its worst (measured over the whole of
     // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
@@ -358,8 +406,13 @@ namespace dart_processing
     // was measured from. 0 for a tip that is a point of that piece; the census line
     // below has printed the same figure as tipGap since #1494. It is what
     // isAReReportOfAnEarlierTip means by "the fresh change lies elsewhere".
+    // #1511: `pieces_out`, where asked for, is the linked figure itself -- the same
+    // single-linkage group the tip is picked from -- handed out so the axis observation
+    // is fitted to EXACTLY the support the tip machinery read, never to a second
+    // segmentation that could quietly disagree with it.
     pair<Point2f, Point2f> detectTipAndCenter(const Mat &binary_thresh, bool debug_mode, int camera_id, vector<Mat> &dart_tips,
-                                              double *gap_to_figure = nullptr)
+                                              double *gap_to_figure = nullptr,
+                                              vector<vector<Point>> *pieces_out = nullptr)
     {
         Point2f tip_position(0, 0);
         Point2f center_position(0, 0);
@@ -461,6 +514,11 @@ namespace dart_processing
                     }
                 }
             }
+        }
+
+        if (pieces_out != nullptr)
+        {
+            *pieces_out = dart_pieces;
         }
 
         // Combine ALL dart pieces into one big point cloud
@@ -841,6 +899,11 @@ namespace dart_processing
 
         static long cycle_ordinal = 0;
         static long window_opened_at = 0;
+        // #1511: the completed-window serial the axis observation carries as its event
+        // identity. Its own counter rather than the window census's, because that one
+        // only counts when OD_WINDOW_CENSUS is set and an identity that moves with an
+        // instrument pin is not an identity.
+        static long window_serial = 0;
         cycle_ordinal++;
 
         auto openWindow = [&]()
@@ -916,6 +979,22 @@ namespace dart_processing
         // initialise variables
         result.camera_results.resize(current_frames.size());
 
+        // #1511: this window's identity, stamped on every camera's axis observation up
+        // front -- an abstention must say WHICH window it abstained from, or the
+        // coverage census cannot count it.
+        window_serial++;
+        for (size_t i = 0; i < result.camera_results.size(); i++)
+        {
+            result.camera_results[i].axis.camera = (int)i;
+            result.camera_results[i].axis.windowOrdinal = window_serial;
+            result.camera_results[i].axis.windowOpenedCycle = window_opened_at;
+            result.camera_results[i].axis.windowClosedCycle = cycle_ordinal;
+        }
+
+        // #1511: each camera's linked figure, kept for the probe overlay; empty where
+        // no fresh figure was read.
+        vector<vector<vector<Point>>> axis_pieces(current_frames.size());
+
         // Process all cameras - use pre-computed averages
         vector<DartBoardState> camera_states;
 
@@ -953,6 +1032,8 @@ namespace dart_processing
                 accumulated_frames[i].empty() || i >= background_frames.size() || background_frames[i].empty())
             {
                 result.camera_results[i].frame_available = false;
+                result.camera_results[i].axis.refusal =
+                    "no frame: this camera contributed nothing to the window, so there is no figure to fit";
                 log_warning("DART: camera " + to_string(i) + " contributed no frames to this window - abstaining");
                 if (debug_mode)
                 {
@@ -1111,6 +1192,9 @@ namespace dart_processing
                 // would otherwise answer with is how the rig's camera 1 voted DART_1 on
                 // the thrower's shoes, six windows of six (#1345).
                 result.camera_results[i].abstained_no_board = true;
+                result.camera_results[i].axis.refusal =
+                    "no fitted board: this camera abstains from the vote (#1354), and a figure "
+                    "that cannot be placed on a board is not axis evidence either";
                 candidate_state = previous_states[i];
                 single_thresh = thresh.clone();
             }
@@ -1125,6 +1209,9 @@ namespace dart_processing
                 // and the quorum is what stops one of those calling a takeout -- the
                 // same way it stops one camera calling a dart (#1348, #1349).
                 candidate_state = DartBoardState::CLEAN;
+                result.camera_results[i].axis.refusal =
+                    "departure: this camera's board change reads as a takeout (#1518), and what "
+                    "left the board has no arriving axis";
                 single_thresh = thresh.clone();
                 if (debug_mode)
                 {
@@ -1218,7 +1305,23 @@ namespace dart_processing
                     // Use smart tip detection
                     double gap_to_figure = 0;
                     auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips,
-                                                             &gap_to_figure);
+                                                             &gap_to_figure, &axis_pieces[i]);
+
+                    // #1511: the shaft axis, fitted to the SAME linked figure the tip
+                    // was just picked from. Always computed -- nothing reads it to
+                    // decide anything, so no published byte moves -- and gated unless
+                    // the falsification pin turns the gates off.
+                    {
+                        shaft_axis::AxisParams axis_params;
+                        axis_params.gated = !axisGateIsOff();
+                        shaft_axis::AxisObservation observed = shaft_axis::observeShaftAxis(
+                            shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size()), axis_params);
+                        observed.camera = (int)i;
+                        observed.windowOrdinal = window_serial;
+                        observed.windowOpenedCycle = window_opened_at;
+                        observed.windowClosedCycle = cycle_ordinal;
+                        result.camera_results[i].axis = std::move(observed);
+                    }
                     Point2f tip_pos = tip_and_center.first;
                     Point2f center_pos = tip_and_center.second;
 
@@ -1270,6 +1373,12 @@ namespace dart_processing
                     // it was; before this branch existed, this window voted an
                     // advance on the history alone.
                     candidate_state = previous_states[i];
+                    char share[64];
+                    snprintf(share, sizeof(share), "%.3f%% against the %.3f%% threshold",
+                             fresh_share, decide_threshold);
+                    result.camera_results[i].axis.refusal =
+                        std::string("no fresh figure: this camera's fresh change is ") + share +
+                        ", so nothing new arrived to fit";
                 }
             }
             else // Threshold for no dart
@@ -1280,6 +1389,9 @@ namespace dart_processing
                     previous_states[i] == DartBoardState::CLEAN)
                 {
                     candidate_state = DartBoardState::CLEAN;
+                    result.camera_results[i].axis.refusal =
+                        "clean: this camera read the board under its CLEAN ceiling, so there is "
+                        "no arriving dart to fit";
 
                     // #1349: the "safety reset" that lived here wiped working_backgrounds
                     // [0], [1] AND [2] -- every camera, by hard-coded index, from ONE
@@ -1458,6 +1570,46 @@ namespace dart_processing
                 if (result.camera_results[i].tip_found)
                 {
                     reported_tips[i].push_back(result.camera_results[i].tip_position);
+                }
+            }
+        }
+
+        // #1511: the axis census and its overlay, printed exactly when the VOTE called
+        // a dart -- the event the observation belongs to -- and one line per camera
+        // slot, abstentions included, because a coverage/refusal census with only the
+        // cameras that produced plausible lines has measured nothing (the acceptance
+        // says so in as many words). Both are pins; an ordinary run prints neither.
+        if ((shaftCensusOn() || !shaftProbeDir().empty()) && final_state > best_previous_state)
+        {
+            for (size_t i = 0; i < result.camera_results.size(); i++)
+            {
+                const CameraDetectionResult &r = result.camera_results[i];
+                // How far the published tip sits off the fitted line, where both exist:
+                // the diagnostic that ties the two observations without coupling them.
+                double tip_gap = -1.0;
+                if (r.axis.valid && r.tip_found)
+                {
+                    const double dx = r.tip_position.x - r.axis.point.x;
+                    const double dy = r.tip_position.y - r.axis.point.y;
+                    tip_gap = std::fabs(dx * r.axis.direction.y - dy * r.axis.direction.x);
+                }
+                if (shaftCensusOn())
+                {
+                    log_info(shaft_axis::censusLine(r.axis, tip_gap));
+                }
+                if (!shaftProbeDir().empty() && i < window_frames.size() && !window_frames[i].empty())
+                {
+                    Mat canvas;
+                    cvtColor(window_frames[i], canvas, COLOR_GRAY2BGR);
+                    shaft_axis::drawAxisOverlay(canvas, r.axis, i < axis_pieces.size() ? axis_pieces[i]
+                                                                                       : vector<vector<Point>>());
+                    if (r.tip_found)
+                    {
+                        circle(canvas, r.tip_position, 7, Scalar(255, 0, 0), 2);
+                    }
+                    imwrite(shaftProbeDir() + "/axis_w" + to_string(r.axis.windowOrdinal) +
+                                "_cam" + to_string(i + 1) + ".jpg",
+                            canvas);
                 }
             }
         }
