@@ -125,6 +125,20 @@ tester 1511-axischeck     "bash '$T/unit_check.sh' 1511"
 # shaft annotations (testers/i1511_annotations), plus the control run proving
 # OD_SHAFT_CENSUS defaults off. Whole-clip replays, i1510p2's shape and cost.
 tester 1511-axis          "bash '$T/i1511_run.sh'"
+# #1512: the entry intersection -- #1511's axes transported to the board plane per
+# camera (l_board ~ H^T l_image), placed in one numbered frame by each camera's
+# anchor, and solved as one weighted robust intersection, scored ONCE through
+# scoreFromModel. The pure check holds every verdict against three planted cameras
+# (one mirrored) and the issue's required mutations with predictions stated first:
+# swapped correspondences, a 6% ring scaling, agreeing score strings that must move
+# nothing. Costs one compile plus wire_model.cpp.
+tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
+# #1512's fixture half: the geometric census on both rigs against the ground-truth
+# tables and i1511's annotations, side by side with the string-vote baseline, plus
+# the control proving OD_GEO_SCORE defaults off with published scores untouched and
+# the #1505/#1535 falsification targets read out by name. Four whole-clip replays,
+# i1511's shape and cost.
+tester 1512-entry         "bash '$T/i1512_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which
