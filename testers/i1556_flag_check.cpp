@@ -423,13 +423,21 @@ int main(int argc, char **argv)
         // Over a sweep rather than over the five plants above: the rule must hold where
         // nobody wrote an assertion, and a rule that only holds at the points a tester
         // chose is a rule fitted to a tester.
+        // TWO constraints crossing at 25 degrees, deliberately: that is an ellipse whose
+        // major axis is well above the floor, which is the only geometry in which
+        // resolving it can be shown to do anything at all. Three exact constraints make a
+        // nearly circular one a couple of millimetres wide, where the floor swallows the
+        // whole question and the old rule and the new one cannot differ.
         int solves = 0, floorHeld = 0, pickedBySigma = 0, boundedByMajor = 0, sharper = 0;
         for (int i = 0; i < 20; i++)
         {
             for (int k = 0; k < 6; k++)
             {
                 const double r = 20.0 + k * 28.0;
-                const EntrySolution sol = solveAt(canonAt(r, i + 0.11 + 0.13 * k));
+                const cv::Point2f C = canonAt(r, i + 0.11 + 0.13 * k);
+                std::vector<CameraEvidence> ev = {lineEvidence(0, cam1, C, 10.0 + i * 3.0),
+                                                  lineEvidence(1, cam2, C, 35.0 + i * 3.0)};
+                const EntrySolution sol = solveEntry(profile, ev);
                 if (!sol.solved || !sol.score.valid)
                 {
                     continue;
@@ -487,7 +495,7 @@ int main(int argc, char **argv)
         say(pickedBySigma == solves,
             "and the boundary measured to is the one nearest IN SIGMAS on every one (" +
                 std::to_string(pickedBySigma) + "/" + std::to_string(solves) + ")");
-        sayFlag(sharper > 0,
+        sayFlag(sharper >= solves / 4,
                 "and on " + std::to_string(sharper) + " of them the resolved sigma is "
                 "strictly SHARPER than the major axis -- the repair does something, which "
                 "a rule that could only ever agree with the old one would not");
