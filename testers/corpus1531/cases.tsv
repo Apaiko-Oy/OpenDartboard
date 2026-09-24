@@ -1,0 +1,14 @@
+# name	expect	anchor	why    -- see README.md; minted by testers/i1531_corpus.py
+control-valid	accept	-	THE CONTROL: OpenSSL signed these payload bytes with the corpus key
+s-zero	refuse	-	s = 0
+s-order	refuse	-	s = n, the order of the curve
+r-zero	refuse	-	r = 0
+r-order	refuse	-	r = n, the order of the curve
+other-key	refuse	-	a VALID signature over these very bytes, made by a different key
+der-leading-zero-pad	refuse	-	non-canonical DER: r padded with a leading zero its high bit does not call for
+der-overlong-length	refuse	-	non-canonical DER: the SEQUENCE length written in the long form it does not need
+signature-truncated	refuse	-	the last eight bytes of a real signature are gone
+payload-truncated	refuse	-	the last ten bytes of the signed payload are gone, signature untouched
+payload-byte-moved	refuse	-	ONE byte of the payload, signature untouched
+signature-over-another-payload	refuse	-	the corpus key's own signature -- over a DIFFERENT payload
+anchor-not-on-curve	refuse	a6455c32840b88504b4599e0395d3e187d6543f4064a4e55c335c7bff6956b620b31aad0fd7908860a423adf8ead00bdfcc52aa6472651a41f7aec2e51ae7b3e	a valid manifest, read by a build whose anchor is not a point on P-256
