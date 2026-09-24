@@ -67,10 +67,10 @@
  * (every per-camera exclusion listed -- this is also what exposes a lone-witness
  * phantom, #1505: a dart that is not on the board has no second constraint); nearly
  * parallel constraints (the crossing angle is the conditioning, and 1/sin(angle) is
- * the error amplifier); inconsistent cameras (a residual no claimed uncertainty
- * explains -- with three constraints the worst offender is excluded by name and the
- * remaining pair re-solved, with two nothing can be excluded and the disagreement is
- * the verdict); and uncertainty crossing a scoring wire (`boundaryMm` against the
+ * the error amplifier); inconsistent cameras (a chi-square the claimed uncertainties
+ * cannot explain -- and because three disagreeing lines are SYMMETRIC, the liar is
+ * named only where the tip evidence uniquely corroborates the other two, else the
+ * whole solve refuses); and uncertainty crossing a scoring wire (`boundaryMm` against the
  * solved position's own sigma -- named as an outcome, never averaged over; Phase 2's
  * treble-edge finding is exactly this band). The degraded fallback stays what the
  * code does today -- the string vote -- reached honestly and labelled as itself:
@@ -118,19 +118,30 @@ namespace entry_intersection
         // angles beside every solve, so this number is auditable against real events).
         double minPairAngleDeg = 15.0;
 
-        // The consistency gate, in sigmas: with three usable constraints, a residual
-        // beyond this many of its own claimed sigmas is a line the other two refute --
-        // #1511's displaced-shadow line, a wrong correspondence, a stale anchor.
-        // 3.0: ordinary statistics, and the claimed sigma is already floored above,
-        // so three of them is never a sub-millimetre nicety.
+        // The consistency verdict on a three-constraint solve is a chi-square on the
+        // joint residuals, per degree of freedom (three lines, two coordinates: one
+        // dof), and 9.0 is the square of an ordinary 3-sigma. MEASURED reason it is a
+        // chi-square and not a per-line sigma gate: a line displaced 30 mm among two
+        // honest ones dilutes into ~10 mm joint residuals against lever-inflated
+        // sigmas of ~4 mm -- every ratio 2.4-2.8, all under any per-line 3-sigma gate,
+        // while the chi-square reads ~19 against this 9 (i1512_intersect_check's
+        // displaced-line plant, measured on the first build of this file).
+        double chi2PerDof = 9.0;
+
+        // Before a named liar may be excluded, its residual against the OTHER
+        // cameras' solve must exceed this many of its own claimed sigmas -- an
+        // exclusion of a line the reduced solve does not even refute would be
+        // arbitrary. 3.0: ordinary statistics on a floored sigma.
         double consistencySigmas = 3.0;
 
-        // Within how many millimetres a placed tip counts as CORROBORATING the solved
-        // entry. Reporting-only (nothing refuses on it): the gate exists so the census
-        // can count agreement without a reader re-deriving it per event. 15 mm spans
-        // the annotation's own tip reading (+-2 px ~ 1-2 mm) plus the tip detector's
-        // measured per-camera error scale on the repaired tree (#1494/#1495 landed;
-        // the fixture census prints every distance so this number is re-measurable).
+        // Within how many millimetres a placed tip counts as CORROBORATING a solve.
+        // Two jobs: the census's agreement count on every event, and the TIE-BREAK
+        // when three lines disagree -- a triangle of three lines is symmetric (each
+        // vertex sits equally far from the opposite line, measured in the check), so
+        // lines alone cannot say which camera lies, and the tip evidence is what can.
+        // 15 mm spans the annotation's own tip reading (+-2 px ~ 1-2 mm) plus the tip
+        // detector's per-camera error scale on the repaired tree (#1494/#1495); the
+        // fixture census prints every distance so this number is re-measurable.
         double tipAgreeMm = 15.0;
     };
 
@@ -158,6 +169,12 @@ namespace entry_intersection
         // The observed image line, kept for overlays and reprojection residuals.
         cv::Point2f imagePoint;
         cv::Point2f imageDir;
+
+        // The solved entry, reprojected into this camera's image -- filled for every
+        // placeable camera when something solved, because the census judges position
+        // against annotated entry points in IMAGE space, where the annotation lives.
+        bool solvedImagePlaced = false;
+        cv::Point2f solvedImage;
 
         // Entry-point (tip) evidence, independent of the axis: present wherever this
         // camera placed a tip and its frame could be placed in the shared frame.
@@ -232,9 +249,13 @@ namespace entry_intersection
 
         // The score, read ONCE -- through board_model::scoreFromModel on the reference
         // camera (the lowest-index usable constraint), never through new ring
-        // arithmetic. `scoreByCamera` says what every placeable camera's anchor makes
-        // of the same point, "/"-joined, "-" where a camera cannot be placed; a
-        // disagreement there is an anchor inconsistency worth a reader's eyes.
+        // arithmetic. `scoreByCamera` says what every placeable camera makes of the
+        // same point, "/"-joined, "-" where a camera cannot be placed. What CAN
+        // differ there is the ring, near a ring wire, because each fit carries its
+        // own millimetre scale; the WEDGE cannot differ by construction -- the
+        // read-back goes through the same anchor that placed the point, so a stale
+        // anchor cancels in this reading and is caught by the consistency check on
+        // the LINES instead (measured in i1512_intersect_check's stale-anchor plant).
         board_model::ModelScore score;
         int scoredThroughCamera = -1;
         std::string scoreByCamera;
@@ -509,146 +530,201 @@ namespace entry_intersection
             return out;
         }
 
-        // Solve, weigh at the solution, solve again: sigmaPerp depends on the lever
-        // from each axis point to the entry, which is not known until an entry is.
+        // Solve equal-weighted first, then weigh at the solution and solve again,
+        // twice: sigmaPerp depends on the lever from each axis point to the entry,
+        // which is not known until an entry is. solveActive is that whole recipe over
+        // whatever is not excluded, so the joint solve and every leave-one-out below
+        // are one procedure.
         cv::Point2f X(0.f, 0.f);
         cv::Matx22d cov;
-        for (Constraint *con : usable)
-        {
-            con->sigmaPerpMm = 1.0; // equal weights for the first pass
-        }
-        if (!detail::solveOnce(out.constraints, X, cov))
-        {
-            out.outcome = Outcome::NearParallel;
-            out.story = "near-parallel: the normal matrix is singular past the angle gate";
-            return out;
-        }
-        for (int pass = 0; pass < 2; pass++)
+
+        // Consistency, judged as a chi-square over the joint residuals -- NOT as a
+        // per-line sigma gate, and the difference was measured before it was chosen:
+        // a line displaced 30 mm among two honest ones dilutes into ~10 mm joint
+        // residuals against lever-inflated ~4 mm sigmas (every ratio under 3), while
+        // the chi-square reads ~19 against Params::chi2PerDof's 9. And with three
+        // lines the disagreement is SYMMETRIC -- the three pairwise intersections
+        // form a triangle in which each vertex sits equally far from the opposite
+        // line, so no residual arithmetic can say WHICH camera lies. What can is the
+        // independent entry-point evidence: the liar is the one whose exclusion
+        // leaves a solve the placed tips corroborate, uniquely, and where no tip
+        // says so the verdict is INCONSISTENT, not a coin-flip exclusion.
+        auto solveActive = [&](cv::Point2f &Xout, cv::Matx22d &covOut) -> bool
         {
             for (Constraint *con : usable)
             {
-                detail::weighAt(*con, X, params);
+                if (!con->excluded)
+                {
+                    con->sigmaPerpMm = 1.0;
+                }
             }
-            if (!detail::solveOnce(out.constraints, X, cov))
+            if (!detail::solveOnce(out.constraints, Xout, covOut))
             {
-                out.outcome = Outcome::NearParallel;
-                out.story = "near-parallel: the weighted normal matrix is singular";
-                return out;
+                return false;
             }
-        }
-
-        // Consistency: residuals against claimed sigmas. Three constraints can name
-        // one liar; two cannot (their residuals are exactly zero), and the worst
-        // offender of three is excluded BY NAME and the remaining pair re-solved. A
-        // second offender means no two constraints agree: INCONSISTENT, no entry.
-        // offenders() recomputes every active residual at the current solve and returns
-        // the constraints whose residual their own claimed sigma cannot explain, worst
-        // first. ONE offender among three is a liar the other two can name -- #1511's
-        // laterally displaced shadow line, a wrong correspondence, a stale anchor --
-        // and is excluded with its numbers. TWO offenders of three is not "two liars":
-        // it is a triangle of pairwise intersections wider than every claimed sigma,
-        // and no two-of-three story says which pair to trust, so the verdict is
-        // INCONSISTENT and no entry is asserted.
-        auto offenders = [&]() -> std::vector<Constraint *>
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (Constraint *con : usable)
+                {
+                    if (!con->excluded)
+                    {
+                        detail::weighAt(*con, Xout, params);
+                    }
+                }
+                if (!detail::solveOnce(out.constraints, Xout, covOut))
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto chi2At = [&](const cv::Point2f &at) -> double
         {
-            std::vector<Constraint *> bad;
+            double sum = 0.0;
             for (Constraint *con : usable)
             {
                 if (con->excluded)
                 {
                     continue;
                 }
-                con->residualMm = con->nx * X.x + con->ny * X.y + con->c;
-                if (std::fabs(con->residualMm) / std::max(1e-6, con->sigmaPerpMm) >
-                    params.consistencySigmas)
+                const double r = con->nx * at.x + con->ny * at.y + con->c;
+                const double ratio = r / std::max(1e-6, con->sigmaPerpMm);
+                sum += ratio * ratio;
+            }
+            return sum;
+        };
+        auto tipsWithin = [&](const cv::Point2f &at) -> int
+        {
+            int n = 0;
+            for (const Constraint &con : out.constraints)
+            {
+                if (con.tipPlaced &&
+                    std::sqrt((double)(con.tipMm.x - at.x) * (con.tipMm.x - at.x) +
+                              (double)(con.tipMm.y - at.y) * (con.tipMm.y - at.y)) <= params.tipAgreeMm)
                 {
-                    bad.push_back(con);
+                    n++;
                 }
             }
-            std::sort(bad.begin(), bad.end(), [](const Constraint *a, const Constraint *b)
-                      { return std::fabs(a->residualMm) / std::max(1e-6, a->sigmaPerpMm) >
-                               std::fabs(b->residualMm) / std::max(1e-6, b->sigmaPerpMm); });
-            return bad;
+            return n;
         };
+
+        if (!solveActive(X, cov))
+        {
+            out.outcome = Outcome::NearParallel;
+            out.story = "near-parallel: the weighted normal matrix is singular past the angle gate";
+            return out;
+        }
+
         int active = (int)usable.size();
         if (active >= 3)
         {
-            std::vector<Constraint *> bad = offenders();
-            if ((int)bad.size() >= 2)
+            const int dof = active - 2;
+            const double chi2 = chi2At(X);
+            if (chi2 > params.chi2PerDof * dof)
             {
-                std::string sizes;
-                for (const Constraint *con : bad)
+                // Name the liar or refuse. For each constraint: solve without it,
+                // demand the reduced pair still crosses, demand the left-out line is
+                // genuinely REFUTED by that solve, and count the placed tips that
+                // corroborate it. A unique tip-corroborated winner is excluded by
+                // name; anything else is INCONSISTENT.
+                Constraint *liar = nullptr;
+                cv::Point2f bestX;
+                cv::Matx22d bestCov;
+                int bestTips = 0;
+                bool tie = false;
+                for (Constraint *cand : usable)
                 {
-                    sizes += (sizes.empty() ? "" : ", ") + std::string("cam ") +
-                             std::to_string(con->camera + 1) + " residual " +
-                             detail::fmt("%.1f", std::fabs(con->residualMm)) + " mm vs sigma " +
-                             detail::fmt("%.1f", con->sigmaPerpMm);
+                    cand->excluded = true;
+                    double pairAngle = 0.0;
+                    for (size_t i = 0; i < usable.size(); i++)
+                    {
+                        for (size_t j = i + 1; j < usable.size(); j++)
+                        {
+                            if (!usable[i]->excluded && !usable[j]->excluded)
+                            {
+                                pairAngle = std::max(pairAngle,
+                                                     detail::crossingAngleDeg(*usable[i], *usable[j]));
+                            }
+                        }
+                    }
+                    cv::Point2f Xr;
+                    cv::Matx22d covR;
+                    if (pairAngle >= params.minPairAngleDeg && solveActive(Xr, covR))
+                    {
+                        detail::weighAt(*cand, Xr, params);
+                        const double resid = std::fabs(cand->nx * Xr.x + cand->ny * Xr.y + cand->c);
+                        const bool refuted = resid / std::max(1e-6, cand->sigmaPerpMm) >
+                                             params.consistencySigmas;
+                        const int tips = tipsWithin(Xr);
+                        if (refuted && tips > 0)
+                        {
+                            if (liar == nullptr || tips > bestTips)
+                            {
+                                liar = cand;
+                                bestTips = tips;
+                                bestX = Xr;
+                                bestCov = covR;
+                                tie = false;
+                            }
+                            else if (tips == bestTips)
+                            {
+                                tie = true;
+                            }
+                        }
+                    }
+                    cand->excluded = false;
                 }
-                out.outcome = Outcome::Inconsistent;
-                out.story = "inconsistent: " + std::to_string(bad.size()) + " of " +
-                            std::to_string(active) + " constraints sit outside their own claimed "
-                            "uncertainties at the joint solve (" + sizes +
-                            "), and no two-of-three story says which pair to trust";
-                return out;
-            }
-            Constraint *liar = bad.empty() ? nullptr : bad.front();
-            if (liar != nullptr)
-            {
+                if (liar == nullptr || tie)
+                {
+                    std::string sizes;
+                    for (Constraint *con : usable)
+                    {
+                        con->residualMm = con->nx * X.x + con->ny * X.y + con->c;
+                        sizes += (sizes.empty() ? "" : ", ") + std::string("cam ") +
+                                 std::to_string(con->camera + 1) + " residual " +
+                                 detail::fmt("%.1f", std::fabs(con->residualMm)) + " mm vs sigma " +
+                                 detail::fmt("%.1f", con->sigmaPerpMm);
+                    }
+                    out.outcome = Outcome::Inconsistent;
+                    out.story = "inconsistent: the joint residuals read chi2 " +
+                                detail::fmt("%.1f", chi2) + " against " +
+                                detail::fmt("%.1f", params.chi2PerDof * dof) + " (" + sizes +
+                                "), and " +
+                                (tie ? "the tip evidence cannot choose between two exclusions"
+                                     : "no tip evidence corroborates any two-camera solve") +
+                                ", so no camera can be named the liar";
+                    return out;
+                }
+                const double resid = std::fabs(liar->nx * bestX.x + liar->ny * bestX.y + liar->c);
                 liar->excluded = true;
                 liar->exclusion = "inconsistent with the other cameras: residual " +
-                                  detail::fmt("%.1f", std::fabs(liar->residualMm)) +
-                                  " mm against its own sigma " +
-                                  detail::fmt("%.1f", liar->sigmaPerpMm) + " mm (gate " +
-                                  detail::fmt("%.1f", params.consistencySigmas) + " sigma)";
+                                  detail::fmt("%.1f", resid) + " mm against its own sigma " +
+                                  detail::fmt("%.1f", liar->sigmaPerpMm) + " mm at the solve " +
+                                  std::to_string(bestTips) + " placed tip(s) corroborate";
+                // Re-solved once with the exclusion standing, so every kept
+                // constraint's reported sigma and lever belong to THIS solve.
+                if (!solveActive(X, cov))
+                {
+                    out.outcome = Outcome::NearParallel;
+                    out.story = "near-parallel: singular after excluding cam " +
+                                std::to_string(liar->camera + 1);
+                    return out;
+                }
+                (void)bestX;
+                (void)bestCov;
                 active--;
-                // Re-check conditioning and re-solve with what is left.
                 double pairAngle = 0.0;
                 for (size_t i = 0; i < usable.size(); i++)
                 {
                     for (size_t j = i + 1; j < usable.size(); j++)
                     {
-                        if (usable[i]->excluded || usable[j]->excluded)
+                        if (!usable[i]->excluded && !usable[j]->excluded)
                         {
-                            continue;
+                            pairAngle = std::max(pairAngle, detail::crossingAngleDeg(*usable[i], *usable[j]));
                         }
-                        pairAngle = std::max(pairAngle, detail::crossingAngleDeg(*usable[i], *usable[j]));
                     }
-                }
-                if (pairAngle < params.minPairAngleDeg)
-                {
-                    out.outcome = Outcome::NearParallel;
-                    out.story = "near-parallel after excluding cam " +
-                                std::to_string(liar->camera + 1) + ": the remaining pair crosses at " +
-                                detail::fmt("%.1f", pairAngle) + " deg against the " +
-                                detail::fmt("%.1f", params.minPairAngleDeg) + " deg gate (" +
-                                exclusionsListed() + ")";
-                    return out;
                 }
                 out.bestPairAngleDeg = pairAngle;
-                for (int pass = 0; pass < 2; pass++)
-                {
-                    for (Constraint *con : usable)
-                    {
-                        if (!con->excluded)
-                        {
-                            detail::weighAt(*con, X, params);
-                        }
-                    }
-                    if (!detail::solveOnce(out.constraints, X, cov))
-                    {
-                        out.outcome = Outcome::NearParallel;
-                        out.story = "near-parallel: singular after exclusion";
-                        return out;
-                    }
-                }
-                if (!offenders().empty())
-                {
-                    out.outcome = Outcome::Inconsistent;
-                    out.story = "inconsistent: a constraint still sits outside its claimed "
-                                "uncertainty after excluding cam " +
-                                std::to_string(liar->camera + 1) + " (" + exclusionsListed() + ")";
-                    return out;
-                }
             }
         }
         for (Constraint *con : usable)
@@ -711,7 +787,7 @@ namespace entry_intersection
         for (size_t i = 0; i < evidence.size(); i++)
         {
             const CameraEvidence &ev = evidence[i];
-            const Constraint &con = out.constraints[i];
+            Constraint &con = out.constraints[i];
             const bool placeable = ev.fit != nullptr && ev.fit->planeBuilt &&
                                    ev.fit->geometryAccepted && ev.fit->unitPerMm > 0.0 &&
                                    ev.anchor.resolved;
@@ -721,6 +797,12 @@ namespace entry_intersection
                 continue;
             }
             const cv::Point2f img = detail::imageOfCanonical(*ev.fit, ev.anchor, X);
+            con.solvedImagePlaced = true;
+            con.solvedImage = img;
+            if (!(con.pxPerMm > 0.0))
+            {
+                con.pxPerMm = ev.fit->pxPerMmAtCentre;
+            }
             const board_model::ModelScore ms = board_model::scoreFromModel(profile, *ev.fit, ev.anchor, img);
             out.scoreByCamera += (out.scoreByCamera.empty() ? "" : "/") + ms.score;
             words.push_back(ms.score);
@@ -801,15 +883,17 @@ namespace entry_intersection
     /** One line per offered camera; exclusion words last. */
     inline std::string censusCameraLine(const Constraint &con, long window)
     {
-        char head[400];
+        char head[440];
         snprintf(head, sizeof(head),
                  "I1512CAM window=%ld cam=%d usable=%d excluded=%d tangent=%.1f "
                  "resid_mm=%.2f resid_px=%.2f sigmaPerp=%.2f lever=%.1f sigmaDir=%.2f "
-                 "tipPlaced=%d tipDist=%.1f tipR=%.1f excl=",
+                 "img=(%.1f,%.1f) pxmm=%.3f tipPlaced=%d tipDist=%.1f tipR=%.1f excl=",
                  window, con.camera + 1, con.usable ? 1 : 0, con.excluded ? 1 : 0,
                  con.tangentDeg, con.residualMm, con.residualPx, con.sigmaPerpMm,
-                 con.leverMm, con.sigmaDirDeg, con.tipPlaced ? 1 : 0, con.tipDistanceMm,
-                 con.tipRadiusMm);
+                 con.leverMm, con.sigmaDirDeg,
+                 con.solvedImagePlaced ? con.solvedImage.x : -1.f,
+                 con.solvedImagePlaced ? con.solvedImage.y : -1.f, con.pxPerMm,
+                 con.tipPlaced ? 1 : 0, con.tipDistanceMm, con.tipRadiusMm);
         return std::string(head) +
                ((con.usable && !con.excluded) ? "-" : con.exclusion);
     }

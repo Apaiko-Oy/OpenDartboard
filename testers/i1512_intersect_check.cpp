@@ -241,10 +241,12 @@ int main()
 
     // ---- 1. exact recovery, three cameras, the mirrored one among them ----------------
     {
-        // Entry mid-single of the wedge one past the 20: canonical (100 mm, 1.5 sectors)
-        // = S1. Line tangents 10 / 70 / 130 degrees: well conditioned.
+        // Entry mid-single of the wedge one past the 20: canonical (80 mm, 1.5 sectors)
+        // = S1, and 80 mm sits 19 mm from the treble's inner wire and 12.6 mm of arc
+        // from the nearer sector wire, so no honest sigma reaches a boundary here.
+        // Line tangents 10 / 70 / 130 degrees: well conditioned.
         const double phi = 1.5 * wire_model::kSector;
-        const cv::Point2f C((float)(100.0 * std::cos(phi)), (float)(100.0 * std::sin(phi)));
+        const cv::Point2f C((float)(80.0 * std::cos(phi)), (float)(80.0 * std::sin(phi)));
         std::vector<CameraEvidence> ev = {lineEvidence(0, cam1, C, 10.0),
                                           lineEvidence(1, cam2, C, 70.0),
                                           lineEvidence(2, cam3, C, 130.0)};
@@ -330,13 +332,17 @@ int main()
     // ---- 5. the displaced line (finding one's shadow) is excluded BY NAME -------------
     {
         // PREDICTION, stated before the run: camera 2's line is planted 30 mm off the
-        // entry laterally -- the shadow-displaced axis #1511 measured -- so the other
-        // two must name it (residual ~30 mm against a claimed sigma of a few), exclude
-        // it, and solve within 2 mm from what is left.
+        // entry laterally -- the shadow-displaced axis #1511 measured -- and cameras
+        // 1 and 3 carry honest tips at the entry. The chi-square must refuse the
+        // joint solve, the leave-one-out corroborated by those tips must name camera
+        // 2 uniquely, and the remaining pair must solve within 2 mm.
         const cv::Point2f C(70.f, -40.f);
-        std::vector<CameraEvidence> ev = {lineEvidence(0, cam1, C, 5.0),
-                                          lineEvidence(1, cam2, C, 65.0, 30.0),
-                                          lineEvidence(2, cam3, C, 125.0)};
+        CameraEvidence a = lineEvidence(0, cam1, C, 5.0);
+        CameraEvidence b = lineEvidence(1, cam2, C, 65.0, 30.0);
+        CameraEvidence c = lineEvidence(2, cam3, C, 125.0);
+        plantTip(a, cam1, C);
+        plantTip(c, cam3, C);
+        std::vector<CameraEvidence> ev = {a, b, c};
         const EntrySolution sol = solveEntry(profile, ev);
         say(sol.solved && sol.constraints[1].excluded,
             std::string("the displaced line is excluded (") + outcomeWord(sol.outcome) + ")");
@@ -347,6 +353,17 @@ int main()
                 fmt1(std::fabs(sol.constraints[1].residualMm)) + ")");
         say(distMm(sol.entryMm, C) < 2.0,
             "the two honest cameras solve the entry: " + fmt1(distMm(sol.entryMm, C)) + " mm off");
+
+        // The SAME plant with no tips anywhere: three symmetric lines cannot name a
+        // liar (each vertex of the triangle is equally far from the opposite line),
+        // so the honest verdict is INCONSISTENT rather than a coin-flip exclusion.
+        std::vector<CameraEvidence> bare = {lineEvidence(0, cam1, C, 5.0),
+                                            lineEvidence(1, cam2, C, 65.0, 30.0),
+                                            lineEvidence(2, cam3, C, 125.0)};
+        const EntrySolution sol2 = solveEntry(profile, bare);
+        say(sol2.outcome == Outcome::Inconsistent && !sol2.solved,
+            std::string("without tip evidence the same plant refuses as inconsistent (got ") +
+                outcomeWord(sol2.outcome) + ")");
     }
 
     // ---- 6. three-way disagreement is INCONSISTENT, not a compromise ------------------
@@ -513,18 +530,34 @@ int main()
 
     // ---- 12. a stale anchor is a named disagreement, not a silent averaging -----------
     {
-        // PREDICTION: camera 2 anchored one wire off rotates its canonical frame by 18
-        // degrees, so its transported line misses the entry by roughly r*0.31 tens of
-        // millimetres: the other two exclude it or refuse, and where it is merely read
-        // (scoreByCamera) its word differs, so scoresAgree must be false.
+        // PREDICTION: camera 2's SOLVER anchor is one wire stale while the planted
+        // line is the true camera's -- so the transport rotates the real line 18
+        // degrees about the board centre, displacing it at the entry by
+        // 2*r*sin(9) * sin(tangent - chord) ~ 25 mm at a tangent perpendicular to
+        // the chord, the chi-square refuses the joint solve, and the honest tips on
+        // cameras 1 and 3 name camera 2. The gate's sensitivity is RECORDED here
+        // rather than hidden: at this fixture's sigmas a stale-anchor displacement
+        // of ~19 mm dilutes to chi2 ~7.6 against the 9 and rides through -- the
+        // chi-square catches the fault at 25 mm, not at every size of it.
+        //
+        // Two findings from this test's own first drafts, kept so nobody re-walks
+        // them: (a) planting AND solving through the same stale anchor cancels
+        // exactly, so the plant must use the true anchor; (b) a line whose tangent
+        // lies along the rotation's chord at C (~60 deg here) is nearly invariant
+        // under the stale rotation -- the first draft's 65-degree tangent moved only
+        // 2 mm -- so the planted tangent must stand off the chord direction.
         Camera off = cam2;
         std::vector<cv::Point2f> endpoints(off.calib.wires.wireEndpoints.begin(),
                                            off.calib.wires.wireEndpoints.end());
         off.anchor = anchorOnBoard(off.fit, endpoints, 4); // planted truth says 3
         const cv::Point2f C(70.f, -40.f);
-        std::vector<CameraEvidence> ev = {lineEvidence(0, cam1, C, 5.0),
-                                          lineEvidence(1, off, C, 65.0),
-                                          lineEvidence(2, cam3, C, 125.0)};
+        CameraEvidence a = lineEvidence(0, cam1, C, 30.0);
+        CameraEvidence b = lineEvidence(1, cam2, C, 150.0); // the TRUE camera's line...
+        b.anchor = off.anchor;                              // ...transported by the stale frame
+        CameraEvidence c = lineEvidence(2, cam3, C, 90.0);
+        plantTip(a, cam1, C);
+        plantTip(c, cam3, C);
+        std::vector<CameraEvidence> ev = {a, b, c};
         const EntrySolution sol = solveEntry(profile, ev);
         const bool cleanThrough = sol.outcome == Outcome::Solved && sol.usableConstraints == 3;
         say(!cleanThrough,
@@ -532,8 +565,10 @@ int main()
                 outcomeWord(sol.outcome) + ", " + std::to_string(sol.usableConstraints) + " used)");
         if (sol.solved)
         {
-            say(!sol.scoresAgree,
-                "and the stale camera reads the point differently: " + sol.scoreByCamera);
+            say(sol.constraints[1].excluded,
+                "the stale camera is the one excluded: " + sol.constraints[1].exclusion);
+            say(distMm(sol.entryMm, C) < 2.0,
+                "while the honest pair solves the entry: " + fmt1(distMm(sol.entryMm, C)) + " mm off");
         }
     }
 
