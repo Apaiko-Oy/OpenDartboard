@@ -386,6 +386,12 @@ tester 1408-signing      "bash '$T/i1408_sign_check.sh'"
 # MEASURED 2026-09-23 on the 4-core box, to completion, rc=0: wall 38 s at load 2.4-2.9,
 # so it takes no `slow` and the number is here rather than in nobody's head.
 tester 1531-corpus       "bash '$T/i1531_run.sh'"
+# #1532's update journey runs on a windows-2022 runner in .github/workflows/update-journey.yml
+# and nowhere else. What CAN run here is its guard: that workflow publishes nothing and names
+# no secret, release.yml does not run the journey, and the pull_request `paths:` filter covers
+# every file src/launcher/main.cpp reaches through an #include -- so a new header is caught on
+# this gate rather than by a pull request that silently skipped the check. Python, no build.
+tester 1532-guard        "python3 '$T/i1532_guard.py' '$OD_TREE_ROOT'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"
