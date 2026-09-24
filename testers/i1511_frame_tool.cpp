@@ -23,6 +23,11 @@
 //       through this mode; the accepted images are the annotation's own evidence.
 //
 // It decides nothing and asserts nothing; it is a ruler.
+//
+// unrun-tester: an instrument a PERSON runs by hand to measure annotations (the
+// README beside testers/i1511_annotations/ records the exact invocations); it
+// checks nothing, so a suite run of it would measure nothing. Marked by #1512,
+// whose stacked gate is where census.sh first met this file.
 
 #include <opencv2/opencv.hpp>
 #include <cstdio>

@@ -106,6 +106,14 @@ tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
 tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
+# #1510's fixture half, a PROBE (asserts nothing, fails only when it could not run):
+# the fit's overlays and residuals on both rigs plus the upstream mocks as control.
+# Registered by #1512 because it was NOT -- #1510 shipped i1510_inside.sh and no line
+# here, so the label existed and the suite would never have run it (#1463,
+# 1423-ringidentity's story retold, found by census.sh on the stacked gate). One
+# build of the calibration stack and nine single-frame calibrations; no detector
+# binary, so OD_SKIP_BUILD changes nothing about it.
+tester 1510-fitcensus     "bash '$T/i1510_run.sh'"
 # #1510 Phase 2: the model ANSWERS scoring questions, unwired. The pure check holds
 # anchorOnBoard and scoreFromModel against the planted homography (both handednesses,
 # the boundary distances #1512 will climb on); the census runs the real binary over
