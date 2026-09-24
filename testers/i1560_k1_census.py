@@ -1090,6 +1090,68 @@ def fit_f_from_rings(ring_points, init, noise_mm=None):
     return ((f_hat if resolved else None), rmin, prof[imin][3], prof, band)
 
 
+def wire_grid_residual(ring_points, traces, init, f_px, microkappa):
+    """#1467's quantity, from this instrument's extraction: the rms angular deviation
+    of the wire points from the twenty-fold grid in the board plane, in DEGREES.
+
+    The pose is refitted from scratch at the given kappa -- rings AND wires, f pinned
+    at the measured value, kappa pinned at the given one -- so the AFTER is not handed
+    the answer, and both tilt signs and a coarse scan over the board's own rotation
+    are tried, because the wire cost is 18-degree periodic and a start midway between
+    two boundary hypotheses is a ridge where the gradient cancels."""
+    wire_points = [(x, y) for t in traces for x, y, _ in t]
+    data = {"rings": ring_points, "wires": wire_points, "bull": None}
+    base = init[:]
+    base[6] = init[6] * f_px / init[0]
+    base[0] = f_px
+    base[7] = microkappa
+    best = None
+    for sign in (1.0, -1.0):
+        q = base[:]
+        q[1], q[2] = base[1] * sign, base[2] * sign
+        q = align_board_rotation(q, data)
+        q, cost = gauss_newton(q, data, free=[1, 2, 3, 4, 5, 6], iters=60)
+        q = align_board_rotation(q, data)
+        q, cost = gauss_newton(q, data, free=[1, 2, 3, 4, 5, 6], iters=60)
+        if best is None or cost < best[1]:
+            best = (q, cost)
+    cam = CameraModel(best[0])
+    per_trace, devs = [], []
+    for trace in traces:
+        here = []
+        for x, y, _frac in trace:
+            try:
+                X, Y = cam.unproject_to_board(x, y)
+            except ValueError:
+                continue
+            r = math.hypot(X, Y)
+            if r < 30.0:
+                continue
+            d = math.degrees(math.atan2(Y, X)) % 18.0
+            here.append((r, d if d <= 9.0 else d - 18.0))
+        if here:
+            per_trace.append(sum(d for _, d in here) / len(here))
+            devs += here
+    if not devs:
+        return None
+    mean = sum(d for _, d in devs) / len(devs)
+    # TWO NUMBERS, because they answer two different questions and only one of them is
+    # #1467's. PER WIRE -- the rms of the twenty traces' own mean offsets -- is the
+    # "this wire sits at the wrong angle" quantity #1467 reports. PER POINT is larger
+    # here for a reason that is not the lens: a trace is a straight line and a straight
+    # line that misses the board's centre by a millimetre sweeps almost two degrees of
+    # polar angle at r = 30 mm and 0.4 at 150, so the per-point figure is mostly the
+    # board-centre offset the pose could not absorb. The BAND breakdown is the test
+    # that matters either way: a lens's angular effect grows with radius, and a wire
+    # that is simply in the wrong place does not care.
+    out = []
+    for lo, hi in ((30.0, 70.0), (70.0, 120.0), (120.0, 170.0)):
+        band = [d - mean for r, d in devs if lo <= r < hi]
+        out.append((lo, hi, len(band), rms(band) if band else float("nan")))
+    pt_mean = sum(per_trace) / len(per_trace)
+    return (rms([p - pt_mean for p in per_trace]), rms([d - mean for _, d in devs]), out)
+
+
 def fmt(v):
     """A grid endpoint or a None, printed the same width either way."""
     return ("%.0f" % v) if v is not None else "-"
@@ -1297,6 +1359,19 @@ def measure(tag, cam_no, frames_dir, dump_json):
     bow_after = [b[0] - m0 for b, m0 in zip(bows, ens_model)]
     bow_rms_before, bow_rms_after = rms(bow_before), rms(bow_after)
 
+    # ...AND THE SAME BEFORE/AFTER IN #1467'S OWN UNITS, where the rings resolved a
+    # focal length to carry a board pose. #1467 reports the wire residual in DEGREES
+    # about the twenty-fold grid; this reads the same quantity off this instrument's
+    # own extraction, with the board rotation and pose refitted from scratch at each
+    # kappa so the comparison is not handed the answer. It is only printed for a camera
+    # whose f resolved, because an angle in the board plane is a question about the
+    # homography and a homography built on a refuted f is not one.
+    grid_before = grid_after = None
+    if f_fit:
+        grid_before = wire_grid_residual(ring_points, traces, init, f_fit, 0.0)
+        grid_after = wire_grid_residual(ring_points, traces, init, f_fit,
+                                        ens_kappa * 1e6)
+
     # SENSITIVITY (the trap's second half), from the measured chords and the principal
     # point alone -- no pose, because a camera whose pose fit diverged still deserves
     # an honest answer about what its geometry could have seen.
@@ -1330,6 +1405,16 @@ def measure(tag, cam_no, frames_dir, dump_json):
           % (tag, cam_no, ens_kappa * 1e6, ens_k1, ens_k1_sig, ens_gain, len(bows),
              bow_rms_before, bow_rms_after,
              100.0 * (1.0 - (bow_rms_after / bow_rms_before if bow_rms_before else 1.0))))
+    if grid_before is not None:
+        print("I1560GRID %s cam%d wire residual about the 18-degree grid (#1467's own "
+              "quantity, this extraction): per wire BEFORE=%.2fdeg AFTER=%.2fdeg, "
+              "per point BEFORE=%.2fdeg AFTER=%.2fdeg; per point by board radius "
+              "BEFORE %s AFTER %s"
+              % (tag, cam_no, grid_before[0], grid_after[0], grid_before[1], grid_after[1],
+                 " ".join("%.0f-%.0fmm:%.2f(n=%d)" % (lo, hi, v, n)
+                          for lo, hi, n, v in grid_before[2]),
+                 " ".join("%.0f-%.0fmm:%.2f" % (lo, hi, v)
+                          for lo, hi, _n, v in grid_after[2])))
     if f_fit:
         print("I1560F %s cam%d f=%.0fpx ring_rms=%.2fmm (scatter %.2fmm) standoff=%.0fmm "
               "profile_width=[%s,%s] fov_diag=%.0fdeg (k1 at THIS f = %+.4f+/-%.4f)"

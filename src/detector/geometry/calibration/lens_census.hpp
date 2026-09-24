@@ -84,13 +84,27 @@
  *   that camera and up to 5 px on the noisiest, which a smooth radial function cannot
  *   draw at all: it is paint and bloom varying with the bed under the edge.
  *
+ * AND IN #1467'S OWN UNITS, WHICH IS THE SAME ANSWER SAID ONCE MORE. On the one
+ * camera whose rings carry a focal length, the twenty traces are put back through a
+ * board pose and their angular deviation about the eighteen-degree grid is read in
+ * degrees -- the quantity wire_model::residualsOf returns -- with the pose and the
+ * board rotation refitted from scratch at each kappa, so the AFTER is not handed the
+ * answer:
+ *
+ *   rig-22 cam2, 3 s window:  1.78 deg before  ->  1.79 deg after
+ *   rig-22 cam2, opening:     1.67 deg before  ->  1.58 deg after
+ *
+ *   #1467 measured 1.63. So this census reproduces that residual from an entirely
+ *   independent extraction, and the one kappa the same footage measures moves it by
+ *   between -0.09 and +0.01 degrees. Per point rather than per wire it is 4.5-4.6 deg
+ *   and flat across the board's radius (4.97 / 4.37 / 4.23 over 30-70, 70-120 and
+ *   120-170 mm), which is the third refusal: a lens's angular effect GROWS with
+ *   radius, and this one does not vary with it at all.
+ *
  * SO: SYSTEMATIC, SMALL, AND NOT THE THING #1467 MEASURED. There is one real lens
  * constant here and it is worth about half a millimetre on the board; #1467's
- * residual is something else -- wire-position or board-geometry error at the 1-2
- * degree scale, which is what the twenty traces scatter by about the 18-degree grid
- * once a pose is removed (measured here at +5.3 to +8.9 degrees modulo 18 on the
- * best-extracted camera, a spread of about 1.1 degrees rms about their own mean --
- * #1467's 1.63 reproduced from an independent extraction).
+ * residual is something else -- wire position or board geometry at the 1-2 degree
+ * scale, which no lens constant can reach.
  *
  * f, AND ONE CAMERA MEASURED IT. The maintainer's inventory comment asked for f
  * alongside k1 (#1513, 2026-09-24). Only rig-20260922 camera 2 extracts its rings
