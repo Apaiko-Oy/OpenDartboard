@@ -217,7 +217,9 @@ int main()
     }
     {
         // Pooling, restated: the six independent rows and their 1-sigma, inverse
-        // variance weighted, must be the number the header states.
+        // variance weighted, must be the number the header states. One row per camera
+        // -- rig-18's three, then rig-22's cam1 (3 s), cam2 (3 s), cam3 (open) --
+        // because a camera's two windows are the same static board.
         const double k[6] = {-0.022, -0.021, -0.032, -0.021, -0.060, -0.022};
         const double s[6] = {0.065, 0.057, 0.037, 0.076, 0.020, 0.036};
         double wsum = 0.0, num = 0.0;

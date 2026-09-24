@@ -39,8 +39,11 @@
  *   rig-22 cam3    3 s       87 px      15   -0.005 +/- 0.064      0.128     ok
  *   rig-22 cam3    open     102 px      15   -0.022 +/- 0.036      0.072     ok
  *
- *   Pooled over the six independent camera-fixture pairs (a camera's two windows are
- *   the same static board and are NOT two measurements):
+ *   Pooled over the six independent camera-fixture pairs -- a camera's two windows are
+ *   the same static board and are NOT two measurements, so one row per camera enters:
+ *   rig-18's three, and rig-22's cam1 (3 s), cam2 (3 s), cam3 (open). Which window is
+ *   taken for the two cameras that have both does not matter and was checked rather
+ *   than assumed: the other choice gives -0.045 +/- 0.015 against -0.044 +/- 0.015.
  *
  *     kappa = -2.45e-7 +/- 0.83e-7 px^-2,  chi-squared 1.49 on 5 degrees of freedom.
  *
