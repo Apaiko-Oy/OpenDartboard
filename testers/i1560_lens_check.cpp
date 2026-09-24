@@ -13,11 +13,18 @@
 //             the centred-board case bounds nothing and must say so (gain = 0).
 //
 // "Footage-shaped" means the real census's geometry, not a friendly one: board
-// radius ~250 px, twenty wedge-boundary chords concurring ~60-130 px off the
-// principal point (the range the two rig fixtures actually sit at), spans 0.18-0.90
-// of the board radius with the treble band cut out. The full instrument
-// (testers/i1560_k1_census.py) runs the same control through its complete
-// Gauss-Newton fit; this file pins the linear-ensemble core of it into the build.
+// radius ~250 px, twenty wedge-boundary chords concurring 21-102 px off the principal
+// point (the range the two rig fixtures really sit at, and the near end of it is why
+// one camera-window in the census answers "cannot tell"), spans 0.18-0.90 of the board
+// radius. The full instrument (testers/i1560_k1_census.py) runs the same control
+// through its complete Gauss-Newton fit; this file pins the linear-ensemble core into
+// the build.
+//
+// It also holds THE RECORDED VERDICT'S OWN ARITHMETIC -- the pooling of the nine
+// camera-windows, the conversion of the recorded kappa to a k1 at each of the two
+// focal lengths in play, and the subtraction the verdict rests on. Those are not a
+// re-measurement: the footage is not here. They are what makes editing a constant in
+// lens_census.hpp without editing the sentence beside it a red build.
 //
 //   testers/unit_check.sh 1560
 //
@@ -114,8 +121,8 @@ int main()
 
     // The model's own claims first.
     {
-        // the worst corner this rig can produce: a point 368 px out at a kappa five
-        // times the census's own, which is |kappa| r^2 = 0.149. The fixed point
+        // the worst corner this rig can produce: a point 368 px out at a kappa four
+        // and a half times the census's own, which is |kappa| r^2 = 0.149. The fixed point
         // contracts by about 2|kappa| r^2 a pass, so this is where an iteration count
         // chosen as a round number shows up -- eight passes leave 7.2e-3 px here.
         double x = 900.0, y = 620.0;

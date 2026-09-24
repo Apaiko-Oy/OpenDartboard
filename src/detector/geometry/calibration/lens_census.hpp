@@ -139,8 +139,9 @@ namespace lens_census
      * THE MEASURED INTRINSICS, and the first this repository has. Pixel-space, about
      * the image centre, pooled over the six independent camera-fixture pairs above.
      *
-     * NOTHING READS THESE YET, deliberately. Distortion is worth under a millimetre
-     * on the board at this magnitude (#1513's table, the row below -0.05), the
+     * NOTHING READS THESE YET, deliberately. Distortion is worth about half a
+     * millimetre on the board at this magnitude (#1513's table, just below its
+     * -0.05 row, which simulated 0.54 mm of whole-board residual after a plane fit), the
      * detector's scoring is an image-space ring test that cancels it entirely
      * (#1513 section 1), and correcting for a constant this small would move numbers
      * eleven testers pin for no gain anybody can measure. They are recorded because
@@ -155,7 +156,8 @@ namespace lens_census
     /**
      * The focal length ONE camera measured -- rig-20260922 camera 2, at both windows,
      * on the only ring extraction in the census clean enough to bound it. It is not
-     * "the rig's f": two cameras on the same fixture could not answer at all. Held
+     * "the rig's f": the other two cameras on that same fixture, at either window,
+     * could not answer at all, and neither could any of rig-20260918's three. Held
      * here so the number is somewhere other than a closed issue thread, and NOT wired
      * into perspective_processing.cpp, whose 120-degree diagonal (424 px) this
      * contradicts -- that flip is its own decision with its own evidence (#1560).
