@@ -271,6 +271,12 @@ of them is missing. *A different number entirely* falls from 3 to 2 (S7->S2 was 
 shift); *a score published where a miss was thrown* falls from 1 to 0; and of the three
 *undetected*, two are the recorded eventless throws and one is visit 4's, unplaced.
 
+**Measured fresh under the rule on 2026-09-25** by `1484-confidence` on #1504's merge of
+`main` at `4e6c103`, whole clip: **19 detected, 15 of 19 correct, none ambiguous, no
+visit boundary merged.** Visits 3, 5, 6 and 7 are wholly correct; visit 4 publishes all
+three and its third, `T20` for the miss, stays wrong. The same log aligned
+first-against-first reads 13 of 19, visit 6 nought.
+
 **Visit 6's second detected dart is marginal.** Three runs of the byte-identical binary
 on 2026-09-23 read this clip 18–18–17 darts: the odd run lost exactly that dart — the
 throw at 7 that publishes as `S2@0.7` above — and nothing else, every other verdict
