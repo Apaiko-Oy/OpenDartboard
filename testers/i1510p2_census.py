@@ -84,8 +84,15 @@ def read_run(path):
     visits = [[]]
     pending = {}
     shadow_lines = 0
+    whole_fixture = False
     for raw in open(path, "r", errors="replace"):
         line = ANSI.sub("", raw)
+        # #1552: whether the run played the whole fixture. The ground-truth table is a
+        # transcription of the footage, so on a whole-fixture run fewer seen visits
+        # than thrown is a merged boundary (segmentation), never "the run ended".
+        if "END OF FOOTAGE: every file source has reached its end" in line:
+            whole_fixture = True
+            continue
         m = MODEL_RE.search(line)
         if m:
             shadow_lines += 1
@@ -119,7 +126,7 @@ def read_run(path):
             visits[-1].append(dart)
     if visits and not visits[-1]:
         visits.pop()
-    return visits, shadow_lines
+    return visits, shadow_lines, whole_fixture
 
 
 def main():
@@ -130,7 +137,7 @@ def main():
     args = ap.parse_args()
 
     truth = read_truth(args.truth)
-    visits, shadow_lines = read_run(args.log)
+    visits, shadow_lines, whole_fixture = read_run(args.log)
     if shadow_lines == 0:
         print("I1510P2 CENSUS %s: no I1510P2 shadow lines in %s -- was the run made "
               "with OD_MODEL_SCORE=on?" % (args.fixture, args.log))
@@ -141,6 +148,16 @@ def main():
 
     print("I1510P2 CENSUS fixture=%s visits=%d truth_visits=%d shadow_lines=%d"
           % (args.fixture, len(visits), len(truth), shadow_lines))
+
+    # #1552: a merged visit is a SEGMENTATION failure, counted apart from detection and
+    # scoring, because the per-visit alignment below misattributes every dart after the
+    # first merged boundary. Judged only on a run that played the whole fixture.
+    merged = max(0, len(truth) - len(visits)) if whole_fixture else 0
+    if merged:
+        print("I1510P2 SEGMENTATION merged_boundaries=%d -- the run played the whole "
+              "fixture, so %d thrown visit boundar%s produced no END; from the first "
+              "merged boundary onward the per-visit alignment below compares darts "
+              "across visit boundaries" % (merged, merged, "y" if merged == 1 else "ies"))
 
     # ---- every dart, spelled out --------------------------------------------------------
     per_cam = {}   # cam -> counters over every shadow line of a published dart
