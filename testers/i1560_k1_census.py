@@ -412,6 +412,13 @@ def wire_traces(frame, dout_fit, bull, t_lo=(0.18, 0.50), t_hi=(0.66, 0.90), t_s
     Sampling centre is the BULL (the image of the board centre, where the wires concur),
     so a straight wire holds a near-constant angle across every fraction and the tracker
     cannot walk onto a neighbour; radii ride the doubles conic's crossing along each ray.
+
+    A point lands where the LUMINANCE EDGE is, at whichever angle the scan found it, so
+    an error in the guiding conic moves a point ALONG the wire rather than off it -- and
+    a bow is a curvature, which sliding a point along a line cannot create. That is why
+    the census's kappa is the one number here that does not inherit the ring
+    extraction's quality: five of the nine cameras cannot measure a focal length from
+    their rings and all nine measure a bow.
     Tracking is sequential outward from a mid-bed reference fraction, so the small drift
     a bull-seed error buys accumulates one 1.5-degree-bounded step at a time.
     Returns list of traces, each a list of (x, y, frac)."""
@@ -950,11 +957,17 @@ def align_board_rotation(params, data):
 
 
 def fit_camera(data, init, fix_f=True):
-    """The census fit: pose first at kappa=0 (both tilt signs -- a conic cannot tell
-    which way a plane tips), then kappa freed. f stays at the caller's value by
-    default: kappa is pixel-space, so the distortion question does not need f, and
-    the f question is answered by profile_f rather than by letting one weakly-bent
-    direction of the chi-squared surface wander. Returns (p_before, p_after, sigma)."""
+    """The WHOLE-MODEL fit -- rings, wires, bull and kappa together: pose first at
+    kappa=0 (both tilt signs, since a conic cannot tell which way a plane tips), then
+    kappa freed. f stays at the caller's value by default, because the f question is
+    answered by fit_f_from_rings instead: measured, #1560, with the wires in and f
+    free, f runs to 1e11 on three of nine cameras.
+
+    The CENSUS no longer reads its kappa from here -- ensemble_kappa does that from
+    the wire bows alone, with no pose to get wrong. This path survives as the
+    synthetic control's subject, which is its own justification: it is the most
+    credulous estimator in the file, and a planted k1 has to come back out of it.
+    Returns (p_before, p_after, sigma)."""
     pose = [1, 2, 3, 4, 5, 6] if fix_f else [0, 1, 2, 3, 4, 5, 6]
     best = None
     for sign in (1.0, -1.0):
