@@ -377,7 +377,7 @@ namespace launcher
             return refused;
         }
         const std::string digest = od_sha256::hex(response.body);
-        if (false && digest != answer.published_sha256)
+        if (digest != answer.published_sha256)
         {
             Application refused = stoppedAt(application, Step::DigestMismatch, digest);
             return refused;
