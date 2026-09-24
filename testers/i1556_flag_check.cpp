@@ -270,20 +270,20 @@ int main(int argc, char **argv)
         // The ellipse's own axes, asserted against the function that resolves it. A
         // 12 x 3 mm ellipse lying at 40 degrees reads 12 along 40, 3 along 130, and the
         // right thing in between; a circular one reads the same in every direction.
-        const double along = detail::sigmaAlongDeg(12.0, 3.0, 40.0, 40.0);
-        const double across = detail::sigmaAlongDeg(12.0, 3.0, 40.0, 130.0);
-        const double mid = detail::sigmaAlongDeg(12.0, 3.0, 40.0, 85.0);
+        const double along = entry_intersection::detail::sigmaAlongDeg(12.0, 3.0, 40.0, 40.0);
+        const double across = entry_intersection::detail::sigmaAlongDeg(12.0, 3.0, 40.0, 130.0);
+        const double mid = entry_intersection::detail::sigmaAlongDeg(12.0, 3.0, 40.0, 85.0);
         sayPure(std::fabs(along - 12.0) < 1e-9,
                 "the resolved sigma along the major axis IS the major axis (" + fmt2(along) + ")");
         sayPure(std::fabs(across - 3.0) < 1e-9,
                 "and across it is the minor axis (" + fmt2(across) + ")");
         sayPure(mid > 3.0 && mid < 12.0,
                 "and between them it is between them (" + fmt2(mid) + ")");
-        sayPure(std::fabs(detail::sigmaAlongDeg(7.0, 7.0, 40.0, 0.0) - 7.0) < 1e-9 &&
-                    std::fabs(detail::sigmaAlongDeg(7.0, 7.0, 40.0, 61.0) - 7.0) < 1e-9,
+        sayPure(std::fabs(entry_intersection::detail::sigmaAlongDeg(7.0, 7.0, 40.0, 0.0) - 7.0) < 1e-9 &&
+                    std::fabs(entry_intersection::detail::sigmaAlongDeg(7.0, 7.0, 40.0, 61.0) - 7.0) < 1e-9,
                 "a circular uncertainty reads the same in every direction, which is the "
                 "case where this rule and the one it replaces agree");
-        sayPure(detail::sigmaAlongDeg(19.3, 6.6, 0.0, 90.0) < 19.3 / 2.0,
+        sayPure(entry_intersection::detail::sigmaAlongDeg(19.3, 6.6, 0.0, 90.0) < 19.3 / 2.0,
                 "and a 19.3 x 6.6 mm ellipse -- rig-20260918's own worst solve -- claims "
                 "6.6 across its minor axis where the rule this replaces claimed 19.3");
     }
