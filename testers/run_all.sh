@@ -109,6 +109,11 @@ tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 # maintainer's fix of 2026-09-22 (1e39e79) shipped it with a host-g++ driver and no row
 # here, so the census met it unrun; registered by #1534. The driver keeps the hand-run
 # image mode and says so in its own marker.
+# MEASURED 2026-09-24 on the 4-core box, to completion, rc=0: wall 83 s on a QUIET box --
+# Docker freshly restarted, zero other containers, one tester at a time, nothing else on
+# the daemon -- so at this suite's measured 5.4x load factor a busy-box run is still
+# ~450 s, well inside the default 1200. Nearly all of it is the one -O1 compile of the
+# whole calibration directory; the assertions themselves run in milliseconds. No `slow`.
 tester bull-colour        "bash '$T/unit_check.sh' bull-colour"
 
 # #1510: the one-board fit against a PLANTED homography -- recovery within tolerance,
