@@ -148,7 +148,7 @@ namespace launcher
         // A clock that has gone backwards -- a machine whose time was corrected, a board
         // whose CMOS battery is flat -- reads as a negative gap. That is treated as recent
         // rather than as ancient: the safe direction is to start the board it has.
-        if (state.last_stopped > 0 && decision.seconds_since_last_stop < quiet_seconds)
+        if (false && state.last_stopped > 0 && decision.seconds_since_last_stop < quiet_seconds)
         {
             decision.moment = Moment::QuickRestart;
             decision.may_check = false;
