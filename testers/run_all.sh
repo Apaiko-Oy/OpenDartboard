@@ -186,6 +186,30 @@ tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
 # the #1505/#1535 falsification targets read out by name. Four whole-clip replays,
 # i1511's shape and cost.
 tester 1512-entry         "bash '$T/i1512_run.sh'"
+# #1555: WHICH of the two paths publishes. The decision is `decidePublishedPath`, pure and
+# over primitives so score_processing.hpp need not reach entry_intersection.hpp (four pure
+# checks link nothing, and 1451-scorable's two issues of COMPILE_FAILED are what a header
+# dragging board_model/wire_model in costs). One compile, three runs of the same binary:
+# the tree's rule, the OD_SCORE_PATH=vote pin restoring the pre-#1555 binary, and the
+# mutation proof with its predicted failure count -- arithmetic on the census constant the
+# check prints, stated before the run. Not a unit_check.sh row because the measurement is
+# that TRIPLE on one binary (i1518_check.sh's and i1552_check.sh's reason).
+tester 1555-publish       "bash '$T/i1555_check.sh'"
+# #1555's fixture half: both paths over both ground-truthed fixtures in BOTH calibration
+# windows (#1551 -- the registry build's 3 s seek and OD_SEEK_VIDEO=off's opening, never
+# pooled blind and never against od-baselines/5bc3b0a's third window), scored against the
+# truth tables with ring, wedge, phantom and silence split apart and segmentation counted
+# apart again (#1552). What is asserted is that each census is an instrument, that the pin
+# restores the vote, and that every published score is the column its own path= names;
+# accuracy is REPORTED, because a harness that failed on it would be deciding the issue by
+# its own threshold. Five whole-clip replays, i1511's shape and cost.
+#
+# MEASURED, #1341's rule: 690 s wall on a quiet 4-core box (2026-09-25, the wired run,
+# five replays end to end), which is 58% of the 1200 s default. No `slow` line, because
+# 1200 has never been exceeded by this row and #1341's budget is twice the limit that
+# really failed rather than twice the cost measured here -- the number is written down so
+# whoever first meets a `no answer in 1200s` knows it started at 690 and can say so.
+tester 1555-bakeoff       "bash '$T/i1555_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which

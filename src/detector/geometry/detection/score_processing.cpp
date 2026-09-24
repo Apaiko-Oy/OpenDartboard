@@ -680,10 +680,20 @@ namespace score_processing
         return v;
     }
 
-    static void logGeometricShadow(const vector<Mat> &background_frames,
-                                   const dart_processing::DartStateResult &dart_result,
-                                   const vector<DartboardCalibration> &calibrations,
-                                   const string &publishedScore, double publishedConfidence)
+    /**
+     * #1555: the geometric entry for this dart -- solved, censused where the census pin
+     * is on, drawn where the probe directory is set, and RETURNED, because since this
+     * issue the solution can be the published reading rather than a line in a log.
+     *
+     * It was `logGeometricShadow` and the body below is what it was; what changed is
+     * that the caller may now read the answer. The logging and the overlays stay behind
+     * their own pins, so an ordinary run is as quiet as it was.
+     */
+    static entry_intersection::EntrySolution solveGeometricEntry(
+        const vector<Mat> &background_frames,
+        const dart_processing::DartStateResult &dart_result,
+        const vector<DartboardCalibration> &calibrations,
+        const string &publishedScore, double publishedConfidence)
     {
         // Refit per dart for logModelShadow's stated reason: pure over the calibration,
         // and a cache keyed on camera index goes stale the day a mid-run recalibration
@@ -755,6 +765,7 @@ namespace score_processing
                         canvas);
             }
         }
+        return sol;
     }
 
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
@@ -892,20 +903,115 @@ namespace score_processing
             // that measured.
             const ScoreChoice choice = chooseScore(point_scores, may_vote);
 
-            // #1512, shadow only (OD_GEO_SCORE=on): the geometric entry beside the
-            // vote's answer, for EVERY called dart -- the no-winner MISS included,
-            // because a lone-witness phantom (#1505) is exactly an event the geometry
-            // must be heard about. Nothing below reads the solution; the published
-            // score is the vote's, on and off alike.
-            if (geoScoreShadowed() || !geoProbeDir().empty())
+            // #1512/#1555: the geometric entry, for EVERY called dart -- the no-winner
+            // MISS included, because a lone-witness phantom (#1505) is exactly an event
+            // the geometry must be heard about.
+            //
+            // #1512 asked it only behind a pin and nothing read the answer. Since #1555
+            // the answer can be what publishes, so it is asked on an ordinary run
+            // WHENEVER the geometric path is the published one -- and otherwise only
+            // when a pin wants its census (OD_GEO_SCORE=on) or its overlays
+            // (OD_GEO_PROBE). Under OD_SCORE_PATH=vote with no census pin nothing below
+            // this line runs at all, which is what makes the pin a real restoration of
+            // the old binary's work as well as of its verdicts.
+            entry_intersection::EntrySolution solution;
+            const bool geometry_publishes = publishedPathIsGeometry();
+            if (geometry_publishes || geoScoreShadowed() || !geoProbeDir().empty())
             {
-                logGeometricShadow(background_frames, dart_result, calibrations,
-                                   choice.camera >= 0 ? point_scores[choice.camera].score
-                                                      : string("MISS"),
-                                   choice.camera >= 0 ? choice.confidence : 0.5);
+                solution = solveGeometricEntry(background_frames, dart_result, calibrations,
+                                               choice.camera >= 0 ? point_scores[choice.camera].score
+                                                                  : string("MISS"),
+                                               choice.camera >= 0 ? choice.confidence : 0.5);
             }
 
-            if (choice.camera >= 0)
+            // A solved entry is only a published reading when it also carries a SCORE:
+            // `scoreFromModel` needs a built plane and a positive millimetre scale, and
+            // the reference camera is the lowest-index constraint that survived the
+            // solve. Anything short of all three is a refusal like any other.
+            const bool geometry_answered = geometry_publishes && solution.solved &&
+                                           solution.score.valid &&
+                                           solution.scoredThroughCamera >= 0;
+            const PublishDecision decision =
+                decidePublishedPath(geometry_publishes, geometry_answered,
+                                    entry_intersection::outcomeWord(solution.outcome),
+                                    solution.story);
+            // Printed on every dart, never conditionally: a reader of any log must be
+            // able to say which path named this score without knowing which build they
+            // are reading. That is the whole property this issue creates, and #1451 is
+            // the issue about a decision taken in silence.
+            log_info(decision.account);
+            result.from_geometry = decision.path == ScorePath::Geometry;
+            result.degraded = !decision.fallback_reason.empty();
+            result.geometry_outcome = decision.geometry_asked
+                                          ? string(entry_intersection::outcomeWord(solution.outcome))
+                                          : string();
+
+            if (decision.path == ScorePath::Geometry)
+            {
+                const int reference = solution.scoredThroughCamera;
+                result.score = solution.score.score;
+                result.confidence =
+                    geometricConfidence(solution.outcome ==
+                                        entry_intersection::Outcome::UncertainAcrossWire);
+                result.camera_index = reference;
+                result.valid = true;
+                result.ring = solution.score.ringWord;
+                result.segment = solution.score.segment;
+                // The published position is the SOLVED entry reprojected into the
+                // reference camera's image -- not that camera's tip, which is the
+                // evidence the solve deliberately does not use as a constraint (#1512
+                // measured the between-camera tip spread at median 73.6 mm). Where the
+                // reprojection could not be placed the tip is the honest second best,
+                // and a MISS's (-1,-1) is what it always was.
+                const entry_intersection::Constraint *ref =
+                    reference < (int)solution.constraints.size() ? &solution.constraints[reference]
+                                                                 : nullptr;
+                if (ref != nullptr && ref->solvedImagePlaced)
+                {
+                    result.pixel_position = ref->solvedImage;
+                }
+                else if (reference < (int)dart_result.camera_results.size())
+                {
+                    result.pixel_position = dart_result.camera_results[reference].tip_position;
+                }
+                result.dartboard_position = result.pixel_position;
+                if (reference < (int)dart_result.camera_results.size())
+                {
+                    result.center_position = dart_result.camera_results[reference].center_position;
+                }
+                // #1186's frame, filled from the solve rather than from a camera's
+                // rulers. `radius` is 0 at the bull and 1 at the outer edge of the
+                // double ring, so it is the solved millimetre radius over the board's
+                // scoring radius; `angle` is degrees clockwise from the middle of the
+                // 20, and the canonical phi this solve reports is 0 at the 20's FIRST
+                // boundary and advances the same way round, so the two differ by the
+                // half-wedge 9 degrees and by nothing else.
+                const float scoringRadiusMm =
+                    (float)board_model::profileFromSpec(perspective_processing::DartboardSpec())
+                        .outerDoubleRadiusMm;
+                result.board.has_radius = scoringRadiusMm > 0.f;
+                result.board.radius = result.board.has_radius
+                                          ? (float)(solution.radiusMm / scoringRadiusMm)
+                                          : -1.0f;
+                result.board.has_angle = solution.score.wedgeResolved;
+                result.board.angle = result.board.has_angle
+                                         ? (float)fmod(solution.phiDeg - 9.0 + 360.0, 360.0)
+                                         : -1.0f;
+                log_info("Geometric score: " + result.score + " from " +
+                         to_string(solution.usableConstraints) + " intersecting constraint(s) of " +
+                         to_string(solution.offeredConstraints) + " cameras, read through camera " +
+                         to_string(reference));
+                // The BOARD line, in the geometric path's own words. It deliberately
+                // matches neither "wedge measured" nor "wedge by default": i1484's
+                // census reads those two as a claim about a CAMERA's angular ruler, and
+                // no camera's ruler decided this wedge -- the intersection did.
+                log_info(string("BOARD: wedge from the solved entry") +
+                         " | ring=" + result.ring +
+                         " | segment=" + to_string(result.segment) +
+                         " | radius=" + (result.board.has_radius ? to_string(result.board.radius) : string("none")) +
+                         " | angle=" + (result.board.has_angle ? to_string(result.board.angle) : string("none")));
+            }
+            else if (choice.camera >= 0)
             {
                 const int best_camera = choice.camera;
                 const string final_score = point_scores[best_camera].score;
@@ -967,6 +1073,35 @@ namespace score_processing
                 {
                     log_warning("State changed but no valid scores found!");
                 }
+            }
+
+            // #1555: the machine-readable half of the same fact, for every called dart
+            // and from ONE place, so no branch can be the one that forgets to say what
+            // published. Behind the census pin, like the I1512 lines it sits beside.
+            if (geoScoreShadowed())
+            {
+                long window = -1;
+                for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+                {
+                    if (r.axis.windowOrdinal >= 0)
+                    {
+                        window = r.axis.windowOrdinal;
+                    }
+                }
+                const string vote_score = choice.camera >= 0 ? point_scores[choice.camera].score
+                                                             : string("MISS");
+                const float vote_conf = choice.camera >= 0 ? choice.confidence : 0.5f;
+                const string geo_score =
+                    (solution.solved && solution.score.valid) ? solution.score.score : string();
+                // `outcome` describes the SOLVE, not the decision: under the census pin
+                // the solver always ran, so a pinned run (OD_SCORE_PATH=vote) still
+                // reports what the geometry would have said beside what the vote
+                // published. That is the whole point of keeping the losing path
+                // reachable -- one binary, both answers, on the same dart.
+                log_info(publishCensusLine(window, decision.path, result.score, result.confidence,
+                                           result.degraded,
+                                           entry_intersection::outcomeWord(solution.outcome),
+                                           vote_score, vote_conf, geo_score));
             }
             break;
         }

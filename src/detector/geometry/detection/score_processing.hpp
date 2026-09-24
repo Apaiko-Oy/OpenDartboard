@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -109,6 +110,17 @@ namespace score_processing
         string ring;
         int segment = -1;
         BoardPosition board;
+        // #1555: WHICH path named this dart, and what the geometry said, as two fields
+        // for #1489's reason -- the count (`confidence`) and the subject are different
+        // questions and one number cannot answer both. `geometry_outcome` is
+        // entry_intersection::outcomeWord's own vocabulary (SOLVED, WIRE-UNCERTAIN,
+        // TOO-FEW-CONSTRAINTS, NEAR-PARALLEL, INCONSISTENT), empty where the solver was
+        // never consulted; `degraded` is true exactly where the geometric path is the
+        // published one, was asked, refused by name, and the vote published instead.
+        // A `degraded` reading is a lone camera's, never a triangulated position.
+        bool from_geometry = false;
+        bool degraded = false;
+        string geometry_outcome;
     };
 
     /**
@@ -151,6 +163,262 @@ namespace score_processing
         // instead of a passed-over calibration failure reading like any other 0.7.
         bool preferred_complete = false;
     };
+
+    // ---- #1555: WHICH PATH PUBLISHES, and the census that decided it -------------------
+    //
+    // Two paths can name this dart. The STRING VOTE scores a tip per camera and picks a
+    // camera's score STRING (chooseScore, above). The GEOMETRIC path transports every
+    // reliable camera's fitted shaft axis to the board plane and intersects them into one
+    // entry point, scored once (entry_intersection.hpp, #1512). Until this issue the vote
+    // published and the geometry ran shadowed behind OD_GEO_SCORE=on.
+    //
+    // THE MAINTAINER'S RULE IS THAT THE CENSUS DECIDES. Both paths were run over both
+    // ground-truthed fixtures, in both calibration windows (#1551: a registry build
+    // calibrates at a 3 s seek; OD_SEEK_VIDEO=off holds the same binary at the clip's
+    // opening, and on rig-20260922 that is the difference between two admitted cameras
+    // and three). The numbers, per fixture, per window, with denominators, are the
+    // I1555 SCORECARD block in testers/i1555_census.py's output and are transcribed at
+    // `publishedPathIsGeometry()` below, beside the decision they bought.
+    //
+    // WHAT "THE GEOMETRIC PATH PUBLISHES" MEANS, exactly. It is not "geometry instead of
+    // the vote": the solver REFUSES by name (fewer than two usable constraints, near
+    // parallel, inconsistent) and a refusal is not a score. The published path is
+    // therefore geometry WHERE IT SOLVED and the vote where it did not -- and #1512's
+    // contract is that the second half says so out loud: a fallback is labelled as a
+    // fallback, never presented as a triangulated position. `PublishDecision::account`
+    // is where it is said, and `decidePublishedPath` is the whole of the rule.
+
+    /** #1555: which of the two paths named the dart that is being published. */
+    enum class ScorePath
+    {
+        Vote,    // chooseScore's string vote -- one camera's reading, by consensus or alone
+        Geometry // entry_intersection's solved board-plane entry, scored once
+    };
+
+    inline const char *scorePathWord(ScorePath p)
+    {
+        return p == ScorePath::Geometry ? "geometry" : "vote";
+    }
+
+    /**
+     * #1555's falsification switch, in the od_fix shape #1339, #1348, #1495, #1518 and
+     * #1552 established: one binary, the rule chosen at run time, so "different build"
+     * is never a confound -- and so the losing path stays reachable and measurable.
+     *
+     * `OD_SCORE_PATH=vote` publishes the string vote for every dart, exactly as every
+     * build before this issue did, with the geometric solve not consulted at all.
+     * Anything else, unset included, publishes the census winner.
+     */
+    inline bool voteIsPinned()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_SCORE_PATH");
+            return e != nullptr && std::string(e) == "vote";
+        }();
+        return v;
+    }
+
+    /**
+     * #1555: THE CENSUS, AND THE VERDICT IT CARRIES.
+     *
+     * Measured by testers/i1555_run.sh on this tree (origin/main at e5509c3 merged in),
+     * five whole-clip replays, every one with OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 so both
+     * paths answer about the same dart in the same process. Exact score against the
+     * fixtures' ground truth, aligned by the spatial matcher i1511_census::assign_events
+     * -- the same one #1511 and #1512 use, so no two censuses here can disagree about
+     * which detection was which dart. Denominators are MATCHED darts; segmentation is
+     * counted apart (#1552) and enters none of them.
+     *
+     *   fixture          window   matched  VOTE     GEOM-ONLY  GEOMETRY-FIRST
+     *   ---------------  -------  -------  -------  ---------  --------------
+     *   rig-20260918     dev           17  13/17    12/13      15/17
+     *   rig-20260918     opening       17  13/17    13/14      15/17
+     *   rig-20260922     dev            6   0/6      0/2        0/6
+     *   rig-20260922     opening        5   0/5      0/4        0/5
+     *   POOLED                         45  26/45               30/45   (+4)
+     *
+     * GEOMETRY-FIRST is the column the decision is taken on, and the other two are there
+     * to say why. GEOMETRY-ONLY (92-93%) is a figure about the instrument on its own
+     * denominator -- the solver chooses which darts it answers about, and three of the
+     * four it refused on rig-18 are darts the vote gets right, so a path is not more
+     * accurate for refusing a quarter of a clip. GEOMETRY-FIRST carries the vote's own
+     * denominator: the solve where there is one, the vote where the solver refused by
+     * name. It wins on rig-20260918 by the same +2 in BOTH calibration windows,
+     * independently, and pooled by +4 of 45.
+     *
+     * WHAT MOVES, on rig-20260918, and the two windows agree on the wins and differ on
+     * the loss. THREE darts the vote gets wrong come back right in BOTH windows: v1.1,
+     * a thrown T13 the vote publishes S13 (a ring error, #1492's 5.5 mm short tip), and
+     * v2.1 and v4.1, both thrown 19 and both published S7 (wedge errors). ONE DART THE
+     * VOTE GETS RIGHT GOES WRONG IN EACH WINDOW, AND IT IS NOT THE SAME DART:
+     *
+     *   dev      v2.3, a thrown S5, solves D12 -- position error 67.5/46.2 mm, ZERO of
+     *            three placed tips corroborating. The SAME dart solves S5 correctly in
+     *            the opening window.
+     *   opening  v5.1, a thrown S15, solves T15 -- a ring error at the treble band. The
+     *            SAME dart solves S15 correctly in the dev window.
+     *
+     * So the loss is one marginal call per window rather than a stable defect, and the
+     * trade is 3:1 in both. That is NOT #1505's acceptance criterion satisfied -- that
+     * issue refused a 1:1 trade on the rule that nothing which is right may go wrong.
+     * This is taken under the rule the maintainer set for THIS issue, which is pooled
+     * accuracy, and the regression is written here because a census that listed only its
+     * wins would not be one.
+     *
+     * RIG-20260922 DECIDED NOTHING, AND ITS ZERO IS THE REFERENCE RATHER THAN EITHER
+     * PATH. Both paths read 0 in both windows, so no reading of that fixture can change
+     * the ordering -- but the number is not a scoring fact. Only 9 of its 24 throws are
+     * annotated at all (truth visits 1-3, testers/i1511_annotations/rig-20260922.csv),
+     * two of those nine are --no-arrival, and the matcher maps detected visits onto
+     * consecutive truth-visit RANGES: with the annotation stopping at truth visit 3
+     * while the opening window detects 8 visits, the annotated range is free to slide
+     * along the run, and it does. Measured on the census's own page: truth v1.2, a
+     * thrown 16, is matched to a detection that published T9 while the detection that
+     * published S16 is left unclaimed, and the same one-visit shift stands a thrown T8
+     * beside a published S1 with the T8 unclaimed. `I1555 REFERENCE-GAP` is the census
+     * saying so on every run. The remedy is annotations for that fixture's visits 4-8,
+     * which is not this issue.
+     *
+     * So: geometry-first wins pooled, wins on the one fixture that can tell the two
+     * paths apart, wins in both of that fixture's calibration windows separately, and is
+     * beaten on no fixture and in no window. That is neither a tie nor a split, so the
+     * constant is true. It is one word to reverse, and OD_SCORE_PATH=vote reverses it on
+     * a shipped binary with no rebuild at all.
+     */
+    inline constexpr bool kGeometryWonTheCensus = true;
+
+    /**
+     * #1555: whether the geometric path is the published one on this tree.
+     *
+     * A function rather than a bare constant because the decision is a measurement and
+     * the pin has to be able to move it on one binary: `OD_SCORE_PATH=vote` restores the
+     * losing path without a rebuild, which is what keeps both paths measurable.
+     */
+    inline bool publishedPathIsGeometry()
+    {
+        return kGeometryWonTheCensus && !voteIsPinned();
+    }
+
+    /** What a published reading is worth, per path. */
+    struct PublishDecision
+    {
+        ScorePath path = ScorePath::Vote;
+        bool geometry_asked = false;  // the solver was consulted for this dart at all
+        bool geometry_solved = false; // it answered with an entry point AND a score
+        // #1512's contract, as a field: why the vote is publishing although the
+        // geometric path is the published one. Empty on a geometric publish and on a
+        // run where the vote is pinned -- a fallback is a thing that HAPPENED, not the
+        // ordinary state of affairs.
+        std::string fallback_reason;
+        std::string account; // the one sentence the SCORE log prints about the choice
+    };
+
+    /**
+     * #1555: the publish decision, pure, and deliberately over PRIMITIVES rather than
+     * over an EntrySolution. score_processing.hpp is included by four pure checks that
+     * link no extra translation unit; entry_intersection.hpp reaches board_model.hpp and
+     * wire_model.cpp at link time, and unit_check.sh's own comment records what a header
+     * dragging that in costs (1451-scorable did not LINK for two issues). The caller
+     * unpacks the solution; this function holds the rule.
+     *
+     * `geometryEnabled` is publishedPathIsGeometry(). `geometrySolved` is the solver
+     * having BOTH an entry point and a valid score for it -- Outcome::Solved and
+     * Outcome::UncertainAcrossWire are the two that qualify, and WIRE-UNCERTAIN
+     * qualifies deliberately: it is a solved position whose sigma reaches a wire, which
+     * is a statement ABOUT a score rather than a refusal to make one, and on
+     * rig-20260918 eleven of thirteen solves carry the flag (at ~6 mm precision most
+     * darts sit within one sigma of some wire). Refusing it would leave the geometric
+     * path publishing two darts in a clip and would be a different decision from the one
+     * the census measured.
+     */
+    inline PublishDecision decidePublishedPath(bool geometryEnabled, bool geometrySolved,
+                                               const std::string &outcomeWord,
+                                               const std::string &refusalStory)
+    {
+        PublishDecision out;
+        if (!geometryEnabled)
+        {
+            out.path = ScorePath::Vote;
+            out.account = voteIsPinned()
+                              ? "PATH: the string vote publishes -- OD_SCORE_PATH=vote is "
+                                "pinned, so the geometric solve was not consulted"
+                              : "PATH: the string vote publishes";
+            return out;
+        }
+        out.geometry_asked = true;
+        if (geometrySolved)
+        {
+            out.path = ScorePath::Geometry;
+            out.geometry_solved = true;
+            out.account = "PATH: the geometric entry publishes (" + outcomeWord + ")";
+            return out;
+        }
+        // #1512's contract: reached honestly and labelled as itself. The word DEGRADED
+        // and the solver's own refusal are both in the line, because the one thing this
+        // must never read as is a triangulated position.
+        out.path = ScorePath::Vote;
+        out.fallback_reason = outcomeWord + (refusalStory.empty() ? "" : ": " + refusalStory);
+        out.account = "PATH: DEGRADED -- no geometric entry (" + out.fallback_reason +
+                      "), so the string vote publishes this dart; it is one camera's "
+                      "reading and not a triangulated position";
+        return out;
+    }
+
+    /**
+     * #1555: what a GEOMETRIC publish's confidence means, said here because the three
+     * numbers mean something and #1489 is why.
+     *
+     * 0.9 and 0.7 count CAMERAS on the vote's path -- two or more readings agreeing, or
+     * one standing alone -- and a solved entry is not a count of agreeing strings. What
+     * carries over is the sense of the numbers rather than their mechanism: 0.9 is a
+     * call nothing in the measurement argues with, 0.7 is a call with a named reservation
+     * beside it. So a solved entry whose one-sigma ellipse clears every call-flipping
+     * wire publishes at 0.9, and one whose sigma REACHES such a wire publishes at 0.7 --
+     * the reservation being the wire, stated rather than averaged over.
+     *
+     * A fourth number was refused for #1489's reason, measured one issue on: it would
+     * change what a published float means to every client of the WebSocket API while
+     * still not telling a reader WHICH kind of 0.9 this was. The subject is a field
+     * instead -- `ScoreResult::path` and `ScoreResult::geometry_outcome` -- so the count
+     * and the subject stay two questions with two answers.
+     */
+    inline float geometricConfidence(bool sigmaReachesAWire)
+    {
+        return sigmaReachesAWire ? 0.7f : 0.9f;
+    }
+
+    /**
+     * #1555: the census line testers/i1555_census.py parses -- one per called dart,
+     * printed only under the census pin (OD_GEO_SCORE=on) so an ordinary run stays as
+     * quiet as it was. The `PATH:` account beside it prints unconditionally; this line
+     * is the same fact in a shape a parser can read.
+     *
+     * It is a NEW line rather than two more fields on `I1512ENTRY`, and the reason is
+     * mechanical: that line's parser matches the whole head contiguously, so a field
+     * inserted anywhere before `story=` silently stops every #1512 census reading
+     * anything. It also settles a word that would otherwise have drifted --
+     * `I1512ENTRY`'s `published=` has always carried what the STRING VOTE said (at
+     * #1512 the vote was the published path, so the two were one thing), and since this
+     * issue they can differ. `vote=` here is that same string under its own name, and
+     * `score=` is what the board really published.
+     */
+    inline std::string publishCensusLine(long window, ScorePath path, const std::string &score,
+                                         float confidence, bool degraded,
+                                         const std::string &outcomeWord,
+                                         const std::string &voteScore, float voteConfidence,
+                                         const std::string &geometryScore)
+    {
+        char line[400];
+        snprintf(line, sizeof(line),
+                 "I1555PUBLISH window=%ld path=%s score=%s conf=%.2f degraded=%d "
+                 "outcome=%s vote=%s voteConf=%.2f geo=%s",
+                 window, scorePathWord(path), score.c_str(), confidence, degraded ? 1 : 0,
+                 outcomeWord.empty() ? "-" : outcomeWord.c_str(),
+                 voteScore.c_str(), voteConfidence,
+                 geometryScore.empty() ? "NONE" : geometryScore.c_str());
+        return line;
+    }
 
     /**
      * #1489: a ring-only reading counts as a camera that measured a wedge, the way every
