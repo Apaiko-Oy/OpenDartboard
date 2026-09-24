@@ -158,5 +158,30 @@ PY
 if [ $? -ne 0 ]; then echo "FAIL the published score is not the path the run says it took"; exit 1; fi
 echo "OK   every published score is the column its own path= names"
 
+# The wiring is the whole column, not just row by row, and this is the assertion that
+# stops the next branch moving it in silence. On a build that wired the geometry the
+# PUBLISHED tally must equal GEOMETRY-FIRST exactly; on one that did not it must equal
+# VOTE exactly. Either is a verdict somebody took; a build sitting between them has
+# changed the publish rule without changing the census, which is the regression this
+# tester exists for. Read off the run itself -- whether any dart published by the
+# geometry -- so the harness needs to know nothing about the constant in the header.
+for name in r18-dev r18-open r22-dev r22-open; do
+    C="$RUN/census-$name.txt"
+    [ -s "$C" ] || { echo "FAIL $C is missing"; exit 1; }
+    T=$(grep '^I1555 TALLY ' "$C" | head -1)
+    V=$(echo "$T" | sed -n 's/.*vote_exact=\([0-9]*\).*/\1/p')
+    F=$(echo "$T" | sed -n 's/.*first_exact=\([0-9]*\).*/\1/p')
+    P=$(echo "$T" | sed -n 's/.*published_exact=\([0-9]*\).*/\1/p')
+    G=$(grep -c '^I1555 PAIR .*path=geometry' "$C")
+    if [ "$G" -gt 0 ]; then WANT="$F"; WORD="geometry-first"; else WANT="$V"; WORD="the vote"; fi
+    echo "column $name: geometry_rows=$G vote_exact=$V first_exact=$F published_exact=$P expecting=$WORD"
+    [ "$P" = "$WANT" ] || {
+        echo "FAIL $name published $P correct where $WORD reads $WANT -- the published"
+        echo "     column is neither path, so the publish rule has moved away from the census"
+        exit 1
+    }
+done
+echo "OK   the published column is exactly one of the two paths on every fixture and window"
+
 echo "I1555 DONE logs, censuses and the pooled tally under $RUN"
 exit 0
