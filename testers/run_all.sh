@@ -210,6 +210,33 @@ tester 1555-publish       "bash '$T/i1555_check.sh'"
 # really failed rather than twice the cost measured here -- the number is written down so
 # whoever first meets a `no answer in 1200s` knows it started at 690 and can say so.
 tester 1555-bakeoff       "bash '$T/i1555_run.sh'"
+# #1556: a score whose uncertainty crosses a wire says so. The crossing is measured ACROSS
+# the boundary that could flip the call -- a ring wire radially, a sector wire tangentially
+# -- rather than against the longest axis of the error ellipse whichever way it points, and
+# it is floored by measurement (#1511's finding, one stage on). A flagged dart names BOTH
+# candidates, read back through the same fit and the same anchor. One compile, four runs of
+# the same binary: the tree's rule, the OD_WIRE_FLAG=sigma-major pin restoring #1555's
+# major-axis test, and TWO mutation proofs with their predicted failure counts -- the
+# pin's, and this issue's own (OD_ENTRY_SIGMA=zero empties the flag census), the second
+# stated as arithmetic on the flag-sensitive count the check prints. Not a unit_check.sh
+# row because the measurement is that set of runs on one binary (i1518_check.sh's and
+# i1555_check.sh's reason). Costs one compile plus wire_model.cpp.
+tester 1556-flag          "bash '$T/i1556_check.sh'"
+# #1556's fixture half: the flag census over both ground-truthed fixtures in BOTH
+# calibration windows (#1551), with the flag rate reported honestly, the catch table
+# (flagged against wrongly-scored) on the matched darts, #1555's rule computed on the SAME
+# dart in the same process so the two rates are one comparison, and the threshold sweep so
+# moving k is a decision taken on a table. The fifth replay is the MUTATION:
+# OD_ENTRY_SIGMA=zero must empty the flag census while the same darts are still called.
+# What is asserted is that each census is an instrument, that the mutation empties it, and
+# that every flagged dart names two candidates; the flag rate is REPORTED, because a
+# harness that failed on it would be deciding the issue by its own threshold. Five
+# whole-clip replays, i1511's shape and cost.
+#
+# MEASURED, #1341's rule: see the row above -- the same five replays on the same fixtures,
+# and this row's own wall time is written in below once it has been measured on a quiet
+# box.
+tester 1556-flagcensus    "bash '$T/i1556_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which
