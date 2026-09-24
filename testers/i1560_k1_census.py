@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # #1560: is #1467's wire residual one lens constant? k1 (and f) per camera, from footage.
 #
-# unrun-tester: an instrument, not a check -- i1499_band_census's kind, host-side. It
-# measures, per camera per fixture, every wedge-boundary wire's bow off its chord and the
-# ring conic residuals, then fits one pinhole + Brown-Conrady k1 model per camera and
-# prints the residual before and after. Nothing in it can fail on a wrong number; the
-# CHECK half (synthetic control + mutation, predictions stated first) is
-# i1560_lens_check.cpp through unit_check.sh, against the same math inlined in
-# lens_census.hpp. The verdict this instrument produced is recorded there and in the
-# issue thread; this file is kept as the way to re-take the measurement.
+# Two things in one file, and the split matters. With --frames it is an INSTRUMENT --
+# i1499_band_census's kind, host-side, nothing in it can fail on a wrong number: it
+# measures, per camera per fixture, every wedge-boundary wire's bow off its own chord
+# and the four ring conic residuals, fits one pixel-space radial constant per camera,
+# prints the bow residual before and after, and fits f from the rings alone. With
+# --synthetic it is a CHECK and registered as one (run_all.sh, 1560-lensmodel), because
+# the two halves of the solver that cannot live in a header -- the Gauss-Newton camera
+# fit and the rings-only focal-length fit -- still need a control and a mutation.
+# The ENSEMBLE half is inlined in lens_census.hpp and held by i1560_lens_check.cpp
+# through unit_check.sh (1560-lenscheck). The verdict this instrument produced is
+# recorded in that header, beside the constants it measured.
 #
 # It runs on the HOST, deliberately: Docker is a shared single resource on this rig
 # (#1552 held it for the life of #1560's branch), the fit is pure math, and the only
@@ -16,9 +19,10 @@
 # averageOf does (camera.cpp seeks frame round(fps*(3.0 - 0.18*camIdx)) on registry
 # builds, #1551, then averages 30 frames). No OpenCV, no numpy: stdlib only.
 #
-#   python3 testers/i1560_k1_census.py --frames <dir>       # measure dumped frames
-#   python3 testers/i1560_k1_census.py --dump-cmds          # print the ffmpeg lines
-#   python3 testers/i1560_k1_census.py --synthetic          # control + mutation only
+#   python3 testers/i1560_k1_census.py --dump-cmds --mocks mocks --out <dir> | bash
+#   python3 testers/i1560_k1_census.py --frames <dir>       # measure those frames
+#   python3 testers/i1560_k1_census.py --synthetic          # controls + mutations, exits
+#                                                           # on the failure count
 #
 # Frame provenance (SAY the window, #1551): tags r18w3/r22w3 are the registry 3 s
 # calibration window (frames 90/84/79 for cams 1/2/3), r22open is the clip opening
@@ -33,14 +37,25 @@
 # so any non-conic egging of a ring is the same. Extraction: average 30 frames, find the
 # red/green band edges along rays from the bull seed (subpixel threshold crossing), fit
 # the outer-doubles conic, then walk 20 wedge-boundary luminance edges across ~30 radii
-# between the rings (subpixel gradient peak). Fit: project board-plane features through
-# f (principal point pinned at 640,360, square pixels -- OV9732, docs/rig.md), rotation,
-# translation, k1; Gauss-Newton on point-to-feature distances in board mm; the BEFORE
-# fit freezes k1=0 (today's flat projective model), the AFTER fit frees it. The trap
-# (#1513, binding): radial distortion cannot bend a line through the distortion centre,
-# so each camera also reports where its board sits relative to (640,360) and the bow a
-# k1 of -0.20 WOULD produce at its fitted pose; a camera whose predicted signal is
-# within noise answers "cannot tell from this footage", never "k1 = 0".
+# between the rings (subpixel gradient peak).
+#
+# THE TWO MEASUREMENTS ARE SEPARATE ON PURPOSE, and which data answers which question is
+# the whole design. kappa comes from the WIRES and nothing else -- it is a pixel-space
+# constant and the bending of a straight line is a pixel-space fact, so no pose, no f
+# and no board model enter it, and nothing a pose got wrong can be laundered into it.
+# f comes from the RINGS and nothing else -- a plane target fixes f through perspective
+# foreshortening, which four concentric circles of known millimetre radii carry at four
+# radii at once and twenty concurrent straight lines do not carry at all. Measured, not
+# argued: with the wires in the f fit, f ran to 1e11 on three of nine cameras.
+#
+# The BEFORE/AFTER the issue asks for is therefore on the bows themselves: the rms of
+# the twenty measured bows, and the rms of what is left once the fitted kappa is taken
+# out of every wire. The trap (#1513, binding): radial distortion cannot bend a line
+# through the distortion centre, so each camera also reports where its board sits
+# relative to (640,360), the bow k1 = -0.20 would draw ON ITS OWN MEASURED CHORDS, and
+# the smallest |k1| its geometry and its scatter could separate from zero at 2 sigma.
+# A camera that cannot separate 0.20 -- the middle of #1513's sweep -- answers "cannot
+# tell from this footage", never "k1 = 0".
 
 import argparse
 import json
@@ -1244,7 +1259,6 @@ def measure(tag, cam_no, frames_dir, dump_json):
     traces = wire_traces(frame, dout_fit, seed)
     wire_points = [(x, y) for t in traces for x, y, _ in t]
     bows = [line_fit_bow(t) for t in traces]
-    data = {"rings": ring_points, "wires": wire_points, "bull": seed}
 
     # board position in frame (the trap's first half)
     e0 = ellipse_radius(dout_fit, 0.0)

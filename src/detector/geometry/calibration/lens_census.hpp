@@ -42,12 +42,21 @@
  *   Pooled over the six independent camera-fixture pairs (a camera's two windows are
  *   the same static board and are NOT two measurements):
  *
- *     k1(f = 424 px) = -0.044 +/- 0.015,  chi-squared 1.49 on 5 degrees of freedom.
+ *     kappa = -2.45e-7 +/- 0.83e-7 px^-2,  chi-squared 1.49 on 5 degrees of freedom.
  *
- *   One kappa describes all six. It is small: below the -0.05 row of #1513's sweep,
- *   so under a millimetre of board-plane error even under #1488's board-space
- *   scoring, and consistent with the "no deformity" wide lens docs/rig.md bounds the
- *   rig to.
+ *   ONE kappa describes all six. Note which number is the measurement: kappa is the
+ *   physical constant and k1 is kappa times a focal length squared, so a dimensionless
+ *   k1 only means anything beside a stated f. The same lens reads
+ *
+ *     k1 = -0.044 +/- 0.015  at the hard-coded f = 424 px (#1513's parameterisation)
+ *     k1 = -0.117 +/- 0.040  at the f = 690 px this census measured
+ *
+ *   and that is a reason to carry kappa rather than k1, not an inconsistency. In
+ *   #1513's own units it sits just below that sweep's -0.05 row, which simulated
+ *   0.54 mm of whole-board residual after a plane fit -- so of order half a
+ *   millimetre under #1488's board-space scoring, and nothing at all under the
+ *   image-space ring test the detector uses today (#1513 section 1). It is consistent
+ *   with the "no deformity" wide lens docs/rig.md bounds the rig to.
  *
  * AND IT IS NOT WHAT #1467 IS SEEING. That is this census's answer, and it is a
  * subtraction rather than an argument. Per camera, the rms of the twenty wire bows
@@ -76,9 +85,12 @@
  *   draw at all: it is paint and bloom varying with the bed under the edge.
  *
  * SO: SYSTEMATIC, SMALL, AND NOT THE THING #1467 MEASURED. There is one real lens
- * constant here and it is worth under a millimetre; #1467's residual is something
- * else -- wire-position or board-geometry error at the 1-2 degree scale, which is
- * what the twenty traces scatter by about the 18-degree grid once a pose is removed.
+ * constant here and it is worth about half a millimetre on the board; #1467's
+ * residual is something else -- wire-position or board-geometry error at the 1-2
+ * degree scale, which is what the twenty traces scatter by about the 18-degree grid
+ * once a pose is removed (measured here at +5.3 to +8.9 degrees modulo 18 on the
+ * best-extracted camera, a spread of about 1.1 degrees rms about their own mean --
+ * #1467's 1.63 reproduced from an independent extraction).
  *
  * f, AND ONE CAMERA MEASURED IT. The maintainer's inventory comment asked for f
  * alongside k1 (#1513, 2026-09-24). Only rig-20260922 camera 2 extracts its rings
@@ -123,8 +135,8 @@ namespace lens_census
      * (#1488's option, #1510-#1512's ladder), which is where the 0.5-1 mm starts
      * being spendable.
      */
-    constexpr double MEASURED_KAPPA = -2.45e-7;       // per px^2, k1(424) = -0.044
-    constexpr double MEASURED_KAPPA_SIGMA = 8.3e-8;   // per px^2, k1(424) +/- 0.015
+    constexpr double MEASURED_KAPPA = -2.45e-7;       // per px^2: k1(424) = -0.044,
+    constexpr double MEASURED_KAPPA_SIGMA = 8.3e-8;   // k1(690) = -0.117; k1At() converts
 
     /**
      * The focal length ONE camera measured -- rig-20260922 camera 2, at both windows,
@@ -153,21 +165,35 @@ namespace lens_census
         y = cy + dy * s;
     }
 
-    /** Inverse of distortPx by fixed-point iteration; exact to well under 1e-6 px at
-     *  the |kappa| r^2 <= 0.15 this rig can produce. */
+    /**
+     * Inverse of distortPx by fixed-point iteration.
+     *
+     * The iteration count is a measurement rather than a round number. The map
+     * contracts by about 2|kappa| r^2 per pass, and this rig's worst corner --
+     * kappa = -1.1e-6 at a point 368 px out, which is |kappa| r^2 = 0.149 -- leaves
+     * 7.2e-3 px after eight passes, so the eight this was written with did not keep
+     * the promise in the sentence above it. It runs to convergence instead, capped,
+     * and the check round-trips that exact corner.
+     */
     inline void undistortPx(double cx, double cy, double kappa, double &x, double &y)
     {
         const double dx = x - cx, dy = y - cy;
         double ux = dx, uy = dy;
-        for (int i = 0; i < 8; i++)
+        for (int i = 0; i < 64; i++)
         {
             const double s = 1.0 + kappa * (ux * ux + uy * uy);
             if (std::fabs(s) < 1e-6)
             {
                 break;
             }
-            ux = dx / s;
-            uy = dy / s;
+            const double nx = dx / s, ny = dy / s;
+            const double step = std::fabs(nx - ux) + std::fabs(ny - uy);
+            ux = nx;
+            uy = ny;
+            if (step < 1e-13)
+            {
+                break;
+            }
         }
         x = cx + ux;
         y = cy + uy;

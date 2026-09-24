@@ -114,11 +114,15 @@ int main()
 
     // The model's own claims first.
     {
+        // the worst corner this rig can produce: a point 368 px out at a kappa five
+        // times the census's own, which is |kappa| r^2 = 0.149. The fixed point
+        // contracts by about 2|kappa| r^2 a pass, so this is where an iteration count
+        // chosen as a round number shows up -- eight passes leave 7.2e-3 px here.
         double x = 900.0, y = 620.0;
         distortPx(CX, CY, -1.1e-6, x, y);
         undistortPx(CX, CY, -1.1e-6, x, y);
         say(std::fabs(x - 900.0) < 1e-6 && std::fabs(y - 620.0) < 1e-6,
-            "distort/undistort round-trips to under 1e-6 px at rig magnitudes");
+            "distort/undistort round-trips to under 1e-6 px at the rig's worst corner");
     }
     {
         // THE TRAP: a chord whose line passes through the distortion centre cannot
@@ -194,11 +198,15 @@ int main()
     // that editing a constant in the header without editing the sentence beside it
     // is a red build rather than a quiet disagreement.
     {
+        // kappa is the measurement and k1 is kappa times a focal length squared, so
+        // the header states both and this holds it to both. A k1 quoted without an f
+        // beside it is the mistake this pair exists to make impossible.
         const double k1_424 = k1At(F_NOMINAL, lens_census::MEASURED_KAPPA);
+        const double k1_690 = k1At(lens_census::MEASURED_F_PX, lens_census::MEASURED_KAPPA);
         std::snprintf(buf, sizeof buf,
-                      "the recorded kappa is the recorded k1(424) = %.4f (+/- %.4f)",
-                      k1_424, k1At(F_NOMINAL, lens_census::MEASURED_KAPPA_SIGMA));
-        say(std::fabs(k1_424 + 0.044) < 0.002, buf);
+                      "the recorded kappa is k1 = %.4f at the hard-coded f=424 and %.4f at "
+                      "the measured f=%.0f", k1_424, k1_690, lens_census::MEASURED_F_PX);
+        say(std::fabs(k1_424 + 0.044) < 0.002 && std::fabs(k1_690 + 0.117) < 0.002, buf);
     }
     {
         // Pooling, restated: the six independent rows and their 1-sigma, inverse
