@@ -105,7 +105,19 @@ def main():
     ap.add_argument("--fixture", required=True)
     ap.add_argument("--min-solved", type=int, default=1,
                     help="fewest solved entries this census must see to be an instrument")
+    ap.add_argument("--no-arrival", default="",
+                    help="comma list of visit.dart the RECORDING never delivers as an "
+                         "arrival (a dart parked before frame one, a throw that never "
+                         "hit the board): their absence is a property of the recording, "
+                         "not a detection failure, and an event MATCHED to one is "
+                         "itself suspect")
     args = ap.parse_args()
+    no_arrival = set()
+    for token in args.no_arrival.split(","):
+        token = token.strip()
+        if token:
+            v, d = token.split(".")
+            no_arrival.add((int(v), int(d)))
 
     truth = axis_census.read_truth(args.truth)
     annots = axis_census.read_annotations(args.annotations)
@@ -140,6 +152,8 @@ def main():
     assigned = {}      # (visit0, event_index) -> dart
     unmatched = []
     undetected = []
+    recording_absent = []   # --no-arrival throws with no matched event: the expectation
+    miss_absent = []        # truth-MISS throws with no matched event: also not a failure
     for v in range(max(len(visits), len(truth))):
         events = list(visits[v]) if v < len(visits) else []
         throws = [d for d in (1, 2, 3) if (v + 1, d) in annots]
@@ -159,8 +173,14 @@ def main():
             assigned[(v, ei)] = d
         for d in throws:
             if d not in taken_d:
-                undetected.append("v%d.%d(%s)" % (v + 1, d,
-                                 list(annots[(v + 1, d)].values())[0]["thrown"]))
+                key = "v%d.%d(%s)" % (v + 1, d,
+                                      list(annots[(v + 1, d)].values())[0]["thrown"])
+                if (v + 1, d) in no_arrival:
+                    recording_absent.append(key)
+                elif v < len(truth) and d - 1 < len(truth[v]) and truth[v][d - 1] == "MISS":
+                    miss_absent.append(key)
+                else:
+                    undetected.append(key)
         for ei, ev in enumerate(events):
             if ei not in taken_e:
                 unmatched.append((v, ei, ev))
@@ -181,6 +201,15 @@ def main():
             if (v, ei) not in assigned or ev.geo is None:
                 continue
             d = assigned[(v, ei)]
+            if (v + 1, d) in no_arrival:
+                # The recording offers no arrival here (a parked dart, a throw that
+                # never hit the board), so the event that matched its annotation is
+                # itself suspect and stays out of the scorecard.
+                print("I1512 SUSPECT-MATCH v%d.%d published=%s geo_outcome=%s -- the "
+                      "recording delivers no arrival for this dart (--no-arrival), so "
+                      "whatever matched it is not a scored throw"
+                      % (v + 1, d, ev.score, ev.geo[0]["outcome"]))
+                continue
             ann = annots[(v + 1, d)]
             thrown = norm_score(list(ann.values())[0]["thrown"])
             entry, cams = ev.geo
@@ -229,6 +258,13 @@ def main():
         print("I1512 UNMATCHED v%d#%d published=%s conf=%.1f geo_outcome=%s geo_story: %s"
               % (v + 1, ei + 1, ev.score, entry["conf"], entry["outcome"],
                  entry["story"][:200]))
+    if recording_absent:
+        print("I1512 RECORDING-FACTS (no arrival exists to detect -- a parked dart or "
+              "a throw that never hit the board; not detection failures): "
+              + ", ".join(recording_absent))
+    if miss_absent:
+        print("I1512 MISS-NOT-DETECTED (the truth says miss; absence is the right "
+              "answer, not a detection failure): " + ", ".join(miss_absent))
     if undetected:
         print("I1512 DETECTION-FAILURES (no event matched an annotated throw, #1504): "
               + ", ".join(undetected))
