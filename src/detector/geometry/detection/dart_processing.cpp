@@ -365,6 +365,23 @@ namespace dart_processing
         return v;
     }
 
+    //   OD_AXIS_SHADOW=off  #1554's falsification switch, axisGateIsOff's shape: the
+    //                       axis fit is handed the window's averaged frame and the
+    //                       reference its fresh diff was cut against either way, but
+    //                       with the pin off it classifies nothing, so one binary
+    //                       shows the shadow subtraction is load-bearing (the issue's
+    //                       required mutation: disabling it restores the displaced
+    //                       fit). Anything else, unset included, leaves it on.
+    static bool axisShadowIsOff()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_AXIS_SHADOW");
+            return e != nullptr && std::string(e) == "off";
+        }();
+        return v;
+    }
+
     // The smallest distance between two contours, in pixels. Bounding boxes first: a
     // figure here holds nine contours at its worst (measured over the whole of
     // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
@@ -1311,11 +1328,24 @@ namespace dart_processing
                     // was just picked from. Always computed -- nothing reads it to
                     // decide anything, so no published byte moves -- and gated unless
                     // the falsification pin turns the gates off.
+                    //
+                    // #1554: the fit is also handed the window's averaged frame and
+                    // the reference this branch's fresh diff was really cut against
+                    // (the working background where one exists, the #1518 clean
+                    // reference otherwise -- the same choice made above), so it can
+                    // tell the shaft's cast shadow from the shaft by intensity
+                    // polarity and subtract it from the support. shaft_axis.hpp owns
+                    // the discriminator and its measurement.
                     {
                         shaft_axis::AxisParams axis_params;
                         axis_params.gated = !axisGateIsOff();
+                        axis_params.subtract_shadow = !axisShadowIsOff();
+                        const Mat &axis_reference = !working_backgrounds[i].empty()
+                                                        ? working_backgrounds[i]
+                                                        : background_gray;
                         shaft_axis::AxisObservation observed = shaft_axis::observeShaftAxis(
-                            shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size()), axis_params);
+                            shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size()),
+                            averaged_frame, axis_reference, axis_params);
                         observed.camera = (int)i;
                         observed.windowOrdinal = window_serial;
                         observed.windowOpenedCycle = window_opened_at;
