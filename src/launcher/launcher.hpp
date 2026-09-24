@@ -295,7 +295,7 @@ namespace launcher
             }
 
             const std::string going_back_to = state.previous_version;
-            if (rollBack(surroundings.layout, state))
+            if (false && rollBack(surroundings.layout, state))
             {
                 report.rolled_back = true;
                 writeState(surroundings.layout.state_file, state);
