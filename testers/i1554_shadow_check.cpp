@@ -32,6 +32,13 @@
 //     discriminator removes shadow, never a competitor object.
 //  7. Shuffled pixel order answers byte-identical bytes, images or none; and the
 //     no-image path answers byte-for-byte what #1511's two-argument call answers.
+//  8. The subtraction must EXPLAIN the figure better or abstain: on a figure whose
+//     classified pixels are really dart material (a lit flank in the shadow band on
+//     alternate columns), removal staircases a spine the plain fit reads straight,
+//     so the per-figure comparison keeps the plain fit, reports the classification,
+//     and says shadowApplied=false -- the rule that keeps fixture coverage inside
+//     #1511's census by construction (the AxisParams docblock carries the fixture
+//     measurement that bought it).
 //
 //   compiled by unit_check.sh (row 1554), no extra translation units.
 
@@ -193,6 +200,10 @@ int main()
         "known case: the classifier was LIVE and found the shadow (" +
             std::to_string(with.shadowPixels) + " px classified, " +
             std::to_string(with.shadowColumns) + " all-shadow columns dropped)");
+    say(with.shadowApplied,
+        "known case: and the subtracted spine WON the per-figure comparison -- "
+        "straighter than the plain fit, so the premise held and the answer is the "
+        "subtracted one");
 
     // ---- the mutation, prediction 2: OFF restores the displaced fit exactly -----------
     say(sameAnswer(without, noImages),
@@ -290,6 +301,37 @@ int main()
         say(o.valid && o.shadowPixels == 0 && lineAngleError(o.angleDeg, 30) < 1.0,
             "a sub-threshold halo is noise, not shadow: nothing classified and the "
             "axis holds " + figures(o));
+    }
+
+    // ---- the abstention: removal that unstraightens the spine is refused per figure ---
+    // The fixture measurement behind the comparator (AxisParams' docblock): dart
+    // material can read shadow-dark, and a removal whose print varies column to
+    // column staircases a spine the plain fit reads straight. Built directly: a rod
+    // whose lit flank sits in the shadow band on ALTERNATE columns only. The plain
+    // fit sees identical support geometry in every column (dead straight); the
+    // subtracted fit loses half of every other column and staircases -- so the
+    // comparison must keep the plain spine and say so.
+    {
+        cv::Mat r7(400, 400, CV_8UC1, cv::Scalar(180));
+        cv::Mat c7 = r7.clone();
+        paintRod(c7, 200, 200, 0, 150, 7, 25);   // horizontal: columns are x
+        for (int x = 125; x <= 275; x += 2)
+        {
+            paintRod(c7, x, 201.75, 0, 1, 3.5, 120); // the flank: drop 60, alternate cols
+        }
+        const std::vector<cv::Point> pts = supportOf(c7, r7);
+        const AxisObservation o = observeShaftAxis(pts, c7, r7, params);
+        AxisParams off7 = params;
+        off7.subtract_shadow = false;
+        const AxisObservation plain7 = observeShaftAxis(pts, c7, r7, off7);
+        say(o.shadowSubtracted && !o.shadowApplied && o.shadowPixels > 100,
+            "abstention: " + std::to_string(o.shadowPixels) + " px classified, but the "
+            "subtracted spine is the less straight one, so the subtraction abstains " +
+                figures(o));
+        say(o.valid && o.direction == plain7.direction && o.point == plain7.point &&
+                o.centrelineRmsPx == plain7.centrelineRmsPx,
+            "abstention: and the answer IS the plain fit, with the classification "
+            "still reported");
     }
 
     // ---- prediction 7: determinism, and the no-image path is #1511's ------------------

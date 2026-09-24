@@ -107,9 +107,15 @@
  * `shadow_max_dimming` of the reference is shadow, and shadow pixels lose the column
  * vote -- so the spine
  * is fitted to what the dart itself printed on the sensor, the flight keeps its
- * (symmetric) vote, and a column that was ALL shadow is dropped and counted. The
- * refused alternatives are recorded in AxisParams beside the numbers that refused
- * them. Without the two images the fit is exactly #1511's (the binary support alone
+ * (symmetric) vote, and a column that was ALL shadow is dropped and counted. And the
+ * subtraction must EXPLAIN the figure better or it ABSTAINS, per figure: its premise
+ * predicts a straighter centreline, so where the removal leaves the spine LESS
+ * straight than the plain fit (a shadow prints over pale wedges and vanishes into
+ * dark ones, so partial removal staircases the spine) the plain fit is the answer
+ * and `shadowApplied` says so, with the classification still reported -- the fixture
+ * measurement that bought the rule is at the comparison itself. The refused
+ * alternatives are recorded in AxisParams beside the numbers that refused them.
+ * Without the two images the fit is exactly #1511's (the binary support alone
  * cannot carry the discriminator -- also recorded in AxisParams).
  *
  * FINDING TWO: `sigmaDeg` states the CENTRELINE SCATTER only, which is the
@@ -301,8 +307,14 @@ namespace shaft_axis
         // #1554: the shadow subtraction's own census. `shadowSubtracted` says whether
         // the discriminator was LIVE for this observation (images offered and the
         // param on) -- a consumer must never read zero shadow pixels as "no shadow"
-        // when the classifier never ran (#708's rule on absences).
+        // when the classifier never ran (#708's rule on absences). `shadowApplied`
+        // says whether the ANSWER is the subtracted spine: the subtraction's premise
+        // (a coherent parallel ridge left the support) predicts a straighter
+        // centreline, so a subtracted fit whose rms is WORSE than the plain fit's
+        // falsifies the premise for that figure and the plain fit is the answer,
+        // with the classification still reported. Measured reason in AxisParams.
         bool shadowSubtracted = false;
+        bool shadowApplied = false;      // the returned spine is the subtracted one
         int shadowPixels = 0;            // support pixels classified as cast shadow
         int shadowColumns = 0;           // columns dropped because only shadow remained
 
@@ -771,10 +783,51 @@ namespace shaft_axis
         if (!refusals.empty())
         {
             out.refusal = refusals;
-            return out;
         }
-        out.valid = true;
-        out.refusal.clear();
+        else
+        {
+            out.valid = true;
+            out.refusal.clear();
+        }
+
+        // #1554: the subtraction must EXPLAIN the figure better, or it abstains for
+        // this figure. Its premise -- a coherent parallel ridge left the support --
+        // predicts a STRAIGHTER centreline; where the print is only partial (a
+        // shadow reads over pale wedges and vanishes into dark ones, so removal
+        // staircases the spine along the wedge pattern), the subtracted fit's rms is
+        // WORSE than the plain fit's, the premise is falsified by the figure's own
+        // scatter, and the honest observation is the plain fit with the
+        // classification still reported. MEASURED (runs-od-wt-1554, both rigs,
+        // on/off arms with the noise floor already in): unconditional removal
+        // inflated accepted axes' rms 0.90->1.21, 1.14->2.57, 0.94->1.64 px and so
+        // on across every window, flipped four marginal axes to "not straight"
+        // (rig-22 cams 2/3: 9->7 and 11->9 valid), recovered none, and improved no
+        // annotated pair's accuracy -- while on the figure the premise fits (the
+        // pure check's built fused-shadow case) the subtracted spine is both
+        // straighter (rms 0.497 vs 0.564) and 2.5 degrees truer. The comparison is
+        // the falsification arm running per figure, and it is what keeps coverage
+        // within #1511's census by construction.
+        if (out.shadowSubtracted && out.shadowPixels > 0)
+        {
+            AxisParams plainParams = params;
+            plainParams.subtract_shadow = false;
+            AxisObservation plain = observeShaftAxis(supportPixels, cv::Mat(), cv::Mat(),
+                                                     plainParams);
+            if (plain.extentPx > 0.0 && out.extentPx > 0.0 &&
+                plain.centrelineRmsPx < out.centrelineRmsPx)
+            {
+                plain.shadowSubtracted = true;
+                plain.shadowApplied = false;
+                plain.shadowPixels = out.shadowPixels;
+                plain.shadowColumns = 0; // its columns are the plain ones
+                return plain;
+            }
+            out.shadowApplied = true;
+        }
+        else if (out.shadowSubtracted)
+        {
+            out.shadowApplied = true; // live, nothing classified: the plain spine won
+        }
         return out;
     }
 
@@ -855,13 +908,14 @@ namespace shaft_axis
                  "I1511AXIS window=%ld opened=%ld closed=%ld cam=%d valid=%d p=(%.1f,%.1f) "
                  "d=(%.4f,%.4f) angle=%.2f extent=%.1f width=%.1f rms=%.2f sigma=%.3f px=%d "
                  "cols=%d trimmed=%d frac=%.3f tipGap=%.1f shadowPx=%d shadowCols=%d "
-                 "subtract=%d refusal=",
+                 "subtract=%d applied=%d refusal=",
                  axis.windowOrdinal, axis.windowOpenedCycle, axis.windowClosedCycle,
                  axis.camera + 1, axis.valid ? 1 : 0, axis.point.x, axis.point.y,
                  axis.direction.x, axis.direction.y, axis.angleDeg, axis.extentPx,
                  axis.medianWidthPx, axis.centrelineRmsPx, axis.sigmaDeg, axis.supportPixels,
                  axis.columns, axis.trimmedColumns, axis.trimmedFraction, gapToTipPx,
-                 axis.shadowPixels, axis.shadowColumns, axis.shadowSubtracted ? 1 : 0);
+                 axis.shadowPixels, axis.shadowColumns, axis.shadowSubtracted ? 1 : 0,
+                 axis.shadowApplied ? 1 : 0);
         return std::string(head) + (axis.valid ? "-" : axis.refusal);
     }
 }

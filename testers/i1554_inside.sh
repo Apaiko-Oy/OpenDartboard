@@ -108,6 +108,8 @@ if [ "$CLASSIFIED" -eq 0 ]; then
     exit 1
 fi
 echo "OK   $CLASSIFIED axis figures carried classified shadow on rig-20260922"
+APPLIED=$(grep 'I1511AXIS' "$RUN/rig22-shadow-on.txt" | grep 'shadowPx=[1-9]' | grep -c 'applied=1')
+echo "applied census: the subtracted spine won the per-figure comparison on $APPLIED of $CLASSIFIED classified figures; the rest abstained to the plain fit (reported, not asserted)"
 
 echo "=== 4. rig-20260922, OD_AXIS_SHADOW=off ==="
 run_detector rig-20260922 rig22-shadow-off OD_SHAFT_CENSUS=1 OD_AXIS_SHADOW=off

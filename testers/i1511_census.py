@@ -53,7 +53,7 @@ AXIS_RE = re.compile(
     r"p=\(([-0-9.]+),([-0-9.]+)\) d=\(([-0-9.]+),([-0-9.]+)\) angle=([-0-9.]+) "
     r"extent=([-0-9.]+) width=([-0-9.]+) rms=([-0-9.]+) sigma=([-0-9.]+) px=(\d+) "
     r"cols=(\d+) trimmed=(\d+) frac=([-0-9.]+) tipGap=([-0-9.]+) "
-    r"(?:shadowPx=(\d+) shadowCols=(\d+) subtract=(\d) )?refusal=(.*)"
+    r"(?:shadowPx=(\d+) shadowCols=(\d+) subtract=(\d)(?: applied=(\d))? )?refusal=(.*)"
 )
 THROW_RE = re.compile(r"^(?:\*{1,2})?(miss|BULL|DBULL|[TDS]?\d{1,2})(?:\*{1,2})?$", re.IGNORECASE)
 
@@ -130,7 +130,8 @@ def read_run(path):
                 "shadowPx": int(m.group(20)) if m.group(20) is not None else 0,
                 "shadowCols": int(m.group(21)) if m.group(21) is not None else 0,
                 "subtract": m.group(22) == "1",
-                "refusal": m.group(23).strip(),
+                "applied": m.group(23) == "1",
+                "refusal": m.group(24).strip(),
             }
             all_axis.append(obs)
             if pending is None or pending.window != obs["window"]:
@@ -436,10 +437,12 @@ def main():
                     err_over_sigma.append(err / obs["sigma"])
                 compared += 1
                 print("I1511 PAIR v%d.%d cam=%d thrown=%s angle_obs=%.1f angle_ann=%.1f "
-                      "err=%.2f sigma=%.3f perp@%s=%.1f extent=%.0f rms=%.2f shadowPx=%d%s"
+                      "err=%.2f sigma=%.3f perp@%s=%.1f extent=%.0f rms=%.2f shadowPx=%d "
+                      "applied=%d%s"
                       % (key[0], key[1], cam, ann["thrown"], obs["angle"], want_angle,
                          err, obs["sigma"], "tip" if ann["tip"] else "mid", perp,
                          obs["extent"], obs["rms"], obs["shadowPx"],
+                         1 if obs["applied"] else 0,
                          " note=" + ann["note"] if ann["note"] else ""))
             else:
                 print("I1511 PAIR v%d.%d cam=%d thrown=%s REFUSED: %s"
