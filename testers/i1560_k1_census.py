@@ -721,15 +721,6 @@ class CameraModel:
         d = 1.0 + self.kappa * r2
         return PP[0] + xu * d, PP[1] + yu * d
 
-    def local_scale(self, X, Y):
-        """px per mm at a board point, radial direction."""
-        e = 0.5
-        r = math.hypot(X, Y) or 1.0
-        ux, uy = X / r, Y / r
-        x1, y1 = self.project(X - e * ux, Y - e * uy)
-        x2, y2 = self.project(X + e * ux, Y + e * uy)
-        return math.hypot(x2 - x1, y2 - y1) / (2 * e)
-
 
 # Per-class measurement sigmas, mm on the board plane. Wires are the cleanest thing
 # this extractor measures (0.1-0.6 px about their own line, ~2.4 px/mm); ring edges
