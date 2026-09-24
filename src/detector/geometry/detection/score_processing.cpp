@@ -1074,6 +1074,35 @@ namespace score_processing
                     log_warning("State changed but no valid scores found!");
                 }
             }
+
+            // #1555: the machine-readable half of the same fact, for every called dart
+            // and from ONE place, so no branch can be the one that forgets to say what
+            // published. Behind the census pin, like the I1512 lines it sits beside.
+            if (geoScoreShadowed())
+            {
+                long window = -1;
+                for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+                {
+                    if (r.axis.windowOrdinal >= 0)
+                    {
+                        window = r.axis.windowOrdinal;
+                    }
+                }
+                const string vote_score = choice.camera >= 0 ? point_scores[choice.camera].score
+                                                             : string("MISS");
+                const float vote_conf = choice.camera >= 0 ? choice.confidence : 0.5f;
+                const string geo_score =
+                    (solution.solved && solution.score.valid) ? solution.score.score : string();
+                // `outcome` describes the SOLVE, not the decision: under the census pin
+                // the solver always ran, so a pinned run (OD_SCORE_PATH=vote) still
+                // reports what the geometry would have said beside what the vote
+                // published. That is the whole point of keeping the losing path
+                // reachable -- one binary, both answers, on the same dart.
+                log_info(publishCensusLine(window, decision.path, result.score, result.confidence,
+                                           result.degraded,
+                                           entry_intersection::outcomeWord(solution.outcome),
+                                           vote_score, vote_conf, geo_score));
+            }
             break;
         }
 

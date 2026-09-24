@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -327,6 +328,38 @@ namespace score_processing
     inline float geometricConfidence(bool sigmaReachesAWire)
     {
         return sigmaReachesAWire ? 0.7f : 0.9f;
+    }
+
+    /**
+     * #1555: the census line testers/i1555_census.py parses -- one per called dart,
+     * printed only under the census pin (OD_GEO_SCORE=on) so an ordinary run stays as
+     * quiet as it was. The `PATH:` account beside it prints unconditionally; this line
+     * is the same fact in a shape a parser can read.
+     *
+     * It is a NEW line rather than two more fields on `I1512ENTRY`, and the reason is
+     * mechanical: that line's parser matches the whole head contiguously, so a field
+     * inserted anywhere before `story=` silently stops every #1512 census reading
+     * anything. It also settles a word that would otherwise have drifted --
+     * `I1512ENTRY`'s `published=` has always carried what the STRING VOTE said (at
+     * #1512 the vote was the published path, so the two were one thing), and since this
+     * issue they can differ. `vote=` here is that same string under its own name, and
+     * `score=` is what the board really published.
+     */
+    inline std::string publishCensusLine(long window, ScorePath path, const std::string &score,
+                                         float confidence, bool degraded,
+                                         const std::string &outcomeWord,
+                                         const std::string &voteScore, float voteConfidence,
+                                         const std::string &geometryScore)
+    {
+        char line[400];
+        snprintf(line, sizeof(line),
+                 "I1555PUBLISH window=%ld path=%s score=%s conf=%.2f degraded=%d "
+                 "outcome=%s vote=%s voteConf=%.2f geo=%s",
+                 window, scorePathWord(path), score.c_str(), confidence, degraded ? 1 : 0,
+                 outcomeWord.empty() ? "-" : outcomeWord.c_str(),
+                 voteScore.c_str(), voteConfidence,
+                 geometryScore.empty() ? "NONE" : geometryScore.c_str());
+        return line;
     }
 
     /**
