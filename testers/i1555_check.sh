@@ -73,7 +73,13 @@ od_run "1555-check" --network none \
   OD_SCORE_PATH=vote /tmp/i1555_publish_check tree < /dev/null > /tmp/mutation.out 2>&1
   RC_MUT=$?
   cat /tmp/mutation.out
-  MUT_FAILS=$(grep -c "^FAIL" /tmp/mutation.out)
+  # "^FAIL " with the space, and the space is load-bearing: the check ends on the line
+  # FAILURES: n -- the summary line every pure check in this directory copies from
+  # i1517_vote_check -- and "^FAIL" matches that too. The first run of this harness
+  # predicted 2 and counted 3, and the third was the summary counting itself. Found by
+  # the mutation proof, which is what a needle that can fail is for.
+  # (No apostrophe anywhere in this block: it lives inside a single-quoted bash -c.)
+  MUT_FAILS=$(grep -c "^FAIL " /tmp/mutation.out)
   MUT_PURE_FAILS=$(grep -c "^FAIL pure:" /tmp/mutation.out)
 
   echo

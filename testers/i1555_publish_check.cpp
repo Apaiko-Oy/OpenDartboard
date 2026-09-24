@@ -28,8 +28,8 @@
 // binary the tree's questions is the mutation proof, and testers/i1555_check.sh states
 // its predicted failure count before running it.
 //
-//   g++ -std=c++17 -I src -I src/utils -o publish_check testers/i1555_publish_check.cpp \
-//       $(pkg-config --cflags --libs opencv4)
+//   g++ -std=c++17 -I src -I src/utils -o publish_check
+//       testers/i1555_publish_check.cpp $(pkg-config --cflags --libs opencv4)
 
 #include <iostream>
 #include <string>
