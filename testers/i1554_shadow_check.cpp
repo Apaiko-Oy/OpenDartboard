@@ -268,9 +268,16 @@ int main()
         std::mt19937 rng(1554);
         std::shuffle(shuffled.begin(), shuffled.end(), rng);
         const AxisObservation b = observeShaftAxis(shuffled, cur, ref, params);
-        say(sameAnswer(with, b),
-            "determinism: shuffled pixel order answers byte-identical bytes with the "
-            "classifier live");
+        // #1511's determinism contract, and exactly it: the sign-normalised direction
+        // and point answer the same BYTES whatever order the pixels arrive in. The
+        // double-precision figures (rms, sigma) are an ulp or two order-sensitive
+        // through the column sums -- they were before #1554 too, invisibly, because
+        // #1511's check compares the published floats -- so full-struct byte equality
+        // is asserted only between SAME-ORDER runs (the mutation pair below).
+        say(with.valid && b.valid && with.direction == b.direction &&
+                with.point == b.point && with.shadowPixels == b.shadowPixels,
+            "determinism: shuffled pixel order answers the same direction, point and "
+            "shadow census with the classifier live");
         const AxisObservation two = observeShaftAxis(known, params);
         const AxisObservation four = observeShaftAxis(known, cv::Mat(), cv::Mat(), params);
         say(sameAnswer(two, four),
