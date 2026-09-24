@@ -298,6 +298,122 @@ namespace dart_processing
     }
 
     /**
+     * #1552: a reversion CLEAN vote is REMEMBERED into the next two windows, because the
+     * cameras a takeout needs do not always fall in ONE window -- and before the first
+     * reference adoption they measurably do not.
+     *
+     * #1518's quorum asks for two cameras falling dart-sized IN THE SAME WINDOW. Every
+     * takeout AFTER the first reference adoption satisfies that on mocks/rig-20260922
+     * (all six later takeouts in both whole-clip runs reconcile in one window). The
+     * FIRST takeout does not, and cannot: until the first adoption each camera's CLEAN
+     * reference is the calibration picture, which on this fixture is wrong by a
+     * different amount per camera (a parked dart, the thrower mid-frame), so each
+     * camera's figure falls to its own residue at its own moment -- when the retriever
+     * leaves ITS view. Measured on the two whole-clip runs of 2026-09-24
+     * (runs-od-wt-1551, opening and dev windows, one binary):
+     *
+     *   - opening window: camera 1 fell 17793 -> 5840 px and voted CLEAN, outvoted 2-1
+     *     by the takeout's own motion reading as an arrival (published: MISS, no tip on
+     *     any camera); camera 3 fell 122223 -> 1820 px TWO windows later, outvoted 2-1
+     *     by the next visit's first dart arriving in the same window. No window held two
+     *     reversions; the first END came only at the SECOND takeout (camera 1
+     *     18769 -> 5816 and camera 2 10227 -> 1217, one window).
+     *   - dev window (2 admitted cameras, so quorum 2 is unanimity): three consecutive
+     *     windows each split 1-1 -- cam3 CLEAN 133323 -> 2677 vs cam2 DART_2; cam2
+     *     CLEAN 10894 -> 2524 vs cam3 DART_3 (79.461% of frame: the retriever); cam3
+     *     CLEAN 134932 -> 2238 vs cam2 DART_3.
+     *
+     * In both runs the boundary between thrown visits 1 and 2 therefore produced no
+     * END, the next visit's darts were appended to the first (two of them swallowed by
+     * the DART_3 cap), and every per-visit census from there on compared darts across a
+     * boundary -- issue #1552's whole subject.
+     *
+     * So a camera that cast a reversion vote stays a CLEAN voter for the next
+     * `reversionMemoryWindows()` windows: the memory horizon is 2 because the measured
+     * splits are 1 window (opening, cam1 -> cam3) and 2 windows (dev, cam3 -> cam2),
+     * and a longer memory only widens the false-END coincidence window for nothing
+     * either fixture shows. The memory is cleared by a reconciled CLEAN (the takeout it
+     * was evidence FOR has been served) and by an advance that carried at least one
+     * found tip -- a dart was really called, so the board is not clean. An advance with
+     * NO tip anywhere does not clear it, deliberately: that is the takeout's own motion
+     * winning the vote (the retriever's blob is over the 20,000 px contour cap, so it
+     * can advance the state but never yields a tip; or its "tip" is a #1535 re-report),
+     * and it is exactly the window the memory has to survive. Measured: the phantom
+     * MISS between the two split reversions carried zero tips in both runs.
+     *
+     * THE COST, named with its dart: when the next visit's first throw lands in the
+     * same window as the last camera's fall, CLEAN now wins that window (the vote
+     * already prefers CLEAN at quorum), the END is published, and that dart goes
+     * unpublished into the adopted reference -- on rig-20260922 that is the thrown 12,
+     * today published as S12 ACROSS the merged boundary. One dart against every
+     * boundary from there on; the two darts the DART_3 cap swallows today (t9, t8)
+     * come back as the next visit's. On a scene whose reference is right the rule is
+     * inert by construction: rig-20260918's whole clip casts zero reversion votes, so
+     * there is no memory to count (#1518's census).
+     *
+     * FALSE-END BOUND, measured rather than hoped: a false END needs two lone
+     * reversions within the memory horizon with no tipped advance between. In the two
+     * whole-clip rig-20260922 runs every lone reversion outside the first boundary
+     * either sits in the window that reconciled CLEAN anyway, or is followed by a
+     * tipped advance before any second reversion (opening: camera 1's lone fall two
+     * windows before T10, cleared by T10's tip).
+     *
+     * THE CENSUS THIS SHIPPED WITH (2026-09-24, one dev binary, whole clips; the tree
+     * rule measured over THREE consecutive runs apiece, every run line-identical to
+     * its siblings modulo the Processing-ms wall clock; the pinned column is
+     * OD_REVERSION_MEMORY=off on the same binary):
+     *
+     *   fixture / window       pinned (pre-#1552)                tree rule, 3x
+     *   rig-20260922 opening   21 det, 7 seen, 6 END, 1 merged   22 det, 8 of 8 seen, 7 END, 0 merged
+     *   rig-20260922 dev       17 det, 6 seen, 6 END, 2 merged   18 det, 7 seen, 7 END, 1 merged
+     *   rig-20260918           19 det, 7 of 7, 6 END, 0 merged   the SAME stream, byte for byte
+     *
+     * Opening window correctness 1 of 21 -> 8 of 22: visits 4-7 align exactly (visit 4
+     * is the first fully correct trio this fixture has produced), and visits 2-3 carry
+     * the suppressed 12 as a one-dart shift. The dev window's remaining merged
+     * boundary is thrown visit 2 itself -- all three of its darts fall to the
+     * 2-admitted-camera calibration (#1551) and the visit vanishes whole, which the
+     * census now reports as segmentation-or-undetected rather than as "the run ended";
+     * its published visits 2-7 are thrown visits 3-8, spot-checked: published visit 2
+     * is S20 D20 S1 against thrown 20 d20 1, exactly. On rig-20260918 the memory
+     * fired once and changed no vote's outcome: the tree and pinned streams are
+     * identical, so the rule is measured inert on the healthy fixture.
+     *
+     * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds
+     * the rule without building the detector, and testers/i1552_memory_check.cpp does.
+     * OD_REVERSION_MEMORY=off restores the unremembered vote, so before/after is two
+     * runs of one binary.
+     */
+    inline int reversionMemoryWindows()
+    {
+        return 2;
+    }
+
+    /**
+     * #1552: whether this camera is a CLEAN voter in this window -- by its own candidate,
+     * or by the reversion it cast within the memory horizon. The memory deliberately
+     * outranks the camera's own non-CLEAN candidate: the candidate it would otherwise
+     * bring is the retriever's motion or the next visit's first dart, and both are the
+     * evidence the split boundary is lost to (the account above).
+     */
+    inline bool votesCleanThisWindow(DartBoardState candidate, int reversion_memory_left)
+    {
+        return candidate == DartBoardState::CLEAN || reversion_memory_left > 0;
+    }
+
+    /**
+     * #1552: whether an advance the vote just reconciled clears the reversion memory.
+     * A tipped advance is a dart really called -- the board is occupied and the memory
+     * is stale. A tip-less advance is the takeout's own motion (the blob over the
+     * contour cap, or a #1535 re-report), which is the window the memory exists to
+     * survive; both runs' phantom MISS carried zero tips.
+     */
+    inline bool advanceClearsReversionMemory(bool any_tip_found)
+    {
+        return any_tip_found;
+    }
+
+    /**
      * #1535: a camera re-reporting, for a NEW dart, a pixel it already reported for an
      * earlier dart of the same visit is not a second witness.
      *
