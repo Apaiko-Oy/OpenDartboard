@@ -148,42 +148,25 @@ def main():
     for key in sorted(excl_reasons):
         print("I1512 EXCLUSIONS %s=%d" % (key, excl_reasons[key]))
 
-    # ---- the #1504 spatial assignment, i1511's own matcher ------------------------------
-    assigned = {}      # (visit0, event_index) -> dart
-    unmatched = []
-    undetected = []
-    recording_absent = []   # --no-arrival throws with no matched event: the expectation
-    miss_absent = []        # truth-MISS throws with no matched event: also not a failure
-    for v in range(max(len(visits), len(truth))):
-        events = list(visits[v]) if v < len(visits) else []
-        throws = [d for d in (1, 2, 3) if (v + 1, d) in annots]
-        pairs = []
-        for ei, ev in enumerate(events):
-            for d in throws:
-                c = axis_census.match_cost(ev, annots[(v + 1, d)])
-                if c is not None:
-                    pairs.append((c, ei, d))
-        pairs.sort()
-        taken_e, taken_d = set(), set()
-        for c, ei, d in pairs:
-            if ei in taken_e or d in taken_d or c > 150.0:
-                continue
-            taken_e.add(ei)
-            taken_d.add(d)
-            assigned[(v, ei)] = d
-        for d in throws:
-            if d not in taken_d:
-                key = "v%d.%d(%s)" % (v + 1, d,
-                                      list(annots[(v + 1, d)].values())[0]["thrown"])
-                if (v + 1, d) in no_arrival:
-                    recording_absent.append(key)
-                elif v < len(truth) and d - 1 < len(truth[v]) and truth[v][d - 1] == "MISS":
-                    miss_absent.append(key)
-                else:
-                    undetected.append(key)
-        for ei, ev in enumerate(events):
-            if ei not in taken_e:
-                unmatched.append((v, ei, ev))
+    # ---- the #1504 spatial assignment: i1511's own matcher, #1554-global ----------------
+    # (assign_events is imported, not re-derived, so the two censuses cannot disagree
+    # about which detection was which dart -- and since #1554 it no longer trusts
+    # visit boundaries, which is what mis-scored every rig-20260922 axis from window
+    # 9 on against the previous dart's annotation.)
+    assignment = axis_census.assign_events(visits, annots, no_arrival)
+    assigned = assignment["assigned"]        # (visit0, event_index) -> (visit1, dart)
+    unmatched = [(v, ei, visits[v][ei]) for (v, ei) in assignment["unmatched"]]
+    recording_absent = ["v%d.%d(%s)" % (key[0], key[1],
+                                        list(annots[key].values())[0]["thrown"])
+                        for key in assignment["recording_absent"]]
+    undetected, miss_absent = [], []
+    for key in assignment["undetected"]:
+        tv, d = key
+        label = "v%d.%d(%s)" % (tv, d, list(annots[key].values())[0]["thrown"])
+        if tv - 1 < len(truth) and d - 1 < len(truth[tv - 1]) and truth[tv - 1][d - 1] == "MISS":
+            miss_absent.append(label)
+        else:
+            undetected.append(label)
 
     # ---- ACCURACY side by side, and position error against the annotated entries -------
     def norm_score(s):
@@ -196,21 +179,22 @@ def main():
     pos_err_mm = []
     tip_dists = []
     pair_angles = []
+    for (v, ei), key in sorted(assignment["suspect"]):
+        ev = visits[v][ei]
+        # The recording offers no arrival here (a parked dart, a hand-placed dart, a
+        # throw that never hit the board), so the event that matched its annotation
+        # is itself suspect and stays out of the scorecard.
+        print("I1512 SUSPECT-MATCH v%d.%d published=%s geo_outcome=%s -- the "
+              "recording delivers no arrival for this dart (--no-arrival), so "
+              "whatever matched it is not a scored throw"
+              % (key[0], key[1], ev.score,
+                 ev.geo[0]["outcome"] if ev.geo is not None else "(no geometry)"))
     for v, visit in enumerate(visits):
         for ei, ev in enumerate(visit):
             if (v, ei) not in assigned or ev.geo is None:
                 continue
-            d = assigned[(v, ei)]
-            if (v + 1, d) in no_arrival:
-                # The recording offers no arrival here (a parked dart, a throw that
-                # never hit the board), so the event that matched its annotation is
-                # itself suspect and stays out of the scorecard.
-                print("I1512 SUSPECT-MATCH v%d.%d published=%s geo_outcome=%s -- the "
-                      "recording delivers no arrival for this dart (--no-arrival), so "
-                      "whatever matched it is not a scored throw"
-                      % (v + 1, d, ev.score, ev.geo[0]["outcome"]))
-                continue
-            ann = annots[(v + 1, d)]
+            key = assigned[(v, ei)]
+            ann = annots[key]
             thrown = norm_score(list(ann.values())[0]["thrown"])
             entry, cams = ev.geo
             n_matched += 1
@@ -242,7 +226,7 @@ def main():
                 pos_err_mm.append(med(errs))
             print("I1512 PAIR v%d.%d thrown=%s published=%s%s geo=%s%s outcome=%s "
                   "sigma=%.1f boundary=%.1f pair=%.1f posErr=%s tips=%d/%d"
-                  % (v + 1, d, thrown, ev.score, " OK" if vote_ok else " X",
+                  % (key[0], key[1], thrown, ev.score, " OK" if vote_ok else " X",
                      geo_word,
                      ("" if geo_ok is None else (" OK" if geo_ok else " X")),
                      entry["outcome"], entry["sigmaMajor"], entry["boundary"],

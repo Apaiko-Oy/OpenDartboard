@@ -157,6 +157,21 @@ tester 1511-axischeck     "bash '$T/unit_check.sh' 1511"
 # shaft annotations (testers/i1511_annotations), plus the control run proving
 # OD_SHAFT_CENSUS defaults off. Whole-clip replays, i1510p2's shape and cost.
 tester 1511-axis          "bash '$T/i1511_run.sh'"
+# #1554: the shaft's cast shadow is told from the shaft by intensity polarity against
+# the reference the fresh diff was cut against, and subtracted from the axis support.
+# The pure check builds figures whose LIGHTING is known -- the rig-22 known case's
+# fused-shadow shape, a symmetric flight, a pure shadow band, a dark barrel on a dark
+# wedge, a parallel competitor -- and measures the issue's required mutation on every
+# run: disabling the subtraction (AxisParams::subtract_shadow, the same switch
+# OD_AXIS_SHADOW=off throws in the pipeline) restores the displaced fit
+# byte-for-byte. Costs one compile, no extra translation units.
+tester 1554-shadowcheck   "bash '$T/unit_check.sh' 1554"
+# #1554's fixture half: both rigs with the subtraction at its default and with the
+# pin thrown, censused by the #1554-corrected matcher side by side; the pin census is
+# exact (no off-arm line classified, no on-arm axis accepted unclassified) and the
+# accuracy movement is reported, not asserted (run-to-run variance, i1511's rule).
+# Four whole-clip replays, i1511's shape and cost.
+tester 1554-shadow        "bash '$T/i1554_run.sh'"
 # #1512: the entry intersection -- #1511's axes transported to the board plane per
 # camera (l_board ~ H^T l_image), placed in one numbered frame by each camera's
 # anchor, and solved as one weighted robust intersection, scored ONCE through
