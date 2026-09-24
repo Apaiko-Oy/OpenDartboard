@@ -1,5 +1,6 @@
-// #1477's proof that a camera --autocams REJECTS says which of two things happened to it,
-// and that the sentence it says is #1319's sentence rather than a second spelling of it.
+// #1477's proof that --autocams says which thing happened to a camera it rejects -- or,
+// since #1336, keeps without being able to verify -- and that the sentence it says is
+// #1319's sentence rather than a second spelling of it.
 //
 // No camera is opened and no Windows is needed. autocam::probe() is #ifdef _WIN32 -- which
 // is why #1319 repaired the open site and deliberately left this one alone -- but the
@@ -8,10 +9,11 @@
 //
 //   testers/unit_check.sh 1477
 //
-// The two strings this asserts on are the two that reach the log. autocam.hpp prints
-//   " %s [%d] %s: ... fps <verdict.name>"   the enumeration line, one per device
-//   "   rejected: <verdict.reason>"         the line this issue is about
-// so a non-empty name and a reason that names the case are the whole of the repair.
+// The strings this asserts on are the ones that reach the log. autocam.hpp prints
+//   " %s [%d] %s: ... fps <verdict.name>"        the enumeration line, one per device
+//   "   rejected: <verdict.reason>"              the line this issue is about
+//   "   kept, unverified: <verdict.warning>"     #1336: the read could not verify MJPG
+// so a non-empty name and a sentence that names the case are the whole of the repair.
 //
 // The mutations that make it fail are in the pull request, beside the checks they falsify:
 // a check nothing can fail is not evidence.
@@ -44,24 +46,27 @@ int main()
 
     std::printf("=== 1. a FOURCC of 0 is its own outcome, and the line says so ===\n");
     {
+        // #1336 (measured on the rig, 2026-09-24): a read-back that cannot name a
+        // format no longer REJECTS -- it keeps the camera and warns -- so the sentence
+        // this section holds is now the warning rather than a rejection reason.
         const autocam::FormatVerdict none = autocam::judgeProbedFormat(0);
         std::printf("       [1] Some Camera: 1280x720 @ 30 fps %s\n", none.name.c_str());
-        std::printf("       rejected: %s\n", none.reason.c_str());
+        std::printf("       kept, unverified: %s\n", none.warning.c_str());
 
         say(!none.reported, "0 is \"the backend did not say\", not a format");
         say(!none.name.empty(), "it has a non-empty name (\"" + none.name + "\")");
-        say(contains(none.reason, "reported no format at all"),
-            "the rejection says the backend reported no format");
-        say(contains(none.reason, "CAP_PROP_FOURCC read back as 0"),
+        say(contains(none.warning, "reported no format at all"),
+            "the warning says the backend reported no format");
+        say(contains(none.warning, "CAP_PROP_FOURCC read back as 0"),
             "and names the property that answered 0");
 
         // The defect, byte for byte. This is the sentence #1336 quotes and it must not be
-        // constructible any more -- from the reason, or from the whole line around it.
-        const std::string line = "   rejected: " + none.reason;
+        // constructible any more -- from the warning, or from the whole line around it.
+        const std::string line = "   kept, unverified: " + none.warning;
         say(!contains(line, "negotiated , not MJPG"), "the empty-name sentence is gone");
         say(!contains(line, "negotiated ,"), "no empty format name inside the sentence");
         say(!contains(line, "negotiated  "), "no doubled space where a name should be");
-        say(!none.reason.empty(), "a rejected camera is given a reason at all");
+        say(!none.warning.empty(), "a camera kept unverified is given a warning at all");
     }
 
     std::printf("=== 2. a format that is not MJPG is a DIFFERENT outcome ===\n");
@@ -77,9 +82,9 @@ int main()
             "it is not the no-format sentence");
 
         const autocam::FormatVerdict none = autocam::judgeProbedFormat(0);
-        say(other.reason != none.reason, "the two rejections are not the same sentence");
+        say(other.reason != none.warning, "the rejection and the warning are not the same sentence");
         say(other.name != none.name, "and the two cameras are not given the same format name");
-        say(!contains(none.reason, "negotiated YUY2"),
+        say(!contains(none.warning, "negotiated YUY2"),
             "the no-format case does not borrow the named case's words");
 
         const autocam::FormatVerdict third = autocam::judgeProbedFormat(nv12);
@@ -97,16 +102,20 @@ int main()
         say(kept.reported, "and it was really reported");
         say(kept.name == "MJPG", "it is named MJPG (\"" + kept.name + "\")");
         say(kept.reason.empty(), "a camera that is kept is given no rejection to print");
+        say(kept.warning.empty(), "and a VERIFIED MJPG carries no warning either");
     }
 
     std::printf("=== 4. an unprintable code is spelled, not pasted into the sentence ===\n");
     {
+        // #1336: an unprintable code is what MSMF answers about every camera -- the
+        // rig's three read 0x00000016, OpenCV's conversion target, while streaming
+        // MJPG -- so it keeps the camera and the hex reaches the warning instead.
         const autocam::FormatVerdict odd = autocam::judgeProbedFormat(0x00000014);
-        std::printf("       rejected: %s\n", odd.reason.c_str());
+        std::printf("       kept, unverified: %s\n", odd.warning.c_str());
         say(odd.reported, "a non-zero code IS something the backend said");
         say(odd.name == "0x00000014", "it is spelled in hex (\"" + odd.name + "\")");
-        say(contains(odd.reason, "0x00000014"), "the hex reaches the rejection");
-        say(!contains(odd.reason, "reported no format at all"),
+        say(contains(odd.warning, "0x00000014"), "the hex reaches the warning");
+        say(!contains(odd.warning, "reported no format at all"),
             "and it is not confused with the backend saying nothing");
     }
 
@@ -124,10 +133,10 @@ int main()
         const autocam::FormatVerdict other = autocam::judgeProbedFormat(yuy2);
 
         say(contains(opened_none, "MJPG was requested and the backend reported no format at all") &&
-                contains(none.reason, "MJPG was requested and the backend reported no format at all"),
+                contains(none.warning, "MJPG was requested and the backend reported no format at all"),
             "both sites say \"MJPG was requested and the backend reported no format at all\"");
         say(contains(opened_none, "(CAP_PROP_FOURCC read back as 0)") &&
-                contains(none.reason, "(CAP_PROP_FOURCC read back as 0)"),
+                contains(none.warning, "(CAP_PROP_FOURCC read back as 0)"),
             "both name the property, the same way");
         say(contains(opened_yuy2, "not the MJPG that was requested") &&
                 contains(other.reason, "not the MJPG that was requested"),
@@ -139,33 +148,38 @@ int main()
         say(camera::readFourCC(yuy2).name == other.name, "and so is YUY2's");
     }
 
-    std::printf("=== 6. what --autocams ACCEPTS did not move: that is #1336's question ===\n");
+    std::printf("=== 6. what --autocams ACCEPTS: #1336's decision, made on the rig ===\n");
     {
-        // This issue makes the rejection say what it means. Whether a camera that reports
-        // no format should be rejected at all needs the rig and stays on #1336, so the
-        // accept/reject answer is asserted UNCHANGED, code by code -- a better-worded
-        // rejection of every camera is still a rejection of every camera.
+        // #1477 left this census unchanged because whether an unverifiable read-back
+        // should reject at all was #1336's question and needed the rig. Measured there
+        // on 2026-09-24: all three board cameras -- which stream MJPG 1280x720@30, the
+        // rig fixtures are recorded off them -- read back 0x00000016, OpenCV's own RGB
+        // conversion target, and --autocams rejected every one. So the read is
+        // uninformative on MSMF and must not reject: a camera is kept unless the
+        // backend POSITIVELY NAMED a non-MJPG format, the one answer a rejection can
+        // stand on. testers/i1336_probe_admission_check.cpp carries the decision's own
+        // proof; this row keeps the whole table in one place.
         struct Case
         {
             int code;
-            bool kept;
+            bool admitted;
             const char *what;
         };
         const std::vector<Case> cases = {
             {mjpg, true, "MJPG"},
-            {0, false, "a FOURCC of 0"},
+            {0, true, "a FOURCC of 0"},
             {yuy2, false, "YUY2"},
             {nv12, false, "NV12"},
             {lower, false, "lower-case mjpg"},
-            {0x00000014, false, "an unprintable code"},
+            {0x00000014, true, "an unprintable code"},
         };
         for (const Case &c : cases)
         {
             const autocam::FormatVerdict verdict = autocam::judgeProbedFormat(c.code);
-            say(verdict.is_mjpg == c.kept,
-                std::string(c.what) + (c.kept ? " is kept" : " is rejected") + ", as before");
-            say(verdict.reason.empty() == c.kept,
-                std::string(c.what) + (c.kept ? " carries no reason" : " carries a reason"));
+            say(verdict.admitted == c.admitted,
+                std::string(c.what) + (c.admitted ? " is kept" : " is rejected"));
+            say(verdict.reason.empty() == c.admitted,
+                std::string(c.what) + (c.admitted ? " carries no reason" : " carries a reason"));
             say(!verdict.name.empty(),
                 std::string(c.what) + " has a name to print on the enumeration line");
         }

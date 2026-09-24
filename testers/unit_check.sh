@@ -38,6 +38,7 @@ case "$NAME" in
   # origin/main and on origin/issue-1485 alike while carrying #1489.
   1451) SRC=i1451_scoring_check.cpp;     EXTRA="src/detector/geometry/calibration/wire_processing.cpp src/detector/geometry/calibration/wire_model.cpp" ;;
   1477) SRC=i1477_probe_format_check.cpp; EXTRA= ;;
+  1336) SRC=i1336_probe_admission_check.cpp; EXTRA= ;;
   1517) SRC=i1517_vote_check.cpp;        EXTRA= ;;
   1510) SRC=i1510_board_check.cpp;       EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   1510p2) SRC=i1510p2_model_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
@@ -46,7 +47,7 @@ case "$NAME" in
   # whose fit calls into wire_model:: at link time.
   1512) SRC=i1512_intersect_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517" >&2
     exit 2
     ;;
 esac

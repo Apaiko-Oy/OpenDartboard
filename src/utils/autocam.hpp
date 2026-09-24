@@ -22,30 +22,58 @@
 // the Linux box these slices are carried on, which is why #1319 repaired the OPEN site
 // and left this one alone. The decision and the sentence are a pure function of one int,
 // so testers/i1477_probe_format_check.cpp exercises every branch with no camera, no
-// Windows and no MSMF.
+// Windows and no MSMF, and testers/i1336_probe_admission_check.cpp holds the admission
+// decision below to its measurement.
 //
 // The wording is #1319's, not a second phrasing of it: the phrases come from the same
 // two sentences capture.hpp's formatFinding() prints at the open site, and the check
 // holds the two to each other so one cannot drift from the other.
+//
+// #1336: whether a read-back that cannot name a format should REJECT was decided on the
+// rig rather than argued. Measured 2026-09-24, three board cameras on this machine, the
+// 5bc3b0a build:
+//
+//    - [0] USB Camera: 1280x720 @ 10 fps 0x00000016
+//      rejected: negotiated 0x00000016, not the MJPG that was requested
+//
+// -- all three cameras, identically. 0x00000016 is 22, MFVideoFormat_RGB32's Data1:
+// OpenCV's OWN conversion target, exactly what capture.hpp's reading of cap_msmf.cpp
+// predicts the getter returns with CAP_PROP_CONVERT_RGB on. The same three cameras
+// demonstrably stream MJPG 1280x720@30 (mocks/rig-20260918 was recorded off them, three
+// at once, on one bus). So on MSMF the read-back answers 0 or a conversion-target Data1
+// whatever the camera transmits: it is uninformative, and a rejection built on it
+// rejects every camera --autocams exists to find. An uninformative read therefore KEEPS
+// the camera and says what could not be verified -- admission is board_look's job
+// (#1318), which judges what a camera can see rather than what it reports. What still
+// rejects is a NAMED format that is not MJPG: that is a positive answer (V4L2 gives
+// them, and MSMF would with conversion off), and three uncompressed 720p streams do not
+// fit on one USB bus.
 // --------------------------------------------------------------------------
 namespace autocam
 {
     /**
      * What a probed camera's CAP_PROP_FOURCC read-back means for --autocams.
      *
-     * @var is_mjpg   the camera negotiated MJPG and is kept
+     * @var is_mjpg   the camera negotiated MJPG, verified
      * @var reported  the backend said SOMETHING; false is the FOURCC of 0 that MSMF
      *                answers on these modules, which is a different fact about a camera
      *                than a format that is not MJPG
+     * @var admitted  whether --autocams keeps the camera on this read-back alone.
+     *                #1336: true unless the backend POSITIVELY NAMED a format that is
+     *                not MJPG -- a read that cannot name the wire format cannot reject
      * @var name      never empty, whatever the code was -- "MJPG", "YUY2", "0x00000014",
      *                or "none reported"
+     * @var warning   said when the camera is kept on a read that could not verify MJPG;
+     *                empty when there is nothing to warn about
      * @var reason    why it was rejected, empty when it was not
      */
     struct FormatVerdict
     {
         bool is_mjpg = false;
         bool reported = false;
+        bool admitted = false;
         std::string name;
+        std::string warning;
         std::string reason;
     };
 
@@ -60,21 +88,40 @@ namespace autocam
 
         if (verdict.is_mjpg)
         {
+            verdict.admitted = true;
             return verdict;
         }
 
-        // Whether a camera that reports NO format should be refused at all is #1336's
-        // question and needs the rig. It is refused here exactly as it was before, and
-        // the line now says which of the two things happened.
+        // A format the backend really named, and it is not MJPG. This is the one
+        // answer a rejection can stand on, and the bus-bandwidth reason stands with
+        // it: three uncompressed 720p streams do not fit on one USB 2.0 bus.
+        if (format.report == camera::FormatReport::Named)
+        {
+            verdict.reason = "negotiated " + format.name + ", not the MJPG that was requested";
+            return verdict;
+        }
+
+        // #1336: the read-back could not name a wire format -- 0, or a code that is
+        // not four printable characters, which measured on the rig is OpenCV's own
+        // RGB conversion target (0x00000016) on cameras that stream MJPG happily.
+        // Kept, with the not-knowing said out loud; board_look (#1318) is what judges
+        // whether a camera belongs to this board.
+        verdict.admitted = true;
         if (!verdict.reported)
         {
-            verdict.reason = "MJPG was requested and the backend reported no format at all "
-                             "(CAP_PROP_FOURCC read back as 0), so whether it is MJPG "
-                             "cannot be told from here";
-            return verdict;
+            verdict.warning = "MJPG was requested and the backend reported no format at all "
+                              "(CAP_PROP_FOURCC read back as 0), so whether it is MJPG "
+                              "cannot be told from here; kept, because a read that cannot "
+                              "name the format cannot refuse the camera";
         }
-
-        verdict.reason = "negotiated " + format.name + ", not the MJPG that was requested";
+        else
+        {
+            verdict.warning = "MJPG was requested and CAP_PROP_FOURCC read back as " + format.name +
+                              ", which is not a format name a camera transmits -- on MSMF it is "
+                              "OpenCV's own conversion target -- so whether it is MJPG cannot be "
+                              "told from here; kept, because a read that cannot name the format "
+                              "cannot refuse the camera";
+        }
         return verdict;
     }
 } // namespace autocam
@@ -251,9 +298,13 @@ namespace autocam
                 continue;
 
             // The check V4L2 made with VIDIOC_S_FMT, made here against what the open
-            // actually granted. A camera that fell back to YUY2 is refused rather than
-            // accepted quietly, because three of those do not fit on one USB bus.
-            if (!mode.format.is_mjpg)
+            // actually granted. A camera that POSITIVELY fell back to YUY2 is refused
+            // rather than accepted quietly, because three of those do not fit on one
+            // USB bus. #1336: a read-back that could not name a format -- 0, or MSMF's
+            // conversion-target Data1 -- keeps the camera and warns instead, because on
+            // this backend that read is what every camera answers, MJPG or not, and a
+            // rejection built on it rejected all three of the rig's cameras.
+            if (!mode.format.admitted)
             {
                 if (verbose)
                     std::fprintf(stderr, "   rejected: %s\n", mode.format.reason.c_str());
@@ -265,6 +316,8 @@ namespace autocam
                     std::fprintf(stderr, "   rejected: %dx%d, asked for %dx%d\n", mode.width, mode.height, width, height);
                 continue;
             }
+            if (verbose && !mode.format.warning.empty())
+                std::fprintf(stderr, "   kept, unverified: %s\n", mode.format.warning.c_str());
 
             found.push_back(std::to_string(device.index));
             if ((int)found.size() == maxCams)
