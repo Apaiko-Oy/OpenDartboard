@@ -14,6 +14,9 @@ using namespace std;
 
 namespace orientation_processing
 {
+    // #1496: instrumentation sink, null in every ordinary run. See the header.
+    std::vector<ClipWireProbe> *clipWireProbeLog = nullptr;
+
     // Create perspective-aware number region mask
     static Mat createNumberRegionMask(const Mat &frame, const DartboardCalibration &calib, bool enableDebug, const OrientationParams &params)
     {
@@ -109,9 +112,29 @@ namespace orientation_processing
         // Get dartboard center from ellipse
         Point2f center = calib.bullCenter;
 
+        // #1496: instrumentation only. Written to, never read from, never branched on.
+        ClipWireProbe probe;
+        probe.camera_index = calib.camera_index;
+        probe.wireEndpointCount = (int)calib.wires.wireEndpoints.size();
+        probe.center = center;
+        if (clipWireProbeLog)
+        {
+            probe.collisionMask = mask.clone();
+            probe.frame = frame.clone();
+        }
+
         // Loop through all detected wire endpoints
         for (const auto &wireEndpoint : calib.wires.wireEndpoints)
         {
+            ClipWireProbe::WireVerdict verdict;   // #1496
+            verdict.endpoint = wireEndpoint;
+            verdict.extendedEnd = wireEndpoint;
+            verdict.radius = (float)norm(wireEndpoint - center);
+            verdict.angleFromSouth = 0.0f;
+            verdict.samplesInFrame = 0;
+            verdict.samplesOffFrame = 0;
+            verdict.firstHitSample = -1;
+            verdict.isClip = false;
             // Calculate direction vector from center to wire endpoint
             Point2f direction = wireEndpoint - center;
             float length = norm(direction);
@@ -123,6 +146,15 @@ namespace orientation_processing
 
                 // Extend wire outward by 1000+ pixels from the endpoint
                 Point2f extendedEnd = wireEndpoint + direction * params.wireExtensionDistance;
+
+                // #1496
+                verdict.extendedEnd = extendedEnd;
+                {
+                    float a = atan2(direction.x, direction.y) * 180.0f / (float)CV_PI;
+                    if (a < 0)
+                        a += 360;
+                    verdict.angleFromSouth = a;
+                }
 
                 // Check if extended line hits dartboard (sample points along extension)
                 bool hitsEmptySpace = true;
@@ -144,12 +176,21 @@ namespace orientation_processing
                     if (sampleX >= 0 && sampleX < mask.cols &&
                         sampleY >= 0 && sampleY < mask.rows)
                     {
+                        verdict.samplesInFrame++;   // #1496
                         // If we hit white (dartboard), this is not a clip wire
                         if (mask.at<uchar>(sampleY, sampleX) > 128)
                         {
+                            if (verdict.firstHitSample < 0)   // #1496
+                            {
+                                verdict.firstHitSample = i;
+                            }
                             hitsEmptySpace = false;
                             break;
                         }
+                    }
+                    else
+                    {
+                        verdict.samplesOffFrame++;   // #1496
                     }
                 }
 
@@ -159,7 +200,9 @@ namespace orientation_processing
                     clipWires.push_back(make_pair(wireEndpoint, extendedEnd));
                     log_debug("Found clip wire at (" + log_string(wireEndpoint.x) + "," + log_string(wireEndpoint.y) + ")");
                 }
+                verdict.isClip = hitsEmptySpace;   // #1496
             }
+            probe.wires.push_back(verdict);   // #1496
         }
 
         if (enableDebug)
@@ -180,6 +223,37 @@ namespace orientation_processing
         else
         {
             log_debug("Found " + log_string(clipWires.size()) + " clip wires");
+        }
+        // #1496
+        probe.clipWireCount = (int)clipWires.size();
+        if (clipWireProbeLog)
+        {
+            clipWireProbeLog->push_back(probe);
+        }
+        // #1496 INSTRUMENTATION ONLY. `log_debug` already says the count, and a debug
+        // build is not what the rig is measured on -- so the count a REAL run reaches,
+        // on every look #1445's retry ladder takes, is unreadable without this. Gated on
+        // an environment variable nothing deployed sets, printed at INFO, and it decides
+        // nothing: the line is after the answer and does not touch it.
+        if (getenv("OD_CLIP_CENSUS"))
+        {
+            int offFrame = 0, hitMask = 0;
+            for (const auto &v : probe.wires)
+            {
+                if (v.isClip && v.samplesOffFrame > 0)
+                {
+                    offFrame++;
+                }
+                if (!v.isClip)
+                {
+                    hitMask++;
+                }
+            }
+            log_info("I1496CLIPS camera=" + log_string(calib.camera_index) +
+                     " wires=" + log_string(probe.wireEndpointCount) +
+                     " clips=" + log_string(probe.clipWireCount) +
+                     " refusedByMask=" + log_string(hitMask) +
+                     " admittedOffFrame=" + log_string(offFrame));
         }
         return clipWires;
     }

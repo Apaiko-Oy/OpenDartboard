@@ -79,6 +79,43 @@ namespace orientation_processing
         bool numbersDisagreeWithClips = false; // both instruments answered, differently
     };
 
+    // ---- #1496: INSTRUMENTATION ONLY. Nothing in a deployment reads any of this. -----
+    //
+    // `ORIENTATION: 0 of 3 cameras can be read for a wedge` on the maintainer's rig, and
+    // #1363 measured ONE clip wire on camera 0 of rig-20260918 without ever establishing
+    // WHY. Both classification branches in determineCameraPosition demand exactly four,
+    // so the count is the whole question -- and the count is a verdict per wire endpoint,
+    // reached inside a `static` function that returns only the survivors. The rejected
+    // wires, and the REASON each was rejected, are what an annotated frame has to show.
+    //
+    // So findClipWires records one row per wire endpoint into a sink a probe turns on.
+    // The sink is null in every ordinary run and nothing branches on it: it is written
+    // to and never read from, inside this translation unit.
+    struct ClipWireProbe
+    {
+        struct WireVerdict
+        {
+            Point2f endpoint;       // the wire endpoint the extension starts from
+            Point2f extendedEnd;    // where wireExtensionDistance put it
+            float angleFromSouth;   // atan2(x, y) in degrees, the convention STEP 2 uses
+            float radius;           // |endpoint - bullCenter|
+            int samplesInFrame;     // of spiderSampleCount, how many landed on the mask
+            int samplesOffFrame;    // and how many fell outside it entirely
+            int firstHitSample;     // the sample that hit bright mask, or -1 for none
+            bool isClip;            // what findClipWires concluded
+        };
+        int camera_index = -1;
+        int wireEndpointCount = 0;
+        int clipWireCount = 0;
+        std::vector<WireVerdict> wires;
+        Point2f center;
+        Mat collisionMask;  // the binaryTextMask the extension is tested against
+        Mat frame;          // the frame it was built from
+    };
+
+    // Set by a probe before calibration; appended to once per findClipWires call.
+    extern std::vector<ClipWireProbe> *clipWireProbeLog;
+
     // Helper function to convert enum to string for display
     inline string cameraPositionToString(CameraPosition pos)
     {
