@@ -57,6 +57,10 @@ PUBLISH_RE = re.compile(
     r"outcome=(\S+) vote=(\S+) voteConf=([-0-9.]+) geo=(\S+)"
 )
 END_RE = re.compile(r"SCORE:\s+END\b")
+# #1512's own line, read here for ONE field: how many placed tips corroborated the solve.
+# It is printed by the same run, immediately before the publish line for the same dart,
+# and it is what the "refuse an uncorroborated solve" counterfactual below is measured on.
+TIPS_RE = re.compile(r"I1512ENTRY .* tips=(\d+)/(\d+) ")
 
 
 def norm(score):
@@ -111,8 +115,13 @@ def read_publish_blocks(path):
     the log is the k-th event, and the publish line for that dart is printed before it.
     """
     blocks, pending, ends = [], None, 0
+    tips = (0, 0)
     for raw in open(path, "r", errors="replace"):
         line = ANSI.sub("", raw)
+        t = TIPS_RE.search(line)
+        if t:
+            tips = (int(t.group(1)), int(t.group(2)))
+            continue
         m = PUBLISH_RE.search(line)
         if m:
             pending = {
@@ -120,7 +129,9 @@ def read_publish_blocks(path):
                 "conf": float(m.group(4)), "degraded": m.group(5) == "1",
                 "outcome": m.group(6), "vote": m.group(7),
                 "voteConf": float(m.group(8)), "geo": m.group(9),
+                "tipsAgree": tips[0], "tipsSeen": tips[1],
             }
+            tips = (0, 0)
             continue
         if END_RE.search(line):
             ends += 1
@@ -250,6 +261,13 @@ def main():
     suspect = set(k for k, _ in assignment["suspect"])
 
     vote_counts, geo_counts, first_counts, pub_counts = {}, {}, {}, {}
+    # The counterfactual, REPORTED and nothing more: what geometry-first would score if a
+    # solve that not one placed tip corroborated were refused back to the vote. #1512
+    # left promoting the tip to a CONSTRAINT as a later decision to be taken on numbers
+    # rather than in passing; this is the smallest thing one could do with the tip short
+    # of that, and it is measured here so the decision to leave it alone is a measured one.
+    corroborated_counts = {}
+    uncorroborated = 0
     matched = geo_solved = 0
     outcomes = {}
     for v, visit in enumerate(visits):
@@ -266,8 +284,13 @@ def main():
             gv = verdict(p["geo"], thrown) if solved else "refused"
             fv = gv if solved else vv
             pv = verdict(p["score"], thrown)
+            corroborated = solved and p["tipsAgree"] > 0
+            cv_ = fv if corroborated or not solved else vv
+            if solved and not corroborated:
+                uncorroborated += 1
             for counts, word in ((vote_counts, vv), (geo_counts, gv),
-                                 (first_counts, fv), (pub_counts, pv)):
+                                 (first_counts, fv), (pub_counts, pv),
+                                 (corroborated_counts, cv_)):
                 counts[word] = counts.get(word, 0) + 1
             if solved:
                 geo_solved += 1
@@ -314,6 +337,12 @@ def main():
     print("I1555 " + tallyline("GEOMETRY-ONLY", geo_counts, geo_solved))
     print("I1555 " + tallyline("GEOMETRY-FIRST", first_counts, matched))
     print("I1555 " + tallyline("PUBLISHED", pub_counts, matched))
+    print("I1555 COUNTERFACTUAL uncorroborated_solves=%d (no placed tip within the solve's "
+          "agreement radius) | geometry-first with those refused back to the vote would "
+          "read exact %d/%d -- REPORTED, wired nowhere: it is a new rule fitted to %d "
+          "dart(s), and #1512 left the tip a corroboration rather than a constraint on "
+          "purpose" % (uncorroborated, corroborated_counts.get("exact", 0), matched,
+                       uncorroborated))
     print("I1555 TALLY fixture=%s window=%s matched=%d vote_exact=%d geo_solved=%d "
           "geo_exact=%d first_exact=%d published_exact=%d"
           % (args.fixture, args.window, matched, vote_counts.get("exact", 0), geo_solved,
