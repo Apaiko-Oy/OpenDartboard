@@ -106,6 +106,47 @@ tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
 tester 1510-boardmodel    "bash '$T/unit_check.sh' 1510"
+# #1510's fixture half, a PROBE (asserts nothing, fails only when it could not run):
+# the fit's overlays and residuals on both rigs plus the upstream mocks as control.
+# Registered by #1512 because it was NOT -- #1510 shipped i1510_inside.sh and no line
+# here, so the label existed and the suite would never have run it (#1463,
+# 1423-ringidentity's story retold, found by census.sh on the stacked gate). One
+# build of the calibration stack and nine single-frame calibrations; no detector
+# binary, so OD_SKIP_BUILD changes nothing about it.
+tester 1510-fitcensus     "bash '$T/i1510_run.sh'"
+# #1510 Phase 2: the model ANSWERS scoring questions, unwired. The pure check holds
+# anchorOnBoard and scoreFromModel against the planted homography (both handednesses,
+# the boundary distances #1512 will climb on); the census runs the real binary over
+# both rig fixtures with OD_MODEL_SCORE=on -- one shadow line per camera per dart,
+# existing verdict beside the model's beside the ground truth -- after a control run
+# proving the guard's default prints nothing. Three whole-clip replays, i1499's cost.
+tester 1510p2-modelcheck  "bash '$T/unit_check.sh' 1510p2"
+tester 1510p2-census      "bash '$T/i1510p2_run.sh'"
+# #1511: the shaft-axis observation. The pure check builds every figure it judges --
+# rotation, scale, fragmentation, a flight-dominated shape, shadows, two competing
+# objects, near-end-on -- and measures the issue's required mutation on every run: each
+# negative control is refused gated AND accepted with the gate off (AxisParams::gated,
+# the same switch OD_AXIS_GATE=off throws in the pipeline), so the gates are proved
+# load-bearing rather than decorative. Costs one compile, no extra translation units.
+tester 1511-axischeck     "bash '$T/unit_check.sh' 1511"
+# #1511's fixture half: the axis census on both rig fixtures against hand-measured
+# shaft annotations (testers/i1511_annotations), plus the control run proving
+# OD_SHAFT_CENSUS defaults off. Whole-clip replays, i1510p2's shape and cost.
+tester 1511-axis          "bash '$T/i1511_run.sh'"
+# #1512: the entry intersection -- #1511's axes transported to the board plane per
+# camera (l_board ~ H^T l_image), placed in one numbered frame by each camera's
+# anchor, and solved as one weighted robust intersection, scored ONCE through
+# scoreFromModel. The pure check holds every verdict against three planted cameras
+# (one mirrored) and the issue's required mutations with predictions stated first:
+# swapped correspondences, a 6% ring scaling, agreeing score strings that must move
+# nothing. Costs one compile plus wire_model.cpp.
+tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
+# #1512's fixture half: the geometric census on both rigs against the ground-truth
+# tables and i1511's annotations, side by side with the string-vote baseline, plus
+# the control proving OD_GEO_SCORE defaults off with published scores untouched and
+# the #1505/#1535 falsification targets read out by name. Four whole-clip replays,
+# i1511's shape and cost.
+tester 1512-entry         "bash '$T/i1512_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which

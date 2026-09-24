@@ -485,10 +485,16 @@ namespace board_model
                 fit.wireRmsDeg = comb.rmsResidualDeg;
                 if (fit.wireCoherence < wire_model::minimumCoherence())
                 {
+                    // #1510 Phase 2 watch item: camera 1 once read NOBOARD at R=0.578
+                    // against this same 0.60 gate. A refusal 0.022 under a threshold and
+                    // one 0.4 under it are different findings, so the MARGIN is printed
+                    // beside the verdict rather than left for a reader to subtract.
                     refusals.push_back("the twenty boundaries this camera carries do not form a "
                                        "twenty-fold ring (R=" + detail::fmt("%.3f", fit.wireCoherence) +
                                        " against a minimum of " +
                                        detail::fmt("%.2f", wire_model::minimumCoherence()) +
+                                       ", margin " +
+                                       detail::fmt("%+.3f", fit.wireCoherence - wire_model::minimumCoherence()) +
                                        "), so no rotation can be indexed on them");
                 }
             }
@@ -547,7 +553,10 @@ namespace board_model
                     (rows.empty() ? "none measurable" : rows) +
                     " -- signed medians bound what the flat projective model does not explain "
                     "(lens distortion is not modelled, #1513); sectors R=" +
-                    detail::fmt("%.3f", fit.wireCoherence) + " rms " + detail::fmt("%.1f", fit.wireRmsDeg) +
+                    detail::fmt("%.3f", fit.wireCoherence) + " (margin " +
+                    detail::fmt("%+.3f", fit.wireCoherence - wire_model::minimumCoherence()) +
+                    " over the " + detail::fmt("%.2f", wire_model::minimumCoherence()) +
+                    " gate) rms " + detail::fmt("%.1f", fit.wireRmsDeg) +
                     " deg over " + std::to_string(fit.wireBoundaries) + " boundaries; " + rotationStory + "; " +
                     (fit.accepted ? "ACCEPTED: " + std::to_string(fit.heldOutInBand) + " of " +
                                         std::to_string(fit.heldOutObserved) +
@@ -567,6 +576,208 @@ namespace board_model
             fit.story += why;
         }
         return fit;
+    }
+
+    // ---- #1510 Phase 2: the fitted model ANSWERS SCORING QUESTIONS ---------------------
+    //
+    // Nothing below replaces the published score path. scorePoint still walks the
+    // per-ring ellipses; these functions are the model's own answer to the same
+    // question, pure over the fit (#1338's shape), measured beside the existing answer
+    // under OD_MODEL_SCORE=on before anything is wired (the paint-containment census,
+    // testers/i1510p2_inside.sh).
+
+    /**
+     * Which boundary starts the 20, stated on the BOARD rather than as a wire index.
+     *
+     * The existing path's anchor is `wedge20WireIndex`, an index into a store of image
+     * points sorted by image angle about the bull, walked in that order by
+     * findWedgeSlot. The model scores in board angles, so the anchor must say two
+     * things in board space: WHERE the 20's first boundary sits (`theta20`, snapped to
+     * the fitted comb so every sector boundary is the comb's rather than one
+     * endpoint's), and WHICH WAY the number sequence advances (`advance`) -- the
+     * homography fixes handedness per camera and nothing here may assume it, which is
+     * the mirror wire_model.hpp names. Both are read off the same endpoint store the
+     * existing path indexes, so the two scorers cannot disagree about what the anchor
+     * meant.
+     */
+    struct ModelAnchor
+    {
+        bool resolved = false;
+        double theta20 = 0.0; // board angle, radians, of the boundary the 20 starts at
+        double advance = 1.0; // +1: the sequence advances with increasing board angle; -1 mirrored
+    };
+
+    namespace detail
+    {
+        /** Wrap to (-pi, pi]. */
+        inline double wrapToPi(double a)
+        {
+            while (a > CV_PI)
+            {
+                a -= 2.0 * CV_PI;
+            }
+            while (a <= -CV_PI)
+            {
+                a += 2.0 * CV_PI;
+            }
+            return a;
+        }
+
+        /** Wrap to [0, 2*pi). */
+        inline double wrapTo2Pi(double a)
+        {
+            a = std::fmod(a, 2.0 * CV_PI);
+            return a < 0.0 ? a + 2.0 * CV_PI : a;
+        }
+    }
+
+    /**
+     * The anchor, read off the calibration's own endpoint ring.
+     *
+     * `endpointsByImageAngle` is `calib.wires.wireEndpoints` as findWedgeSlot walks it;
+     * `wedge20WireIndex` is the index the existing path would start at -- the camera's
+     * own anchor or a derived one (#1486), decided by the CALLER exactly where
+     * scorePoint decides it, so this function has no opinion about which anchor wins.
+     * Unresolved (a short ring, a negative index, no plane) is `resolved == false`,
+     * never a defaulted 20: asserting is the published path's behaviour, not the
+     * model's.
+     */
+    inline ModelAnchor anchorOnBoard(const BoardFit &fit,
+                                     const std::vector<cv::Point2f> &endpointsByImageAngle,
+                                     int wedge20WireIndex)
+    {
+        ModelAnchor anchor;
+        const int n = (int)endpointsByImageAngle.size();
+        if (!fit.planeBuilt || n != wire_model::kFold || wedge20WireIndex < 0 || wedge20WireIndex >= n)
+        {
+            return anchor;
+        }
+        std::vector<double> theta(n);
+        for (int k = 0; k < n; k++)
+        {
+            theta[k] = wire_model::boardAngleOf(fit.plane, endpointsByImageAngle[k]);
+        }
+        // The direction the store advances in board space. Each consecutive step is
+        // one sector (about +-18 degrees); their sum over the ring is +-2*pi, so its
+        // sign is the handedness and small per-step noise cannot flip it.
+        double sum = 0.0;
+        for (int k = 0; k < n; k++)
+        {
+            sum += detail::wrapToPi(theta[(k + 1) % n] - theta[k]);
+        }
+        anchor.advance = sum >= 0.0 ? 1.0 : -1.0;
+        anchor.theta20 = fit.wireOffset +
+                         std::round((theta[wedge20WireIndex] - fit.wireOffset) / wire_model::kSector) *
+                             wire_model::kSector;
+        anchor.resolved = true;
+        return anchor;
+    }
+
+    /**
+     * What the fitted board says one image point scores -- and HOW CLOSE the call was.
+     *
+     * The boundary distances are the point of the shape, not an extra: #1512's
+     * uncertainty ladder needs to know that a D20 was 0.4 mm from the S20 wire, not
+     * just that it was a D20, so a caller sees the tip's board-plane point in
+     * millimetres and its distance to the nearest boundary of each kind.
+     * `boundaryMm` is the one that could change THIS call: on a bull, an outer bull
+     * or a miss the wedge decides nothing, so only the ring boundary counts there.
+     */
+    struct ModelScore
+    {
+        bool valid = false;      // the plane stood and the millimetre scale was positive
+        cv::Point2f boardMm;     // the tip's board-plane point, millimetres from centre
+        double radiusMm = 0.0;   // |boardMm|
+        double thetaBoard = 0.0; // radians, board space
+
+        std::string ringWord;   // bull, outer, single, triple, double; empty for a miss
+        bool wedgeResolved = false;
+        int sequenceIndex = -1; // 0..19 clockwise from the 20; -1 unresolved
+        int segment = -1;       // 1..20; -1 on a bull ring, a miss, or unresolved
+        std::string score = "MISS"; // the published vocabulary: S1..D20, BULL, OUTER, MISS.
+                                    // "S?", "T?", "D?" where the ring is known and no
+                                    // anchor resolves the wedge -- the model never
+                                    // asserts the 20 the way #1346's fallback does.
+
+        // #1512's seed. All in millimetres ON THE BOARD, signed distances made absolute.
+        double ringBoundaryMm = -1.0;  // to the nearest of the six scoring radii
+        double wedgeBoundaryMm = -1.0; // arc to the nearest sector boundary; -1 unresolved
+        double boundaryMm = -1.0;      // the nearest boundary that could change this call
+    };
+
+    inline ModelScore scoreFromModel(const BoardProfile &profile, const BoardFit &fit,
+                                     const ModelAnchor &anchor, const cv::Point2f &image)
+    {
+        ModelScore out;
+        if (!fit.planeBuilt || !(fit.unitPerMm > 0.0))
+        {
+            return out;
+        }
+        out.valid = true;
+        out.boardMm = boardPointOf(fit, image);
+        out.radiusMm = std::sqrt((double)out.boardMm.x * out.boardMm.x +
+                                 (double)out.boardMm.y * out.boardMm.y);
+        out.thetaBoard = std::atan2((double)out.boardMm.y, (double)out.boardMm.x);
+
+        const double radii[6] = {profile.bullRadiusMm, profile.bull25RadiusMm,
+                                 profile.innerTripleRadiusMm, profile.outerTripleRadiusMm,
+                                 profile.innerDoubleRadiusMm, profile.outerDoubleRadiusMm};
+        out.ringBoundaryMm = std::fabs(out.radiusMm - radii[0]);
+        for (int i = 1; i < 6; i++)
+        {
+            out.ringBoundaryMm = std::min(out.ringBoundaryMm, std::fabs(out.radiusMm - radii[i]));
+        }
+
+        std::string prefix;
+        if (out.radiusMm <= profile.bullRadiusMm)
+        {
+            out.ringWord = "bull";
+            out.score = "BULL";
+        }
+        else if (out.radiusMm <= profile.bull25RadiusMm)
+        {
+            out.ringWord = "outer";
+            out.score = "OUTER";
+        }
+        else if (out.radiusMm <= profile.outerDoubleRadiusMm)
+        {
+            const bool triple = out.radiusMm > profile.innerTripleRadiusMm &&
+                                out.radiusMm <= profile.outerTripleRadiusMm;
+            const bool dbl = out.radiusMm > profile.innerDoubleRadiusMm;
+            out.ringWord = triple ? "triple" : (dbl ? "double" : "single");
+            prefix = triple ? "T" : (dbl ? "D" : "S");
+        }
+        // else: past the scoring edge -- a MISS, with radiusMm saying how far past.
+
+        if (anchor.resolved)
+        {
+            const double delta = detail::wrapTo2Pi(anchor.advance * (out.thetaBoard - anchor.theta20));
+            int slot = (int)(delta / wire_model::kSector);
+            if (slot >= wire_model::kFold)
+            {
+                slot = wire_model::kFold - 1; // delta a rounding hair under 2*pi
+            }
+            out.wedgeResolved = true;
+            out.sequenceIndex = slot;
+            const double into = delta - slot * wire_model::kSector;
+            out.wedgeBoundaryMm = out.radiusMm * std::min(into, wire_model::kSector - into);
+            if (!prefix.empty())
+            {
+                out.segment = profile.wedgeAtIndex(slot);
+                out.score = prefix + std::to_string(out.segment);
+            }
+        }
+        else if (!prefix.empty())
+        {
+            out.score = prefix + "?";
+        }
+
+        // The boundary that could change the CALL. A bull, an outer bull and a miss are
+        // ring decisions alone; a numbered ring can flip across either kind of wire.
+        out.boundaryMm = (!prefix.empty() && out.wedgeResolved)
+                             ? std::min(out.ringBoundaryMm, out.wedgeBoundaryMm)
+                             : out.ringBoundaryMm;
+        return out;
     }
 
     /**

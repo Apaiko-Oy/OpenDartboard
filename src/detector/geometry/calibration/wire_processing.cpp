@@ -959,7 +959,8 @@ namespace wire_processing
             log_info("Camera " + log_string(calib.camera_index + 1) + " wire model: " +
                      log_string(fit.candidates) + " candidates, tilt " + log_string(plane.tilt) +
                      ", coherence R=" + log_string(fit.coherence) + " against a minimum of " +
-                     log_string(wire_model::minimumCoherence()) + ", " +
+                     log_string(wire_model::minimumCoherence()) + " (margin " +
+                     log_string(fit.coherence - wire_model::minimumCoherence()) + "), " +
                      log_string((int)(100.0 * fit.inlierFraction)) + "% of them within " +
                      log_string(wire_model::kResidualCutDeg) + " degrees of the ring, rms " +
                      log_string(fit.rmsResidualDeg) + " degrees; " +

@@ -8,6 +8,7 @@
 
 #include "detector/geometry/camera_quorum.hpp"
 #include "motion_processing.hpp"
+#include "shaft_axis.hpp"
 
 using namespace cv;
 using namespace std;
@@ -421,6 +422,16 @@ namespace dart_processing
         Point2f tip_position = Point2f(-1, -1);    // Position of dart tip if found
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame
+        // #1511: the new dart's fitted shaft axis for this camera, or a refusal saying
+        // by name why this window's fresh figure holds no usable line. ADDITIVE: nothing
+        // in this repository reads it to decide anything yet -- the published score
+        // still comes from `tip_position` -- and a VALID AXIS IS DISTINCT FROM A VALID
+        // VISIBLE TIP: an occluded tip with a readable shaft is a valid axis with
+        // `tip_found == false`, never a fabricated endpoint, and a found tip on a
+        // figure that is not a line is `tip_found` with the axis refusing. The line is
+        // in this camera's own image pixels, the space board_model::fitBoardToCamera
+        // consumes; shaft_axis.hpp owns the coordinate and distortion statement.
+        shaft_axis::AxisObservation axis;
         bool frame_available = true;               // #798: did this camera contribute any frame to the window
         // #1354: this camera has no fitted board while another camera does, so it has no
         // denominator to decide with and it abstains from the vote -- answering from the

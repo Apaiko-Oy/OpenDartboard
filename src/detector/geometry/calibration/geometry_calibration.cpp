@@ -666,7 +666,9 @@ namespace geometry_calibration
                 fitRefused
                     ? "the wire stage could not place a board plane it trusts -- its twenty-fold "
                       "coherence is " + to_string(wireData.fit_coherence) + " against a minimum of " +
-                          to_string(wire_model::minimumCoherence()) + " over " +
+                          to_string(wire_model::minimumCoherence()) + " (margin " +
+                          to_string(wireData.fit_coherence - wire_model::minimumCoherence()) +
+                          " -- a hair under the gate is a different finding from a collapse) over " +
                           to_string(wireData.fit_candidates) +
                           " candidates, which on this rig has meant a bull centre several pixels "
                           "from where the board's really is; this camera cannot be scored with."

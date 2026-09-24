@@ -4,6 +4,9 @@
 #include "utils/streamer.hpp"
 #include "../calibration/geometry_calibration.hpp"
 #include "../calibration/perspective_processing.hpp"
+#include "../calibration/board_model.hpp"
+#include "../calibration/wire_processing.hpp"
+#include "entry_intersection.hpp"
 
 using namespace cv;
 using namespace std;
@@ -577,6 +580,183 @@ namespace score_processing
         return camera < derived_anchors.size() ? derived_anchors[camera] : orientation_processing::DerivedAnchor();
     }
 
+    // ---- #1510 Phase 2: the model's answer, measured BESIDE the published one ----------
+    //
+    // OD_MODEL_SCORE=on prints, for every camera that scored a tip, what the fitted
+    // board model (board_model::scoreFromModel) says about the SAME pixel the existing
+    // per-ring machinery just scored -- one I1510P2 line per camera per dart, parsed by
+    // testers/i1510p2_census.py into the paint-containment census. It is a shadow: the
+    // published score comes from `point_scores` exactly as before, on and off alike,
+    // and the default is off, so the binary's scores do not move in this slice. The
+    // convention is OD_RING=span's: anything but the exact word `on` is ignored.
+    static bool modelScoreShadowed()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_MODEL_SCORE");
+            return e != nullptr && string(e) == "on";
+        }();
+        return v;
+    }
+
+    static void logModelShadow(int camera, const DartboardCalibration &calib, Point2f tip,
+                               const PointScore &existing,
+                               const orientation_processing::DerivedAnchor &derived)
+    {
+        // Refit per dart rather than caching: pure over the calibration, a few hundred
+        // quadratics, and a cache keyed on camera index would go stale the day a
+        // mid-run recalibration lands. Measurement-only code buys simplicity first.
+        const board_model::BoardProfile profile =
+            board_model::profileFromSpec(perspective_processing::DartboardSpec());
+        const board_model::BoardFit fit =
+            board_model::fitBoardToCamera(profile, calib, wire_processing::conicOfDoublesFor(calib));
+
+        // The same anchor decision scorePoint just took: the camera's own wire first,
+        // then a derived one (#1486), else unresolved -- the model never asserts a 20.
+        int wedge20 = -1;
+        const char *anchorWord = "none";
+        if (orientation_processing::wedgeCanBeRead(calib.orientation))
+        {
+            wedge20 = calib.orientation.wedge20WireIndex;
+            anchorWord = "own";
+        }
+        else if (derived.trusted)
+        {
+            wedge20 = derived.wedge20WireIndex;
+            anchorWord = "derived";
+        }
+        vector<Point2f> endpoints(calib.wires.wireEndpoints.begin(), calib.wires.wireEndpoints.end());
+        const board_model::ModelAnchor anchor = board_model::anchorOnBoard(fit, endpoints, wedge20);
+        const board_model::ModelScore model = board_model::scoreFromModel(profile, fit, anchor, tip);
+
+        // One line, greppable, every number the census needs. The wire-coherence margin
+        // is here because of the watch item on #1510: an admission that scraped past
+        // 0.60 must say by how much, per camera, where a dart was actually scored.
+        char line[512];
+        snprintf(line, sizeof(line),
+                 "I1510P2 MODEL cam=%d tip=(%.1f,%.1f) existing=%s model=%s agree=%d "
+                 "mm=(%.1f,%.1f) r=%.1f ringB=%.1f wedgeB=%.1f boundary=%.1f "
+                 "fit=%s R=%.3f margin=%+.3f anchor=%s",
+                 camera + 1, tip.x, tip.y, existing.score.c_str(),
+                 model.valid ? model.score.c_str() : "NONE",
+                 model.valid && model.score == existing.score ? 1 : 0,
+                 model.boardMm.x, model.boardMm.y, model.radiusMm,
+                 model.ringBoundaryMm, model.wedgeBoundaryMm, model.boundaryMm,
+                 fit.accepted ? "ACCEPTED" : "REJECTED",
+                 fit.wireCoherence, fit.wireCoherence - wire_model::minimumCoherence(),
+                 anchorWord);
+        log_info(line);
+    }
+
+    // ---- #1512: the geometric entry, measured BESIDE the published one -----------------
+    //
+    // OD_GEO_SCORE=on prints, for every dart the vote called, what intersecting the
+    // cameras' #1511 shaft axes on the board plane says -- one I1512ENTRY line per dart
+    // and one I1512CAM line per camera, parsed by testers/i1512_census.py. It is a
+    // shadow on OD_MODEL_SCORE's exact terms: the published score comes from the string
+    // vote exactly as before, on and off alike, the default is off, and the convention
+    // is the exact word `on`. The degraded path IS the published path, reached honestly
+    // and labelled as itself -- flipping any default is #1488's decision, not this
+    // slice's. OD_GEO_PROBE=<dir> writes the acceptance's overlays: the solved entry
+    // reprojected into every placeable view with each camera's support, residual,
+    // uncertainty and exclusion written on it.
+    static bool geoScoreShadowed()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_GEO_SCORE");
+            return e != nullptr && string(e) == "on";
+        }();
+        return v;
+    }
+
+    static const string &geoProbeDir()
+    {
+        static const string v = []
+        {
+            const char *e = std::getenv("OD_GEO_PROBE");
+            return e != nullptr ? string(e) : string();
+        }();
+        return v;
+    }
+
+    static void logGeometricShadow(const vector<Mat> &background_frames,
+                                   const dart_processing::DartStateResult &dart_result,
+                                   const vector<DartboardCalibration> &calibrations,
+                                   const string &publishedScore, double publishedConfidence)
+    {
+        // Refit per dart for logModelShadow's stated reason: pure over the calibration,
+        // and a cache keyed on camera index goes stale the day a mid-run recalibration
+        // lands. Measurement-only code buys simplicity first.
+        const board_model::BoardProfile profile =
+            board_model::profileFromSpec(perspective_processing::DartboardSpec());
+        vector<board_model::BoardFit> fits(calibrations.size());
+        vector<entry_intersection::CameraEvidence> evidence;
+        long window = -1;
+        for (size_t i = 0; i < calibrations.size() && i < dart_result.camera_results.size(); i++)
+        {
+            const dart_processing::CameraDetectionResult &r = dart_result.camera_results[i];
+            fits[i] = board_model::fitBoardToCamera(profile, calibrations[i],
+                                                    wire_processing::conicOfDoublesFor(calibrations[i]));
+            entry_intersection::CameraEvidence ev;
+            ev.camera = (int)i;
+            ev.fit = &fits[i];
+            // The same anchor decision scorePoint just took: the camera's own wire
+            // first, then a derived one (#1486), else unresolved.
+            int wedge20 = -1;
+            if (orientation_processing::wedgeCanBeRead(calibrations[i].orientation))
+            {
+                wedge20 = calibrations[i].orientation.wedge20WireIndex;
+            }
+            else if (anchorFor(i).trusted)
+            {
+                wedge20 = anchorFor(i).wedge20WireIndex;
+            }
+            vector<Point2f> endpoints(calibrations[i].wires.wireEndpoints.begin(),
+                                      calibrations[i].wires.wireEndpoints.end());
+            ev.anchor = board_model::anchorOnBoard(fits[i], endpoints, wedge20);
+            ev.axisValid = r.frame_available && r.axis.valid;
+            ev.axisRefusal = !r.frame_available ? "no frame captured in this window" : r.axis.refusal;
+            ev.axisPoint = r.axis.point;
+            ev.axisDir = r.axis.direction;
+            ev.axisSigmaDeg = r.axis.sigmaDeg;
+            ev.tipFound = r.frame_available && r.tip_found;
+            ev.tipImage = r.tip_position;
+            evidence.push_back(ev);
+            if (r.axis.windowOrdinal >= 0)
+            {
+                window = r.axis.windowOrdinal;
+            }
+        }
+
+        const entry_intersection::EntrySolution sol =
+            entry_intersection::solveEntry(profile, evidence);
+        if (geoScoreShadowed())
+        {
+            log_info(entry_intersection::censusEntryLine(sol, window, publishedScore, publishedConfidence));
+            for (const entry_intersection::Constraint &con : sol.constraints)
+            {
+                log_info(entry_intersection::censusCameraLine(con, window));
+            }
+        }
+
+        if (!geoProbeDir().empty())
+        {
+            for (size_t i = 0; i < evidence.size(); i++)
+            {
+                if (i >= background_frames.size() || background_frames[i].empty())
+                {
+                    continue;
+                }
+                Mat canvas = background_frames[i].clone();
+                entry_intersection::drawEntryOverlay(canvas, evidence[i], sol, sol.constraints[i]);
+                imwrite(geoProbeDir() + "/entry_w" + to_string(window) + "_cam" +
+                            to_string(i + 1) + ".jpg",
+                        canvas);
+            }
+        }
+    }
+
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
     {
 
@@ -659,6 +839,15 @@ namespace score_processing
                 point_scores[i] = point;
                 log_debug("-------");
 
+                // #1510 Phase 2, shadow only (OD_MODEL_SCORE=on): what the fitted board
+                // model says about the same tip, beside what was just scored. Nothing
+                // below reads `model`'s answer; the published score is `point`'s.
+                if (modelScoreShadowed())
+                {
+                    logModelShadow((int)i, calibrations[i], dart_result.camera_results[i].tip_position,
+                                   point, anchorFor(i));
+                }
+
                 // print image
                 if (debug_mode)
                 {
@@ -702,6 +891,20 @@ namespace score_processing
             // published over a hand-verified 36, two constants outvoting the camera
             // that measured.
             const ScoreChoice choice = chooseScore(point_scores, may_vote);
+
+            // #1512, shadow only (OD_GEO_SCORE=on): the geometric entry beside the
+            // vote's answer, for EVERY called dart -- the no-winner MISS included,
+            // because a lone-witness phantom (#1505) is exactly an event the geometry
+            // must be heard about. Nothing below reads the solution; the published
+            // score is the vote's, on and off alike.
+            if (geoScoreShadowed() || !geoProbeDir().empty())
+            {
+                logGeometricShadow(background_frames, dart_result, calibrations,
+                                   choice.camera >= 0 ? point_scores[choice.camera].score
+                                                      : string("MISS"),
+                                   choice.camera >= 0 ? choice.confidence : 0.5);
+            }
+
             if (choice.camera >= 0)
             {
                 const int best_camera = choice.camera;
