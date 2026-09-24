@@ -102,6 +102,15 @@ tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
 # choice saying when the preference decided. Pure; costs one compile.
 tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 
+# The connected-bull regression: synthetic colour-stage boards asserting that a bull
+# joined to the board's other markings by retained grey is recovered from its nested
+# colour rings -- translated, scaled, rotated -- and that every near-miss (off-centre
+# red, two candidates, a tiny speck, no red at all, an empty frame) still refuses. The
+# maintainer's fix of 2026-09-22 (1e39e79) shipped it with a host-g++ driver and no row
+# here, so the census met it unrun; registered by #1534. The driver keeps the hand-run
+# image mode and says so in its own marker.
+tester bull-colour        "bash '$T/unit_check.sh' bull-colour"
+
 # #1510: the one-board fit against a PLANTED homography -- recovery within tolerance,
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.

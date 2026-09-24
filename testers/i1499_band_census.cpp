@@ -28,6 +28,13 @@
 // One I1499RAY line per 3 degrees; an I1499 summary line with the medians; optionally an
 // annotated still: fitted treble ellipses in magenta, the spec-scaled treble marks from
 // the doubles ellipse in green, so the picture can settle what the numbers claim.
+//
+// unrun-tester: an instrument, not a check -- i1511_frame_tool's kind. It prints three
+// positions per ray and their medians, and nothing in it can fail on a wrong number.
+// #1499's repair was decided on its read, and ellipse_processing.cpp/.hpp carry their
+// measured constants with this file's name beside them, so it is kept as the way to
+// re-take that measurement: by hand, through i1499_measure_inside.sh, which compiles it
+// in the container. Marked by #1534.
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
