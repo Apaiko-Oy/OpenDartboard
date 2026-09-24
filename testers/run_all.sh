@@ -389,7 +389,8 @@ tester 1514-stall         "bash '$T/i1514_run.sh'"
 # line must say its margin, and the same binary under OD_SEEK_VIDEO=off must reproduce
 # the flip (rig-20260922 camera 1 admitted at the opening) -- so any FUTURE source of
 # admission variance (a cv:: parallel path, iteration order, uninitialised state) goes
-# red here by name. Eleven calibration-window runs, no whole-clip replay: cheap.
+# red here by name. Eleven calibration-window runs, no whole-clip replay.
+# MEASURED 2026-09-24 on the 4-core box: 235 s, well inside the default 1200.
 tester 1551-admission     "bash '$T/i1551_run.sh'"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
