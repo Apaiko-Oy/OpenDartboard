@@ -62,19 +62,25 @@
  * subtraction rather than an argument. Per camera, the rms of the twenty wire bows
  * before and after this one kappa is taken out of every wire:
  *
- *   rig-18 cam1 0.439 -> 0.438 px ( 0%)   rig-22 cam1 3s   0.503 -> 0.502 px ( 0%)
- *   rig-18 cam2 0.472 -> 0.470 px ( 0%)   rig-22 cam1 open 0.741 -> 0.724 px ( 2%)
- *   rig-18 cam3 0.291 -> 0.286 px ( 2%)   rig-22 cam2 3s   0.363 -> 0.293 px (19%)
- *   rig-22 cam3 3s   0.542 -> 0.542 px ( 0%)   rig-22 cam2 open 0.335 -> 0.274 px (18%)
- *   rig-22 cam3 open 0.317 -> 0.312 px ( 1%)
+ *     rig-18 cam1  3 s    0.439 -> 0.438 px    0%
+ *     rig-18 cam2  3 s    0.472 -> 0.470 px    0%
+ *     rig-18 cam3  3 s    0.291 -> 0.286 px    2%
+ *     rig-22 cam1  3 s    0.503 -> 0.502 px    0%
+ *     rig-22 cam1  open   0.741 -> 0.724 px    2%
+ *     rig-22 cam2  3 s    0.363 -> 0.293 px   19%
+ *     rig-22 cam2  open   0.335 -> 0.274 px   18%
+ *     rig-22 cam3  3 s    0.542 -> 0.542 px    0%
+ *     rig-22 cam3  open   0.317 -> 0.312 px    1%
  *
  *   #1467's wire residual is rms 1.63 degrees, which at a 220 px board radius is
  *   6.3 px of tangential deviation and 34 px at its 8.91-degree maximum. The largest
  *   bow ANY of the 158 wires in this census carries is 2.93 px, the rms is 0.29-0.74,
- *   and the part one kappa removes is at most 0.07 px. A lens that bent a wire by
- *   6 px rms at these board positions would need |k1| near 2.4 -- ten times the
- *   worst row of #1513's sweep -- and would have drawn the doubles ring off its conic
- *   by hundreds of pixels, where the best-extracted camera measures 1.7 px.
+ *   and the part one kappa removes is at most 0.07 px. Bowing a wire by 6.3 px would
+ *   take k1(424) = -0.71 even at the census's most off-axis board -- past the -0.45 at
+ *   the worst end of #1513's sweep, and sixteen times what the footage measures --
+ *   and would have thrown the doubles ring off its conic by hundreds of pixels, where the
+ *   best-extracted camera measures 1.7. i1560_lens_check.cpp bisects for that 0.71
+ *   rather than quoting it.
  *
  *   The ring conics say the same thing from the other side. Radial distortion's
  *   conic residual must GROW with ring radius. On the one camera whose extraction is
