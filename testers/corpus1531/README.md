@@ -57,8 +57,13 @@ every byte in this directory and produces a diff nobody can read.
 | `.github/workflows/release.yml`, step *"Both signature arms answer to one corpus"* | CNG `BCryptVerifySignature` | every pull request, dispatch and tag |
 
 Both compile the same program, `testers/i1531_corpus_check.cpp`, which takes this directory
-as its one argument. **Anything else that wants signed manifests on Windows should take them
-from here rather than mint its own** — `#1532`'s install-A-then-update-to-B check is the next
-one, and what it needs beyond this is a second *accepted* manifest naming a different
-version, which belongs in this directory as another `accept` row rather than in that job's
-steps.
+as its one argument.
+
+**#1532's install-A-then-update-to-B check does not take its manifests from here, and it
+could not.** A manifest signs the sha256 and the size of the zip it offers, and that zip holds
+a program compiled on the runner, whose bytes move with every toolset update — so a committed
+`accept` row would mean committing a binary as well, and this corpus's private key was
+destroyed by design, so no row can be re-signed. `testers/i1532_mint.py` mints a fresh
+throwaway key per run instead, reusing `keypair` and `sign` from `i1531_corpus.py` rather
+than writing them twice. What stays true is the other half: anything that needs manifests a
+verifier must *refuse*, and that do not depend on a build's bytes, belongs here.

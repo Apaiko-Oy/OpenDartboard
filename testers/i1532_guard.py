@@ -94,6 +94,29 @@ def launcher_sources():
     return sorted(seen)
 
 
+def job_testers(journey):
+    """The testers the job's steps name, and every tester those python files import.
+
+    Read out of the workflow rather than listed here, so a step that starts using another
+    tester is covered the day it is written -- and so that this guard, which run_all.sh
+    runs, does not itself name the job's testers and read to testers/census.sh as running
+    them.
+    """
+    # A name that is not a file is the paths glob `testers/i1532_*` read up to its star.
+    found = sorted(one for one in set(re.findall(r"testers/[A-Za-z0-9_.]+", journey))
+                   if os.path.isfile(os.path.join(TREE, one)))
+    todo = [one for one in found if one.endswith(".py")]
+    while todo:
+        path = todo.pop()
+        full = os.path.join(TREE, path)
+        for module in re.findall(r"^import\s+(\w+)", open(full, encoding="utf-8").read(), re.M):
+            candidate = "testers/" + module + ".py"
+            if os.path.isfile(os.path.join(TREE, candidate)) and candidate not in found:
+                found.append(candidate)
+                todo.append(candidate)
+    return sorted(found)
+
+
 def main():
     journey_path = os.path.join(TREE, JOURNEY)
     if not os.path.isfile(journey_path):
@@ -119,8 +142,10 @@ def main():
         note(not hits, "%s carries no %s%s" % (JOURNEY, what, (": " + " | ".join(hits)) if hits else ""))
     note(re.search(r"^permissions:\s*\n\s+contents:\s*read\s*$", journey, re.M) is not None,
          JOURNEY + " states `permissions: contents: read` at the top")
-    note("i1532_journey" not in release and "i1532_mint" not in release,
-         RELEASE + " -- which publishes on a tag -- does not run the journey or mint its anchor")
+    # By prefix rather than by file name: this guard is reached by run_all.sh, and a tester's
+    # name written in its code would count as running it (testers/census.sh, #1430).
+    note(re.search(r"testers[/\\\\]i1532_", release) is None,
+         RELEASE + " -- which publishes on a tag -- runs none of #1532's testers")
 
     # ---- 2. on the runner: this workflow, and not a tag --------------------------------------
     print("---- 2. where it is running ----")
@@ -141,10 +166,11 @@ def main():
     globs = re.findall(r"-\s+[\"']?([^\"'\s]+)", block.group(1)) if block else []
     note(bool(globs), JOURNEY + " has an on.pull_request.paths list (%d globs)" % len(globs))
     patterns = [glob_to_regex(g) for g in globs]
-    wanted = launcher_sources()
-    wanted += ["testers/i1532_journey.py", "testers/i1532_mint.py", "testers/i1532_guard.py",
-               "testers/i1531_corpus.py", "testers/i1306_stub.cpp", JOURNEY]
-    print("     the launcher reaches %d files through its includes" % (len(wanted) - 6))
+    sources = launcher_sources()
+    print("     the launcher reaches %d files through its includes" % len(sources))
+    job_files = job_testers(journey)
+    print("     the job runs %d testers: %s" % (len(job_files), ", ".join(job_files)))
+    wanted = sources + job_files + [JOURNEY]
     uncovered = [one for one in wanted if not any(p.match(one) for p in patterns)]
     for one in uncovered:
         note(False, "a change to %s would not run the journey: no glob in paths: matches it" % one)
