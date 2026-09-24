@@ -358,6 +358,27 @@ namespace dart_processing
      * tipped advance before any second reversion (opening: camera 1's lone fall two
      * windows before T10, cleared by T10's tip).
      *
+     * THE CENSUS THIS SHIPPED WITH (2026-09-24, one dev binary, whole clips; the tree
+     * rule measured over THREE consecutive runs apiece, every run line-identical to
+     * its siblings modulo the Processing-ms wall clock; the pinned column is
+     * OD_REVERSION_MEMORY=off on the same binary):
+     *
+     *   fixture / window       pinned (pre-#1552)                tree rule, 3x
+     *   rig-20260922 opening   21 det, 7 seen, 6 END, 1 merged   22 det, 8 of 8 seen, 7 END, 0 merged
+     *   rig-20260922 dev       17 det, 6 seen, 6 END, 2 merged   18 det, 7 seen, 7 END, 1 merged
+     *   rig-20260918           19 det, 7 of 7, 6 END, 0 merged   the SAME stream, byte for byte
+     *
+     * Opening window correctness 1 of 21 -> 8 of 22: visits 4-7 align exactly (visit 4
+     * is the first fully correct trio this fixture has produced), and visits 2-3 carry
+     * the suppressed 12 as a one-dart shift. The dev window's remaining merged
+     * boundary is thrown visit 2 itself -- all three of its darts fall to the
+     * 2-admitted-camera calibration (#1551) and the visit vanishes whole, which the
+     * census now reports as segmentation-or-undetected rather than as "the run ended";
+     * its published visits 2-7 are thrown visits 3-8, spot-checked: published visit 2
+     * is S20 D20 S1 against thrown 20 d20 1, exactly. On rig-20260918 the memory
+     * fired once and changed no vote's outcome: the tree and pinned streams are
+     * identical, so the rule is measured inert on the healthy fixture.
+     *
      * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds
      * the rule without building the detector, and testers/i1552_memory_check.cpp does.
      * OD_REVERSION_MEMORY=off restores the unremembered vote, so before/after is two
