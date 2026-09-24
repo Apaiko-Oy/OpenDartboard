@@ -1,0 +1,146 @@
+name: Update journey (#1532)
+
+# #1532: an installed Windows board, watched going from one version to the next on a runner's
+# loopback -- and refusing three ways not to, going back from a release that will not start,
+# and leaving the network alone on a quick restart (ADR-0077 §7).
+#
+# WHY THIS IS ITS OWN WORKFLOW AND NOT A STEP IN release.yml. The check builds a launcher
+# that trusts a THROWAWAY key, minted on this runner a minute before and destroyed a minute
+# after. That launcher must never reach a release. Both of release.yml's build jobs publish
+# on a tag and therefore hold `contents: write` on every event, pull requests included --
+# #1452 measured it on run 35513335239 -- because a job is the finest grain `permissions:`
+# has. A step there would be a step in a job that publishes. So this workflow is read-only,
+# has no tag trigger and no publish step, uploads nothing, names no secret and no variable,
+# and testers/i1532_guard.py is its first step and refuses to go on if any of that stops
+# being true -- or if release.yml starts running this check.
+#
+# WHY IT BUILDS NO OpenCV. The update happens before the detector starts, which is the
+# issue's own reason it needs no camera. The launcher links no OpenCV (CMakeLists.txt says
+# so) and is compiled here by cl.exe directly from src/launcher/main.cpp -- the one
+# translation unit CMake compiles for it -- with the throwaway anchor passed the way CMake
+# passes a real one. The detector is testers/i1306_stub.cpp per version. So this costs no
+# 8.5-minute OpenCV cache miss and no 47 MB cache restore.
+#
+# WHEN IT RUNS. `paths:` below is a workflow-level filter because GitHub has none on a job.
+# The guard does not trust the list: it follows src/launcher/main.cpp's quoted includes and
+# refuses when one of them is not covered, so a new header cannot quietly stop this running.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "src/launcher/**"
+      - "src/update/**"
+      - "src/communication/http_transport.hpp"
+      - "src/communication/turnaus_address.hpp"
+      - "src/utils/console_prompt.hpp"
+      - "src/utils/od_paths.hpp"
+      - "src/utils/od_platform_first.hpp"
+      - "src/utils/od_socket.hpp"
+      - "testers/i1532_*"
+      - "testers/i1531_corpus.py"
+      - "testers/i1306_stub.cpp"
+      - ".github/workflows/update-journey.yml"
+
+jobs:
+  journey:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      A: "1.0.0"
+      B: "1.1.0"
+      C: "1.2.0"
+      BAD: "1.3.0"
+      PORT: "18443"
+      MINIMUM_LAUNCHER: "1.0.0"
+      NLOHMANN_TAG: "v3.12.0" # what CMakeLists.txt's FetchContent names
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The journey may run here, and runs on every change that could move it
+        shell: bash
+        run: python testers/i1532_guard.py .
+
+      - name: Locate the Visual Studio toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath | Select-Object -First 1
+          if (-not $vs) { throw "vswhere found no Visual Studio with the x64 C++ toolset" }
+          "OD_VS=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Fetch nlohmann/json at the tag CMake would fetch
+        shell: bash
+        run: git clone --quiet --depth 1 --branch "$NLOHMANN_TAG" https://github.com/nlohmann/json.git "$RUNNER_TEMP/nlohmann"
+
+      - name: Four detectors, each carrying its own version
+        shell: cmd
+        run: |
+          call "%OD_VS%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
+          mkdir %RUNNER_TEMP%\i1532\stubs
+          for %%V in (%A% %B% %C% %BAD%) do (
+            cl /nologo /std:c++17 /EHsc /MT /O1 /DAPP_VERSION#\"%%V\" /Fe:%RUNNER_TEMP%\i1532\stubs\stub-%%V.exe /Fo:%RUNNER_TEMP%\i1532\stubs\%%V. testers\i1306_stub.cpp || exit /b 1
+          )
+          dir %RUNNER_TEMP%\i1532\stubs\*.exe
+
+      - name: A release zip per version, written the way release.yml writes one
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'i1532'
+          New-Item -ItemType Directory -Force -Path (Join-Path $root 'zips') | Out-Null
+          foreach ($v in @($env:A, $env:B, $env:C, $env:BAD)) {
+            $pack = Join-Path $root "pack\$v"
+            New-Item -ItemType Directory -Force -Path $pack | Out-Null
+            Copy-Item (Join-Path $root "stubs\stub-$v.exe") (Join-Path $pack 'opendartboard.exe')
+            Copy-Item 'LICENSE' $pack
+            @("OpenDartboard - fixture for #1532's update journey. NOT A RELEASE.", "", "version:    $v") |
+              Set-Content (Join-Path $pack 'BUILD-INFO.txt')
+            $zip = Join-Path $root "zips\opendartboard-$v.zip"
+            Compress-Archive -Path "$pack\*" -DestinationPath $zip -Force
+            Write-Host "ZIPPED $v $((Get-Item $zip).Length) bytes"
+          }
+
+      - name: Signed by a throwaway key, over those very zips
+        shell: bash
+        run: |
+          python testers/i1532_mint.py "$RUNNER_TEMP/i1532/manifests" "$RUNNER_TEMP/i1532/zips" \
+            "https://127.0.0.1:$PORT" "$B" "$C" "$BAD" "$MINIMUM_LAUNCHER"
+          ls "$RUNNER_TEMP/i1532/manifests"
+          if ls "$RUNNER_TEMP/i1532/manifests" | grep -q '\.pem$'; then echo "a private key survived the mint"; exit 1; fi
+
+      - name: The launcher, at version A, trusting only the throwaway anchor
+        shell: cmd
+        run: |
+          call "%OD_VS%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
+          set /p ANCHOR=<%RUNNER_TEMP%\i1532\manifests\anchor.hex
+          cl /nologo /std:c++17 /EHsc /MT /O1 /utf-8 /FIod_platform_first.hpp ^
+            /I src /I src\utils /I %RUNNER_TEMP%\nlohmann\include ^
+            /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
+            /DAPP_VERSION#\"%A%\" /DOD_UPDATE_ANCHOR_CURRENT#\"%ANCHOR%\" ^
+            /Fe:%RUNNER_TEMP%\i1532\opendartboard-launcher.exe /Fo:%RUNNER_TEMP%\i1532\launcher. ^
+            src\launcher\main.cpp /link winhttp.lib bcrypt.lib || exit /b 1
+
+      - name: A loopback TLS certificate this machine trusts, for this job only
+        shell: bash
+        env:
+          MSYS_NO_PATHCONV: "1"
+        run: |
+          cd "$RUNNER_TEMP/i1532"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout tls-key.pem -out tls-cert.pem \
+            -subj "/CN=i1532 loopback" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" 2>&1 | tail -2
+          certutil -addstore -f Root tls-cert.pem
+
+      - name: An installed board updates, refuses, goes back, and leaves a quick restart alone
+        shell: bash
+        run: |
+          W="$RUNNER_TEMP/i1532"
+          python testers/i1532_journey.py "$W/boards" "$W/opendartboard-launcher.exe" "$W/stubs" "$W/zips" \
+            "$W/manifests" "$PORT" "$W/tls-cert.pem" "$W/tls-key.pem" "$A" "$B" "$C" "$BAD"
+
+      - name: The loopback certificate is untrusted again
+        if: always()
+        shell: cmd
+        run: certutil -delstore Root "i1532 loopback" || exit /b 0
