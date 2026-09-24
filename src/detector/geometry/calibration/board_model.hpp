@@ -700,10 +700,89 @@ namespace board_model
                                     // asserts the 20 the way #1346's fallback does.
 
         // #1512's seed. All in millimetres ON THE BOARD, signed distances made absolute.
+        // The treble distances are to the CORRECTED scoring edges (#1553, measured
+        // bloom), the same edges the ring call above was judged at.
         double ringBoundaryMm = -1.0;  // to the nearest of the six scoring radii
         double wedgeBoundaryMm = -1.0; // arc to the nearest sector boundary; -1 unresolved
         double boundaryMm = -1.0;      // the nearest boundary that could change this call
     };
+
+    /**
+     * #1553: THE TREBLE BAND'S SCORING BOUNDARY IS CORRECTED FOR MEASURED BLOOM.
+     *
+     * This is an OPTICAL/SEGMENTATION fact, never a board fact: the WDF spec puts the
+     * treble band at 99..107 mm and `BoardProfile` keeps saying so, but the mask the
+     * rings are traced from blooms past the paint (#1499 measured it on the doubles
+     * pair), so the band AS SEGMENTED -- the band the existing per-ring scorer walks,
+     * and the band the rig's ground truth vindicates -- is wider than the spec band on
+     * both edges. The fit already measures exactly how much, per camera, per edge:
+     * `RingResidual::signedMedianMm` on the two held-out treble rings is observed
+     * minus model along 120 rays. This function turns that measurement into the
+     * scoring correction, so `scoreFromModel` judges the treble at the edge the
+     * camera actually sees while `boundaryMm` stays honest -- distance to the
+     * corrected boundary.
+     *
+     * THE CENSUS THAT BOUGHT IT (91 shadow lines, OD_MODEL_SCORE=on, both rig
+     * fixtures; fits all ACCEPTED, every residual over 120 of 120 rays):
+     *
+     *   rig-20260918 (57 lines): cam1 inner -4.2 outer +2.1; cam2 inner -3.4
+     *     outer +1.2; cam3 inner -4.4 outer +3.4 mm.
+     *   rig-20260922 (34 lines): cam2 inner -3.6 outer +1.2; cam3 inner -7.6
+     *     outer +2.6 mm (cam1 abstains, no fit).
+     *
+     * Model-vs-existing ring disagreements in those 91 lines: exactly 3, all in the
+     * treble band, zero wedge disagreements -- two just past the spec outer edge
+     * (r 108.0 and 110.1 mm, existing T14/T20) and one just inside the spec inner
+     * edge (r 96.6 mm, existing T14; #1553's issue text counts its 2.4 mm among the
+     * outer-edge distances, but 96.6 < 99 is the INNER edge, which is why both edges
+     * are corrected here). Each sits inside its own camera's measured edge, so the
+     * per-camera correction resolves all three; the fixtures' ground truth agrees
+     * with the existing call on the one thrown dart among them (rig-18 v2.2's T14).
+     *
+     * WHY PER CAMERA AND NOT A CONSTANT: a single outer-edge offset must reach
+     * +3.1 mm (the T20 at 110.1 mm, rig-18 cam3, own edge +3.4) yet stay under
+     * +1.4 mm (an agreeing S9 at 108.4 mm, rig-22 cam2, own edge +1.2) -- an empty
+     * interval. The blur is the camera's, so the number is the camera's.
+     *
+     * BOUNDED, three ways, because the #1485 bands alone allow a "treble edge" tens
+     * of millimetres out (the inner band reaches down to sqrt(15.9*99) ~ 40 mm):
+     *   - the residual must be a real measurement: observed, held out (never the
+     *     fit's own reference), inside its #1485 band, on at least kMinSupportRays
+     *     of the 120 rays -- otherwise the correction is 0.0 and the spec edge holds;
+     *   - bloom only ever WIDENS the band (paint bleeds outward from both edges), so
+     *     an inward outer residual or an outward inner one is refused as not-bloom;
+     *   - the magnitude is clamped to the band's own physical width (outer minus
+     *     inner, 8 mm on a WDF board): a bloom wider than the band it blooms from is
+     *     a mis-identified ring, not bloom. The widest real measurement, rig-22
+     *     cam3's -7.6 mm, sits inside the clamp.
+     *
+     * The DOUBLES edges are deliberately not corrected: the outer doubles ring is the
+     * fit's own reference with its bloom already de-biased into the scale (#1499),
+     * the inner doubles residual is [fitted], not held-out evidence, and 0 of the 91
+     * census lines disagree at a doubles edge. The wedge comb is untouched: bloom is
+     * radial, and the census holds 0 wedge disagreements.
+     */
+    inline double trebleBloomAdjustMm(const BoardProfile &profile, const BoardFit &fit, int ring)
+    {
+        if (ring != ellipse_processing::kInnerTriple && ring != ellipse_processing::kOuterTriple)
+        {
+            return 0.0;
+        }
+        // fitBoardToCamera's ringOf keeps slot == ring index for every held-out ring.
+        const RingResidual &r = fit.rings[ring];
+        if (!r.observed || !r.heldOut || !r.inBand || r.rays < kMinSupportRays)
+        {
+            return 0.0;
+        }
+        const double widen = (ring == ellipse_processing::kInnerTriple) ? -1.0 : 1.0;
+        const double bloomMm = r.signedMedianMm * widen; // positive where the band widened
+        if (!(bloomMm > 0.0))
+        {
+            return 0.0;
+        }
+        const double boundMm = (double)profile.outerTripleRadiusMm - (double)profile.innerTripleRadiusMm;
+        return widen * std::min(bloomMm, boundMm);
+    }
 
     inline ModelScore scoreFromModel(const BoardProfile &profile, const BoardFit &fit,
                                      const ModelAnchor &anchor, const cv::Point2f &image)
@@ -719,8 +798,17 @@ namespace board_model
                                  (double)out.boardMm.y * out.boardMm.y);
         out.thetaBoard = std::atan2((double)out.boardMm.y, (double)out.boardMm.x);
 
+        // #1553: the treble band is judged, and measured to, its bloom-corrected
+        // scoring edges -- this camera's own measured segmentation bloom, bounded,
+        // zero wherever the measurement is missing. The profile's radii are the spec
+        // and do not move.
+        const double innerTrebleMm = (double)profile.innerTripleRadiusMm +
+                                     trebleBloomAdjustMm(profile, fit, ellipse_processing::kInnerTriple);
+        const double outerTrebleMm = (double)profile.outerTripleRadiusMm +
+                                     trebleBloomAdjustMm(profile, fit, ellipse_processing::kOuterTriple);
+
         const double radii[6] = {profile.bullRadiusMm, profile.bull25RadiusMm,
-                                 profile.innerTripleRadiusMm, profile.outerTripleRadiusMm,
+                                 innerTrebleMm, outerTrebleMm,
                                  profile.innerDoubleRadiusMm, profile.outerDoubleRadiusMm};
         out.ringBoundaryMm = std::fabs(out.radiusMm - radii[0]);
         for (int i = 1; i < 6; i++)
@@ -741,8 +829,7 @@ namespace board_model
         }
         else if (out.radiusMm <= profile.outerDoubleRadiusMm)
         {
-            const bool triple = out.radiusMm > profile.innerTripleRadiusMm &&
-                                out.radiusMm <= profile.outerTripleRadiusMm;
+            const bool triple = out.radiusMm > innerTrebleMm && out.radiusMm <= outerTrebleMm;
             const bool dbl = out.radiusMm > profile.innerDoubleRadiusMm;
             out.ringWord = triple ? "triple" : (dbl ? "double" : "single");
             prefix = triple ? "T" : (dbl ? "D" : "S");
