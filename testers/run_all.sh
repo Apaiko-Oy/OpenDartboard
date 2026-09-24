@@ -136,6 +136,16 @@ tester 1510-fitcensus     "bash '$T/i1510_run.sh'"
 # proving the guard's default prints nothing. Three whole-clip replays, i1499's cost.
 tester 1510p2-modelcheck  "bash '$T/unit_check.sh' 1510p2"
 tester 1510p2-census      "bash '$T/i1510p2_run.sh'"
+# #1553: the treble band's scoring boundary, corrected per camera for the mask bloom
+# the fit itself measures (the 91-line census above held 3 ring disagreements, all in
+# the treble band, each inside its camera's own measured edge; a single global offset
+# has an empty interval -- it must reach +3.1 mm for one camera's true T20 yet stay
+# under +1.4 mm for another camera's agreeing S9). The pure check plants the bloom
+# and holds the correction's application, its widen-only sign gate, its 8 mm bound,
+# its no-measurement-no-correction denominators, and the required mutation with the
+# prediction stated first. Costs one compile plus wire_model.cpp; the fixture half is
+# 1510p2-census above, whose disagreement count this slice moves from 3 to 0.
+tester 1553-bloomcheck    "bash '$T/unit_check.sh' 1553"
 # #1511: the shaft-axis observation. The pure check builds every figure it judges --
 # rotation, scale, fragmentation, a flight-dominated shape, shadows, two competing
 # objects, near-end-on -- and measures the issue's required mutation on every run: each
