@@ -262,6 +262,36 @@ int main()
                 o.refusal);
     }
 
+    // ---- the noise floor: a morphology halo's sub-threshold drops are not shadow ------
+    // The pipeline's support mask is closed and dilated, so it carries a rim of board
+    // pixels whose own diff never cleared the fresh-diff threshold. Without
+    // shadow_min_drop the classifier ate the drop-side half of that rim on EVERY
+    // fixture figure (25-40% of every support) and the surviving rise-side fringe
+    // inflated accepted axes' rms 0.5-1.1 -> 1.4-3.7 px, costing 11 valid axes
+    // across the rigs -- the AxisParams docblock carries the run. Built here: a dart
+    // with a -12 halo handed in as support, the way dilation hands it in.
+    {
+        cv::Mat r6(400, 400, CV_8UC1, cv::Scalar(180));
+        cv::Mat c6 = r6.clone();
+        paintRod(c6, 200, 200, 30, 132, 13, 168);   // the halo: -12, under the threshold
+        paintRod(c6, 200, 200, 30, 126, 7, 25);     // the dart, over its middle
+        std::vector<cv::Point> pts = supportOf(c6, r6);
+        for (int y = 0; y < c6.rows; y++)
+        {
+            for (int x = 0; x < c6.cols; x++)
+            {
+                if (c6.at<unsigned char>(y, x) == 168)
+                {
+                    pts.push_back(cv::Point(x, y));  // what dilation would have added
+                }
+            }
+        }
+        const AxisObservation o = observeShaftAxis(pts, c6, r6, params);
+        say(o.valid && o.shadowPixels == 0 && lineAngleError(o.angleDeg, 30) < 1.0,
+            "a sub-threshold halo is noise, not shadow: nothing classified and the "
+            "axis holds " + figures(o));
+    }
+
     // ---- prediction 7: determinism, and the no-image path is #1511's ------------------
     {
         std::vector<cv::Point> shuffled = known;

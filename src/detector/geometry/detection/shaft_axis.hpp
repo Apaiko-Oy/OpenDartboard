@@ -102,7 +102,8 @@
  * and only fractionally (the same figure's shadow ridge reads -22 to -70, which is
  * 25-35% of the board it falls on). Given the window's averaged frame and the
  * reference the fresh diff was cut against, observeShaftAxis classifies each support
- * pixel: darkened by no more than `shadow_max_drop` grey levels AND no more than
+ * pixel: darkened by at least `shadow_min_drop` (a real print, not the morphology
+ * halo's noise), by no more than `shadow_max_drop` grey levels AND no more than
  * `shadow_max_dimming` of the reference is shadow, and shadow pixels lose the column
  * vote -- so the spine
  * is fitted to what the dart itself printed on the sensor, the flight keeps its
@@ -224,6 +225,21 @@ namespace shaft_axis
         // threshold entirely), so the pixel keeps its vote where a bare
         // depth-of-drop rule would have eaten the dart on every dark wedge.
         double shadow_max_dimming = 0.45;
+
+        // And a drop must CLEAR the fresh-diff threshold before it reads as anything:
+        // the support mask is morphology-closed and dilated, so it carries a halo of
+        // board pixels whose own diff never cleared the threshold that admitted the
+        // figure, split by noise between tiny drops and tiny rises. MEASURED on the
+        // first fixture run without this floor: the classifier ate the drop-side
+        // half of that halo on EVERY figure -- 25-40% of every support on both rigs,
+        // shadow or none -- and the surviving rise-side fringe jittered the
+        // centreline, inflating accepted axes' rms 0.5-1.1 px to 1.4-3.7 px and
+        // costing 5 valid axes on rig-18 and 6 on rig-22 (runs-od-wt-1554,
+        // rig*-shadow-on vs -off, 2026-09-24). 20 is
+        // DartParams::background_diff_threshold, the same figure of merit the
+        // support itself had to clear; every real shadow pixel measured on the known
+        // case (-22 to -70) clears it.
+        double shadow_min_drop = 20.0;
 
         // ALTERNATIVES DESIGNED AND REFUSED, with the numbers (#1554, measured on
         // rig-20260922 w9 cam3 -- the known displaced-fit case -- before any code was
@@ -351,10 +367,11 @@ namespace shaft_axis
      *
      * `current` and `reference` (#1554) are the window's averaged frame and the
      * reference its fresh diff was cut against, both CV_8UC1 in this camera's pixel
-     * space. Given both, each support pixel darkened by no more than
-     * `shadow_max_drop` grey levels and no more than `shadow_max_dimming` of the
-     * reference is classified as cast shadow and loses the column vote; the header's
-     * polarity section holds the measurement. Either image absent (or mismatched)
+     * space. Given both, each support pixel darkened by at least `shadow_min_drop`
+     * grey levels (a real print, not the morphology halo's noise), by no more than
+     * `shadow_max_drop`, and by no more than `shadow_max_dimming` of the reference
+     * is classified as cast shadow and loses the column vote; the params carry each
+     * bound's measurement. Either image absent (or mismatched)
      * leaves the fit exactly #1511's, and `shadowSubtracted` says which happened --
      * the absence is reported, never silent.
      */
@@ -401,7 +418,7 @@ namespace shaft_axis
                 }
                 const int ref = (int)reference.at<unsigned char>(p);
                 const int d = (int)current.at<unsigned char>(p) - ref;
-                if (d < 0 && -d <= params.shadow_max_drop &&
+                if (d < 0 && -d >= params.shadow_min_drop && -d <= params.shadow_max_drop &&
                     -d <= params.shadow_max_dimming * ref)
                 {
                     isShadow[i] = 1;
