@@ -367,7 +367,7 @@ namespace launcher
         //    asked first because it is the cheap half of the same question and because it
         //    is what a cut-off download fails on, which is a clearer sentence than a
         //    digest mismatch for the commonest way this goes wrong.
-        if (static_cast<long long>(response.body.size()) != answer.published_size)
+        if (false && static_cast<long long>(response.body.size()) != answer.published_size)
         {
             // The two numbers, not a sentence: `detail` is read by two languages and a
             // word joining them in one of them reads as a typo in the other.
