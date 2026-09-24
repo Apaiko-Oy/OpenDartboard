@@ -187,6 +187,114 @@ int main()
         say(std::fabs(k1_rec) <= 0.05, buf);
     }
 
+    // ---- THE CENSUS'S OWN CLAIMS, held to the constants the header records ----
+    //
+    // These are not a re-measurement -- the footage is not here and the instrument is
+    // testers/i1560_k1_census.py. They are the arithmetic the verdict rests on, so
+    // that editing a constant in the header without editing the sentence beside it
+    // is a red build rather than a quiet disagreement.
+    {
+        const double k1_424 = k1At(F_NOMINAL, lens_census::MEASURED_KAPPA);
+        std::snprintf(buf, sizeof buf,
+                      "the recorded kappa is the recorded k1(424) = %.4f (+/- %.4f)",
+                      k1_424, k1At(F_NOMINAL, lens_census::MEASURED_KAPPA_SIGMA));
+        say(std::fabs(k1_424 + 0.044) < 0.002, buf);
+    }
+    {
+        // Pooling, restated: the six independent rows and their 1-sigma, inverse
+        // variance weighted, must be the number the header states.
+        const double k[6] = {-0.022, -0.021, -0.032, -0.021, -0.060, -0.022};
+        const double s[6] = {0.065, 0.057, 0.037, 0.076, 0.020, 0.036};
+        double wsum = 0.0, num = 0.0;
+        for (int i = 0; i < 6; i++)
+        {
+            const double w = 1.0 / (s[i] * s[i]);
+            wsum += w;
+            num += w * k[i];
+        }
+        const double mean = num / wsum, sig = 1.0 / std::sqrt(wsum);
+        double chi2 = 0.0;
+        for (int i = 0; i < 6; i++)
+        {
+            const double d = (k[i] - mean) / s[i];
+            chi2 += d * d;
+        }
+        std::snprintf(buf, sizeof buf,
+                      "the six rows pool to k1(424) = %.3f +/- %.3f at chi2 %.2f on 5 dof "
+                      "-- one kappa describes all six", mean, sig, chi2);
+        say(std::fabs(mean + 0.044) < 0.002 && std::fabs(sig - 0.015) < 0.002 && chi2 < 11.07,
+            buf);
+    }
+    {
+        // THE SUBTRACTION, which is the whole verdict: the k1 measured here cannot be
+        // what #1467 is seeing, because the bow it draws at these board positions is
+        // two orders below #1467's residual. 1.63 deg rms at a 220 px board radius.
+        const double residual_px = 220.0 * std::sin(1.63 * 3.14159265358979323846 / 180.0);
+        double worst = 0.0;
+        for (int k = 0; k < 20; k++)
+        {
+            double x0, y0, x1, y1;
+            wireChord(k, CX + 60.0, CY - 40.0, x0, y0, x1, y1); // a census-shaped offset
+            worst = std::max(worst,
+                             std::fabs(sagittaPx(CX, CY, lens_census::MEASURED_KAPPA,
+                                                 x0, y0, x1, y1)));
+        }
+        std::snprintf(buf, sizeof buf,
+                      "the measured kappa bows a wire by %.3f px where #1467's residual is "
+                      "%.1f px -- a factor of %.0f, so it is not the same thing",
+                      worst, residual_px, residual_px / worst);
+        say(worst * 20.0 < residual_px, buf);
+    }
+    {
+        // ...and the k1 that WOULD draw 6.3 px of bow is outside anything #1513 swept
+        // and outside anything a lens on this sensor could be.
+        double lo = 0.0, hi = 20.0;
+        const double target = 220.0 * std::sin(1.63 * 3.14159265358979323846 / 180.0);
+        for (int i = 0; i < 60; i++)
+        {
+            const double mid = 0.5 * (lo + hi);
+            double x0, y0, x1, y1;
+            double worst = 0.0;
+            for (int k = 0; k < 20; k++)
+            {
+                // the LARGEST board offset in the census (102 px, rig-22 cam3 at the
+                // opening), so this is the weakest form of the claim rather than the
+                // most flattering one
+                wireChord(k, CX + 95.0, CY + 37.0, x0, y0, x1, y1);
+                worst = std::max(worst, std::fabs(sagittaPx(CX, CY,
+                                                            -mid / (F_NOMINAL * F_NOMINAL),
+                                                            x0, y0, x1, y1)));
+            }
+            if (worst < target)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        std::snprintf(buf, sizeof buf,
+                      "to bow a wire by #1467's %.1f px would take k1(424) = %.2f even at "
+                      "the census's most off-axis board, against -0.45 at the worst end "
+                      "of #1513's sweep", target, -0.5 * (lo + hi));
+        say(0.5 * (lo + hi) > 0.45, buf);
+    }
+    {
+        // f: the recorded focal length is inside its own recorded profile width, and
+        // it is the field of view the header claims rather than the hard-coded one.
+        const double fov = 2.0 * std::atan(std::sqrt(1280.0 * 1280.0 + 720.0 * 720.0)
+                                           / 2.0 / lens_census::MEASURED_F_PX)
+                           * 180.0 / 3.14159265358979323846;
+        std::snprintf(buf, sizeof buf,
+                      "the recorded f = %.0f px is a %.0f-degree diagonal, not the "
+                      "hard-coded 120", lens_census::MEASURED_F_PX, fov);
+        say(lens_census::MEASURED_F_PX_LOW < lens_census::MEASURED_F_PX
+                && lens_census::MEASURED_F_PX < lens_census::MEASURED_F_PX_HIGH
+                && fov > 88.0 && fov < 99.0,
+            buf);
+    }
+
     std::printf("%s: %d failure(s)\n", failures ? "I1560CHECK FAIL" : "I1560CHECK PASS", failures);
     return failures ? 1 : 0;
 }

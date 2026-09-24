@@ -1362,8 +1362,9 @@ def main():
             print(line)
         return
     if args.synthetic:
-        run_synthetic()
-        return
+        # the harness reads the exit code and nothing else (#1335), so the control
+        # and the mutation have to end the process rather than just print
+        sys.exit(1 if run_synthetic() else 0)
     if not args.frames:
         ap.error("--frames, --dump-cmds or --synthetic")
     results = []

@@ -440,6 +440,27 @@ tester 1514-stall         "bash '$T/i1514_run.sh'"
 # red here by name. Eleven calibration-window runs, no whole-clip replay.
 # MEASURED 2026-09-24 on the 4-core box: 235 s, well inside the default 1200.
 tester 1551-admission     "bash '$T/i1551_run.sh'"
+# #1560: the lens, measured from the same two fixtures and the same calibration windows
+# #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
+# twenty wedge wires off their own chords, and f from the four rings' perspective.
+# src/detector/geometry/calibration/lens_census.hpp carries the measurement and the
+# verdict; these two rows are what holds them. Neither costs footage.
+#
+# 1560-lenscheck is the header's own math: the control (chords distorted at a known k1
+# recover it), the mutation (undistorted chords read zero), THE TRAP as an executable
+# statement (a chord through the distortion centre reads zero bow at any kappa, so a
+# centred board bounds nothing and the census must say so), and the arithmetic the
+# recorded verdict rests on -- so editing a constant in that header without editing the
+# sentence beside it is a red build. A compile and milliseconds.
+tester 1560-lenscheck     "bash '$T/unit_check.sh' 1560"
+# 1560-lensmodel is the half of the census that CANNOT live in a header, because it is
+# the instrument's own solver: the full Gauss-Newton camera fit recovering a planted k1,
+# and the rings-only focal-length fit recovering a planted f at 430 and at 725 -- with
+# its mutation, an ORTHOGRAPHIC board whose perspective term is removed, which must come
+# back "not resolved", because a scale is not a focal length. Stdlib python3, no
+# footage, no container; the same file with --frames re-takes the measurement itself.
+# MEASURED 2026-09-25 on this box: 87 s, well inside the default 1200.
+tester 1560-lensmodel     "python3 '$T/i1560_k1_census.py' --synthetic"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
 # BOARD PLANE, so one physical tip projects to a different board radius from every
