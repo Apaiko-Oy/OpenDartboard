@@ -99,10 +99,12 @@
  * far from the reference in either direction (rig-20260922 w9's barrel reads -100 to
  * -222 grey levels against the clean reference; its flight's white faces read +21 to
  * +92), while a cast shadow is the same board surface DIMMED, so it only ever darkens
- * and only fractionally (the same figure's shadow ridge reads -22 to -70). Given the
- * window's averaged frame and the reference the fresh diff was cut against,
- * observeShaftAxis classifies each support pixel: darkened by no more than
- * `shadow_max_drop` is shadow, and shadow pixels lose the column vote -- so the spine
+ * and only fractionally (the same figure's shadow ridge reads -22 to -70, which is
+ * 25-35% of the board it falls on). Given the window's averaged frame and the
+ * reference the fresh diff was cut against, observeShaftAxis classifies each support
+ * pixel: darkened by no more than `shadow_max_drop` grey levels AND no more than
+ * `shadow_max_dimming` of the reference is shadow, and shadow pixels lose the column
+ * vote -- so the spine
  * is fitted to what the dart itself printed on the sensor, the flight keeps its
  * (symmetric) vote, and a column that was ALL shadow is dropped and counted. The
  * refused alternatives are recorded in AxisParams beside the numbers that refused
@@ -208,11 +210,20 @@ namespace shaft_axis
         // -100 to -222 (dart material replacing board), and the flight's white faces
         // +21 to +92 (which polarity alone already keeps: a shadow never brightens).
         // 75 sits above every measured shadow pixel with the barrel core a further
-        // 25+ grey levels away. A dart's dark paint on a dark wedge can also read a
-        // shallow drop -- such pixels are individually indistinguishable from shadow
-        // by any instrument this repository has, and losing them costs a column its
-        // shadow-share, not the spine (the tester measures this shape).
+        // 25+ grey levels away.
         double shadow_max_drop = 75.0;
+
+        // A shadow is the board's own light PARTIALLY withheld, so it can only remove
+        // a fraction of what the reference had -- measured on the same figure, the
+        // shadow's drop is 25-35% of the board it falls on -- while dart material
+        // replaces the board and answers with its own reflectance, however dark the
+        // wedge behind it. So a drop also has to stay under this fraction of the
+        // REFERENCE to read as shadow. This is what keeps a dark barrel crossing a
+        // dark wedge: on a 60-grey wedge a 40-grey drop is 67% of the light, which no
+        // shadow produces (a real shadow there prints ~18, under the fresh-diff
+        // threshold entirely), so the pixel keeps its vote where a bare
+        // depth-of-drop rule would have eaten the dart on every dark wedge.
+        double shadow_max_dimming = 0.45;
 
         // ALTERNATIVES DESIGNED AND REFUSED, with the numbers (#1554, measured on
         // rig-20260922 w9 cam3 -- the known displaced-fit case -- before any code was
@@ -341,10 +352,11 @@ namespace shaft_axis
      * `current` and `reference` (#1554) are the window's averaged frame and the
      * reference its fresh diff was cut against, both CV_8UC1 in this camera's pixel
      * space. Given both, each support pixel darkened by no more than
-     * `shadow_max_drop` grey levels is classified as cast shadow and loses the column
-     * vote; the header's polarity section holds the measurement. Either image absent
-     * (or mismatched) leaves the fit exactly #1511's, and `shadowSubtracted` says
-     * which happened -- the absence is reported, never silent.
+     * `shadow_max_drop` grey levels and no more than `shadow_max_dimming` of the
+     * reference is classified as cast shadow and loses the column vote; the header's
+     * polarity section holds the measurement. Either image absent (or mismatched)
+     * leaves the fit exactly #1511's, and `shadowSubtracted` says which happened --
+     * the absence is reported, never silent.
      */
     inline AxisObservation observeShaftAxis(const std::vector<cv::Point> &supportPixels,
                                             const cv::Mat &current, const cv::Mat &reference,
@@ -387,8 +399,10 @@ namespace shaft_axis
                 {
                     continue;
                 }
-                const int d = (int)current.at<unsigned char>(p) - (int)reference.at<unsigned char>(p);
-                if (d < 0 && -d <= params.shadow_max_drop)
+                const int ref = (int)reference.at<unsigned char>(p);
+                const int d = (int)current.at<unsigned char>(p) - ref;
+                if (d < 0 && -d <= params.shadow_max_drop &&
+                    -d <= params.shadow_max_dimming * ref)
                 {
                     isShadow[i] = 1;
                     out.shadowPixels++;

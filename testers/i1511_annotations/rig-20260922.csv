@@ -1,9 +1,9 @@
 fixture,visit,dart,thrown,camera,frame,x1,y1,x2,y2,tip_x,tip_y,note
-rig-20260922,1,1,8,2,455,770,180,771,300,773,313,
-rig-20260922,1,1,8,3,455,748,95,737,235,734,246,
+rig-20260922,1,1,8,2,455,770,180,771,300,773,313,parked before frame one (maintainer correction e53891a): a real resting line with no arrival on this recording -- census runs pass --no-arrival 1.1
+rig-20260922,1,1,8,3,455,748,95,737,235,734,246,parked before frame one; see the cam2 row
 rig-20260922,1,2,16,2,485,838,170,824,295,822,311,the #1535 re-report dart: lands one wedge from dart 1
 rig-20260922,1,2,16,3,485,716,90,712,230,710,240,
-rig-20260922,1,3,7,3,520,606,90,602,215,601,224,cam2 unmeasurable for this dart: fully occluded behind darts 1-2 (see README)
+rig-20260922,1,3,7,3,520,606,90,602,215,601,224,HAND-PLACED (#1554 frame check: spot empty at f490; hand blur over it at f520; dart standing at f540) -- a real resting line with no ballistic arrival; census runs pass --no-arrival 1.3; cam2 unmeasurable: fully occluded behind darts 1-2 (see README)
 rig-20260922,2,1,12,2,815,606,330,610,440,608,454,
 rig-20260922,2,1,12,3,815,943,120,921,230,915,251,
 rig-20260922,2,2,T9,2,868,596,395,604,470,605,478,lands one wedge from dart 1 on almost the same sightline; short visible baseline
