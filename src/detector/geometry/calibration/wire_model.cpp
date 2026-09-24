@@ -280,6 +280,32 @@ namespace wire_model
         return ring;
     }
 
+    // #1551: THE GATE IS DETERMINISTIC ON RECORDED INPUT, AND THE FLIP WAS TWO BINARIES.
+    // The admitted-0.873/refused-0.578 "nondeterminism" this gate was accused of was the
+    // DEBUG_SEEK_VIDEO build define moving the thirty-frame calibration window (dev seeks
+    // 3/2.8/2.633 s in, release reads the clip's opening), never run-to-run variance.
+    // Census, 2026-09-24, five consecutive runs per fixture of one dev binary on this
+    // box, testers/i1551_run.sh (which holds all of this, every run of the registry):
+    //
+    //     rig-20260918, dev window   cam 1  R=0.949314 (margin +0.349314)  x5 identical
+    //                                cam 2  R=0.914846 (margin +0.314846)  x5 identical
+    //                                cam 3  R=0.944753 (margin +0.344753)  x5 identical
+    //     rig-20260922, dev window   cam 1  R=0.577558 (margin -0.022442)  x5 identical,
+    //                                       REFUSED, and every one of its 12 further
+    //                                       looks identical too (0.092648..0.338124)
+    //                                cam 2  R=0.935095 on look 9           x5 identical
+    //                                cam 3  R=0.763884 (margin +0.163884)  x5 identical
+    //     rig-20260922, OPENING      cam 1  R=0.873343 (margin +0.273343)  ADMITTED --
+    //     (same binary,              cam 2  R=0.927525, cam 3  R=0.884817 -- all three
+    //      OD_SEEK_VIDEO=off)               bit-equal to od-baselines/5bc3b0a's release
+    //                                       build from a different day
+    //
+    // Every transcript byte-identical across its five runs, so thread scheduling,
+    // iteration order and uninitialised state are refuted by observation, not argument.
+    // A camera near this gate really is near it -- rig-20260922 camera 1 sits 0.022
+    // under at the dev window and 0.273 over at the opening -- which is why the margin
+    // is on every wire-model line and why a census may only be compared to a run whose
+    // log names the same window.
     double minimumCoherence()
     {
         static double asked = []

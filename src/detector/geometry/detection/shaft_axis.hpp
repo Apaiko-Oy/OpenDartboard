@@ -70,17 +70,65 @@
  * the rest refusing by name -- "not straight" is the working gate on real figures,
  * because a fresh diff there carries shadows and neighbouring darts. The gate pin on
  * real footage: gated 37 valid with 11 gate refusals, ungated 48 valid -- the +11 is
- * exact, so the gates bind on fixtures too, not only on synthetics. FINDING ONE: the
- * DIRECTION is the trustworthy half. On rig-20260922's hard-shadow scene an accepted
- * axis can be laterally displaced -- a shadow parallel to the shaft averages into the
- * spine -- so angle errors stayed at 0.03-9.1 degrees while the line missed the
- * annotated entry point by up to 192 px sideways. #1512 must weight the axis as a
- * direction constraint first and a position constraint with caution. FINDING TWO:
- * `sigmaDeg` states the CENTRELINE SCATTER only, which is the statistical half; the
- * segmentation's systematic part (bloom, shadow pull) is outside it, and err/sigma
- * against the hand annotations ran a median of 19-31 (the annotation floor dominates
- * the numerator). A consumer floors the direction uncertainty at that ~1.5-4 degree
- * annotation floor until something measures the systematic part (#1513's territory).
+ * exact, so the gates bind on fixtures too, not only on synthetics.
+ *
+ * FINDING ONE, AS #1511 WROTE IT AND AS #1554 RE-MEASURED IT. #1511 shipped this axis
+ * as "direction trustworthy, position suspect": on rig-20260922 an accepted axis read
+ * as missing the annotated entry by up to 192 px sideways while its angle held within
+ * degrees, and the header blamed a parallel cast shadow averaged into the spine. #1554
+ * traced every one of those pixel figures to the frames and found the 192 px was not
+ * axis displacement at all: the i1511 census aligned detected visits to ground-truth
+ * visits BY INDEX, rig-20260922's visit 1 contains two throws that never arrive on the
+ * recording (the parked 8, and the hand-placed 7 -- see the annotations README and
+ * i1512_inside.sh's --no-arrival note), so from window 6 onward every detected event
+ * was being judged against the PREVIOUS dart's annotation. Window 9's "192.5 px" axis
+ * lies 1.6 px from the tip of the dart it actually observed (truth v3.2, the D20 that
+ * leans across the bull -- flight, barrel and needle all visible at frame 1265 along
+ * the fitted line); window 10's "101.4 px" axis lies 7.7 px from its true dart
+ * (v3.3). The census's matcher is #1554-corrected (takeout-boundary-aware monotone
+ * spatial assignment, i1511_census.py) and the honest lateral errors of accepted axes
+ * are single-digit pixels on both fixtures -- rig-22 perp@tip 1.6-9.2 px, rig-18
+ * medians 2.3-4.4 px, the one outlier rig-18's deeply-occluded v2.3 at 105.9 px whose
+ * annotation says so. Downstream, #1512's rig-22 entry-position census fell from
+ * 141.0 mm median to 9.5 mm on the same solves. What WAS real in the shadow story is
+ * what observeShaftAxis now classifies (next paragraph), and it is small: the
+ * window-9 figure really does carry its cast shadow fused one-sided into the support
+ * (1162 px classified), but the accepted axis already sits 1.6 px from the true tip,
+ * and removal measurably does not improve it (the per-figure comparison below
+ * abstains there) -- the residual 5.7 degrees against the annotated barrel segment
+ * is not something shadow subtraction moves, and reads as flight geometry plus the
+ * annotation floor.
+ *
+ * THE SHADOW IS TOLD FROM THE SHAFT BY INTENSITY POLARITY (#1554), measured on the
+ * frames rather than argued: a dart REPLACES the board behind it, so its pixels move
+ * far from the reference in either direction (rig-20260922 w9's barrel reads -100 to
+ * -222 grey levels against the clean reference; its flight's white faces read +21 to
+ * +92), while a cast shadow is the same board surface DIMMED, so it only ever darkens
+ * and only fractionally (the same figure's shadow ridge reads -22 to -70, which is
+ * 25-35% of the board it falls on). Given the window's averaged frame and the
+ * reference the fresh diff was cut against, observeShaftAxis classifies each support
+ * pixel: darkened by at least `shadow_min_drop` (a real print, not the morphology
+ * halo's noise), by no more than `shadow_max_drop` grey levels AND no more than
+ * `shadow_max_dimming` of the reference is shadow, and shadow pixels lose the column
+ * vote -- so the spine
+ * is fitted to what the dart itself printed on the sensor, the flight keeps its
+ * (symmetric) vote, and a column that was ALL shadow is dropped and counted. And the
+ * subtraction must EXPLAIN the figure better or it ABSTAINS, per figure: its premise
+ * predicts a straighter centreline, so where the removal leaves the spine LESS
+ * straight than the plain fit (a shadow prints over pale wedges and vanishes into
+ * dark ones, so partial removal staircases the spine) the plain fit is the answer
+ * and `shadowApplied` says so, with the classification still reported -- the fixture
+ * measurement that bought the rule is at the comparison itself. The refused
+ * alternatives are recorded in AxisParams beside the numbers that refused them.
+ * Without the two images the fit is exactly #1511's (the binary support alone
+ * cannot carry the discriminator -- also recorded in AxisParams).
+ *
+ * FINDING TWO: `sigmaDeg` states the CENTRELINE SCATTER only, which is the
+ * statistical half; the segmentation's systematic part (bloom, residual shadow pull)
+ * is outside it, and err/sigma against the hand annotations ran a median of 19-31
+ * (the annotation floor dominates the numerator). A consumer floors the direction
+ * uncertainty at that ~1.5-4 degree annotation floor until something measures the
+ * systematic part (#1513's territory).
  *
  * Pure and inline for the reason whyNoEventIsPossible is (#1338): a tester holds every
  * verdict below with synthetic figures and the real pipeline holds it with real ones.
@@ -159,6 +207,70 @@ namespace shaft_axis
         // trimming half of a perfectly straight rod whose MAD is near zero.
         double trim_band_floor_px = 1.5;
         int max_iterations = 6;
+
+        // #1554: subtract the shaft's cast shadow from the support, by intensity
+        // polarity against the reference the fresh diff was cut against. Only acts
+        // when the caller supplies the two images; OD_AXIS_SHADOW=off is the
+        // falsification pin (dart_processing.cpp), and this flag is the same switch
+        // per call.
+        bool subtract_shadow = true;
+
+        // The deepest darkening a cast shadow may print, grey levels against the
+        // reference. A RIG measurement, not a tuned number (rig-20260922 w9, frames
+        // 1240/1265, signed per-pixel diff): the shadow ridge beside the shaft reads
+        // -22 to -70 (a fractional dimming of the board it falls on), the barrel core
+        // -100 to -222 (dart material replacing board), and the flight's white faces
+        // +21 to +92 (which polarity alone already keeps: a shadow never brightens).
+        // 75 sits above every measured shadow pixel with the barrel core a further
+        // 25+ grey levels away.
+        double shadow_max_drop = 75.0;
+
+        // A shadow is the board's own light PARTIALLY withheld, so it can only remove
+        // a fraction of what the reference had -- measured on the same figure, the
+        // shadow's drop is 25-35% of the board it falls on -- while dart material
+        // replaces the board and answers with its own reflectance, however dark the
+        // wedge behind it. So a drop also has to stay under this fraction of the
+        // REFERENCE to read as shadow. This is what keeps a dark barrel crossing a
+        // dark wedge: on a 60-grey wedge a 40-grey drop is 67% of the light, which no
+        // shadow produces (a real shadow there prints ~18, under the fresh-diff
+        // threshold entirely), so the pixel keeps its vote where a bare
+        // depth-of-drop rule would have eaten the dart on every dark wedge.
+        double shadow_max_dimming = 0.45;
+
+        // And a drop must CLEAR the fresh-diff threshold before it reads as anything:
+        // the support mask is morphology-closed and dilated, so it carries a halo of
+        // board pixels whose own diff never cleared the threshold that admitted the
+        // figure, split by noise between tiny drops and tiny rises. MEASURED on the
+        // first fixture run without this floor: the classifier ate the drop-side
+        // half of that halo on EVERY figure -- 25-40% of every support on both rigs,
+        // shadow or none -- and the surviving rise-side fringe jittered the
+        // centreline, inflating accepted axes' rms 0.5-1.1 px to 1.4-3.7 px and
+        // costing 5 valid axes on rig-18 and 6 on rig-22 (runs-od-wt-1554,
+        // rig*-shadow-on vs -off, 2026-09-24). 20 is
+        // DartParams::background_diff_threshold, the same figure of merit the
+        // support itself had to clear; every real shadow pixel measured on the known
+        // case (-22 to -70) clears it.
+        double shadow_min_drop = 20.0;
+
+        // ALTERNATIVES DESIGNED AND REFUSED, with the numbers (#1554, measured on
+        // rig-20260922 w9 cam3 -- the known displaced-fit case -- before any code was
+        // written). (1) A width-profile / lateral-corridor subtraction on the binary
+        // support: refused because the contaminated spine is SELF-CONSISTENT -- the
+        // shadow's separation grows smoothly along the shaft (column widths 11 -> 15
+        // -> 70 px root to flight), so the fitted centreline stays straight (rms 0.90
+        // px on the displaced fit) and no residual- or corridor-based trim can see
+        // anything to remove; both silhouette edges are straight lines (the lit dart
+        // edge holds the annotated line within ~3 px while the shadow edge walks 733
+        // -> 771), and a binary silhouette cannot say which straight edge is the
+        // dart. (2) A one-sided-widening regression (column mean shift vs width
+        // excess, slope 0.5 for a fused uniform extension -- the model fits the
+        // measured figure: flight columns width 70, mean shift +22..27 px): refused
+        // because the same signature cannot separate a fused shadow from a genuinely
+        // tapering silhouette, and on the off-axis end-blob control the slope reads
+        // ~0.9, so any slope gate wide enough to fire on the real figure re-admits
+        // blob shapes the rms gate exists to refuse. (3) Board-plane geometry with
+        // the light: nothing in this repository knows where the light is, and
+        // estimating an illuminant per camera is a slice of its own.
     };
 
     /** One centreline sample: one one-pixel column along the axis. Kept for overlays
@@ -168,8 +280,10 @@ namespace shaft_axis
         double t = 0.0;     // along the axis, px, about the support centroid
         double u = 0.0;     // the column's mean lateral offset, px
         double width = 0.0; // lateral spread of the column, px
-        int pixels = 0;
-        bool kept = true;   // false: the robust band rejected it (a distractor's column)
+        int pixels = 0;     // spine pixels: shadow-classified pixels are not in it (#1554)
+        int shadowPixels = 0; // pixels of this column the polarity classifier removed
+        bool kept = true;   // false: the robust band rejected it (a distractor's column),
+                            // or nothing but shadow remained in it (#1554)
     };
 
     /**
@@ -194,6 +308,20 @@ namespace shaft_axis
         int columns = 0;                 // centreline samples seen
         int trimmedColumns = 0;          // samples the robust band rejected
         double trimmedFraction = 0.0;
+
+        // #1554: the shadow subtraction's own census. `shadowSubtracted` says whether
+        // the discriminator was LIVE for this observation (images offered and the
+        // param on) -- a consumer must never read zero shadow pixels as "no shadow"
+        // when the classifier never ran (#708's rule on absences). `shadowApplied`
+        // says whether the ANSWER is the subtracted spine: the subtraction's premise
+        // (a coherent parallel ridge left the support) predicts a straighter
+        // centreline, so a subtracted fit whose rms is WORSE than the plain fit's
+        // falsifies the premise for that figure and the plain fit is the answer,
+        // with the classification still reported. Measured reason in AxisParams.
+        bool shadowSubtracted = false;
+        bool shadowApplied = false;      // the returned spine is the subtracted one
+        int shadowPixels = 0;            // support pixels classified as cast shadow
+        int shadowColumns = 0;           // columns dropped because only shadow remained
 
         // Event and frame identity, filled by the caller that owns them
         // (dart_processing::processDartState): which camera, which completed window,
@@ -246,14 +374,26 @@ namespace shaft_axis
     }
 
     /**
-     * Fit the axis. Pure over the pixel list: no frame, no globals, no state.
+     * Fit the axis. Pure over the pixel list and the two optional images: no globals,
+     * no state.
      *
      * The identity fields are left for the caller; everything measured is filled here,
      * refusals included -- an ungated call (params.gated == false) still MEASURES every
      * gate figure and reports them, it just no longer refuses on them, which is what
      * lets one binary show the gates are load-bearing (the issue's required mutation).
+     *
+     * `current` and `reference` (#1554) are the window's averaged frame and the
+     * reference its fresh diff was cut against, both CV_8UC1 in this camera's pixel
+     * space. Given both, each support pixel darkened by at least `shadow_min_drop`
+     * grey levels (a real print, not the morphology halo's noise), by no more than
+     * `shadow_max_drop`, and by no more than `shadow_max_dimming` of the reference
+     * is classified as cast shadow and loses the column vote; the params carry each
+     * bound's measurement. Either image absent (or mismatched)
+     * leaves the fit exactly #1511's, and `shadowSubtracted` says which happened --
+     * the absence is reported, never silent.
      */
     inline AxisObservation observeShaftAxis(const std::vector<cv::Point> &supportPixels,
+                                            const cv::Mat &current, const cv::Mat &reference,
                                             const AxisParams &params = AxisParams())
     {
         AxisObservation out;
@@ -275,19 +415,69 @@ namespace shaft_axis
             return out;
         }
 
-        // Initial direction: the principal axis of the whole support. Closed-form 2x2.
-        double mx = 0.0, my = 0.0;
-        for (const cv::Point &p : supportPixels)
+        // #1554: the polarity classification, once, before any frame is chosen -- a
+        // pixel's grey levels do not depend on the trial direction. A shadow only
+        // ever darkens, and only fractionally; everything else is the dart's own
+        // print and keeps its vote.
+        out.shadowSubtracted = params.subtract_shadow &&
+                               !current.empty() && !reference.empty() &&
+                               current.type() == CV_8UC1 && reference.type() == CV_8UC1 &&
+                               current.size() == reference.size();
+        std::vector<unsigned char> isShadow(supportPixels.size(), 0);
+        if (out.shadowSubtracted)
         {
-            mx += p.x;
-            my += p.y;
+            for (size_t i = 0; i < supportPixels.size(); i++)
+            {
+                const cv::Point &p = supportPixels[i];
+                if (p.x < 0 || p.y < 0 || p.x >= current.cols || p.y >= current.rows)
+                {
+                    continue;
+                }
+                const int ref = (int)reference.at<unsigned char>(p);
+                const int d = (int)current.at<unsigned char>(p) - ref;
+                if (d < 0 && -d >= params.shadow_min_drop && -d <= params.shadow_max_drop &&
+                    -d <= params.shadow_max_dimming * ref)
+                {
+                    isShadow[i] = 1;
+                    out.shadowPixels++;
+                }
+            }
+            if (out.supportPixels - out.shadowPixels < 3)
+            {
+                out.refusal = "all shadow: " + std::to_string(out.shadowPixels) + " of " +
+                              std::to_string(out.supportPixels) +
+                              " support pixels read as cast shadow (darkened by <= " +
+                              detail::fmt("%.0f", params.shadow_max_drop) +
+                              " grey levels), and what remains cannot carry a line -- "
+                              "nothing arrived here but the shadow of something";
+                return out;
+            }
         }
-        mx /= out.supportPixels;
-        my /= out.supportPixels;
-        double sxx = 0.0, sxy = 0.0, syy = 0.0;
-        for (const cv::Point &p : supportPixels)
+
+        // Initial direction: the principal axis of the SPINE support (#1554: shadow
+        // pixels are not the object). Closed-form 2x2.
+        double mx = 0.0, my = 0.0;
+        int spinePixels = 0;
+        for (size_t i = 0; i < supportPixels.size(); i++)
         {
-            const double dx = p.x - mx, dy = p.y - my;
+            if (isShadow[i])
+            {
+                continue;
+            }
+            mx += supportPixels[i].x;
+            my += supportPixels[i].y;
+            spinePixels++;
+        }
+        mx /= spinePixels;
+        my /= spinePixels;
+        double sxx = 0.0, sxy = 0.0, syy = 0.0;
+        for (size_t i = 0; i < supportPixels.size(); i++)
+        {
+            if (isShadow[i])
+            {
+                continue;
+            }
+            const double dx = supportPixels[i].x - mx, dy = supportPixels[i].y - my;
             sxx += dx * dx;
             sxy += dx * dy;
             syy += dy * dy;
@@ -331,12 +521,24 @@ namespace shaft_axis
             struct Acc
             {
                 double su = 0, umin = 1e18, umax = -1e18;
-                int n = 0;
+                double shadowSu = 0, shadowUmin = 1e18, shadowUmax = -1e18;
+                int n = 0, shadow = 0;
             };
             std::vector<Acc> acc(nbins);
             for (int i = 0; i < out.supportPixels; i++)
             {
                 const int b = std::min(nbins - 1, (int)std::floor(ts[i] - tmin));
+                if (isShadow[i])
+                {
+                    // #1554: a shadow pixel never votes for the spine, but its column
+                    // stays countable -- a column that was ALL shadow is reported
+                    // dropped rather than silently absent.
+                    acc[b].shadowSu += us[i];
+                    acc[b].shadowUmin = std::min(acc[b].shadowUmin, us[i]);
+                    acc[b].shadowUmax = std::max(acc[b].shadowUmax, us[i]);
+                    acc[b].shadow++;
+                    continue;
+                }
                 acc[b].su += us[i];
                 acc[b].umin = std::min(acc[b].umin, us[i]);
                 acc[b].umax = std::max(acc[b].umax, us[i]);
@@ -344,15 +546,29 @@ namespace shaft_axis
             }
             for (int b = 0; b < nbins; b++)
             {
-                if (acc[b].n == 0)
+                if (acc[b].n == 0 && acc[b].shadow == 0)
                 {
                     continue; // a fragmentation gap: absent, never interpolated
                 }
                 AxisColumn c;
                 c.t = tmin + b + 0.5;
-                c.u = acc[b].su / acc[b].n;
-                c.width = acc[b].umax - acc[b].umin + 1.0;
-                c.pixels = acc[b].n;
+                c.shadowPixels = acc[b].shadow;
+                if (acc[b].n == 0)
+                {
+                    // Nothing but shadow here: reported where the shadow lies, and
+                    // out of the fit for good (kept = false survives both passes
+                    // below because the trim loop only reconsiders spine columns).
+                    c.u = acc[b].shadowSu / acc[b].shadow;
+                    c.width = acc[b].shadowUmax - acc[b].shadowUmin + 1.0;
+                    c.pixels = 0;
+                    c.kept = false;
+                }
+                else
+                {
+                    c.u = acc[b].su / acc[b].n;
+                    c.width = acc[b].umax - acc[b].umin + 1.0;
+                    c.pixels = acc[b].n;
+                }
                 f.cols.push_back(c);
             }
             for (int pass = 0; pass < 2 && (int)f.cols.size() >= 2; pass++)
@@ -401,12 +617,20 @@ namespace shaft_axis
                 absResiduals.reserve(f.cols.size());
                 for (const AxisColumn &c : f.cols)
                 {
+                    if (c.pixels == 0)
+                    {
+                        continue; // #1554: an all-shadow column is not the spine's scatter
+                    }
                     absResiduals.push_back(std::fabs(c.u - (f.a + f.slope * (c.t - f.tbar))));
                 }
                 const double mad = detail::medianOf(absResiduals);
                 const double band = std::max(3.0 * 1.4826 * mad, params.trim_band_floor_px);
                 for (AxisColumn &c : f.cols)
                 {
+                    if (c.pixels == 0)
+                    {
+                        continue; // #1554: dropped for what it is, not for where it lies
+                    }
                     c.kept = std::fabs(c.u - (f.a + f.slope * (c.t - f.tbar))) <= band;
                 }
             }
@@ -466,11 +690,22 @@ namespace shaft_axis
         out.trimmedColumns = out.columns - fit.kept;
         out.trimmedFraction = out.columns > 0 ? (double)out.trimmedColumns / out.columns : 1.0;
         out.columnsDetail = fit.cols;
+        for (const AxisColumn &c : fit.cols)
+        {
+            if (c.pixels == 0)
+            {
+                out.shadowColumns++;
+            }
+        }
         if (fit.kept < 2)
         {
             out.refusal = "no line: only " + std::to_string(fit.kept) +
                           " centreline column(s) survive over " + std::to_string(out.columns) +
-                          " seen, and one column is any direction at all";
+                          " seen, and one column is any direction at all" +
+                          (out.shadowColumns > 0
+                               ? " (" + std::to_string(out.shadowColumns) +
+                                     " column(s) were nothing but cast shadow, #1554)"
+                               : "");
             return out;
         }
         out.extentPx = tKeptMax - tKeptMin;
@@ -553,11 +788,61 @@ namespace shaft_axis
         if (!refusals.empty())
         {
             out.refusal = refusals;
-            return out;
         }
-        out.valid = true;
-        out.refusal.clear();
+        else
+        {
+            out.valid = true;
+            out.refusal.clear();
+        }
+
+        // #1554: the subtraction must EXPLAIN the figure better, or it abstains for
+        // this figure. Its premise -- a coherent parallel ridge left the support --
+        // predicts a STRAIGHTER centreline; where the print is only partial (a
+        // shadow reads over pale wedges and vanishes into dark ones, so removal
+        // staircases the spine along the wedge pattern), the subtracted fit's rms is
+        // WORSE than the plain fit's, the premise is falsified by the figure's own
+        // scatter, and the honest observation is the plain fit with the
+        // classification still reported. MEASURED (runs-od-wt-1554, both rigs,
+        // on/off arms with the noise floor already in): unconditional removal
+        // inflated accepted axes' rms 0.90->1.21, 1.14->2.57, 0.94->1.64 px and so
+        // on across every window, flipped four marginal axes to "not straight"
+        // (rig-22 cams 2/3: 9->7 and 11->9 valid), recovered none, and improved no
+        // annotated pair's accuracy -- while on the figure the premise fits (the
+        // pure check's built fused-shadow case) the subtracted spine is both
+        // straighter (rms 0.497 vs 0.564) and 2.5 degrees truer. The comparison is
+        // the falsification arm running per figure, and it is what keeps coverage
+        // within #1511's census by construction.
+        if (out.shadowSubtracted && out.shadowPixels > 0)
+        {
+            AxisParams plainParams = params;
+            plainParams.subtract_shadow = false;
+            AxisObservation plain = observeShaftAxis(supportPixels, cv::Mat(), cv::Mat(),
+                                                     plainParams);
+            if (plain.extentPx > 0.0 && out.extentPx > 0.0 &&
+                plain.centrelineRmsPx < out.centrelineRmsPx)
+            {
+                plain.shadowSubtracted = true;
+                plain.shadowApplied = false;
+                plain.shadowPixels = out.shadowPixels;
+                plain.shadowColumns = 0; // its columns are the plain ones
+                return plain;
+            }
+            out.shadowApplied = true;
+        }
+        else if (out.shadowSubtracted)
+        {
+            out.shadowApplied = true; // live, nothing classified: the plain spine won
+        }
         return out;
+    }
+
+    /** #1511's original shape: no images offered, so no shadow subtraction -- the fit
+     *  is byte-for-byte the pre-#1554 one, which is what the falsification arm and
+     *  every caller without intensity data get. */
+    inline AxisObservation observeShaftAxis(const std::vector<cv::Point> &supportPixels,
+                                            const AxisParams &params = AxisParams())
+    {
+        return observeShaftAxis(supportPixels, cv::Mat(), cv::Mat(), params);
     }
 
     /**
@@ -623,16 +908,19 @@ namespace shaft_axis
      *  a parser may take the rest of the line. */
     inline std::string censusLine(const AxisObservation &axis, double gapToTipPx)
     {
-        char head[320];
+        char head[400];
         snprintf(head, sizeof(head),
                  "I1511AXIS window=%ld opened=%ld closed=%ld cam=%d valid=%d p=(%.1f,%.1f) "
                  "d=(%.4f,%.4f) angle=%.2f extent=%.1f width=%.1f rms=%.2f sigma=%.3f px=%d "
-                 "cols=%d trimmed=%d frac=%.3f tipGap=%.1f refusal=",
+                 "cols=%d trimmed=%d frac=%.3f tipGap=%.1f shadowPx=%d shadowCols=%d "
+                 "subtract=%d applied=%d refusal=",
                  axis.windowOrdinal, axis.windowOpenedCycle, axis.windowClosedCycle,
                  axis.camera + 1, axis.valid ? 1 : 0, axis.point.x, axis.point.y,
                  axis.direction.x, axis.direction.y, axis.angleDeg, axis.extentPx,
                  axis.medianWidthPx, axis.centrelineRmsPx, axis.sigmaDeg, axis.supportPixels,
-                 axis.columns, axis.trimmedColumns, axis.trimmedFraction, gapToTipPx);
+                 axis.columns, axis.trimmedColumns, axis.trimmedFraction, gapToTipPx,
+                 axis.shadowPixels, axis.shadowColumns, axis.shadowSubtracted ? 1 : 0,
+                 axis.shadowApplied ? 1 : 0);
         return std::string(head) + (axis.valid ? "-" : axis.refusal);
     }
 }

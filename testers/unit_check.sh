@@ -42,7 +42,10 @@ case "$NAME" in
   1517) SRC=i1517_vote_check.cpp;        EXTRA= ;;
   1510) SRC=i1510_board_check.cpp;       EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   1510p2) SRC=i1510p2_model_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
+  1553) SRC=i1553_bloom_check.cpp;       EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   1511) SRC=i1511_axis_check.cpp;        EXTRA= ;;
+  # #1554: the cast-shadow subtraction, on figures whose lighting is built.
+  1554) SRC=i1554_shadow_check.cpp;      EXTRA= ;;
   # wire_model.cpp for row 1510's reason: entry_intersection.hpp includes board_model.hpp,
   # whose fit calls into wire_model:: at link time.
   1512) SRC=i1512_intersect_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
@@ -54,7 +57,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517 bull-colour" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517 1553 1554 bull-colour" >&2
     exit 2
     ;;
 esac

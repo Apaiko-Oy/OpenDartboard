@@ -57,5 +57,24 @@ unmeasurable with this reference.
 - **rig-20260918 visit 4's miss** IS annotated (it rests in view, off the board
   plane) so the census can hold "no event expected" against a real observation.
 
+## Rows that are lines but not arrivals (#1554)
+
+Two rig-20260922 rows annotate REAL resting lines of darts that never *arrive* on the
+recording, so nothing the detector could ever emit should be scored against them:
+
+- **v1.1 (the 8)** is the parked dart the maintainer's ground-truth correction
+  (e53891a) places on the board before frame one.
+- **v1.3 (the 7)** was **placed by hand**: verified against the frames for #1554 --
+  the annotated spot is empty at f490, a hand blur covers it at f520 (the row's own
+  frame), and the dart stands on the annotated line from f540 on. #1512's corrected
+  truth ("never hit the board") and this row are BOTH right: there was no throw, and
+  there is a dart resting there.
+
+The rows stay, because a resting line is what later windows' scenes really contain --
+but every census run passes `--no-arrival 1.1,1.3`, which keeps them out of the
+matching pool entirely (a later throw landed 2 px from v1.3's line, and letting the
+row compete dragged the whole monotone assignment a dart late) and reports the
+nearest unmatched detection as a SUSPECT-MATCH instead.
+
 The barred `mocks/cam_*.mp4` are not annotated and must not be
 (`mocks/DO-NOT-USE-cam_1-cam_2-cam_3.md`).

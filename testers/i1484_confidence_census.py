@@ -437,6 +437,15 @@ def main():
              ": " + ", ".join("visit %d throw %d" % (v, t + 1)
                               for v in sorted(no_event) for t in sorted(no_event[v]))
              if no_event_total else ""))
+    # #1552: whether a missing visit can honestly be blamed on the run stopping. On a
+    # run that played the WHOLE fixture, every thrown visit is on the played footage --
+    # the ground-truth table is a transcription OF that footage -- so a shortfall of
+    # visits there is not "the run ended": it is a boundary that produced no END (two
+    # visits published merged as one), or a visit no dart of which was ever detected.
+    # Only a run the cycle cap (or a kill) cut off may write the tail off to the stop.
+    whole_fixture = stop["how"] == "end-of-footage"
+    merged = max(0, len(truth) - len(visits)) if whole_fixture else 0
+
     print()
     print("    visit  thrown  detected  note")
     detected_total = 0
@@ -446,10 +455,12 @@ def main():
         recorded = len(no_event.get(number, {}))
         note = ""
         if index >= len(visits):
-            note = "the run ended before this visit"
+            note = ("no END separated this visit -- merged into an earlier one "
+                    "(SEGMENTATION), or every dart of it undetected"
+                    if whole_fixture else "the run ended before this visit")
         elif index == len(visits) - 1 and stop["how"] == "cycle-cap" and len(found) < len(throws):
             note = "the run was cut off DURING this visit by the cycle cap"
-        elif len(found) < len(throws) and recorded == len(throws) - len(found):
+        elif len(found) < len(throws) and recorded == len(throws) - len(found) and not merged:
             note = "fewer detected than thrown, and the footage records exactly that many throws as making no event"
         elif len(found) < len(throws):
             note = "fewer detected than thrown -- a DETECTION failure, not a wrong score"
@@ -471,6 +482,32 @@ def main():
     # that made no event -- a dart off the board, a dart landing as the clip ends -- shifted
     # every dart after it in its visit to wrong. See alignments() for the rule that
     # replaced it, and what it deliberately does NOT do: pick the placement that scores best.
+    # #1552: segmentation, counted apart. A merged visit misattributes darts across its
+    # boundary, and this census aligns k-th detected against k-th thrown PER VISIT (the
+    # ground-truth file's own rule), so one missing boundary degrades every comparison
+    # after it. That is a third failure kind -- not a dart nobody saw (detection), not a
+    # dart scored wrong (scoring) -- and until it is counted apart it contaminates both
+    # tables while reading as neither.
+    print()
+    print("--- segmentation: thrown visits against the ENDs that separate them ---")
+    print("    %d visits thrown; %d seen; %d closed by an END line."
+          % (len(truth), len(visits), closed))
+    if not whole_fixture:
+        print("    This run did not play the whole fixture, so a shortfall of visits here is")
+        print("    where the run stopped, and segmentation cannot be judged from it.")
+    elif merged == 0:
+        print("    The run played the whole fixture and every thrown visit was seen apart:")
+        print("    no visit boundary was merged.")
+    else:
+        print("    The run played the WHOLE fixture, so every thrown visit is on the played")
+        print("    footage. %d thrown visit boundar%s produced no END -- a SEGMENTATION"
+              % (merged, "y" if merged == 1 else "ies"))
+        print("    failure, distinct from detection (a dart nobody saw) and from scoring (a")
+        print("    dart scored wrong): the visits on either side were published merged, or a")
+        print("    whole visit went undetected. From the first merged boundary onward the")
+        print("    per-visit alignment above and below misattributes darts across visits, so")
+        print("    the detection and scoring tables carry this failure inside their numbers.")
+
     print()
     print("--- scoring: correct against published, over the darts that were detected ---")
     print("    A thrown miss counts CORRECT where the detector published OUTER.")
@@ -478,6 +515,10 @@ def main():
     print("    published than thrown, a gap is placed only where the truth file records a")
     print("    throw that made no event; otherwise every placement is reported and a dart whose")
     print("    verdict differs between them is AMBIGUOUS and counted as neither.")
+    if merged:
+        print("    This run merged %d visit boundar%s (SEGMENTATION, above), so the record places"
+              % (merged, "y" if merged == 1 else "ies"))
+        print("    no gap: its rows name thrown visits, and these are no longer those visits.")
     print()
     tally = {}
     compared = 0
@@ -488,7 +529,13 @@ def main():
         found = visits[index] if index < len(visits) else []
         if not found:
             continue
-        options = alignments(found, throws, no_event.get(number, {}))
+        # Where #1552's segmentation meet #1504's record, segmentation wins. A row of the
+        # record names a THROWN visit; after a merged boundary the published visit at this
+        # index is not that visit, and the census cannot say where the merge is. So on a
+        # run with any merged boundary the record places no gap anywhere, and a short visit
+        # is reported AMBIGUOUS like any other -- never resolved by a record that may be
+        # about someone else's darts.
+        options = alignments(found, throws, {} if merged else no_event.get(number, {}))
         rule = options[0][1]
         # What each publication reads against, under every alignment left standing.
         readings = []
@@ -547,6 +594,11 @@ def main():
         print("    %d AMBIGUOUS: which throw a missing publication belongs to is not in the data," % ambiguous)
         print("    so those darts are counted neither right nor wrong. Every placement taken")
         print("    together gives %d..%d correct; this harness reports the range and picks none." % (correct_low, correct_high))
+    if merged:
+        print("        -- compared over an alignment %d merged boundar%s has broken"
+              % (merged, "y" if merged == 1 else "ies"))
+        print("           (SEGMENTATION, the section above): from the first merged boundary")
+        print("           onward these verdicts compare darts across visit boundaries.")
     for name in ("correct", "wedge", "ring", "off-board", "no-vote", "on-board"):
         if name in tally:
             print("        %-10s %4d   %s" % (name, tally[name], {

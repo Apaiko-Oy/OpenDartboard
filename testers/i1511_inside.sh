@@ -80,9 +80,11 @@ echo "OK   $P18 overlay images under $RUN/probe18"
 echo "=== 3. rig-20260922, OD_SHAFT_CENSUS=1 + probe ==="
 mkdir -p "$RUN/probe22"
 run_detector rig-20260922 rig22-on OD_SHAFT_CENSUS=1 OD_SHAFT_PROBE="$RUN/probe22"
+# --no-arrival 1.1,1.3: the annotations README's "lines but not arrivals" rows
+# (the parked 8, the hand-placed 7 -- #1554), i1512_inside.sh's own flag.
 python3 /app/testers/i1511_census.py --log "$RUN/rig22-on.txt" --truth $T22 \
     --annotations $A22 --fixture "mocks/rig-20260922 (the current rig)" \
-    --min-compared 4 || exit 1
+    --min-compared 4 --no-arrival 1.1,1.3 || exit 1
 echo "OK   $(ls "$RUN/probe22" | wc -l) overlay images under $RUN/probe22"
 
 echo "=== 4. rig-20260918, gates off (reported, not asserted) ==="

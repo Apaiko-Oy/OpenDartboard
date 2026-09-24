@@ -136,6 +136,16 @@ tester 1510-fitcensus     "bash '$T/i1510_run.sh'"
 # proving the guard's default prints nothing. Three whole-clip replays, i1499's cost.
 tester 1510p2-modelcheck  "bash '$T/unit_check.sh' 1510p2"
 tester 1510p2-census      "bash '$T/i1510p2_run.sh'"
+# #1553: the treble band's scoring boundary, corrected per camera for the mask bloom
+# the fit itself measures (the 91-line census above held 3 ring disagreements, all in
+# the treble band, each inside its camera's own measured edge; a single global offset
+# has an empty interval -- it must reach +3.1 mm for one camera's true T20 yet stay
+# under +1.4 mm for another camera's agreeing S9). The pure check plants the bloom
+# and holds the correction's application, its widen-only sign gate, its 8 mm bound,
+# its no-measurement-no-correction denominators, and the required mutation with the
+# prediction stated first. Costs one compile plus wire_model.cpp; the fixture half is
+# 1510p2-census above, whose disagreement count this slice moves from 3 to 0.
+tester 1553-bloomcheck    "bash '$T/unit_check.sh' 1553"
 # #1511: the shaft-axis observation. The pure check builds every figure it judges --
 # rotation, scale, fragmentation, a flight-dominated shape, shadows, two competing
 # objects, near-end-on -- and measures the issue's required mutation on every run: each
@@ -147,6 +157,21 @@ tester 1511-axischeck     "bash '$T/unit_check.sh' 1511"
 # shaft annotations (testers/i1511_annotations), plus the control run proving
 # OD_SHAFT_CENSUS defaults off. Whole-clip replays, i1510p2's shape and cost.
 tester 1511-axis          "bash '$T/i1511_run.sh'"
+# #1554: the shaft's cast shadow is told from the shaft by intensity polarity against
+# the reference the fresh diff was cut against, and subtracted from the axis support.
+# The pure check builds figures whose LIGHTING is known -- the rig-22 known case's
+# fused-shadow shape, a symmetric flight, a pure shadow band, a dark barrel on a dark
+# wedge, a parallel competitor -- and measures the issue's required mutation on every
+# run: disabling the subtraction (AxisParams::subtract_shadow, the same switch
+# OD_AXIS_SHADOW=off throws in the pipeline) restores the displaced fit
+# byte-for-byte. Costs one compile, no extra translation units.
+tester 1554-shadowcheck   "bash '$T/unit_check.sh' 1554"
+# #1554's fixture half: both rigs with the subtraction at its default and with the
+# pin thrown, censused by the #1554-corrected matcher side by side; the pin census is
+# exact (no off-arm line classified, no on-arm axis accepted unclassified) and the
+# accuracy movement is reported, not asserted (run-to-run variance, i1511's rule).
+# Four whole-clip replays, i1511's shape and cost.
+tester 1554-shadow        "bash '$T/i1554_run.sh'"
 # #1512: the entry intersection -- #1511's axes transported to the board plane per
 # camera (l_board ~ H^T l_image), placed in one numbered frame by each camera's
 # anchor, and solved as one weighted robust intersection, scored ONCE through
@@ -170,6 +195,15 @@ tester 1512-entry         "bash '$T/i1512_run.sh'"
 # unit_check.sh row because the measurement is that TRIPLE on one binary, and
 # unit_check.sh compiles and runs a check once (1450-seal's reason).
 tester 1518-reference     "bash '$T/i1518_check.sh'"
+# #1552: #1518's residual -- a takeout whose cameras fall in DIFFERENT windows, which is
+# how rig-20260922's boundary between thrown visits 1 and 2 produced no END in either
+# calibration window. A reversion CLEAN vote is now remembered into the next two windows
+# (cleared by a reconciled CLEAN or a tipped advance; a tip-less advance is the takeout's
+# own motion and does not clear it). One compile of dart_processing plus three runs of
+# the same check binary: the tree's rule, the OD_REVERSION_MEMORY=off pin reproducing the
+# merged boundary, and the mutation proof with its prediction stated before the run --
+# i1518_check.sh's shape, for its reason.
+tester 1552-memory        "bash '$T/i1552_check.sh'"
 
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
@@ -394,6 +428,18 @@ tester 1484-confidence    "bash '$T/i1484_run.sh'"
 # cannot be reached is the same as one that cannot fail (#1463, 1423-ringidentity's
 # story retold).
 tester 1514-stall         "bash '$T/i1514_run.sh'"
+# #1551: admission at the coherence gate is deterministic on recorded input, held there.
+# The admitted-0.873/refused-0.578 flip the issue was filed on was two BINARIES -- the
+# DEBUG_SEEK_VIDEO build define moves the thirty-frame calibration window from the
+# clip's opening to ~3 s in, and od-baselines/5bc3b0a was cut with a build that did not
+# carry it while every registry run does. Five calibration-window runs per rig fixture
+# on this build must be byte-identical in their admission transcripts, every wire-model
+# line must say its margin, and the same binary under OD_SEEK_VIDEO=off must reproduce
+# the flip (rig-20260922 camera 1 admitted at the opening) -- so any FUTURE source of
+# admission variance (a cv:: parallel path, iteration order, uninitialised state) goes
+# red here by name. Eleven calibration-window runs, no whole-clip replay.
+# MEASURED 2026-09-24 on the 4-core box: 235 s, well inside the default 1200.
+tester 1551-admission     "bash '$T/i1551_run.sh'"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
 # BOARD PLANE, so one physical tip projects to a different board radius from every
