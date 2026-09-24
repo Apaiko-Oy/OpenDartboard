@@ -63,6 +63,28 @@
  * census measures the distribution, and promoting the tip to a constraint is a later
  * decision to take on those numbers, not in passing.
  *
+ * MEASURED ON THE FIXTURES (testers/i1512_run.sh, 2026-09-24), and what a consumer
+ * must carry. rig-20260918, 17 event-matched darts: the string vote scored 13/17 and
+ * the solver 11 of the 13 it solved (4 refused by name), with solved-position error
+ * median 6.0 mm, p90 12.5 mm against the hand-annotated entries -- and the claimed
+ * sigma (4.6-10.2 mm) is the same size as the measured error, so the instrument is
+ * honest about itself. BOTH of the vote's wedge errors on that clip (S7 published
+ * over a thrown 19, twice) are corrected by the geometry, which read S19 with the
+ * annotation agreeing to 2-6 mm. Ten of thirteen solves flagged WIRE-UNCERTAIN:
+ * at ~6 mm precision most darts sit within one sigma of some wire, which is the
+ * treble-edge band (#1510 Phase 2's T14) stated honestly rather than averaged over.
+ * rig-20260922 is #1511 FINDING ONE at solve level and the recorded limitation of a
+ * two-camera event: its shadow-displaced axes AGREE WITH ITS SHADOW-DISPLACED TIPS
+ * (nearest tip ~5 mm) while both sit ~140 mm from the annotated entry, and with
+ * camera 1 unfitted there is no third line for the chi-square to refuse on -- so a
+ * consumer must treat a two-constraint solve on a hard-shadow scene as unproven,
+ * and the census is what says which scenes those are. The #1505/#1535 targets:
+ * rig-18 v6's phantom S7 and rig-22 v1.2's re-report both refuse as
+ * TOO-FEW-CONSTRAINTS; rig-18 v4's out-of-plane miss (published T20@0.7) solves to
+ * T7 with ZERO of two placed tips corroborating -- the tips=0/N field is the
+ * exposure, and a reader of the census must not take an uncorroborated solve as a
+ * position.
+ *
  * WHAT REFUSES, EACH BY NAME (the issue's own list): fewer than two usable constraints
  * (every per-camera exclusion listed -- this is also what exposes a lone-witness
  * phantom, #1505: a dart that is not on the board has no second constraint); nearly
@@ -113,9 +135,10 @@ namespace entry_intersection
         // 1/sin(angle): at 15 degrees a 3.5 mm constraint sigma is already a 13.5 mm
         // position error along the poorly-conditioned direction -- the whole width of
         // more than a wedge at the treble ring -- and shallower pairs grow without
-        // bound. 15 refuses the unusable geometry while keeping every pair the three
-        // rig cameras actually produce (the fixture census reports the measured pair
-        // angles beside every solve, so this number is auditable against real events).
+        // bound. 15 refuses the unusable geometry while keeping every pair the rigs
+        // actually produce, MEASURED (i1512_run.sh, 2026-09-24): solved events cross
+        // at 54.8-89.7 degrees on rig-20260918 and 37.6-50.3 on rig-20260922, so the
+        // gate sits a factor of 2.5 under the shallowest real pair.
         double minPairAngleDeg = 15.0;
 
         // The consistency verdict on a three-constraint solve is a chi-square on the
@@ -140,8 +163,11 @@ namespace entry_intersection
         // vertex sits equally far from the opposite line, measured in the check), so
         // lines alone cannot say which camera lies, and the tip evidence is what can.
         // 15 mm spans the annotation's own tip reading (+-2 px ~ 1-2 mm) plus the tip
-        // detector's per-camera error scale on the repaired tree (#1494/#1495); the
-        // fixture census prints every distance so this number is re-measurable.
+        // detector's per-camera error scale on the repaired tree (#1494/#1495), and
+        // it was MEASURED against the fixtures before being kept (i1512_run.sh,
+        // 2026-09-24): the nearest placed tip sits median 4.5 mm, p90 8.1 mm from
+        // rig-20260918's solved entries, so honest agreement fits inside 15 with
+        // room and the census prints every distance for re-measurement.
         double tipAgreeMm = 15.0;
     };
 
