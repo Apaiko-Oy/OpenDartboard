@@ -20,11 +20,18 @@ these units:
   reachable compressed — measured by #1319/#1336 (55.3 MB/s would be needed raw for
   a single camera).
 
-**The lens is unidentified**, and it is the half that matters for intrinsics: OV9732
-modules ship with roughly 60–120 degree FOV variants, and
-`perspective_processing.cpp`'s hard-coded 120-degree diagonal (f ≈ 424 px) is a
-guess until a lens-barrel marking or the purchase listing confirms it. turnaus#1560
-is the footage census that can measure f and k1 per camera without touching the rig.
+**The lens is not identified exactly, but the market and the footage bound it**
+(web survey + arithmetic, 2026-09-24, turnaus#1513). OV9732 USB modules ship
+overwhelmingly in two lens variants: **72 degrees** (3.6 mm, f/2.4, 2G2P) and
+**100 degrees** ("no deformity", low-distortion wide). The 72-degree variant is
+excluded by footage already: f = 3.6 mm / 3.0 um = 1200 px would draw the doubles
+ring at ~680 px radius from ~300 mm standoff, and the fixtures measure the whole
+board at 194–250 px. So the rig's lens is a wide variant — f roughly 400–600 px —
+and `perspective_processing.cpp`'s hard-coded 120-degree diagonal (f ≈ 424 px) is
+plausibly near rather than wildly wrong. The listed "no deformity" claim, if this
+is that variant, also predicts a small k1. turnaus#1560 is the footage census that
+measures f and k1 per camera and settles it; a lens-barrel marking, if ever read,
+corroborates for free.
 
 **On Windows/MSMF the FOURCC read-back is 0x00000016** (`MFVideoFormat_RGB32`'s
 Data1) on all three cameras — OpenCV's own conversion target, not anything the
