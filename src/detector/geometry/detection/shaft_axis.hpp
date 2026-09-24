@@ -85,14 +85,19 @@
  * lies 1.6 px from the tip of the dart it actually observed (truth v3.2, the D20 that
  * leans across the bull -- flight, barrel and needle all visible at frame 1265 along
  * the fitted line); window 10's "101.4 px" axis lies 7.7 px from its true dart
- * (v3.3). The census's matcher is #1554-corrected (global monotone spatial assignment,
- * i1511_census.py) and the honest lateral errors of accepted axes are single-digit
- * pixels on both fixtures. What WAS real in the shadow story is smaller and is what
- * observeShaftAxis now subtracts (next paragraph): the same window-9 figure carried
- * its cast shadow fused one-sided into the support, which tilted the accepted axis
- * 5.7 degrees against the annotated barrel line (annotation floor 1.5-4) and pulled
- * the spine ~9 px sideways at mid-extent -- material, but two orders of magnitude
- * under what the mis-aligned census reported.
+ * (v3.3). The census's matcher is #1554-corrected (takeout-boundary-aware monotone
+ * spatial assignment, i1511_census.py) and the honest lateral errors of accepted axes
+ * are single-digit pixels on both fixtures -- rig-22 perp@tip 1.6-9.2 px, rig-18
+ * medians 2.3-4.4 px, the one outlier rig-18's deeply-occluded v2.3 at 105.9 px whose
+ * annotation says so. Downstream, #1512's rig-22 entry-position census fell from
+ * 141.0 mm median to 9.5 mm on the same solves. What WAS real in the shadow story is
+ * what observeShaftAxis now classifies (next paragraph), and it is small: the
+ * window-9 figure really does carry its cast shadow fused one-sided into the support
+ * (1162 px classified), but the accepted axis already sits 1.6 px from the true tip,
+ * and removal measurably does not improve it (the per-figure comparison below
+ * abstains there) -- the residual 5.7 degrees against the annotated barrel segment
+ * is not something shadow subtraction moves, and reads as flight geometry plus the
+ * annotation floor.
  *
  * THE SHADOW IS TOLD FROM THE SHAFT BY INTENSITY POLARITY (#1554), measured on the
  * frames rather than argued: a dart REPLACES the board behind it, so its pixels move
