@@ -4,6 +4,14 @@
 # i1484_confidence_census.py against a table transcription of the fixture's own
 # GROUND-TRUTH.md line (testers/i1499_truth_rig20260922.md; nothing under mocks/ is
 # edited, and a copy at /run1499/truth-rig-20260922.md wins so a run can override it).
+#
+# unrun-tester: #1499's before/after instrument, kept for the hand. The confidence census
+# it judges with is a reporter that asserts nothing about the numbers (#1322, i1484's own
+# rule), so a suite row here would buy a whole-clip rig-20260922 replay that can only fail
+# on a run it could not read -- a failure mode 1484-confidence already holds in the gate --
+# while the rig-22 questions the gate does decide run through 1514-stall and 1512-entry.
+# Reach for this in the container when the current rig's published-score accuracy is the
+# question; #1499's closing report quotes the runs it was decided on. Marked by #1534.
 set -u
 
 BIN=/app/build/opendartboard

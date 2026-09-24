@@ -46,8 +46,15 @@ case "$NAME" in
   # wire_model.cpp for row 1510's reason: entry_intersection.hpp includes board_model.hpp,
   # whose fit calls into wire_model:: at link time.
   1512) SRC=i1512_intersect_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
+  # Not an iNNNN: the connected-bull regression shipped with the maintainer's fix of
+  # 2026-09-22 (1e39e79), which carried no issue number and no row; registered by #1534.
+  # The whole calibration directory, because half of what it asserts is
+  # calibrateSingleCamera on the optional image arguments and that pulls every sibling in
+  # at link time -- the same closure its hand-run driver links as build/'s objects. The
+  # glob expands in the container, at /app.
+  bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517 bull-colour" >&2
     exit 2
     ;;
 esac
