@@ -180,6 +180,15 @@ tester 1512-entry         "bash '$T/i1512_run.sh'"
 # unit_check.sh row because the measurement is that TRIPLE on one binary, and
 # unit_check.sh compiles and runs a check once (1450-seal's reason).
 tester 1518-reference     "bash '$T/i1518_check.sh'"
+# #1552: #1518's residual -- a takeout whose cameras fall in DIFFERENT windows, which is
+# how rig-20260922's boundary between thrown visits 1 and 2 produced no END in either
+# calibration window. A reversion CLEAN vote is now remembered into the next two windows
+# (cleared by a reconciled CLEAN or a tipped advance; a tip-less advance is the takeout's
+# own motion and does not clear it). One compile of dart_processing plus three runs of
+# the same check binary: the tree's rule, the OD_REVERSION_MEMORY=off pin reproducing the
+# merged boundary, and the mutation proof with its prediction stated before the run --
+# i1518_check.sh's shape, for its reason.
+tester 1552-memory        "bash '$T/i1552_check.sh'"
 
 # #1450: the sealed geometry fingerprint, in BOTH spellings on one binary. A harness of
 # its own rather than a row in unit_check.sh, because the measurement is a PAIR of runs --
