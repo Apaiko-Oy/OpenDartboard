@@ -220,15 +220,64 @@ namespace score_processing
     }
 
     /**
-     * #1555: THE CENSUS, and the verdict it carries.
+     * #1555: THE CENSUS, AND THE VERDICT IT CARRIES.
      *
-     * ===================================================================================
-     * PLACEHOLDER -- the constant below is `false` until the fixtures have been measured
-     * on THIS tree and the table replaces this paragraph. Nothing is wired on an
-     * argument; the numbers go here or the vote keeps publishing.
-     * ===================================================================================
+     * Measured by testers/i1555_run.sh on this tree (origin/main at e5509c3 merged in),
+     * five whole-clip replays, every one with OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 so both
+     * paths answer about the same dart in the same process. Exact score against the
+     * fixtures' ground truth, aligned by the spatial matcher i1511_census::assign_events
+     * -- the same one #1511 and #1512 use, so no two censuses here can disagree about
+     * which detection was which dart. Denominators are MATCHED darts; segmentation is
+     * counted apart (#1552) and enters none of them.
+     *
+     *   fixture          window   matched  VOTE     GEOM-ONLY  GEOMETRY-FIRST
+     *   ---------------  -------  -------  -------  ---------  --------------
+     *   rig-20260918     dev           17  13/17    12/13      15/17
+     *   rig-20260918     opening       17  13/17    13/14      15/17
+     *   rig-20260922     dev            6   0/6      0/2        0/6
+     *   rig-20260922     opening        5   0/5      0/4        0/5
+     *   POOLED                         45  26/45               30/45   (+4)
+     *
+     * GEOMETRY-FIRST is the column the decision is taken on, and the other two are there
+     * to say why. GEOMETRY-ONLY (92-93%) is a figure about the instrument on its own
+     * denominator -- the solver chooses which darts it answers about, and three of the
+     * four it refused on rig-18 are darts the vote gets right, so a path is not more
+     * accurate for refusing a quarter of a clip. GEOMETRY-FIRST carries the vote's own
+     * denominator: the solve where there is one, the vote where the solver refused by
+     * name. It wins on rig-20260918 by the same +2 in BOTH calibration windows,
+     * independently, and pooled by +4 of 45.
+     *
+     * WHAT MOVES, on rig-20260918, and both windows agree: two wedge errors the vote
+     * publishes are corrected -- v2.1 and v4.1, both thrown 19 and both published S7 --
+     * and in the dev window v1.1's T13, published S13 by the vote, comes back T13. ONE
+     * DART THE VOTE GETS RIGHT GOES WRONG: v2.3, a thrown S5, solves D12 with a position
+     * error of 67.5/46.2 mm and ZERO of three placed tips corroborating. That is not
+     * #1505's acceptance criterion satisfied -- it is a 3:1 trade rather than that
+     * issue's 1:1, taken under the rule the maintainer set for THIS issue, which is
+     * pooled accuracy. The regression is named here because a census that listed only
+     * its wins would not be one.
+     *
+     * RIG-20260922 DECIDED NOTHING, AND ITS ZERO IS THE REFERENCE RATHER THAN EITHER
+     * PATH. Both paths read 0 in both windows, so no reading of that fixture can change
+     * the ordering -- but the number is not a scoring fact. Only 9 of its 24 throws are
+     * annotated at all (truth visits 1-3, testers/i1511_annotations/rig-20260922.csv),
+     * two of those nine are --no-arrival, and the matcher maps detected visits onto
+     * consecutive truth-visit RANGES: with the annotation stopping at truth visit 3
+     * while the opening window detects 8 visits, the annotated range is free to slide
+     * along the run, and it does. Measured on the census's own page: truth v1.2, a
+     * thrown 16, is matched to a detection that published T9 while the detection that
+     * published S16 is left unclaimed, and the same one-visit shift stands a thrown T8
+     * beside a published S1 with the T8 unclaimed. `I1555 REFERENCE-GAP` is the census
+     * saying so on every run. The remedy is annotations for that fixture's visits 4-8,
+     * which is not this issue.
+     *
+     * So: geometry-first wins pooled, wins on the one fixture that can tell the two
+     * paths apart, wins in both of that fixture's calibration windows separately, and is
+     * beaten on no fixture and in no window. That is neither a tie nor a split, so the
+     * constant is true. It is one word to reverse, and OD_SCORE_PATH=vote reverses it on
+     * a shipped binary with no rebuild at all.
      */
-    inline constexpr bool kGeometryWonTheCensus = false;
+    inline constexpr bool kGeometryWonTheCensus = true;
 
     /**
      * #1555: whether the geometric path is the published one on this tree.

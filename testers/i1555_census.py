@@ -256,6 +256,40 @@ def main():
     print("I1555 SEGMENTATION truth_visits=%d detected_visits=%d ends=%d merged_or_lost=%d"
           % (len(truth), len(visits), ends, merged))
 
+    # ---- WHAT THE REFERENCE COVERS, before any accuracy figure is printed --------------
+    #
+    # The hand annotations (testers/i1511_annotations) are the only thing that can join a
+    # detection to a throw, and they do NOT cover every throw of every fixture: on
+    # rig-20260922 only truth visits 1-3 are annotated, 9 lines of 24 thrown. An
+    # unclaimed detection on such a fixture is therefore usually a throw nobody
+    # annotated, NOT a phantom -- and the accuracy columns below are figures about the
+    # annotated subset and about nothing else.
+    #
+    # It matters for a second and sharper reason. axis_census.assign_events maps DETECTED
+    # visits monotonically onto disjoint consecutive TRUTH-visit ranges and maximises the
+    # summed margin. Where the annotation covers every truth visit, the ranges are pinned
+    # at both ends and the assignment is over-determined. Where it stops early, the
+    # annotated range is free to slide along the run, and spatial aliasing (players
+    # revisit the same wedges, which is the measurement #1554 wrote the matcher against)
+    # then decides where it lands. That is a property of the reference, not of either
+    # scoring path, and a census that did not print it would report an alignment failure
+    # as a scoring failure.
+    truth_throws = sum(len(v) for v in truth)
+    arrivals = sorted(k for k in annots.keys() if k not in no_arrival)
+    annotated_visits = sorted({k[0] for k in annots.keys()})
+    covers_all = len(annotated_visits) >= len(truth)
+    print("I1555 REFERENCE annotated_throws=%d of %d thrown, arrivals=%d, covering truth "
+          "visits %s of %d | detected_visits=%d"
+          % (len(annots), truth_throws, len(arrivals),
+             "%d-%d" % (annotated_visits[0], annotated_visits[-1]) if annotated_visits else "none",
+             len(truth), len(visits)))
+    if not covers_all:
+        print("I1555 REFERENCE-GAP the annotation stops at truth visit %d while the run "
+              "detected %d visits, so the matcher's monotone truth-visit range is free to "
+              "slide: an unclaimed detection here is usually an UNANNOTATED throw and the "
+              "columns below are about the annotated subset alone"
+              % (annotated_visits[-1] if annotated_visits else 0, len(visits)))
+
     assignment = axis_census.assign_events(visits, annots, no_arrival)
     assigned = assignment["assigned"]
     suspect = set(k for k, _ in assignment["suspect"])
@@ -302,15 +336,24 @@ def main():
                      fv, norm(p["score"]), pv, p["path"], p["conf"],
                      1 if p["degraded"] else 0, p["outcome"]))
 
-    # ---- the phantoms: events no annotated throw claimed, and the thrown misses --------
-    phantom_rows = 0
+    # ---- detections no annotation claimed ---------------------------------------------
+    #
+    # UNCLAIMED, not PHANTOM, and the word was wrong in the first draft of this file. A
+    # phantom is a score published where nothing was thrown -- #1505's lone-witness dart,
+    # a real fault. An unclaimed detection is only a detection the REFERENCE does not
+    # speak about, and on a fixture the annotation does not cover it is overwhelmingly an
+    # ordinary throw nobody annotated. The first run of this census called all 17 of
+    # rig-20260922's unclaimed detections phantoms, and among them were an S16 for a
+    # thrown 16 and a T8 for a thrown T8 -- correct darts, reported as phantoms, on a
+    # fixture where only 9 of 24 throws have a line to be judged against.
+    unclaimed_rows = 0
     for (v, ei) in assignment["unmatched"]:
         ev = visits[v][ei]
         if ev.pub is None:
             continue
         p = ev.pub
-        phantom_rows += 1
-        print("I1555 PHANTOM v%d#%d vote=%s geo=%s published=%s path=%s degraded=%d "
+        unclaimed_rows += 1
+        print("I1555 UNCLAIMED v%d#%d vote=%s geo=%s published=%s path=%s degraded=%d "
               "outcome=%s -- no annotated throw claimed this detection"
               % (v + 1, ei + 1, norm(p["vote"]),
                  norm(p["geo"]) if p["geo"] != "NONE" else p["outcome"],
@@ -320,8 +363,11 @@ def main():
         if visits[v][ei].pub is not None and visits[v][ei].pub["geo"] == "NONE")
     print("I1555 PHANTOM-HANDLING unclaimed_detections=%d | the geometry refused %d of "
           "them by name (a dart that is not on the board has no second constraint, "
-          "#1505); the vote published a score for all %d"
-          % (phantom_rows, geo_silent_on_phantoms, phantom_rows))
+          "#1505); the vote published a score for all %d%s"
+          % (unclaimed_rows, geo_silent_on_phantoms, unclaimed_rows,
+             "" if covers_all else
+             " -- but on this fixture the annotation covers only part of the clip, so "
+             "most of these are unannotated throws and not phantoms at all"))
 
     # ---- coverage and refusals ---------------------------------------------------------
     print("I1555 COVERAGE solver outcomes over matched darts: " +
@@ -332,7 +378,8 @@ def main():
               "measured nothing (#1490)" % tag)
         return 2
 
-    print("I1555 SCORECARD %s matched=%d" % (tag, matched))
+    print("I1555 SCORECARD %s matched=%d of %d annotated arrival(s), %d thrown"
+          % (tag, matched, len(arrivals), truth_throws))
     print("I1555 " + tallyline("VOTE", vote_counts, matched))
     print("I1555 " + tallyline("GEOMETRY-ONLY", geo_counts, geo_solved))
     print("I1555 " + tallyline("GEOMETRY-FIRST", first_counts, matched))
