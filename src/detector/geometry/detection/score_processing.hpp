@@ -247,15 +247,24 @@ namespace score_processing
      * name. It wins on rig-20260918 by the same +2 in BOTH calibration windows,
      * independently, and pooled by +4 of 45.
      *
-     * WHAT MOVES, on rig-20260918, and both windows agree: two wedge errors the vote
-     * publishes are corrected -- v2.1 and v4.1, both thrown 19 and both published S7 --
-     * and in the dev window v1.1's T13, published S13 by the vote, comes back T13. ONE
-     * DART THE VOTE GETS RIGHT GOES WRONG: v2.3, a thrown S5, solves D12 with a position
-     * error of 67.5/46.2 mm and ZERO of three placed tips corroborating. That is not
-     * #1505's acceptance criterion satisfied -- it is a 3:1 trade rather than that
-     * issue's 1:1, taken under the rule the maintainer set for THIS issue, which is
-     * pooled accuracy. The regression is named here because a census that listed only
-     * its wins would not be one.
+     * WHAT MOVES, on rig-20260918, and the two windows agree on the wins and differ on
+     * the loss. THREE darts the vote gets wrong come back right in BOTH windows: v1.1,
+     * a thrown T13 the vote publishes S13 (a ring error, #1492's 5.5 mm short tip), and
+     * v2.1 and v4.1, both thrown 19 and both published S7 (wedge errors). ONE DART THE
+     * VOTE GETS RIGHT GOES WRONG IN EACH WINDOW, AND IT IS NOT THE SAME DART:
+     *
+     *   dev      v2.3, a thrown S5, solves D12 -- position error 67.5/46.2 mm, ZERO of
+     *            three placed tips corroborating. The SAME dart solves S5 correctly in
+     *            the opening window.
+     *   opening  v5.1, a thrown S15, solves T15 -- a ring error at the treble band. The
+     *            SAME dart solves S15 correctly in the dev window.
+     *
+     * So the loss is one marginal call per window rather than a stable defect, and the
+     * trade is 3:1 in both. That is NOT #1505's acceptance criterion satisfied -- that
+     * issue refused a 1:1 trade on the rule that nothing which is right may go wrong.
+     * This is taken under the rule the maintainer set for THIS issue, which is pooled
+     * accuracy, and the regression is written here because a census that listed only its
+     * wins would not be one.
      *
      * RIG-20260922 DECIDED NOTHING, AND ITS ZERO IS THE REFERENCE RATHER THAN EITHER
      * PATH. Both paths read 0 in both windows, so no reading of that fixture can change

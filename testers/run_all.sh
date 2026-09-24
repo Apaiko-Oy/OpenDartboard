@@ -203,6 +203,12 @@ tester 1555-publish       "bash '$T/i1555_check.sh'"
 # restores the vote, and that every published score is the column its own path= names;
 # accuracy is REPORTED, because a harness that failed on it would be deciding the issue by
 # its own threshold. Five whole-clip replays, i1511's shape and cost.
+#
+# MEASURED, #1341's rule: 690 s wall on a quiet 4-core box (2026-09-25, the wired run,
+# five replays end to end), which is 58% of the 1200 s default. No `slow` line, because
+# 1200 has never been exceeded by this row and #1341's budget is twice the limit that
+# really failed rather than twice the cost measured here -- the number is written down so
+# whoever first meets a `no answer in 1200s` knows it started at 690 and can say so.
 tester 1555-bakeoff       "bash '$T/i1555_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a

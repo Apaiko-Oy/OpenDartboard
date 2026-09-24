@@ -299,7 +299,11 @@ def main():
     # solve that not one placed tip corroborated were refused back to the vote. #1512
     # left promoting the tip to a CONSTRAINT as a later decision to be taken on numbers
     # rather than in passing; this is the smallest thing one could do with the tip short
-    # of that, and it is measured here so the decision to leave it alone is a measured one.
+    # of that, and it is measured here so the decision to leave it alone is a measured
+    # one. What the measurement says on this tree: it buys ONE dart in rig-20260918's dev
+    # window (15/17 -> 16/17) and NOTHING in the opening window, where the same fixture
+    # has no uncorroborated solve at all. A rule that helps in one calibration window of
+    # one fixture and is inert in the other is fitted to a dart, not measured.
     corroborated_counts = {}
     uncorroborated = 0
     matched = geo_solved = 0
