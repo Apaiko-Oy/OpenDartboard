@@ -78,7 +78,11 @@ The **main feature** - connects and receives live dart scores as JSON messages i
   "ring": "double",
   "board": { "radius": 0.97, "angle": 3.4 },
   "position": { "x": 150, "y": 200 },
-  "confidence": 0.95,
+  "confidence": 0.7,
+  "uncertainty": 6.1,
+  "boundary": 2.4,
+  "boundary_kind": "wedge",
+  "alternative": "D5",
   "camera": 0,
   "processing_time": 15,
   "timestamp": 1699123456789
@@ -98,6 +102,10 @@ The **main feature** - connects and receives live dart scores as JSON messages i
 | `position.x`      | `integer`         | `0-XXX`                                                  | X coordinate in pixels, in the frame of `camera`              |
 | `position.y`      | `integer`         | `0-XXX`                                                  | Y coordinate in pixels, in the frame of `camera`              |
 | `confidence`      | `float`           | `0.0-1.0`                                                | Detection confidence                                          |
+| `uncertainty`     | `float`, `null`   | `0.0-`                                                   | One-sigma position uncertainty in board millimetres, measured **across** the boundary `boundary_kind` names; `null` where no millimetre position was measured |
+| `boundary`        | `float`, `null`   | `0.0-`                                                   | Millimetres to the nearest boundary that could change this call; `null` with `uncertainty` |
+| `boundary_kind`   | `string`, `null`  | `"ring"`, `"wedge"`                                      | Which kind of wire `boundary` measures to; `null` where nothing could flip the call |
+| `alternative`     | `string`, `null`  | `"S1"-"D20"`, `"BULL"`, `"OUTER"`, `"MISS"`              | The **other** candidate score when this dart is flagged; `null` when it is not |
 | `camera`          | `integer`         | `0-2`                                                    | Camera index                                                  |
 | `processing_time` | `integer`         | `1-1000`                                                 | Processing time in ms                                         |
 | `timestamp`       | `integer`         | Unix timestamp                                           | Message timestamp in ms                                       |
@@ -137,6 +145,45 @@ orientation (#1489).
 **An absence is `null`, never `0`.** `0.0` is a real angle and a real radius. `END` and `MISS`
 carry `"segment": null, "ring": null, "board": null`; a bull carries `"segment": null` with a
 ring and a radius, and `"angle": null` when the orientation is unknown.
+
+### How close the call was, and what the other answer is
+
+**A dart whose uncertainty reaches a scoring wire publishes anyway, and says so** (#1556). The
+score is the **more probable candidate** and it arrives at the same instant it always did -
+nothing waits for anybody. What is added is that the message can now say the call was close
+and name the second candidate, so a client can ask a human instead of guessing.
+
+`alternative` is the whole of the flag. It is a score string or `null`, and it is non-null
+**exactly** when this dart is flagged: the detector measured the solved position's one-sigma
+uncertainty **across** the nearest boundary that could change the call, found the boundary
+inside it, and could read back what the board says on the other side. `score` is what
+publishes; `alternative` is what a correction would say instead. A client that never reads
+the field behaves exactly as it did before.
+
+`confidence` carries the demotion and **no new value was invented for it**. `0.7` is what a
+flagged geometric reading publishes at and `0.9` is what a clear one publishes at, which are
+the two numbers this socket already published; a client must not read `0.7` as "flagged",
+because a lone camera's string-vote reading is also a `0.7` and measures no millimetres at
+all. The flag is `alternative`, and only `alternative`.
+
+`uncertainty` and `boundary` are published **whether or not the dart is flagged**, because
+"how close was this call" is a question worth answering when the answer is "not close". Both
+are `null` together, on every reading whose position was not measured in board millimetres -
+a `MISS`, an `END`, and every dart the string vote published. `boundary` measures to the
+scoring edge the detector actually judges the ring at, which on a treble is corrected for
+that camera's measured segmentation bloom (#1553), so the two numbers are comparable: the
+systematic part is already spent and `uncertainty` is the statistical part alone.
+
+`boundary_kind` says which kind of wire is the near one: `"ring"` if the call would change
+band (a `T20` to an `S20`), `"wedge"` if it would change number (an `S19` to an `S7`). A
+bull, an outer bull and a miss have no wedge in them at all, so only a ring wire can flip
+them and `boundary_kind` is never `"wedge"` there.
+
+**The flag rate is a real number and it is not small.** At this detector's precision most
+darts genuinely sit within one sigma of some wire, and the census in `testers/i1556_census.py`
+reports the rate on every run. A client that treats every flag as a question for a human will
+ask on most darts; the honest reading of the field is "this call was close", and what to do
+about it is the client's decision, taken with `uncertainty` and `boundary` beside it.
 
 **The push to Turnaus says the same thing more narrowly, and the difference is deliberate**
 (#1366). A detection posted to `/api/v1/{autoscorer,casual}/detections` carries the same two

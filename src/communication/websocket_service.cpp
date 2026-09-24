@@ -1085,6 +1085,26 @@ string WebSocketService::formatScoreJson(const DetectorResult &result)
     {
         j["board"] = nullptr;
     }
+    // #1556: how close this call was to a scoring wire, and what the other answer is.
+    // Additive, and an absence is null rather than 0 for #1186's reason -- 0.0 mm is a
+    // real distance, and a dart exactly on a wire is the one reading that must not be
+    // confusable with a dart nothing was measured about. `uncertainty` is null on a
+    // string-vote publish, which measures no board-millimetre position at all; a client
+    // that ignores all four fields sees exactly what it saw before.
+    j["uncertainty"] = result.uncertainty_mm >= 0.0f ? json(result.uncertainty_mm) : json(nullptr);
+    j["boundary"] = result.boundary_mm >= 0.0f ? json(result.boundary_mm) : json(nullptr);
+    j["boundary_kind"] = result.boundary_kind.empty() ? json(nullptr) : json(result.boundary_kind);
+    if (result.boundary_flagged && !result.alternative_score.empty())
+    {
+        // Both candidates, in the order the decision took them: `score` above is the
+        // more probable one and publishes now (#1557), `alternative` is what a tap can
+        // append as a correction instead.
+        j["alternative"] = result.alternative_score;
+    }
+    else
+    {
+        j["alternative"] = nullptr;
+    }
     j["processing_time"] = result.processing_time_ms;
     j["timestamp"] = chrono::duration_cast<chrono::milliseconds>(
                          chrono::system_clock::now().time_since_epoch())

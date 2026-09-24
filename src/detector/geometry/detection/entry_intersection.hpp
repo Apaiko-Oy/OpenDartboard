@@ -98,9 +98,27 @@
  * code does today -- the string vote -- reached honestly and labelled as itself:
  * nothing here publishes, and flipping any default is #1488's decision.
  *
+ * #1556: AND THE WIRE QUESTION IS NOW ASKED IN THE WIRE'S OWN DIRECTION, AND ANSWERED
+ * WITH TWO SCORES. The list above says "uncertainty crossing a scoring wire"; until this
+ * issue that was `boundaryMm <= sigmaMajorMm`, the distance to the nearest call-flipping
+ * boundary against the LONGEST axis of the error ellipse whichever way that axis pointed.
+ * A ring wire is crossed radially and a sector wire tangentially, so the sigma that can
+ * spend the demotion is the position sigma RESOLVED ALONG THAT BOUNDARY'S NORMAL --
+ * floored at `Params::sigmaAcrossFloorMm` because resolving an ellipse can only shrink a
+ * number and #1511's finding is that the claimed one is already optimistic. Only the
+ * statistical half spends it: the treble band's systematic bloom is corrected per camera
+ * per edge before `boundaryMm` is measured (#1553). A flagged dart names BOTH candidates
+ * -- the published one and what the board reads just across that wire, re-scored through
+ * the same fit and anchor -- because the maintainer's decision (#1557) is that it
+ * publishes the more probable candidate immediately and a tap picks the other. Both
+ * verdicts, the across-boundary one and #1555's, are computed on every solve;
+ * `OD_WIRE_FLAG=sigma-major` publishes on the old one and `OD_ENTRY_SIGMA=zero` is the
+ * mutation.
+ *
  * Pure and inline for #1338's reason: a tester holds every verdict below with planted
  * homographies and the real pipeline holds it with fitted ones.
- * testers/i1512_intersect_check.cpp does.
+ * testers/i1512_intersect_check.cpp does, and testers/i1556_flag_check.cpp holds the
+ * crossing rule on the same plants.
  */
 namespace entry_intersection
 {
@@ -156,6 +174,37 @@ namespace entry_intersection
         // exclusion of a line the reduced solve does not even refute would be
         // arbitrary. 3.0: ordinary statistics on a floored sigma.
         double consistencySigmas = 3.0;
+
+        // #1556: THE FLOOR ON THE ACROSS-BOUNDARY POSITION SIGMA, millimetres at one
+        // sigma, and it is the thing that keeps the directional resolution below from
+        // becoming a way of flagging less. #1511 finding two is that a claimed sigma
+        // understates the error a reference can see; the same is measured one stage on
+        // for the SOLVED POSITION, against the hand-annotated entries
+        // (testers/i1511_annotations, i1512_census's POSITION line, rig-20260918):
+        // solved-vs-annotated median 6.0 mm over 13 solves. A two-dimensional Gaussian
+        // with per-axis sigma s has median radial error 1.177*s, so that median is a
+        // per-axis sigma of 5.1 mm -- and the annotation's own +-2 px is inside the 6.0,
+        // so 5.1 is if anything an over-reading of the instrument. 5.0 is the floor, and
+        // the minor axis of the claimed ellipse runs 2.4-6.6 mm on the same darts, so
+        // this binds on exactly the readings where resolving the ellipse would otherwise
+        // claim a precision no reference in this repository can see.
+        //
+        // testers/i1556_census.py re-measures it on every run: it prints the same
+        // position-error distribution beside the claimed across-boundary sigma, so a
+        // floor that stopped matching the instrument is visible rather than inherited.
+        double sigmaAcrossFloorMm = 5.0;
+
+        // #1556: how many ACROSS-BOUNDARY sigmas of clearance a call needs before the
+        // uncertainty is said not to reach the wire. One sigma, deliberately, because
+        // that is what the published vocabulary already means: #1555 wired 0.7 to "the
+        // sigma reaches a call-flipping wire" and this issue changes how that sigma is
+        // measured, not what the demotion says. Fitting the number to the fixtures was
+        // refused with its own arithmetic -- the two wrong solves on rig-20260918 sit at
+        // 0.08 and 0.39 sigmas of their boundary, so any k down to 0.4 would still catch
+        // both while flagging far less, which is a rule fitted to two darts. The sweep
+        // is REPORTED by the census instead, at every k from 0.25 to 2.0, so moving it is
+        // a decision somebody takes on a table rather than a constant somebody nudges.
+        double crossingSigmas = 1.0;
 
         // Within how many millimetres a placed tip counts as CORROBORATING a solve.
         // Two jobs: the census's agreement count on every event, and the TIE-BREAK
@@ -290,7 +339,93 @@ namespace entry_intersection
         int tipWitnesses = 0;               // cameras contributing placed tip evidence
         int tipCorroborations = 0;          // of those, within Params::tipAgreeMm
         double nearestTipMm = -1.0;
+
+        // ---- #1556: THE CROSSING, MEASURED ACROSS THE BOUNDARY AND NAMED --------------
+        //
+        // Until this issue the wire question was `boundaryMm <= sigmaMajorMm`: the
+        // distance to the nearest call-flipping boundary against the LONGEST axis of the
+        // error ellipse, whichever way that axis happened to point. That is a real
+        // demotion asked in the wrong direction -- a two-line solve at a shallow crossing
+        // has a major axis tens of millimetres long ALONG the poorly-conditioned
+        // direction, and a wire perpendicular to it was being called uncertain by an
+        // uncertainty that does not point at it (measured on rig-20260918's own logs: a
+        // solve with sigma 19.3 x 6.6 mm, and one on rig-20260922 at 55.8 x 7.8).
+        //
+        // The boundary that could flip a call has a direction. A ring wire is a circle,
+        // so it is crossed RADIALLY; a sector wire is a radius, so it is crossed
+        // TANGENTIALLY. The sigma that can spend the demotion is therefore the position
+        // sigma resolved along that boundary's own normal -- floored at
+        // Params::sigmaAcrossFloorMm, because resolving an ellipse can only ever shrink
+        // the number and #1511's finding is that the claimed number is already the
+        // optimistic one.
+        //
+        // ONLY THE STATISTICAL HALF SPENDS IT. The treble band's systematic segmentation
+        // bloom is corrected per camera per edge before `boundaryMm` is measured at all
+        // (#1553, board_model::trebleBloomAdjustMm), so `ringBoundaryMm` here is already a
+        // distance to the CORRECTED edge and the systematic part is spent. What is left
+        // in the covariance is the statistical scatter of the transported lines, which is
+        // what this asks about.
+        double sigmaRadialMm = -1.0;    // 1-sigma across a ring wire, floored
+        double sigmaTangentMm = -1.0;   // 1-sigma across a sector wire, floored
+        std::string boundaryKind;       // "ring" | "wedge"; empty where nothing can flip
+        double boundaryAcrossMm = -1.0; // distance to THAT boundary
+        double sigmaAcrossMm = -1.0;    // the sigma resolved across it, floored
+        double crossingSigmas = -1.0;   // boundaryAcrossMm / sigmaAcrossMm; -1 undefined
+        // What the board says on the OTHER side of that boundary, read back through the
+        // same `scoreFromModel` and the same camera the published score was read through
+        // -- never composed out of new ring or wedge arithmetic (#1512's rule). Empty
+        // where no second candidate could be named, and `alternativeRefusal` says why.
+        std::string alternativeScore;
+        std::string alternativeRefusal;
+        // The verdict. A dart is flagged only where a SECOND CANDIDATE COULD BE NAMED: a
+        // demotion that cannot say what the other answer is has nothing for a consumer to
+        // ask about, and #1557's decision is that the flag names both candidates.
+        bool uncertaintyCrossesWire = false;
+        // #1555's rule, kept and measured on the SAME dart in the same process, so the
+        // two flag rates are a comparison rather than two runs: `boundaryMm` against the
+        // major axis. `OD_WIRE_FLAG=sigma-major` publishes on this one instead.
+        bool crudeWireClose = false;
     };
+
+    /**
+     * #1556's falsifier, in the od_fix shape #1339, #1348, #1495, #1518, #1552 and #1555
+     * established: one binary, the rule chosen at run time, so the losing rule stays
+     * reachable and measurable on a shipped board.
+     *
+     * `OD_WIRE_FLAG=sigma-major` publishes on #1555's crude test -- the nearest
+     * call-flipping boundary against the LONGEST axis of the error ellipse, whichever
+     * way that axis points -- exactly as every build between #1555 and this issue did.
+     * Anything else, unset included, publishes on the across-boundary test. BOTH
+     * verdicts are computed and reported on every solve either way; the pin moves only
+     * which of them decides the outcome and therefore the published confidence.
+     */
+    inline bool crudeWireTestIsPinned()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_WIRE_FLAG");
+            return e != nullptr && std::string(e) == "sigma-major";
+        }();
+        return v;
+    }
+
+    /**
+     * #1556's MUTATION, on the shipping binary rather than in a patch: `OD_ENTRY_SIGMA=zero`
+     * zeroes the solved position's uncertainty -- both axes of the ellipse AND the
+     * measured floor. The prediction the census states before running it is that the flag
+     * census then reads EMPTY on every fixture and in every window, because a call with
+     * no uncertainty cannot have uncertainty that reaches a wire. It is a pin and nothing
+     * reads it on an ordinary run.
+     */
+    inline bool entrySigmaIsZeroed()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_ENTRY_SIGMA");
+            return e != nullptr && std::string(e) == "zero";
+        }();
+        return v;
+    }
 
     namespace detail
     {
@@ -335,6 +470,99 @@ namespace entry_intersection
             const double dot = std::fabs(a.nx * b.nx + a.ny * b.ny);
             return std::acos(std::min(1.0, dot)) * 180.0 / CV_PI;
         }
+
+        /**
+         * #1556: the one-sigma position uncertainty resolved ALONG one canonical
+         * direction, from the error ellipse's two axes and its orientation. The ellipse
+         * is the covariance's own: `sigmaThetaDeg` is the major axis's direction in the
+         * canonical frame, so a direction at angle alpha to it reads
+         * sqrt((s1 cos a)^2 + (s2 sin a)^2) -- which is s1 along the major axis, s2
+         * across it, and the right number in between at every other angle. Pure, and
+         * asserted against both axes and the circular case in i1556_flag_check.
+         */
+        inline double sigmaAlongDeg(double sigmaMajorMm, double sigmaMinorMm,
+                                    double sigmaThetaDeg, double directionDeg)
+        {
+            const double a = (directionDeg - sigmaThetaDeg) * CV_PI / 180.0;
+            const double ca = std::cos(a), sa = std::sin(a);
+            return std::sqrt(sigmaMajorMm * sigmaMajorMm * ca * ca +
+                             sigmaMinorMm * sigmaMinorMm * sa * sa);
+        }
+
+        /** What the board reads at one canonical point, through one camera's own fit. */
+        inline std::string scoreAtCanonical(const board_model::BoardProfile &profile,
+                                            const board_model::BoardFit &fit,
+                                            const board_model::ModelAnchor &anchor,
+                                            const cv::Point2f &canon)
+        {
+            const board_model::ModelScore ms =
+                board_model::scoreFromModel(profile, fit, anchor,
+                                            imageOfCanonical(fit, anchor, canon));
+            return ms.valid ? ms.score : std::string();
+        }
+    }
+
+    /** #1556: how far past a boundary a probe is placed, millimetres. Small against
+     *  every band on a board -- the treble is 8 mm wide and the narrowest wedge a dart
+     *  can be scored in spans 2.5 mm of arc at the outer bull's edge. */
+    inline constexpr double kCrossingNudgeMm = 0.2;
+
+    /**
+     * #1556: THE OTHER CANDIDATE, NAMED BY RE-SCORING RATHER THAN BY ARITHMETIC.
+     *
+     * The entry is moved just past the boundary that could flip the call -- radially for
+     * a ring wire, along the arc for a sector wire -- and the board is asked what it
+     * reads THERE, through the same `scoreFromModel`, the same fit and the same anchor
+     * the published score came through. So the second candidate is the same kind of
+     * answer as the first: it carries #1553's per-camera bloom correction, this camera's
+     * own millimetre scale and the anchor's own wedge walk, and no ring or wedge
+     * arithmetic is written twice anywhere (#1512's rule, which is also why a stale
+     * anchor cancels here instead of inventing a wedge).
+     *
+     * Both sides are probed because the distance alone does not say which way the nearest
+     * boundary lies. Generically exactly one probe changes the score: the other lands the
+     * same distance into open segment, where by construction there is no nearer boundary
+     * to have crossed. Where NEITHER changes it, no second candidate can be named and the
+     * empty string is the honest answer -- `solveEntry` then refuses to flag and says so.
+     */
+    inline std::string alternativeAcross(const board_model::BoardProfile &profile,
+                                         const board_model::BoardFit &fit,
+                                         const board_model::ModelAnchor &anchor,
+                                         const cv::Point2f &entry, double distanceMm,
+                                         bool radial, const std::string &published)
+    {
+        const double r = std::sqrt((double)entry.x * entry.x + (double)entry.y * entry.y);
+        if (!(r > 0.0) || !(distanceMm >= 0.0))
+        {
+            return std::string();
+        }
+        const double step = distanceMm + kCrossingNudgeMm;
+        for (int s = -1; s <= 1; s += 2)
+        {
+            cv::Point2f probe;
+            if (radial)
+            {
+                const double rr = r + s * step;
+                if (!(rr > 0.0))
+                {
+                    continue; // through the centre is not across this wire
+                }
+                probe = cv::Point2f((float)(entry.x * rr / r), (float)(entry.y * rr / r));
+            }
+            else
+            {
+                const double d = s * step / r; // arc length at this radius, as an angle
+                const double c = std::cos(d), sn = std::sin(d);
+                probe = cv::Point2f((float)(entry.x * c - entry.y * sn),
+                                    (float)(entry.x * sn + entry.y * c));
+            }
+            const std::string word = detail::scoreAtCanonical(profile, fit, anchor, probe);
+            if (!word.empty() && word != published)
+            {
+                return word;
+            }
+        }
+        return std::string();
     }
 
     /**
@@ -779,6 +1007,13 @@ namespace entry_intersection
             out.sigmaMinorMm = std::sqrt(l2);
             out.sigmaThetaDeg = 0.5 * std::atan2(2.0 * cov(0, 1), cov(0, 0) - cov(1, 1)) * 180.0 / CV_PI;
         }
+        if (entrySigmaIsZeroed())
+        {
+            // #1556's mutation, applied where the uncertainty IS rather than where it is
+            // read, so nothing downstream can route around it.
+            out.sigmaMajorMm = 0.0;
+            out.sigmaMinorMm = 0.0;
+        }
 
         out.solved = true;
         out.entryMm = X;
@@ -810,6 +1045,12 @@ namespace entry_intersection
         // through every placeable camera beside it, because two anchors disagreeing
         // about one point is a rig fact a reader must see.
         std::vector<std::string> words;
+        // #1556: the reference camera's own fit and anchor, kept because the second
+        // candidate has to be read back through THE SAME ONE the published score came
+        // through. A second candidate read through a different camera's rulers would be
+        // a different reading of a different board.
+        const board_model::BoardFit *refFit = nullptr;
+        board_model::ModelAnchor refAnchor;
         for (size_t i = 0; i < evidence.size(); i++)
         {
             const CameraEvidence &ev = evidence[i];
@@ -836,6 +1077,8 @@ namespace entry_intersection
             {
                 out.scoredThroughCamera = ev.camera;
                 out.score = ms;
+                refFit = ev.fit;
+                refAnchor = ev.anchor;
             }
         }
         out.scoresAgree = !words.empty();
@@ -861,12 +1104,100 @@ namespace entry_intersection
             con.residualPx = std::fabs(dx * con.imageDir.y - dy * con.imageDir.x);
         }
 
-        // The wire question, asked of the score's own boundary distance: Phase 2's
-        // treble-edge band (T14 lost within ~3 mm of the treble outer wire) is exactly
-        // a boundaryMm this small. Named, never averaged over.
-        const bool wireClose = out.score.valid && out.score.boundaryMm >= 0.0 &&
-                               out.score.boundaryMm <= out.sigmaMajorMm;
-        out.outcome = wireClose ? Outcome::UncertainAcrossWire : Outcome::Solved;
+        // ---- #1556: THE WIRE QUESTION, ASKED ACROSS THE BOUNDARY AND ANSWERED WITH TWO
+        //      CANDIDATE SCORES -------------------------------------------------------
+        //
+        // #1555's rule is kept and measured on the same dart (`crudeWireClose`) so the
+        // two flag rates are one comparison in one process rather than two runs; the pin
+        // decides which one publishes.
+        out.crudeWireClose = out.score.valid && out.score.boundaryMm >= 0.0 &&
+                             out.score.boundaryMm <= out.sigmaMajorMm;
+        {
+            const double floorMm = entrySigmaIsZeroed() ? 0.0 : params.sigmaAcrossFloorMm;
+            out.sigmaRadialMm = std::max(
+                detail::sigmaAlongDeg(out.sigmaMajorMm, out.sigmaMinorMm, out.sigmaThetaDeg,
+                                      out.phiDeg),
+                floorMm);
+            out.sigmaTangentMm = std::max(
+                detail::sigmaAlongDeg(out.sigmaMajorMm, out.sigmaMinorMm, out.sigmaThetaDeg,
+                                      out.phiDeg + 90.0),
+                floorMm);
+            // WHICH boundaries could flip THIS call is `ModelScore::boundaryMm`'s own
+            // rule, restated as the two it is a minimum of: a bull, an outer bull and a
+            // miss are ring decisions with no wedge in them at all, so no sector wire can
+            // change what they say however close it is. `segment >= 1` is set exactly
+            // where the ring has a segment AND the anchor resolved it.
+            const bool wedgeCanFlip = out.score.valid && out.score.segment >= 1 &&
+                                      out.score.wedgeBoundaryMm >= 0.0;
+            const bool ringCanFlip = out.score.valid && out.score.ringBoundaryMm >= 0.0;
+            const double zRing = (ringCanFlip && out.sigmaRadialMm > 0.0)
+                                     ? out.score.ringBoundaryMm / out.sigmaRadialMm
+                                     : -1.0;
+            const double zWedge = (wedgeCanFlip && out.sigmaTangentMm > 0.0)
+                                      ? out.score.wedgeBoundaryMm / out.sigmaTangentMm
+                                      : -1.0;
+            // The crossing is the boundary this call is nearest to IN SIGMAS, not in
+            // millimetres: a ring wire 3 mm away across a 2 mm sigma is a further call
+            // than a sector wire 6 mm away across a 9 mm one.
+            bool radial = true;
+            double z = -1.0;
+            if (zRing >= 0.0 && (zWedge < 0.0 || zRing <= zWedge))
+            {
+                z = zRing;
+                radial = true;
+            }
+            else if (zWedge >= 0.0)
+            {
+                z = zWedge;
+                radial = false;
+            }
+            if (z >= 0.0)
+            {
+                out.boundaryKind = radial ? "ring" : "wedge";
+                out.boundaryAcrossMm = radial ? out.score.ringBoundaryMm
+                                              : out.score.wedgeBoundaryMm;
+                out.sigmaAcrossMm = radial ? out.sigmaRadialMm : out.sigmaTangentMm;
+                out.crossingSigmas = z;
+                if (z <= params.crossingSigmas)
+                {
+                    if (refFit == nullptr)
+                    {
+                        out.alternativeRefusal =
+                            "no camera's fit could be kept to read the other side through";
+                    }
+                    else
+                    {
+                        out.alternativeScore =
+                            alternativeAcross(profile, *refFit, refAnchor, X,
+                                              out.boundaryAcrossMm, radial, out.score.score);
+                        if (out.alternativeScore.empty())
+                        {
+                            out.alternativeRefusal =
+                                "the board reads " + out.score.score +
+                                " on both sides of the nearest boundary, so there is no "
+                                "second candidate to name";
+                        }
+                    }
+                }
+            }
+            else
+            {
+                out.alternativeRefusal = "nothing about this reading could be flipped by a "
+                                         "wire, so no boundary was measured to";
+            }
+            // A DEMOTION THAT CANNOT NAME THE OTHER ANSWER IS NOT PUBLISHED AS ONE. The
+            // maintainer's decision (#1557) is that a flagged dart publishes the more
+            // probable candidate AND names the alternative a tap can pick; a flag with one
+            // name in it is a confidence drop with nothing for a consumer to ask about,
+            // which is the state this issue exists to replace.
+            out.uncertaintyCrossesWire = !out.boundaryKind.empty() &&
+                                         out.crossingSigmas <= params.crossingSigmas &&
+                                         !out.alternativeScore.empty();
+        }
+        out.outcome = (crudeWireTestIsPinned() ? out.crudeWireClose : out.uncertaintyCrossesWire)
+                          ? Outcome::UncertainAcrossWire
+                          : Outcome::Solved;
+        const bool wireClose = out.outcome == Outcome::UncertainAcrossWire;
 
         out.story = std::string(outcomeWord(out.outcome)) + ": entry (" +
                     detail::fmt("%.1f", X.x) + ", " + detail::fmt("%.1f", X.y) + ") mm, r " +
@@ -876,7 +1207,20 @@ namespace entry_intersection
                     ", sigma " + detail::fmt("%.1f", out.sigmaMajorMm) + "x" +
                     detail::fmt("%.1f", out.sigmaMinorMm) + " mm, boundary " +
                     detail::fmt("%.1f", out.score.boundaryMm) + " mm" +
-                    (wireClose ? " -- the sigma reaches a call-flipping wire" : "") +
+                    // #1556: the crossing in the words a reader needs -- which wire, how
+                    // far across it in its OWN sigma, and what the other answer is.
+                    (out.boundaryKind.empty()
+                         ? ""
+                         : ", nearest " + out.boundaryKind + " wire " +
+                               detail::fmt("%.1f", out.boundaryAcrossMm) + " mm away across a " +
+                               detail::fmt("%.1f", out.sigmaAcrossMm) + " mm sigma (" +
+                               detail::fmt("%.2f", out.crossingSigmas) + " sigma)") +
+                    (!wireClose ? std::string()
+                     : out.alternativeScore.empty()
+                         ? std::string(" -- the sigma reaches a call-flipping wire")
+                         : " -- the uncertainty reaches it, so this is " + out.score.score +
+                               " or " + out.alternativeScore) +
+                    (out.alternativeRefusal.empty() ? "" : " [" + out.alternativeRefusal + "]") +
                     ", pair angle " + detail::fmt("%.1f", out.bestPairAngleDeg) + " deg, tips " +
                     std::to_string(out.tipCorroborations) + "/" + std::to_string(out.tipWitnesses) +
                     " within " + detail::fmt("%.0f", params.tipAgreeMm) + " mm" +
@@ -904,6 +1248,39 @@ namespace entry_intersection
                  sol.tipCorroborations, sol.tipWitnesses, sol.nearestTipMm,
                  publishedScore.c_str(), publishedConfidence);
         return std::string(head) + sol.story;
+    }
+
+    /**
+     * #1556: the crossing, in a shape testers/i1556_census.py parses -- one per solve,
+     * printed beside the #1512 lines under the same census pin.
+     *
+     * A NEW LINE rather than more fields on `I1512ENTRY`, for the mechanical reason
+     * #1555 wrote down one issue earlier and then had to obey: that line's parser matches
+     * its whole head contiguously, so a field inserted anywhere before `story=` silently
+     * stops every #1512 census reading anything. It carries BOTH verdicts on the same
+     * dart -- `flag=` is the across-boundary rule and `crude=` is #1555's major-axis one
+     * -- so the flag rates the census reports are a comparison made in one process, and
+     * `published=` says which of the two the run actually demoted on.
+     */
+    inline std::string censusFlagLine(const EntrySolution &sol, long window)
+    {
+        char head[520];
+        snprintf(head, sizeof(head),
+                 "I1556FLAG window=%ld solved=%d score=%s alt=%s kind=%s boundary=%.2f "
+                 "sigmaAcross=%.2f sigmaRadial=%.2f sigmaTangent=%.2f z=%.3f "
+                 "sigmaMajor=%.2f sigmaMinor=%.2f sigmaTheta=%.1f r=%.2f phi=%.2f "
+                 "flag=%d crude=%d published=%s refusal=",
+                 window, sol.solved ? 1 : 0,
+                 sol.score.valid ? sol.score.score.c_str() : "NONE",
+                 sol.alternativeScore.empty() ? "-" : sol.alternativeScore.c_str(),
+                 sol.boundaryKind.empty() ? "-" : sol.boundaryKind.c_str(),
+                 sol.boundaryAcrossMm, sol.sigmaAcrossMm, sol.sigmaRadialMm,
+                 sol.sigmaTangentMm, sol.crossingSigmas, sol.sigmaMajorMm, sol.sigmaMinorMm,
+                 sol.sigmaThetaDeg, sol.radiusMm, sol.phiDeg,
+                 sol.uncertaintyCrossesWire ? 1 : 0, sol.crudeWireClose ? 1 : 0,
+                 crudeWireTestIsPinned() ? "crude" : "across");
+        return std::string(head) +
+               (sol.alternativeRefusal.empty() ? "-" : sol.alternativeRefusal);
     }
 
     /** One line per offered camera; exclusion words last. */
@@ -969,6 +1346,9 @@ namespace entry_intersection
         const std::string caption =
             std::string(outcomeWord(sol.outcome)) + " " +
             (sol.score.valid ? sol.score.score : std::string("-")) +
+            // #1556: the acceptance's own picture says both candidates, because a reader
+            // looking at an overlay is exactly the reader the flag is for.
+            (sol.alternativeScore.empty() ? std::string() : " or " + sol.alternativeScore) +
             " | cam " + std::to_string(con.camera + 1) + " " +
             ((con.usable && !con.excluded)
                  ? "used, resid " + detail::fmt("%.1f", std::fabs(con.residualMm)) + " mm (" +
