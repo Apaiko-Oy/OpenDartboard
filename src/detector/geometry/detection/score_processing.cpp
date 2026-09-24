@@ -1133,7 +1133,7 @@ namespace score_processing
                 // and the census needs the published half to ask whether a wrong score
                 // landed in the flagged set.
                 log_info(flagCensusLine(window, crossing, result.confidence,
-                                        result.from_geometry));
+                                        result.from_geometry, result.score));
             }
             break;
         }

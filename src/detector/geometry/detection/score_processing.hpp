@@ -232,22 +232,30 @@ namespace score_processing
 
     /**
      * #1556: the flag's own census line, printed from the same one place `publishCensusLine`
-     * is and parsed by testers/i1556_census.py. It is what the BOARD published, beside the
-     * two candidates, so the census can ask the question the slice is about: does a wrong
-     * score land in the flagged set?
+     * is and parsed by testers/i1556_census.py.
+     *
+     * `board=` IS THE SCORE THE BOARD PUBLISHED and `score=` is the crossing's subject,
+     * and they are two fields for a measured reason. `BoundaryCall::published` is empty on
+     * a VOTE publish by rule 1 above -- a string vote measures no board-millimetre
+     * position, so there is no crossing and nothing to be the subject of one. The first
+     * run of this census read that empty field as the published score, and the four darts
+     * rig-20260918's dev window publishes by the vote came back as `S-`: three of them
+     * correctly scored, all four counted WRONG, turning a catch table of 1 of 2 into 1 of
+     * 5. A census cannot judge what was published from a field about something else.
      */
     inline std::string flagCensusLine(long window, const BoundaryCall &call, float confidence,
-                                      bool fromGeometry)
+                                      bool fromGeometry, const std::string &boardScore)
     {
-        char line[400];
+        char line[440];
         snprintf(line, sizeof(line),
                  "I1556PUBLISH window=%ld geometry=%d flagged=%d score=%s alt=%s kind=%s "
-                 "boundary=%.2f sigma=%.2f conf=%.2f",
+                 "boundary=%.2f sigma=%.2f conf=%.2f board=%s",
                  window, fromGeometry ? 1 : 0, call.flagged ? 1 : 0,
                  call.published.empty() ? "-" : call.published.c_str(),
                  call.alternative.empty() ? "-" : call.alternative.c_str(),
                  call.kind.empty() ? "-" : call.kind.c_str(),
-                 call.boundaryMm, call.uncertaintyMm, confidence);
+                 call.boundaryMm, call.uncertaintyMm, confidence,
+                 boardScore.empty() ? "-" : boardScore.c_str());
         return line;
     }
 

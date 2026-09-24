@@ -59,9 +59,14 @@ FLAG_RE = re.compile(
     r"sigmaTheta=([-0-9.]+) r=([-0-9.]+) phi=([-0-9.]+) flag=(\d) crude=(\d) "
     r"published=(\S+)"
 )
+# `board=` is the score the BOARD published; `score=` is the crossing's subject. They are
+# two fields because a vote publish has no crossing at all, so its `score=` reads "-" --
+# and the first run of this census took the published score off that field, which read the
+# three correctly-scored vote publishes in rig-20260918's dev window as wrong and turned a
+# catch table of 1 of 2 into 1 of 5. Every verdict below is taken on `board`.
 PUB_RE = re.compile(
     r"I1556PUBLISH window=(-?\d+) geometry=(\d) flagged=(\d) score=(\S+) alt=(\S+) "
-    r"kind=(\S+) boundary=([-0-9.]+) sigma=([-0-9.]+) conf=([-0-9.]+)"
+    r"kind=(\S+) boundary=([-0-9.]+) sigma=([-0-9.]+) conf=([-0-9.]+) board=(\S+)"
 )
 END_RE = re.compile(r"SCORE:\s+END\b")
 
@@ -104,6 +109,7 @@ def read_blocks(path):
                 "flagged": p.group(3) == "1", "score": p.group(4), "alt": p.group(5),
                 "kind": p.group(6), "boundary": float(p.group(7)),
                 "sigma": float(p.group(8)), "conf": float(p.group(9)),
+                "board": p.group(10),
             }
             continue
         if END_RE.search(line):
@@ -144,7 +150,8 @@ def pool(files):
         print("I1556 POOL: no TALLY lines in %s -- nothing to pool" % ", ".join(files))
         return 2
     keys = ["called", "geometric", "flagged", "crude", "matched", "wrong",
-            "wrong_flagged", "right_flagged", "unnameable"]
+            "wrong_flagged", "right_flagged", "unnameable",
+            "geo_matched", "geo_wrong", "geo_wrong_flagged"]
     total = dict((k, 0) for k in keys)
     for row in rows:
         print("I1556 POOL-ROW fixture=%s window=%s %s"
@@ -162,6 +169,12 @@ def pool(files):
           % (total["matched"], total["wrong"],
              rate(total["wrong_flagged"], total["wrong"]),
              rate(total["right_flagged"], max(0, total["matched"] - total["wrong"]))))
+    print("I1556 POOLED-CATCH-GEOMETRIC of the %d matched dart(s) the GEOMETRY published, "
+          "%d are wrongly scored and %s flagged | the other %d were published by the "
+          "string vote, which measures no millimetres and can never flag"
+          % (total["geo_matched"], total["geo_wrong"],
+             rate(total["geo_wrong_flagged"], total["geo_wrong"]),
+             total["matched"] - total["geo_matched"]))
     if total["wrong"] and total["wrong_flagged"] == total["wrong"]:
         print("I1556 POOLED-VERDICT every wrongly-scored dart in the pooled reference is "
               "in the flagged set")
@@ -284,7 +297,13 @@ def main():
               % ("%d-%d" % (annotated_visits[0], annotated_visits[-1])
                  if annotated_visits else "none", len(truth), len(visits)))
 
+    # A VOTE publish cannot flag at all -- it measures no board-millimetre position -- so
+    # a catch rate over every matched dart is partly a figure about how often the solver
+    # refused. The geometric subset is counted apart for that reason, and both are printed:
+    # the first is what a consumer sees, the second is what the flag itself can be judged
+    # on.
     matched = wrong = wrong_flagged = right_flagged = 0
+    geo_matched = geo_wrong = geo_wrong_flagged = 0
     sweep_rows = []
     for v, visit in enumerate(visits):
         for ei, ev in enumerate(visit):
@@ -295,13 +314,19 @@ def main():
                 continue
             key = assigned[(v, ei)]
             thrown = norm(list(annots[key].values())[0]["thrown"])
-            got = norm(board["score"])
+            got = norm(board["board"])
             how = verdict(got, thrown)
             matched += 1
             solver = ev.flagblock.get("solver") or {}
             is_wrong = how != "exact"
             if is_wrong:
                 wrong += 1
+            if board["geometry"]:
+                geo_matched += 1
+                if is_wrong:
+                    geo_wrong += 1
+                    if board["flagged"]:
+                        geo_wrong_flagged += 1
             if board["flagged"]:
                 if is_wrong:
                     wrong_flagged += 1
@@ -334,6 +359,11 @@ def main():
           "scored %d, of which flagged %s"
           % (matched, wrong, rate(wrong_flagged, wrong), right,
              rate(right_flagged, right)))
+    print("I1556 CATCH-GEOMETRIC of the %d matched dart(s) the GEOMETRY published, %d are "
+          "wrongly scored and %s flagged | the other %d matched dart(s) were published by "
+          "the string vote, which measures no millimetres and can never flag"
+          % (geo_matched, geo_wrong, rate(geo_wrong_flagged, geo_wrong),
+             matched - geo_matched))
     if wrong and wrong_flagged == wrong:
         print("I1556 VERDICT every wrongly-scored dart in this window is in the flagged "
               "set")
@@ -360,9 +390,11 @@ def main():
               % sum(1 for _, bad in sweep_rows if bad))
 
     print("I1556 TALLY fixture=%s window=%s called=%d geometric=%d flagged=%d crude=%d "
-          "matched=%d wrong=%d wrong_flagged=%d right_flagged=%d unnameable=%d"
+          "matched=%d wrong=%d wrong_flagged=%d right_flagged=%d unnameable=%d "
+          "geo_matched=%d geo_wrong=%d geo_wrong_flagged=%d"
           % (args.fixture, args.window, len(called), len(geometric), len(flagged),
-             len(crude), matched, wrong, wrong_flagged, right_flagged, len(unnameable)))
+             len(crude), matched, wrong, wrong_flagged, right_flagged, len(unnameable),
+             geo_matched, geo_wrong, geo_wrong_flagged))
 
     if args.expect_empty:
         # The mutation's own assertion, made where the numbers are: zeroing the
