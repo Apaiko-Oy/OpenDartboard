@@ -312,7 +312,7 @@ namespace update_manifest
                 verified = detail::verifiedBy(payload, r, s, anchors[i]);
             }
         }
-        if (false && !verified)
+        if (!verified)
         {
             return refuse(Refusal::NotVerified);
         }
