@@ -33,6 +33,21 @@ is that variant, also predicts a small k1. turnaus#1560 is the footage census th
 measures f and k1 per camera and settles it; a lens-barrel marking, if ever read,
 corroborates for free.
 
+**Measured, 2026-09-25 (turnaus#1560):** the radial term is real, small and the same
+on every camera — **kappa = −2.45e-7 ± 0.83e-7 px⁻²** pooled over six camera-fixture
+pairs at χ² 1.49 on 5 degrees of freedom, which is k1 = −0.044 ± 0.015 at f = 424 px
+or −0.117 ± 0.040 at f = 690. The "no deformity" prediction above holds. **The focal
+length is measured on one camera only** — rig-20260922 camera 2, the only ring
+extraction clean enough to bound it, at both calibration windows: **f = 690 px, a 94°
+diagonal**, ring residual 1.6 mm against that camera's own 1.1 mm extraction scatter.
+The other eight camera-windows answer "not resolved" by name. So the 400–600 px
+expectation above was low and the 120°/424 px in `perspective_processing.cpp` is
+further off than "plausibly near" — **but one camera is one camera**, that constant is
+deliberately unchanged, and flipping it is its own decision with its own evidence. The
+census, the per-camera table and the verdict are in
+`src/detector/geometry/calibration/lens_census.hpp`; the instrument is
+`testers/i1560_k1_census.py`.
+
 **On Windows/MSMF the FOURCC read-back is 0x00000016** (`MFVideoFormat_RGB32`'s
 Data1) on all three cameras — OpenCV's own conversion target, not anything the
 camera transmits. A format read there can never refuse a camera (#1336).
@@ -40,7 +55,13 @@ camera transmits. A format read there can never refuse a camera (#1336).
 ## Geometry
 
 - Standoff **~300 mm** from the board, three cameras — `bull_processing.hpp`'s
-  #1340 census.
+  #1340 census. **Disputed, 2026-09-25 (turnaus#1560), and the dispute is worth
+  understanding before anybody uses either number.** 300 mm is not a tape measure: it
+  is the imaged board radius divided by an *assumed* f of 424 px. #1560 measured f on
+  one camera at 690 px, and the same imaged board at 690 px stands **388 mm** off.
+  The two cannot both be true and neither has been checked against the room. A tape
+  measure would settle it in a minute and would also settle #1560's f, because the
+  board's millimetres are known: they are the same measurement twice.
 - Live orientation anchors as of 2026-09-19: `OD_CAMERA_WEDGES="9,4,3"` in `--cams`
   order. The middle camera sits on the 13/4 boundary; if it disagrees with its
   neighbours by one wedge, flip to 13.
