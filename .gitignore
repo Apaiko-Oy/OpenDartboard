@@ -15,3 +15,6 @@ todo.md
 # Python bytecode from tools/
 __pycache__/
 *.pyc
+
+# Supervisor dispatch tooling, never repository content (#1554 merged one by accident)
+BRIEF.md
