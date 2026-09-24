@@ -380,6 +380,17 @@ tester 1484-confidence    "bash '$T/i1484_run.sh'"
 # cannot be reached is the same as one that cannot fail (#1463, 1423-ringidentity's
 # story retold).
 tester 1514-stall         "bash '$T/i1514_run.sh'"
+# #1551: admission at the coherence gate is deterministic on recorded input, held there.
+# The admitted-0.873/refused-0.578 flip the issue was filed on was two BINARIES -- the
+# DEBUG_SEEK_VIDEO build define moves the thirty-frame calibration window from the
+# clip's opening to ~3 s in, and od-baselines/5bc3b0a was cut with a build that did not
+# carry it while every registry run does. Five calibration-window runs per rig fixture
+# on this build must be byte-identical in their admission transcripts, every wire-model
+# line must say its margin, and the same binary under OD_SEEK_VIDEO=off must reproduce
+# the flip (rig-20260922 camera 1 admitted at the opening) -- so any FUTURE source of
+# admission variance (a cv:: parallel path, iteration order, uninitialised state) goes
+# red here by name. Eleven calibration-window runs, no whole-clip replay: cheap.
+tester 1551-admission     "bash '$T/i1551_run.sh'"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
 # BOARD PLANE, so one physical tip projects to a different board radius from every

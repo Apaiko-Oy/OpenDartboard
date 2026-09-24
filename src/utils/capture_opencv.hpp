@@ -213,7 +213,37 @@ namespace camera
                     clock = CaptureClock::StreamPosition;
 
 #ifdef DEBUG_SEEK_VIDEO
-                    double seek_seconds = 3 - (i * 0.18); // Example: seek 4 seconds for first video, 3 for second, etc.
+                    // #1551: this seek DECIDES THE CALIBRATION WINDOW, and the window
+                    // decides admission. The Scorer averages the first thirty frames this
+                    // capture hands over, so a dev binary calibrates on ~3.0 s of the clip
+                    // and a release binary on 0.0 s -- identical bytes, two different
+                    // pictures. On mocks/rig-20260922 camera 1 that is the whole of the
+                    // "nondeterministic" gate: R=0.577558 (refused) at this window,
+                    // R=0.873343 (admitted) at the clip's opening, each bit-identical over
+                    // every recorded run of its own binary. So two things are said here:
+                    //
+                    //   - the seek is announced at INFO rather than DEBUG, because a census
+                    //     log that does not say which window it measured is a census that
+                    //     will be compared across the flip (od-baselines/5bc3b0a was);
+                    //   - OD_SEEK_VIDEO=off holds THIS binary at the clip's opening --
+                    //     #815's convention, the falsification switch on one binary, so the
+                    //     flip is reproducible on demand and "a different build" is never
+                    //     the confound. Default unchanged: a dev binary seeks as it always
+                    //     has, and every number testers/i1323_run.sh and i1331_run.sh pin
+                    //     to this window stays where it was measured.
+                    static const bool od_seek_off = []
+                    {
+                        const char *v = std::getenv("OD_SEEK_VIDEO");
+                        return v && std::string(v) == "off";
+                    }();
+                    double seek_seconds = od_seek_off ? 0.0 : 3 - (i * 0.18); // Example: seek 4 seconds for first video, 3 for second, etc.
+                    if (od_seek_off)
+                    {
+                        log_info("DEBUG_SEEK_VIDEO: video " + log_string(i + 1) +
+                                 " held at the clip's opening (OD_SEEK_VIDEO=off) -- this dev binary is "
+                                 "calibrating on the release window, so its numbers may be held against a "
+                                 "release build's and NOT against this tree's own registry runs (#1551)");
+                    }
                     if (seek_seconds > 0 && cap.isOpened())
                     {
                         double video_fps = cap.get(cv::CAP_PROP_FPS);
@@ -221,7 +251,10 @@ namespace camera
                         {
                             int target_frame = static_cast<int>(video_fps * seek_seconds);
                             cap.set(cv::CAP_PROP_POS_FRAMES, target_frame);
-                            log_debug("Seeked video " + log_string(i + 1) + " forward by " + log_string(seek_seconds) + " seconds (frame " + log_string(target_frame) + ")");
+                            log_info("DEBUG_SEEK_VIDEO: video " + log_string(i + 1) + " seeked forward by " +
+                                     log_string(seek_seconds) + " seconds (frame " + log_string(target_frame) +
+                                     ") -- every calibration number of this run belongs to this window, and a "
+                                     "census from it may only be compared to a run that seeked the same way (#1551)");
                         }
                         else
                         {
