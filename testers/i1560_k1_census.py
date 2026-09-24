@@ -573,6 +573,7 @@ def ensemble_kappa(bows_and_lines, kref=1e-7, refine=2):
 
     def predict(kappa):
         """(modelled bow, d bow / d kappa) per wire at this kappa."""
+        # noqa: the closure over t0/t1/mx/... is per-iteration and consumed at once
         mods, slopes = [], []
         for _bow, line in bows_and_lines:
             mx, my, ux, uy, t0, t1 = _straighten(line, kappa) if kappa else line
@@ -608,6 +609,26 @@ def ensemble_kappa(bows_and_lines, kref=1e-7, refine=2):
         resid2 = sum((s - m0) ** 2 for s, m0 in zip(ss, mods))
         sigma = math.sqrt(resid2 / (n - 1) / den)
     return kappa, sigma, den, mods
+
+
+def bow_per_unit_kappa(lines, kref=1e-7):
+    """The bow each observed wire chord takes per unit kappa, from the chord and the
+    principal point alone. This is THE TRAP AS ARITHMETIC and the reason the census's
+    sensitivity is not read off a pose: a chord through the distortion centre returns
+    0 here whatever else is true, a camera whose pose fit diverged still gets an
+    honest sensitivity, and the number is a property of what was measured rather than
+    of a model that may not fit."""
+    out = []
+    for line in lines:
+        mx, my, ux, uy, t0, t1 = line
+        pts = []
+        for i in range(25):
+            t = t0 + (t1 - t0) * i / 24.0
+            dx, dy = mx + t * ux - PP[0], my + t * uy - PP[1]
+            s = 1.0 + kref * (dx * dx + dy * dy)
+            pts.append((PP[0] + dx * s, PP[1] + dy * s))
+        out.append(quad_sagitta(pts, mx, my, ux, uy)[0] / kref)
+    return out
 
 
 # --------------------------------------------------------------------- camera model fit
@@ -816,27 +837,42 @@ def param_sigma(params, data, free):
 
 
 def initial_pose(dout_points, wires_seed_center):
-    """Coarse init: bull-ish centre, scale from the doubles conic, tilt from its axis
-    ratio, board assumed below-viewed (camera looks up: +Y tilt)."""
+    """Coarse init: centre and scale from the doubles conic, tilt from its axis ratio
+    ABOUT THE AXIS ITS MINOR AXIS NAMES.
+
+    The direction matters and assuming it was the pitfall (#1560, measured): a circle
+    tilted by tau images to an ellipse whose MINOR axis lies along the direction of
+    steepest depth change, so the rotation axis is the image direction perpendicular
+    to it. Starting every camera at 'tilt about the horizontal' left the fit a
+    rotation away from its own minimum, and a plane target's chi-squared surface in
+    (f, tz) is a long shallow valley -- so it converged to a different f from a
+    different start, which is a measurement of the starting point. With the direction
+    read off the ellipse, the rings-only fit lands on the same f from every f start
+    this census tries. The sign is still ambiguous -- a conic cannot say which way a
+    plane tips -- so the caller tries both."""
     fit = fit_conic(dout_points)
     e0 = ellipse_radius(fit, 0.0)
     if e0 is None:
         return None
-    # sample conic radii to get major/minor
+    # sample conic radii to get major/minor and the minor-axis direction
     rr = []
-    for i in range(72):
-        e = ellipse_radius(fit, 2 * math.pi * i / 72)
+    for i in range(180):
+        th = math.pi * i / 180.0
+        e = ellipse_radius(fit, th)
         if e:
-            rr.append(e[0])
-    rmax, rmin = max(rr), min(rr)
+            rr.append((e[0], th))
+    if not rr:
+        return None
+    rmax = max(r for r, _ in rr)
+    rmin, th_min = min(rr)
     _, _, (ecx, ecy) = e0
     f0 = F_GUESS
     tz = f0 * 170.0 / rmax
     tilt = math.acos(max(0.2, min(1.0, rmin / rmax)))
-    # direction of minor axis == direction of tilt; assume tilt about the horizontal
+    ax, ay = -math.sin(th_min), math.cos(th_min)   # rotation axis _|_ the minor axis
     tx = (ecx - PP[0]) / f0 * tz
     ty = (ecy - PP[1]) / f0 * tz
-    return [f0, -tilt, 0.0, 0.0, tx, ty, tz, 0.0]
+    return [f0, tilt * ax, tilt * ay, 0.0, tx, ty, tz, 0.0]
 
 
 # ------------------------------------------------------------------------ synthetic data
@@ -924,7 +960,7 @@ def fit_camera(data, init, fix_f=True):
 F_GRID = (300, 350, 400, 450, 500, 550, 600, 650, 700, 800, 900, 1100, 1400, 2000)
 
 
-def fit_f_from_rings(ring_points, init):
+def fit_f_from_rings(ring_points, init, noise_mm=None):
     """f, from the FOUR RINGS ALONE -- the census's answer to the maintainer's
     'report f alongside k1'.
 
@@ -944,10 +980,35 @@ def fit_f_from_rings(ring_points, init):
     minimum on the grid, which is what an unresolved camera looks like and is reported
     as 'f not resolved' rather than as the number at the grid edge."""
     data = {"rings": ring_points, "wires": [], "bull": None}
+    # A plane target's chi-squared surface in (f, tz) is a long shallow valley whose
+    # floor is reached from a good tilt and missed from a bad one, so the start is
+    # scanned rather than guessed: eight tilt azimuths at the magnitude the ellipse's
+    # axis ratio implies, three focal lengths, cheap iterations -- then the winner is
+    # refined properly from six focal lengths. Before this scan, one camera's profile
+    # came back non-monotone (38.8, 38.1, 38.5, 40.1, 41.1 mm over a rising grid),
+    # which is a measurement of where the optimiser started.
+    tilt = math.hypot(init[1], init[2]) or 0.6
+    coarse = None
+    for a in range(8):
+        az = math.pi * a / 4.0
+        for f0 in (450.0, 700.0, 1100.0):
+            q = init[:]
+            q[1], q[2], q[3] = tilt * math.cos(az), tilt * math.sin(az), 0.0
+            q[6] = init[6] * f0 / init[0]
+            q[0] = f0
+            q[7] = 0.0
+            try:
+                q, cost = gauss_newton(q, data, free=[0, 1, 2, 3, 4, 5, 6], iters=25)
+            except (ValueError, ZeroDivisionError):
+                continue
+            if coarse is None or cost < coarse[1]:
+                coarse = (q, cost)
+    if coarse is None:
+        return None, float("nan"), float("nan"), [], (None, None)
     best = None
     for f0 in (300.0, 424.0, 550.0, 700.0, 900.0, 1200.0):
-        q = init[:]
-        q[6] = init[6] * f0 / init[0]
+        q = coarse[0][:]
+        q[6] = coarse[0][6] * f0 / coarse[0][0]
         q[0] = f0
         q[7] = 0.0
         try:
@@ -970,16 +1031,53 @@ def fit_f_from_rings(ring_points, init):
         prof.append((f, cost, rms(residuals(q, data, raw=True)), q[6]))
     if not prof:
         return None, float("nan"), float("nan"), [], (None, None)
-    cmin = min(p[1] for p in prof)
-    imin = [p[1] for p in prof].index(cmin)
-    dof = max(1, len(ring_points) - 7)
-    band = [p[0] for p in prof if p[1] <= cmin * (1.0 + 1.0 / dof)]
+    rmin = min(p[2] for p in prof)
+    imin = [p[2] for p in prof].index(rmin)
     interior = 0 < imin < len(prof) - 1
-    p = best[0]
-    # the free fit must agree with the grid, or it did not converge to the minimum
-    agreed = interior and prof[imin - 1][0] <= p[0] <= prof[imin + 1][0]
-    return ((p[0] if agreed else None), prof[imin][2], prof[imin][3], prof,
-            (band[0], band[-1]) if band else (None, None))
+    # THE INTERVAL IS A PROFILE WIDTH AND IS CALLED ONE. A chi-squared interval here
+    # would read +/- one grid step on every camera, because the ring residuals are
+    # systematic (bloom, a wire-crossing scallop, a band that is thin on the far side)
+    # and not independent draws -- 288 correlated points make any minimum look
+    # 80-sigma deep. So the interval reported is where the residual rises 20% above
+    # its best, read off the parabola through the three grid points around the
+    # minimum in log f, since f and standoff trade multiplicatively.
+    band = (None, None)
+    f_hat = None
+    if interior:
+        xs = [math.log(prof[i][0]) for i in (imin - 1, imin, imin + 1)]
+        ys = [prof[i][2] for i in (imin - 1, imin, imin + 1)]
+        d1 = (ys[2] - ys[0]) / (xs[2] - xs[0])
+        d2 = 2.0 * ((ys[2] - ys[1]) / (xs[2] - xs[1]) - (ys[1] - ys[0]) / (xs[1] - xs[0])) \
+            / (xs[2] - xs[0])
+        if d2 > 0:
+            x0 = xs[1] - d1 / d2
+            ymin = ys[1] + 0.5 * d2 * (x0 - xs[1]) ** 2 - d1 * (x0 - xs[1])
+            ymin = min(ymin, rmin)
+            half = math.sqrt(max(0.0, 2.0 * 0.2 * ymin / d2))
+            f_hat = math.exp(x0)
+            band = (math.exp(x0 - half), math.exp(x0 + half))
+            # a width wider than the grid is a flat profile's parabola, not an
+            # interval: say nothing rather than print a number that means nothing
+            if band[0] < F_GRID[0] or band[1] > F_GRID[-1]:
+                band = (None, None)
+    # f is REPORTED only when the footage, not the grid, turned the residual round:
+    # both ends of the grid must sit above the 20% line and the interval must fall
+    # inside it.
+    turned = (f_hat is not None and band[0] is not None
+              and prof[0][2] > 1.2 * rmin and prof[-1][2] > 1.2 * rmin)
+    # AND THE MODEL HAS TO FIT. A confidence interval read off a model the data
+    # refutes is not a measurement of anything. The floor is this camera's own
+    # extraction scatter -- the conic residual of its four rings, in mm -- and a
+    # pinhole that misses concentric circles by more than three times the scatter of
+    # the points it was given is describing something else.
+    fits = noise_mm is None or rmin <= 3.0 * noise_mm
+    resolved = turned and fits
+    return ((f_hat if resolved else None), rmin, prof[imin][3], prof, band)
+
+
+def fmt(v):
+    """A grid endpoint or a None, printed the same width either way."""
+    return ("%.0f" % v) if v is not None else "-"
 
 
 def k1_at(mk, f):
@@ -1045,9 +1143,9 @@ def run_synthetic():
         ok = f_rec is not None and abs(f_rec - f_true) / f_true <= 0.05
         fails += 0 if ok else 1
         print("I1560SYN f control   : true f=%.0f -> recovered f=%s (rings rms %.2fmm, "
-              "1sigma grid [%s,%s])  [%s]"
+              "profile width [%s,%s])  [%s]"
               % (f_true, ("%.1f" % f_rec) if f_rec else "NOT RESOLVED", f_rms,
-                 band[0], band[1], "OK" if ok else "FAIL"))
+                 fmt(band[0]), fmt(band[1]), "OK" if ok else "FAIL"))
     # THE F MUTATION. Flatten the perspective: project every ring point with the depth
     # term frozen at the board centre's depth, so the image is an affine (orthographic)
     # picture of the board. An orthographic image has a scale and no focal length, so a
@@ -1073,8 +1171,8 @@ def run_synthetic():
     ok = f_rec is None
     fails += 0 if ok else 1
     print("I1560SYN f mutation  : orthographic rings -> %s (rings rms %.2fmm, "
-          "1sigma grid [%s,%s])  [%s]"
-          % (("f=%.1f" % f_rec) if f_rec else "NOT RESOLVED", f_rms, band[0], band[1],
+          "profile width [%s,%s])  [%s]"
+          % (("f=%.1f" % f_rec) if f_rec else "NOT RESOLVED", f_rms, fmt(band[0]), fmt(band[1]),
              "OK" if ok else "FAIL"))
     print("I1560SYN %s: %d failure(s)" % ("FAIL" if fails else "PASS", fails))
     return fails
@@ -1155,8 +1253,16 @@ def measure(tag, cam_no, frames_dir, dump_json):
 
     init = initial_pose(kept_dout, (ecx, ecy))
 
+    # this camera's own extraction scatter, in mm on the board: the median conic
+    # residual of its four rings over the doubles ellipse's mean px-per-mm. It is the
+    # floor any fit to these points has to reach before its parameters mean anything.
+    dout_rr = [e[0] for e in (ellipse_radius(dout_fit, math.pi * i / 90.0)
+                              for i in range(90)) if e]
+    px_per_mm = (sum(dout_rr) / len(dout_rr) / 170.0) if dout_rr else 2.0
+    ring_noise_mm = (sorted(v[1] for v in conic_report.values())[2] / px_per_mm)
+
     # f, FROM THE RINGS ALONE, with the profile that says how well (see fit_f_from_rings)
-    f_fit, f_rms, f_tz, f_prof, f_band = fit_f_from_rings(ring_points, init)
+    f_fit, f_rms, f_tz, f_prof, f_band = fit_f_from_rings(ring_points, init, ring_noise_mm)
     f_used = f_fit if f_fit else F_GUESS
 
     # THE ENSEMBLE KAPPA (assumption-light): the measured wire bows against the bow
@@ -1177,33 +1283,23 @@ def measure(tag, cam_no, frames_dir, dump_json):
     bow_after = [b[0] - m0 for b, m0 in zip(bows, ens_model)]
     bow_rms_before, bow_rms_after = rms(bow_before), rms(bow_after)
 
-    # sensitivity (the trap's second half): the bow k1=-0.20 (at the measured f where
-    # there is one, else the nominal 424) would draw at this camera's fitted pose
-    pose_init = init[:]
-    pose_init[6] = init[6] * f_used / init[0]
-    pose_init[0] = f_used
-    probe_pose, _, _ = fit_camera(data, pose_init)   # f pinned at f_used
-    probe = probe_pose[:]
-    probe[7] = -0.20 / (f_used * f_used) * 1e6
-    camp = CameraModel(probe)
-    maxbow = 0.0
-    for k in range(20):
-        ang = math.radians(9.0 + 18.0 * k)
-        pts = []
-        for j in range(25):
-            frac = 0.18 + (0.90 - 0.18) * j / 24.0
-            r = 170.0 * frac
-            pts.append(camp.project(r * math.cos(ang), r * math.sin(ang)) + (frac,))
-        bw = abs(line_fit_bow(pts)[0])
-        maxbow = max(maxbow, bw)
+    # SENSITIVITY (the trap's second half), from the measured chords and the principal
+    # point alone -- no pose, because a camera whose pose fit diverged still deserves
+    # an honest answer about what its geometry could have seen.
+    unit = bow_per_unit_kappa([b[6] for b in bows])
+    maxbow = max([abs(g) * 0.20 / (f_used * f_used) for g in unit] or [0.0])
     noise_px = sorted(b[1] for b in bows)[len(bows) // 2] if bows else 0.5
     # a bow is measured per wire to ~rms/sqrt(n); the ensemble of 20 wires tightens it
     bow_floor = max(0.05, noise_px / math.sqrt(max(1, len(bows))))
-    # the honest sensitivity: the smallest |k1| this camera's geometry AND this
+    # The honest sensitivity: the smallest |k1(424)| this camera's geometry AND this
     # extraction's scatter could tell from zero at 2 sigma. A centred board sends
     # ens_gain to zero and this to infinity, which is the trap answering by itself.
+    # The bar is 0.20 because that is the middle of #1513's swept range and the
+    # smallest k1 in it that would cost a treble bed under #1488's board-space
+    # scoring -- a camera that cannot separate THAT from zero has not answered.
     detect_k1 = 2.0 * ens_k1_sig
-    informative = maxbow > 2.0 * bow_floor and math.isfinite(detect_k1) and detect_k1 < 0.30
+    informative = (maxbow > 2.0 * bow_floor and math.isfinite(detect_k1)
+                   and detect_k1 < 0.20)
     window = "3s" if tag.endswith("w3") else "opening"
 
     print("I1560 %s cam%d window=%s board_centre=(%.0f,%.0f) off_pp=%.0fpx bull=(%d,%d)" %
@@ -1221,15 +1317,17 @@ def measure(tag, cam_no, frames_dir, dump_json):
              bow_rms_before, bow_rms_after,
              100.0 * (1.0 - (bow_rms_after / bow_rms_before if bow_rms_before else 1.0))))
     if f_fit:
-        print("I1560F %s cam%d f=%.0fpx ring_rms=%.2fmm standoff=%.0fmm 1sigma_grid=[%s,%s] "
-              "fov_diag=%.0fdeg (k1 at THIS f = %+.4f+/-%.4f)"
-              % (tag, cam_no, f_fit, f_rms, f_tz, f_band[0], f_band[1],
+        print("I1560F %s cam%d f=%.0fpx ring_rms=%.2fmm (scatter %.2fmm) standoff=%.0fmm "
+              "profile_width=[%s,%s] fov_diag=%.0fdeg (k1 at THIS f = %+.4f+/-%.4f)"
+              % (tag, cam_no, f_fit, f_rms, ring_noise_mm, f_tz, fmt(f_band[0]), fmt(f_band[1]),
                  2.0 * math.degrees(math.atan(math.hypot(W, H) / 2.0 / f_fit)),
                  k1_at(ens_kappa * 1e6, f_fit), k1_at(ens_sigma * 1e6, f_fit)))
     else:
-        print("I1560F %s cam%d f NOT RESOLVED -- ring_rms=%.2fmm and the chi-squared "
-              "profile has no interior minimum on the grid; this camera's rings do not "
-              "measure a focal length" % (tag, cam_no, f_rms))
+        print("I1560F %s cam%d f NOT RESOLVED -- best ring_rms=%.2fmm against this "
+              "camera's own %.2fmm extraction scatter, profile width [%s,%s] on a "
+              "grid of [%d,%d]; these rings do not measure a focal length"
+              % (tag, cam_no, f_rms, ring_noise_mm, fmt(f_band[0]), fmt(f_band[1]),
+                 F_GRID[0], F_GRID[-1]))
     print("I1560FPROF %s cam%d " % (tag, cam_no) +
           " ".join("%d:%.2fmm" % (f, rr) for f, _c, rr, _tz in f_prof))
     print("I1560TRAP %s cam%d predicted_max_bow_at_k1(f=%.0f)=-0.20: %.2fpx vs bow-floor %.2fpx; "
@@ -1239,7 +1337,7 @@ def measure(tag, cam_no, frames_dir, dump_json):
     if dump_json:
         with open(dump_json, "w") as f:
             json.dump({"rings": ring_points, "wires": wire_points, "bull": seed,
-                       "pose": probe_pose, "f_profile": f_prof}, f)
+                       "f_profile": f_prof, "kappa": ens_kappa}, f)
     return {"tag": tag, "cam": cam_no, "off": off, "f": f_fit, "f_rms": f_rms,
             "f_band": f_band, "f_tz": f_tz, "kappa": ens_kappa,
             "bow_rms_before": bow_rms_before, "bow_rms_after": bow_rms_after,
