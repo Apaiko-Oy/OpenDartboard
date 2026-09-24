@@ -185,6 +185,14 @@ namespace dart_processing
     // and a fall measured from before the adoption would read a new dart as a departure.
     static vector<int> previous_board_change;
 
+    // #1552: how many more windows each camera's reversion vote is still a CLEAN vote
+    // for -- the memory votesCleanThisWindow reads. Set to reversionMemoryWindows() in
+    // the window the reversion was cast, counted down per completed window, cleared by
+    // a reconciled CLEAN and by a tipped advance (advanceClearsReversionMemory); the
+    // split-boundary measurement that bought it is on reversionMemoryWindows() in
+    // dart_processing.hpp.
+    static vector<int> reversion_memory;
+
     // Streamers for debugging
     static unique_ptr<streamer> dart_diff_streamer;
     static unique_ptr<streamer> dart_thresh_streamer;
@@ -248,6 +256,29 @@ namespace dart_processing
             char *end = nullptr;
             const double n = std::strtod(e, &end);
             return (end != e && n >= 0.0) ? n : 400.0;
+        }();
+        return v;
+    }
+
+    /**
+     * #1552's falsification switch, in the od_fix shape #1339, #1348, #1495 and #1518
+     * established: one binary, the rule chosen at run time, so "different build" is
+     * never a confound.
+     *
+     * `OD_REVERSION_MEMORY=off` restores the vote as it was before #1552: a reversion
+     * CLEAN vote lives and dies in its own window, which is the rule under which the
+     * takeout between rig-20260922's thrown visits 1 and 2 produced no END in either
+     * calibration window -- the split-reversion account is on reversionMemoryWindows()
+     * in dart_processing.hpp. Anything else, unset included, remembers the vote.
+     *
+     * It is a pin and nothing reads it on an ordinary run.
+     */
+    static bool reversionMemoryIsOff()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_REVERSION_MEMORY");
+            return e != nullptr && std::string(e) == "off";
         }();
         return v;
     }
@@ -881,6 +912,7 @@ namespace dart_processing
             working_backgrounds.size() != current_frames.size() ||
             clean_references.size() != current_frames.size() ||
             previous_board_change.size() != current_frames.size() ||
+            reversion_memory.size() != current_frames.size() ||
             reported_tips.size() != current_frames.size())
         {
             previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
@@ -889,6 +921,7 @@ namespace dart_processing
             working_backgrounds.resize(current_frames.size());
             clean_references.resize(current_frames.size());
             previous_board_change.resize(current_frames.size(), -1);
+            reversion_memory.resize(current_frames.size(), 0);
             reported_tips.resize(current_frames.size());
         }
 
@@ -1020,6 +1053,11 @@ namespace dart_processing
         // reconciled board state -- rather than inside the per-camera loop. See
         // `advanceResetIsPerCamera` and the block below the vote.
         vector<Mat> window_frames(current_frames.size());
+
+        // #1552: which cameras cast a reversion vote in THIS window -- what the memory
+        // is set from, after the vote, so a reversion in the window that reconciles
+        // CLEAN leaves nothing behind.
+        vector<bool> reverted_this_window(current_frames.size(), false);
 
         // debuging verctors of frames
         vector<Mat> dart_diffs;
@@ -1187,6 +1225,7 @@ namespace dart_processing
                 if (readsAsReversion(previous_board_change[i], board_changed_pixels, ceiling_pixels))
                 {
                     change_reads_as_removal = true;
+                    reverted_this_window[i] = true; // #1552: what the memory is set from
                     log_info("CLEAN BY REVERSION: camera " + to_string(i + 1) +
                              "'s cumulative board change fell from " +
                              to_string(previous_board_change[i]) + " to " +
@@ -1507,8 +1546,23 @@ namespace dart_processing
                 continue; // #1354: nor is one with no board to have measured against
             voters++;
 
-            if (result.camera_results[i].detected_state == DartBoardState::CLEAN)
+            // #1552: a camera that cast a reversion vote within the memory horizon is
+            // still a CLEAN voter, whatever this window put in front of it -- what it
+            // would otherwise bring is the retriever's motion or the next visit's first
+            // dart, which is exactly the evidence the split boundary was lost to (the
+            // account on reversionMemoryWindows() in dart_processing.hpp).
+            const int memory_left = reversionMemoryIsOff() ? 0 : reversion_memory[i];
+            if (votesCleanThisWindow(result.camera_results[i].detected_state, memory_left))
             {
+                if (result.camera_results[i].detected_state != DartBoardState::CLEAN)
+                {
+                    log_info("REVERSION MEMORY: camera " + to_string(i + 1) +
+                             " read a takeout by reversion within the last " +
+                             to_string(reversionMemoryWindows() - memory_left + 1) +
+                             " window(s) and no dart has been called since, so its vote is "
+                             "still CLEAN -- the cameras a takeout needs do not always fall "
+                             "in one window (#1552)");
+                }
                 goes_clean++;
             }
             else if (result.camera_results[i].detected_state > best_previous_state)
@@ -1600,6 +1654,58 @@ namespace dart_processing
                 if (result.camera_results[i].tip_found)
                 {
                     reported_tips[i].push_back(result.camera_results[i].tip_position);
+                }
+            }
+        }
+
+        // #1552: the reversion memory, kept from the vote's decision. A reconciled
+        // CLEAN clears it -- the takeout it was evidence for has been served. An
+        // advance that carried a found tip clears it -- a dart was really called, so
+        // the board is not clean and the memory is stale. An advance with NO tip
+        // anywhere keeps it, deliberately: that is the takeout's own motion winning
+        // the vote (the phantom MISS between the split reversions carried zero tips in
+        // both measured runs), and it is exactly the window the memory must survive.
+        // Then the reversions THIS window cast are remembered -- unless this window
+        // reconciled CLEAN, in which case they were served, not split. Bookkeeping is
+        // NOT behind the OD_REVERSION_MEMORY pin: the pinned run keeps the same memory
+        // the tree rule holds and differs only in whether the vote reads it, so the
+        // pin measures the rule and not a second bookkeeping.
+        {
+            bool any_tip_found = false;
+            for (const CameraDetectionResult &r : result.camera_results)
+            {
+                if (r.tip_found)
+                {
+                    any_tip_found = true;
+                }
+            }
+            const bool board_advanced = final_state > best_previous_state;
+            if (final_state == DartBoardState::CLEAN ||
+                (board_advanced && advanceClearsReversionMemory(any_tip_found)))
+            {
+                for (size_t i = 0; i < reversion_memory.size(); i++)
+                {
+                    reversion_memory[i] = 0;
+                }
+            }
+            else
+            {
+                for (size_t i = 0; i < reversion_memory.size(); i++)
+                {
+                    if (reversion_memory[i] > 0)
+                    {
+                        reversion_memory[i]--;
+                    }
+                }
+            }
+            if (final_state != DartBoardState::CLEAN)
+            {
+                for (size_t i = 0; i < reverted_this_window.size() && i < reversion_memory.size(); i++)
+                {
+                    if (reverted_this_window[i])
+                    {
+                        reversion_memory[i] = reversionMemoryWindows();
+                    }
                 }
             }
         }
