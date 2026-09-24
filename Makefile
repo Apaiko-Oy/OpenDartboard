@@ -3,7 +3,12 @@
 PROJECT_VERSION_VAL := $(if $(VERSION),$(VERSION),0.0.0-dev)
 # Debug-only defines. These are NOT part of a release build: DEBUG_VIA_VIDEO_INPUT
 # puts a 16.7 ms sleep in every capture cycle and opens an MJPEG listener on 8081,
-# and DEBUG_SEEK_VIDEO seeks a file source past its first three seconds.
+# and DEBUG_SEEK_VIDEO seeks a file source past its first three seconds -- which moves
+# the thirty-frame calibration window, so a dev and a release binary of one commit
+# calibrate on different pictures and can ADMIT different cameras on one fixture
+# (#1551: rig-20260922 camera 1 reads R=0.578 at the dev window, R=0.873 at the
+# opening, against the 0.60 gate). A census belongs to the build that measured it;
+# OD_SEEK_VIDEO=off holds a dev binary at the opening on the same build.
 DEV_DEFS = -DDEBUG_SEEK_VIDEO -DDEBUG_VIA_VIDEO_INPUT
 OD_DEFS ?=
 

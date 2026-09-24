@@ -102,6 +102,20 @@ tester 1477-probe-format  "bash '$T/unit_check.sh' 1477"
 # choice saying when the preference decided. Pure; costs one compile.
 tester 1517-ringscomplete "bash '$T/unit_check.sh' 1517"
 
+# The connected-bull regression: synthetic colour-stage boards asserting that a bull
+# joined to the board's other markings by retained grey is recovered from its nested
+# colour rings -- translated, scaled, rotated -- and that every near-miss (off-centre
+# red, two candidates, a tiny speck, no red at all, an empty frame) still refuses. The
+# maintainer's fix of 2026-09-22 (1e39e79) shipped it with a host-g++ driver and no row
+# here, so the census met it unrun; registered by #1534. The driver keeps the hand-run
+# image mode and says so in its own marker.
+# MEASURED 2026-09-24 on the 4-core box, to completion, rc=0: wall 83 s on a QUIET box --
+# Docker freshly restarted, zero other containers, one tester at a time, nothing else on
+# the daemon -- so at this suite's measured 5.4x load factor a busy-box run is still
+# ~450 s, well inside the default 1200. Nearly all of it is the one -O1 compile of the
+# whole calibration directory; the assertions themselves run in milliseconds. No `slow`.
+tester bull-colour        "bash '$T/unit_check.sh' bull-colour"
+
 # #1510: the one-board fit against a PLANTED homography -- recovery within tolerance,
 # and every rejection the issue names (no anchor, wrong ring identity, no held-out
 # support, thin coverage, barrel distortion, no twenty-fold ring), each in its own words.
@@ -390,6 +404,18 @@ tester 1484-confidence    "bash '$T/i1484_run.sh'"
 # cannot be reached is the same as one that cannot fail (#1463, 1423-ringidentity's
 # story retold).
 tester 1514-stall         "bash '$T/i1514_run.sh'"
+# #1551: admission at the coherence gate is deterministic on recorded input, held there.
+# The admitted-0.873/refused-0.578 flip the issue was filed on was two BINARIES -- the
+# DEBUG_SEEK_VIDEO build define moves the thirty-frame calibration window from the
+# clip's opening to ~3 s in, and od-baselines/5bc3b0a was cut with a build that did not
+# carry it while every registry run does. Five calibration-window runs per rig fixture
+# on this build must be byte-identical in their admission transcripts, every wire-model
+# line must say its margin, and the same binary under OD_SEEK_VIDEO=off must reproduce
+# the flip (rig-20260922 camera 1 admitted at the opening) -- so any FUTURE source of
+# admission variance (a cv:: parallel path, iteration order, uninitialised state) goes
+# red here by name. Eleven calibration-window runs, no whole-clip replay.
+# MEASURED 2026-09-24 on the 4-core box: 235 s, well inside the default 1200.
+tester 1551-admission     "bash '$T/i1551_run.sh'"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
 # BOARD PLANE, so one physical tip projects to a different board radius from every

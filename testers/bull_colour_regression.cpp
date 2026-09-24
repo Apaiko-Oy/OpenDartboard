@@ -1,7 +1,7 @@
 // Synthetic colour-stage labels, not footage from an unrelated rig.
 // Optional image arguments also exercise the complete calibration pipeline.
-#include "bull_processing.hpp"
-#include "geometry_calibration.hpp"
+#include "detector/geometry/calibration/bull_processing.hpp"
+#include "detector/geometry/calibration/geometry_calibration.hpp"
 #include <iostream>
 #include <stdexcept>
 

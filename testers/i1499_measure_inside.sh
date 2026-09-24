@@ -2,6 +2,14 @@
 # #1499, inside the container: compile the band census and the #1485 radius census and
 # run both over every camera of the three fixtures, so the fit residual and the three
 # band positions are measured in one pass. Measurement only: it asserts nothing.
+#
+# unrun-tester: a measurement harness, not a check -- it says so above and exits 0
+# whatever the numbers say, so a suite run of it could measure nothing. It is kept as the
+# way to re-take #1499's RAW/PIPE/FIT band read (and #1485's radius census beside it) in
+# one pass over every camera of the three fixtures when a treble-band question comes back;
+# the repair those measurements decided is guarded in the gate by 1485-rings, and
+# ellipse_processing.cpp/.hpp carry the measured constants with the band census's name
+# beside them. Marked by #1534.
 set -u
 
 OUT=/run1499
