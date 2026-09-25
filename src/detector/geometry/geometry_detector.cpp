@@ -333,6 +333,13 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.board_angle_known = score_result.board.has_angle;
         result.board_radius = score_result.board.radius;
         result.board_angle = score_result.board.angle;
+        // #1556: the crossing rides beside them, from the same decision. Absent on a
+        // vote publish, which measured no millimetre position to be uncertain about.
+        result.boundary_flagged = score_result.boundary_flagged;
+        result.alternative_score = score_result.alternative_score;
+        result.boundary_kind = score_result.boundary_kind;
+        result.boundary_mm = score_result.boundary_mm;
+        result.uncertainty_mm = score_result.uncertainty_mm;
         // The instant the frames behind this score were acquired, from the backend.
         result.timestamp = camera::newestInstantUs(frames);
     }

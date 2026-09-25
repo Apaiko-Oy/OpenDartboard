@@ -37,7 +37,35 @@ table** — a check may turn on any row of it.
 **Order is per visit, not global.** The detector publishes darts in the order it detects
 them and separates visits with an `END` line; align visit-to-visit rather than assuming a
 single sequence. A visit where the detector found fewer darts than were thrown is a
-**detection** failure and is a different finding from a wrong score.
+**detection** failure and is a different finding from a wrong score -- unless the throw
+made no event at all, which the table under *Throws that produce no event* records.
+
+**Within a visit, do not align the first published against the first thrown.** This file
+said to, and it is right only when every throw produces a publication: one throw that
+produces none -- a dart off the board, a dart landing as the clip ends -- shifts every dart
+after it in its visit, and each reads as wrong (#1504). Visit 6 is the case: `S7`, `S2`
+published for `miss, 7, 2` read *nought* correct first-against-first and two correct once
+the off-board miss is read as a gap.
+
+The rule `1484-confidence` uses instead, and why it is the whole of what can be defended:
+
+- Publications keep the order of the throws, so only order-preserving alignments exist.
+  As many published as thrown has exactly one -- first against first -- and it stands.
+- **Nothing joins a publication to a throw by time.** A `SCORE:` line has no timestamp,
+  frame or stream position, and this file records no time per throw (#1504 measured both).
+  #1511's annotations do carry a frame per throw, but with nothing on the run's side to
+  join it to, it cannot place a publication either. So when fewer were published
+  than thrown, nothing in a run says *which* throw has no publication, and the placement
+  that scores best is exactly what must not be chosen -- it would flatter any detector.
+- A gap is placed only where the table below records a throw that made no event,
+  read from the footage and not from any run. Otherwise every order-preserving placement
+  is reported and a dart whose verdict differs between them is **ambiguous**, counted
+  neither right nor wrong.
+- More published than thrown is a phantom or a merged visit (#1552) and is not placed by
+  this rule.
+
+Visit 4 is the control: three throws, three publications, the last an `S20` for the miss.
+Nothing here moves it, and a rule that did would be a rule that flatters.
 
 **Align from the first visit.** A run truncated by `OD_MAX_CYCLES` covers the *opening* of
 the clip, not an arbitrary window — a comparison that starts anywhere else is measuring
@@ -61,6 +89,21 @@ than it is; the measurement is that they are read NEARER the bull, by up to 5.9x
 **Three trebles are in here** — T13, T14 and T20 — and they are the only evidence in this
 repository about whether a treble can be read at all. A treble published as a single is a
 *ring* error and belongs to a different fault from a wrong wedge.
+
+## Throws that produce no event
+
+Both read from the footage by the maintainer on 2026-09-21 (#1500's closing comment), so
+neither is a detection failure, and neither was known from any run. #1511's hand
+annotations leave out exactly these two throws for the same reasons
+(`testers/i1511_annotations/README.md`), and #1512 calls the same fact a throw with *no
+arrival*. A row here is what lets the census place a gap in a visit; it is a fact about
+the recording, and a run that publishes for one of these throws makes the row place
+nothing.
+
+| visit | throw | what the footage shows |
+| --- | --- | --- |
+| 6 | 1 | thrown outside the board: there is no landing on the board to detect |
+| 7 | 3 | lands as the clip ends: the footage stops before the dart can settle |
 
 ## Measured against it, on merged `main`
 
@@ -209,6 +252,30 @@ never seen, and the two thrown misses produce one phantom score and one silence)
 wedge** (3 of 18 a different number entirely), and **tip radius** (#1492, the one ring
 error). The wedge anchor and the 25 ring are repaired and measured so, and the treble
 ring reads trebles.
+
+**Re-scored under #1504's alignment, 2026-09-24 -- the same published darts, not a new
+run.** The table above aligns first-published against first-thrown, which this file used
+to prescribe and #1504 corrected (see *How to use it*). Read with the recorded eventless
+throws as gaps and nothing else chosen, the same eighteen publications give:
+
+| visit | aligned by #1504's rule |
+| --- | --- |
+| 4 | S7 vs 19 or 20 [wedge either way] · S20 **ambiguous** -- vs 20 [correct] or vs *miss* [on-board] · one throw undetected, and nothing in the run says which |
+| 6 | *miss* [no event, recorded] · S7 [correct] · S2 [correct] |
+| 7 | S5 [correct] · S20 [correct] · 20 [no event, recorded] |
+
+Visits 1, 2, 3 and 5 are unchanged. So **14 of the 18 are correct and one is ambiguous
+(14..15), where this section said 13**: visit 6 moves from nought to two, and visit 4's
+S20 stops counting as correct because the miss and the 20 cannot be told apart once one
+of them is missing. *A different number entirely* falls from 3 to 2 (S7->S2 was the
+shift); *a score published where a miss was thrown* falls from 1 to 0; and of the three
+*undetected*, two are the recorded eventless throws and one is visit 4's, unplaced.
+
+**Measured fresh under the rule on 2026-09-25** by `1484-confidence` on #1504's merge of
+`main` at `4e6c103`, whole clip: **19 detected, 15 of 19 correct, none ambiguous, no
+visit boundary merged.** Visits 3, 5, 6 and 7 are wholly correct; visit 4 publishes all
+three and its third, `T20` for the miss, stays wrong. The same log aligned
+first-against-first reads 13 of 19, visit 6 nought.
 
 **Visit 6's second detected dart is marginal.** Three runs of the byte-identical binary
 on 2026-09-23 read this clip 18–18–17 darts: the odd run lost exactly that dart — the

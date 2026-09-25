@@ -29,6 +29,24 @@ struct DetectorResult
     float board_radius = -1.0f; // 0 at the bull, 1 at the outer edge of the double ring
     float board_angle = -1.0f;  // degrees clockwise from the vertical through the 20, [0, 360)
 
+    // #1556: how close this call was to a scoring wire, and what the other answer would
+    // be. Additive, in #1186's idiom one field over: a consumer that ignores all five
+    // sees exactly what it saw before, because `score`, `confidence`, `segment`, `ring`
+    // and `board` are unchanged in meaning and the flagged dart publishes the MORE
+    // PROBABLE candidate immediately (#1557's decision: play never blocks).
+    //
+    // `uncertainty_mm` is the solved position's one-sigma error RESOLVED ACROSS the
+    // boundary `boundary_kind` names -- a ring wire is crossed radially, a sector wire
+    // tangentially -- floored by measurement; `boundary_mm` is how far that boundary is.
+    // Both are -1 wherever no board-millimetre position was measured: the string-vote
+    // path picks a camera's score string and measures no position error at all, so it
+    // publishes no number rather than a made-up one.
+    bool boundary_flagged = false;
+    string alternative_score; // the other candidate; empty unless flagged
+    string boundary_kind;     // "ring", "wedge"; empty where nothing could flip the call
+    float boundary_mm = -1.0f;
+    float uncertainty_mm = -1.0f;
+
     // Metadata for debugging/analysis
     bool motion_detected = false;
     int processing_time_ms = 0;

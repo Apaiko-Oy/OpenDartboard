@@ -28,6 +28,12 @@ WHAT IT READS, and each of these is a line this repository already prints:
     END OF FOOTAGE: ... after N cycles (M ms)      the run stopped where the CLIP did
     END OF FOOTAGE cam C last pos_ms=P
 
+AND FROM THE TRUTH FILE, beside its throws table: the table under "Throws that produce no
+event", which is the one thing the within-visit alignment may place a gap by (#1504). A
+SCORE line carries no time and neither does the truth file, so without that record a
+visit with fewer publications than throws is reported AMBIGUOUS per dart, never resolved
+to whichever placement scores best. See alignments().
+
 THE 0.5 BUCKET IS TWO THINGS AND THEY ARE NOT THE SAME FINDING. `by_default` is a wedge
 nobody measured, published at 0.5 with #1346's fallback asserting the 20 -- a score that
 is an assertion. A published `MISS` also carries 0.5, and it means no camera voted at all:
@@ -35,6 +41,7 @@ not a wrong wedge but no reading. Both are counted, separately, under one 0.5 he
 """
 
 import argparse
+import itertools
 import os
 import re
 import sys
@@ -181,6 +188,76 @@ def read_truth(path):
     return visits
 
 
+# The heading GROUND-TRUTH.md records its eventless throws under. The table beneath it is
+# visit | throw | what the footage shows, and a row is read only while it is under this
+# heading, so a table elsewhere in the file that happens to start with two numbers is not
+# mistaken for one.
+NO_EVENT_HEADING = re.compile(r"^#+\s+Throws that produce no event", re.IGNORECASE)
+
+
+def read_no_event(path):
+    """{visit: {throw index from 0: what the footage shows}} -- the throws the truth file
+    records as producing no event on the board, from the recording and not from any run.
+
+    This is the only thing the within-visit alignment below may use to place a gap, and it
+    is deliberately a fact about the FOOTAGE: a dart thrown off the board, a dart that lands
+    as the clip ends. It says nothing about what any detector published, so a run cannot
+    make it say something more convenient.
+    """
+    recorded = {}
+    under = False
+    for raw in open(path, "r", errors="replace"):
+        line = raw.strip()
+        if line.startswith("#"):
+            under = bool(NO_EVENT_HEADING.match(line))
+            continue
+        if not under or not line.startswith("|") or not line.endswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 3 or not cells[0].isdigit() or not cells[1].isdigit():
+            continue
+        recorded.setdefault(int(cells[0]), {})[int(cells[1]) - 1] = cells[2]
+    return recorded
+
+
+def alignments(found, throws, eventless):
+    """Every alignment of one visit's publications to its throws this harness can DEFEND,
+    and why. A list of (pairs, rule), pairs being [(publication index, throw index)].
+
+    Never the one that scores best. The rule is built only from what the data carries:
+
+      * Within a visit, publications keep the order of the throws. The board publishes a
+        dart when the state moves DART_n -> DART_n+1, so it cannot publish a dart before
+        the one thrown ahead of it. Only ORDER-PRESERVING alignments exist.
+      * A SCORE line carries no timestamp and GROUND-TRUTH.md no per-throw time (#1504
+        measured both), so nothing can say WHICH throw a missing publication belongs to --
+        except the truth file's own record of throws that produce no event.
+
+    So: as many publications as throws has one order-preserving alignment, the positional
+    one, and it is determined. Fewer publications than throws is determined only when the
+    truth file records exactly the missing number of eventless throws in that visit; else
+    every order-preserving placement of the gaps is returned and the caller reports each
+    dart that differs between them as AMBIGUOUS. More publications than throws is not this
+    rule's to resolve -- it is either a phantom or a merged visit (#1552) -- and keeps the
+    positional reading it always had, labelled as such.
+    """
+    k, n = len(found), len(throws)
+    if k == n:
+        return [(list(zip(range(k), range(n))), "determined")]
+    if k > n:
+        return [(list(zip(range(n), range(n))), "more-published")]
+    recorded = [t for t in range(n) if t in eventless]
+    # The recorded gaps are gaps; the rest, if any remain, may fall on any other throw.
+    # A record naming MORE gaps than the run left is a record and a run that disagree --
+    # the board published something for a throw the footage says made no event -- and
+    # then the record places nothing.
+    candidates = [t for t in range(n) if t not in eventless] if len(recorded) <= n - k else list(range(n))
+    placements = list(itertools.combinations(candidates, k))
+    if len(placements) == 1 and len(recorded) == n - k:
+        return [(list(zip(range(k), placements[0])), "recorded-gap")]
+    return [(list(zip(range(k), slots)), "ambiguous") for slots in placements]
+
+
 def verdict(published, thrown):
     """correct / off-board / no-vote / ring / wedge -- a description, never a judgement."""
     if thrown == "MISS":
@@ -323,7 +400,7 @@ def main():
         print("    visit %-2d %s" % (vi, "  ".join(cells) if cells else "(no dart published)"))
     print("             (* the board called this wedge asserted rather than measured)")
 
-    # ---- against the ground truth, aligned per visit, from the first --------------------
+    # ---- against the ground truth, visit by visit from the first --------------------------
     if not args.truth:
         print()
         print("--- accuracy ---")
@@ -346,13 +423,20 @@ def main():
         return 2
     thrown_total = sum(len(t[1]) for t in truth)
     misses = sum(1 for _, throws in truth for t in throws if t == "MISS")
+    no_event = read_no_event(args.truth)
+    no_event_total = sum(len(v) for v in no_event.values())
 
     print()
-    print("--- detection: darts detected against darts thrown, aligned per visit from the first ---")
+    print("--- detection: darts detected against darts thrown, visit by visit from the first ---")
     print("    truth:  %s" % args.truth)
     print("            %d visits, %d throws (%d of them misses), %s per visit"
           % (len(truth), thrown_total, misses,
              "%d" % widths.pop() if len(widths) == 1 else "a varying number"))
+    print("            %d throw%s recorded as producing NO EVENT on the board, from the footage%s"
+          % (no_event_total, "" if no_event_total == 1 else "s",
+             ": " + ", ".join("visit %d throw %d" % (v, t + 1)
+                              for v in sorted(no_event) for t in sorted(no_event[v]))
+             if no_event_total else ""))
     # #1552: whether a missing visit can honestly be blamed on the run stopping. On a
     # run that played the WHOLE fixture, every thrown visit is on the played footage --
     # the ground-truth table is a transcription OF that footage -- so a shortfall of
@@ -368,6 +452,7 @@ def main():
     for index, (number, throws) in enumerate(truth):
         found = visits[index] if index < len(visits) else []
         detected_total += len(found)
+        recorded = len(no_event.get(number, {}))
         note = ""
         if index >= len(visits):
             note = ("no END separated this visit -- merged into an earlier one "
@@ -375,6 +460,8 @@ def main():
                     if whole_fixture else "the run ended before this visit")
         elif index == len(visits) - 1 and stop["how"] == "cycle-cap" and len(found) < len(throws):
             note = "the run was cut off DURING this visit by the cycle cap"
+        elif len(found) < len(throws) and recorded == len(throws) - len(found) and not merged:
+            note = "fewer detected than thrown, and the footage records exactly that many throws as making no event"
         elif len(found) < len(throws):
             note = "fewer detected than thrown -- a DETECTION failure, not a wrong score"
         elif len(found) > len(throws):
@@ -389,6 +476,12 @@ def main():
     print("    Fewer detected than thrown is a DETECTION failure and is not a wrong score;")
     print("    where the run ended first it is neither, and the notes above say which.")
 
+    # ---- scoring, aligned WITHIN a visit by a rule the data can defend (#1504) ----------
+    #
+    # Until #1504 this compared the k-th published dart with the k-th thrown, and one throw
+    # that made no event -- a dart off the board, a dart landing as the clip ends -- shifted
+    # every dart after it in its visit to wrong. See alignments() for the rule that
+    # replaced it, and what it deliberately does NOT do: pick the placement that scores best.
     # #1552: segmentation, counted apart. A merged visit misattributes darts across its
     # boundary, and this census aligns k-th detected against k-th thrown PER VISIT (the
     # ground-truth file's own rule), so one missing boundary degrades every comparison
@@ -418,30 +511,89 @@ def main():
     print()
     print("--- scoring: correct against published, over the darts that were detected ---")
     print("    A thrown miss counts CORRECT where the detector published OUTER.")
+    print("    Within a visit, publications keep the order of the throws. Where fewer were")
+    print("    published than thrown, a gap is placed only where the truth file records a")
+    print("    throw that made no event; otherwise every placement is reported and a dart whose")
+    print("    verdict differs between them is AMBIGUOUS and counted as neither.")
+    if merged:
+        print("    This run merged %d visit boundar%s (SEGMENTATION, above), so the record places"
+              % (merged, "y" if merged == 1 else "ies"))
+        print("    no gap: its rows name thrown visits, and these are no longer those visits.")
     print()
     tally = {}
     compared = 0
     correct = 0
+    ambiguous = 0
+    correct_low = correct_high = 0
     for index, (number, throws) in enumerate(truth):
         found = visits[index] if index < len(visits) else []
         if not found:
             continue
+        # Where #1552's segmentation meet #1504's record, segmentation wins. A row of the
+        # record names a THROWN visit; after a merged boundary the published visit at this
+        # index is not that visit, and the census cannot say where the merge is. So on a
+        # run with any merged boundary the record places no gap anywhere, and a short visit
+        # is reported AMBIGUOUS like any other -- never resolved by a record that may be
+        # about someone else's darts.
+        options = alignments(found, throws, {} if merged else no_event.get(number, {}))
+        rule = options[0][1]
+        # What each publication reads against, under every alignment left standing.
+        readings = []
+        for p in range(len(found)):
+            seen = []
+            for pairs, _ in options:
+                thr = dict(pairs).get(p)
+                seen.append((throws[thr], verdict(found[p].score, throws[thr])) if thr is not None
+                            else ("(none)", "unthrown"))
+            readings.append(seen)
+        counts = [sum(1 for p, t in pairs if verdict(found[p].score, throws[t]) == "correct")
+                  for pairs, _ in options]
+        correct_low += min(counts)
+        correct_high += max(counts)
         cells = []
-        for slot in range(max(len(found), len(throws))):
-            pub = found[slot].score if slot < len(found) else "(none)"
-            thr = throws[slot] if slot < len(throws) else "(none)"
-            if slot < len(found) and slot < len(throws):
-                v = verdict(pub, thr)
-                tally[v] = tally.get(v, 0) + 1
-                compared += 1
-                if v == "correct":
-                    correct += 1
+        for p, seen in enumerate(readings):
+            pub = found[p].score
+            # Ambiguity is about the VERDICT: a dart that is a wrong wedge against every
+            # throw it could be is a wrong wedge, whichever of them it was.
+            if len(set(v for _, v in seen)) == 1:
+                v = seen[0][1]
+                thr = "|".join(sorted(set(t for t, _ in seen)))
+                if v != "unthrown":
+                    tally[v] = tally.get(v, 0) + 1
+                    compared += 1
+                    correct += v == "correct"
+                cells.append("%s vs %s [%s]" % (pub, thr, v))
             else:
-                v = "undetected" if slot >= len(found) else "unthrown"
-            cells.append("%s vs %s [%s]" % (pub, thr, v))
-        print("    visit %-2d %s" % (number, " | ".join(cells)))
+                ambiguous += 1
+                compared += 1
+                cells.append("%s AMBIGUOUS {%s}" % (pub, ", ".join(
+                    "vs %s [%s]" % (thr, v) for thr, v in sorted(set(seen)))))
+        if rule in ("determined", "more-published", "recorded-gap"):
+            # A throw with no publication is written where it was thrown, so the row reads
+            # in throw order: visit 6 is `(none) vs MISS | S7 vs S7 | S2 vs S2`.
+            placed = dict((t, p) for p, t in options[0][0])
+            ordered = []
+            for t in range(len(throws)):
+                if t in placed:
+                    ordered.append(cells[placed[t]])
+                else:
+                    ordered.append("(none) vs %s [%s]" % (
+                        throws[t], "no event, recorded" if t in no_event.get(number, {}) else "undetected"))
+            ordered.extend(cells[p] for p in range(len(found)) if p not in placed.values())
+            cells = ordered
+        else:
+            cells.append("%d of %s undetected, and nothing says which" % (
+                len(throws) - len(found), "/".join(throws)))
+        label = {"determined": "", "more-published": "  (more published than thrown: positional, not aligned -- #1552)",
+                 "recorded-gap": "  (gap placed by the truth file's record)",
+                 "ambiguous": "  (%d placements, %d..%d correct)" % (len(options), min(counts), max(counts))}[rule]
+        print("    visit %-2d %s%s" % (number, " | ".join(cells), label))
     print()
     print("    %d correct of %d compared." % (correct, compared))
+    if ambiguous:
+        print("    %d AMBIGUOUS: which throw a missing publication belongs to is not in the data," % ambiguous)
+        print("    so those darts are counted neither right nor wrong. Every placement taken")
+        print("    together gives %d..%d correct; this harness reports the range and picks none." % (correct_low, correct_high))
     if merged:
         print("        -- compared over an alignment %d merged boundar%s has broken"
               % (merged, "y" if merged == 1 else "ies"))

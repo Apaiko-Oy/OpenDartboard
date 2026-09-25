@@ -539,9 +539,13 @@ namespace dart_processing
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame
         // #1511: the new dart's fitted shaft axis for this camera, or a refusal saying
-        // by name why this window's fresh figure holds no usable line. ADDITIVE: nothing
-        // in this repository reads it to decide anything yet -- the published score
-        // still comes from `tip_position` -- and a VALID AXIS IS DISTINCT FROM A VALID
+        // by name why this window's fresh figure holds no usable line. #1555: THIS IS
+        // NOW WHAT THE BOARD PUBLISHES FROM -- these axes, transported to the board
+        // plane and intersected there (#1512), name the dart wherever the solve stands,
+        // and `tip_position` publishes only where the solver refused by name. The line
+        // here read "nothing in this repository reads it to decide anything yet" for
+        // four issues, and it stopped being true when #1555's census chose the geometric
+        // path. A VALID AXIS IS STILL DISTINCT FROM A VALID
         // VISIBLE TIP: an occluded tip with a readable shaft is a valid axis with
         // `tip_found == false`, never a fabricated endpoint, and a found tip on a
         // figure that is not a line is `tip_found` with the axis refusing. The line is
