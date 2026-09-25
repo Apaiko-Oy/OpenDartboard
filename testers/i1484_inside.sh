@@ -87,6 +87,20 @@ for needle in \
     exit 1
   fi
 done
+# #1584: since #1555 a dart is published by one of two paths, and the census counts each
+# under its own heading by the PATH line beside it. A binary that cannot print those
+# sentences leaves every dart "path unknown" -- read, but censused under no path.
+for needle in \
+  'PATH: the geometric entry publishes (' \
+  'PATH: DEGRADED -- no geometric entry (' \
+  'PATH: the string vote publishes' \
+  'BOARD: wedge from the solved entry'; do
+  if ! strings $BIN | grep -qF "$needle"; then
+    echo "FAIL $BIN does not carry '$needle', so the census cannot say which path"
+    echo "     published a dart and would name one it did not read (#1584)."
+    exit 1
+  fi
+done
 if [ ! -s $RIG_DIR/cam_1.mp4 ] || [ ! -s $RIG_DIR/cam_2.mp4 ] || [ ! -s $RIG_DIR/cam_3.mp4 ]; then
   echo "FAIL the rig fixture is not whole ($RIG_DIR), and it is the only footage in this"
   echo "     repository whose real darts are recorded. Without it there is no accuracy half."
@@ -105,7 +119,7 @@ if [ ! -s $CENSUS ]; then
   echo "FAIL $CENSUS is missing; it is the reporter and there is nothing to report with."
   exit 1
 fi
-echo "--- $BIN carries all three of chooseScore's branches and is newer than /app/src ---"
+echo "--- $BIN carries all three of chooseScore's branches and both publishing paths, and is newer than /app/src ---"
 
 # ---- how long each clip is, so a run can say how much of it it consumed -----------------
 LENGTHS=$RUN/clip-lengths.txt
@@ -161,17 +175,43 @@ echo "########################################################################"
 echo "#  the census: how each dart was scored, and how much clip it came from"
 echo "########################################################################"
 echo
+# #1584: which rule publishes is not assumed. Both runs are made with OD_SCORE_PATH unset,
+# which since #1555 is geometry-first -- every dart the geometric entry or, where it
+# refused, the string vote as its DEGRADED fallback. The census is told so and reads the
+# PATH line of every dart; one that says otherwise is named by the census (PATH-MISMATCH)
+# and exits 3, because every heading below it would be describing a path the run did not
+# take. Exporting OD_SCORE_PATH=vote into this container is the mutation that shows it.
+EXPECT_PATH=geometry-first
 python3 $CENSUS --log $RUN/rig.txt --fixture "mocks/rig-20260918 (the rig footage)" \
-  --clips "$RIG" --lengths $LENGTHS --truth $TRUTH
+  --clips "$RIG" --lengths $LENGTHS --truth $TRUTH --expect-path "$EXPECT_PATH"
 RIG_RC=$?
 [ $RIG_RC -eq 0 ] || FAILED=1
 
 echo
 python3 $CENSUS --log $RUN/mocks.txt --fixture "mocks/ (the shipped mocks)" \
-  --clips "$MOCKS" --lengths $LENGTHS \
+  --clips "$MOCKS" --lengths $LENGTHS --expect-path "$EXPECT_PATH" \
   --caveat "every calibration constant in this repository was fitted against this footage (#1478), so a good result here is circular -- and it has no ground truth, so nothing here says whether a score is RIGHT"
 MOCK_RC=$?
 [ $MOCK_RC -eq 0 ] || FAILED=1
+
+# The mismatch report's own control, on the rig run just read and at no replay's cost: the
+# same log censused as if the OTHER rule had published it must be refused by name. A check
+# that has never been seen to fire on a real log is one nobody knows can (#1463).
+echo
+OTHER_PATH=vote
+[ "$EXPECT_PATH" = vote ] && OTHER_PATH=geometry-first
+python3 $CENSUS --log $RUN/rig.txt --fixture "mocks/rig-20260918, censused as $OTHER_PATH (control)" \
+  --expect-path "$OTHER_PATH" > $RUN/rig-mismatch-control.txt
+CONTROL_RC=$?
+CONTROL_NAMED=$(grep -c '^    PATH-MISMATCH visit ' $RUN/rig-mismatch-control.txt)
+grep -m1 '^=== PUBLISHED PATH' $RUN/rig-mismatch-control.txt
+grep -m2 '^    PATH-MISMATCH visit ' $RUN/rig-mismatch-control.txt
+if [ $CONTROL_RC -eq 3 ] && [ "$CONTROL_NAMED" -gt 0 ]; then
+  say "OK   the rig run censused as $OTHER_PATH is refused: rc=3, $CONTROL_NAMED darts named PATH-MISMATCH" ok
+else
+  say "FAIL the rig run censused as $OTHER_PATH exited $CONTROL_RC naming $CONTROL_NAMED darts;" no
+  echo "     the census cannot be shown to report a path it was not told (#1584)"
+fi
 
 echo
 echo "CHECK_RC=$FAILED  (this harness fails on a run it could not READ, never on what the run said)"

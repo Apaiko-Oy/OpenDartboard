@@ -10,9 +10,26 @@ lines are what the #1504-aware spatial matcher aligns events to annotated throws
 (imported from i1511_census.py rather than re-derived, so the two censuses cannot
 disagree about which detection was which dart), and the I1512 lines carry the solve.
 
+WHAT EACH COLUMN READS (#1584). At #1512 the string vote was the published path, so the
+`SCORE:` line and the vote were one thing and the scorecard's "string-vote" column read the
+`SCORE:` line. Since #1555 geometry-first publishes, and that column silently became the
+geometric publish: rig-20260918 printed "string-vote correct 15/17" where the vote reads
+13/17. So the columns are now named for what they read:
+
+    published correct    the `SCORE:` line -- what the board said -- split by the path
+                         each dart's I1555PUBLISH line names (geometry / degraded / vote)
+    string-vote correct  I1555PUBLISH's `vote=` field, the vote's own string whichever
+                         path published; a dart with no such line is counted out of this
+                         column and says so, never read off `SCORE:` in its place
+    geometry solved      I1512ENTRY, as before
+
+--expect-path geometry-first|vote names the rule the caller believes published the run;
+a dart whose I1555PUBLISH line says otherwise -- or which has none -- is named
+(I1512 PATH-MISMATCH) and the census exits 3.
+
 A reporter in i1510p2_census.py's mould: it decides nothing about the numbers. Exit
 status is about whether the run could be read: 0 parsed with enough solves to be an
-instrument, 2 nothing to census.
+instrument, 2 nothing to census, 3 read under a path other than the one it was told.
 """
 
 import argparse
@@ -23,6 +40,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import i1511_census as axis_census  # noqa: E402  (the matcher, #1504's alignment)
+# #1584: the per-dart publish block, bound exactly as #1555's census binds it -- imported
+# rather than re-derived, so the two censuses cannot disagree about which path published
+# which dart.
+import i1555_census as publish_census  # noqa: E402
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 ENTRY_RE = re.compile(
@@ -90,7 +111,27 @@ def read_run_with_entries(path):
     for ev in flat:
         if not hasattr(ev, "geo"):
             ev.geo = None
+    # #1584: I1555PUBLISH, one per called dart, in the same arrival order.
+    blocks, _ = publish_census.read_publish_blocks(path)
+    for ev, block in zip(flat, blocks):
+        ev.pub = block
+    for ev in flat:
+        if not hasattr(ev, "pub"):
+            ev.pub = None
     return visits, all_axis
+
+
+def path_of(ev):
+    """geometry / degraded / vote off the dart's I1555PUBLISH line; unread without one."""
+    if ev.pub is None:
+        return "unread"
+    if ev.pub["path"] == "geometry":
+        return "geometry"
+    return "degraded" if ev.pub["degraded"] else "vote"
+
+
+RULE_OF = {"geometry": "geometry-first", "degraded": "geometry-first",
+           "vote": "vote", "unread": "unread"}
 
 
 def med(xs):
@@ -105,6 +146,9 @@ def main():
     ap.add_argument("--fixture", required=True)
     ap.add_argument("--min-solved", type=int, default=1,
                     help="fewest solved entries this census must see to be an instrument")
+    ap.add_argument("--expect-path", default="", choices=["", "geometry-first", "vote"],
+                    help="the rule the caller believes published this run; a dart that "
+                         "says otherwise is named and the census exits 3 (#1584)")
     ap.add_argument("--no-arrival", default="",
                     help="comma list of visit.dart the RECORDING never delivers as an "
                          "arrival (a dart parked before frame one, a throw that never "
@@ -130,6 +174,26 @@ def main():
         return 2
     print("I1512 CENSUS fixture=%s detected_events=%d with_geometry=%d truth_visits=%d"
           % (args.fixture, len(flat), len(with_geo), len(truth)))
+
+    # ---- WHICH PATH published, per dart, never assumed (#1584) --------------------------
+    paths = {}
+    for ev in flat:
+        paths[path_of(ev)] = paths.get(path_of(ev), 0) + 1
+    rules = set(RULE_OF[k] for k in paths)
+    rule = rules.pop() if len(rules) == 1 else ("none" if not rules else "mixed")
+    print("I1512 PUBLISHED-PATH fixture=%s rule=%s %s"
+          % (args.fixture, rule,
+             " ".join("%s=%d" % (k, paths.get(k, 0)) for k in ("geometry", "degraded", "vote", "unread"))))
+    mismatched = []
+    if args.expect_path:
+        for v, visit in enumerate(visits):
+            for ei, ev in enumerate(visit):
+                if RULE_OF[path_of(ev)] != args.expect_path:
+                    mismatched.append((v, ei, ev))
+        for v, ei, ev in mismatched:
+            print("I1512 PATH-MISMATCH v%d#%d published=%s path=%s -- not the %s rule this "
+                  "census was told publishes (--expect-path)"
+                  % (v + 1, ei + 1, ev.score, path_of(ev), args.expect_path))
 
     # ---- COVERAGE: what the solver said about every called dart -------------------------
     outcomes = {}
@@ -175,7 +239,8 @@ def main():
             s, s if s[0] in "TDS" else "S" + s)
 
     n_matched = 0
-    vote_right = geo_right = geo_scored = geo_refused = geo_wire = 0
+    vote_right = vote_read = geo_right = geo_scored = geo_refused = geo_wire = 0
+    pub_right = {}       # path -> [matched, correct]: what the board PUBLISHED, by path
     pos_err_mm = []
     tip_dists = []
     pair_angles = []
@@ -198,8 +263,16 @@ def main():
             thrown = norm_score(list(ann.values())[0]["thrown"])
             entry, cams = ev.geo
             n_matched += 1
-            vote_ok = norm_score(ev.score) == thrown
-            vote_right += 1 if vote_ok else 0
+            pub_ok = norm_score(ev.score) == thrown
+            row = pub_right.setdefault(path_of(ev), [0, 0])
+            row[0] += 1
+            row[1] += 1 if pub_ok else 0
+            # The vote's own string (#1584), never the SCORE line standing in for it.
+            vote_ok = None
+            if ev.pub is not None:
+                vote_read += 1
+                vote_ok = norm_score(ev.pub["vote"]) == thrown
+                vote_right += 1 if vote_ok else 0
             geo_word = entry["score"] if entry["solved"] else entry["outcome"]
             geo_ok = None
             if entry["solved"]:
@@ -224,9 +297,12 @@ def main():
                 errs.append(px / c["pxmm"])
             if errs:
                 pos_err_mm.append(med(errs))
-            print("I1512 PAIR v%d.%d thrown=%s published=%s%s geo=%s%s outcome=%s "
+            print("I1512 PAIR v%d.%d thrown=%s published=%s%s path=%s vote=%s%s geo=%s%s outcome=%s "
                   "sigma=%.1f boundary=%.1f pair=%.1f posErr=%s tips=%d/%d"
-                  % (key[0], key[1], thrown, ev.score, " OK" if vote_ok else " X",
+                  % (key[0], key[1], thrown, ev.score, " OK" if pub_ok else " X",
+                     path_of(ev),
+                     ev.pub["vote"] if ev.pub is not None else "(unread)",
+                     "" if vote_ok is None else (" OK" if vote_ok else " X"),
                      geo_word,
                      ("" if geo_ok is None else (" OK" if geo_ok else " X")),
                      entry["outcome"], entry["sigmaMajor"], entry["boundary"],
@@ -254,10 +330,23 @@ def main():
               + ", ".join(undetected))
 
     # ---- the side-by-side scorecard -----------------------------------------------------
-    print("I1512 SCORECARD fixture=%s matched=%d | string-vote correct %d/%d | "
+    # #1584: three columns, each named for the line it reads. `published` is the SCORE
+    # line split by the path that printed it; `string-vote` is I1555PUBLISH's vote=, and a
+    # log without that line gets no vote column rather than the SCORE line under its name.
+    pub_total = sum(r[1] for r in pub_right.values())
+    print("I1512 SCORECARD fixture=%s matched=%d | published correct %d/%d (%s) | "
+          "string-vote correct %s | "
           "geometry solved %d (correct %d/%d, wire-flagged %d), refused %d"
-          % (args.fixture, n_matched, vote_right, n_matched,
+          % (args.fixture, n_matched, pub_total, n_matched,
+             " ".join("%s %d/%d" % (k, pub_right[k][1], pub_right[k][0])
+                      for k in ("geometry", "degraded", "vote", "unread") if k in pub_right)
+             or "none matched",
+             ("%d/%d" % (vote_right, vote_read)) if vote_read else
+             "n/a (no I1555PUBLISH vote= on any matched dart; not read off SCORE: in its place)",
              geo_scored, geo_right, geo_scored, geo_wire, geo_refused))
+    if 0 < vote_read < n_matched:
+        print("I1512 SCORECARD note: %d matched darts carry no I1555PUBLISH line, so the "
+              "string-vote column is over %d, not %d" % (n_matched - vote_read, vote_read, n_matched))
     if pos_err_mm:
         print("I1512 POSITION solved-vs-annotated-entry n=%d median=%.1f p90=%.1f max=%.1f mm"
               % (len(pos_err_mm), med(pos_err_mm),
@@ -276,6 +365,12 @@ def main():
               "compared nothing has measured nothing (#1490)"
               % (args.fixture, solved_total, args.min_solved))
         return 2
+    if mismatched:
+        print("I1512 CENSUS %s: %d darts were published by a path other than the %s rule "
+              "this census was told (see I1512 PATH-MISMATCH) -- every column above would "
+              "be describing the wrong path (#1584)"
+              % (args.fixture, len(mismatched), args.expect_path))
+        return 3
     return 0
 
 
