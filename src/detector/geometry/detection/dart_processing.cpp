@@ -413,6 +413,27 @@ namespace dart_processing
         return v;
     }
 
+    //   OD_AXIS_RESCUE=on   #1586's composite rescue (shaft_axis.hpp,
+    //                       AxisParams::rescue_composite), OPT-IN. Unset or anything else
+    //                       and a figure the straightness gate refuses stays refused
+    //                       exactly as before #1586. It is not the default because the
+    //                       measured before/after (testers/i1586_run.sh) does not clear
+    //                       the issue's bar: it solves 9 of the 21 refused darts, 8 of
+    //                       them exact, but 7 of those 8 the vote already published
+    //                       exact, and the one it newly gets right (rig-22 dev v8.2) is
+    //                       paid for by one it newly gets wrong (rig-22 opening v5.3,
+    //                       an exact S7 published as S19 across the 7/19 wire). A default
+    //                       that regresses an exact dart is not one this issue may ship.
+    static bool axisRescueIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_AXIS_RESCUE");
+            return e != nullptr && std::string(e) == "on";
+        }();
+        return v;
+    }
+
     // The smallest distance between two contours, in pixels. Bounding boxes first: a
     // figure here holds nine contours at its worst (measured over the whole of
     // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
@@ -1379,6 +1400,7 @@ namespace dart_processing
                         shaft_axis::AxisParams axis_params;
                         axis_params.gated = !axisGateIsOff();
                         axis_params.subtract_shadow = !axisShadowIsOff();
+                        axis_params.rescue_composite = axisRescueIsOn();
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
@@ -1732,6 +1754,10 @@ namespace dart_processing
                 if (shaftCensusOn())
                 {
                     log_info(shaft_axis::censusLine(r.axis, tip_gap));
+                    if (r.axis.rescueTried)
+                    {
+                        log_info(shaft_axis::rescueLine(r.axis));
+                    }
                 }
                 if (!shaftProbeDir().empty() && i < window_frames.size() && !window_frames[i].empty())
                 {

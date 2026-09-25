@@ -311,6 +311,7 @@ namespace entry_intersection
         bool usable = false;     // a transported line in the shared frame, weights and all
         bool excluded = false;   // was usable, refused by the consistency check
         std::string exclusion;   // the named reason, when !usable or excluded
+        bool rescued = false;    // #1586: the axis came from the composite rescue
 
         // The transported line, canonical board mm: unit normal (nx,ny) and offset c,
         // a point X on the line satisfying nx*X.x + ny*X.y + c = 0.
@@ -382,6 +383,11 @@ namespace entry_intersection
         cv::Point2f axisPoint;        // image px
         cv::Point2f axisDir;          // unit, image px
         double axisSigmaDeg = -1.0;
+        // #1586: the axis is the composite rescue's (shaft_axis.hpp) -- the dominant
+        // component of a figure the plain fit refused as not straight. solveEntry admits
+        // it only as a LAST RESORT: where the plain constraints already number two, it
+        // is held back by name.
+        bool axisRescued = false;
 
         bool tipFound = false;
         cv::Point2f tipImage;
@@ -813,7 +819,36 @@ namespace entry_intersection
         {
             Constraint con = constraintFrom(ev);
             con.sigmaDirDeg = ev.axisSigmaDeg;
+            con.rescued = ev.axisRescued;
             out.constraints.push_back(con);
+        }
+
+        // #1586: A RESCUED AXIS IS A LAST RESORT. It exists to solve the darts that the
+        // plain axes cannot (TOO-FEW-CONSTRAINTS), and nothing else: where two or more
+        // plain constraints are usable the solve is made from them alone, exactly as
+        // before #1586, and the rescued line is held back by name. MEASURED on the first
+        // run that admitted it everywhere (testers/i1586_run.sh, rig-20260918 dev): a
+        // rescued third line moved an already-solved, exact S15 across the treble wire
+        // to T15 -- a weaker line re-weighing a solve that did not need it. Held back,
+        // the rescue can change only a dart the geometry was refusing.
+        {
+            int plain = 0;
+            for (const Constraint &con : out.constraints)
+            {
+                plain += (con.usable && !con.rescued) ? 1 : 0;
+            }
+            if (plain >= 2)
+            {
+                for (Constraint &con : out.constraints)
+                {
+                    if (con.usable && con.rescued)
+                    {
+                        con.usable = false;
+                        con.exclusion = "rescued axis held back: " + std::to_string(plain) +
+                                        " plain constraints solve without it (#1586)";
+                    }
+                }
+            }
         }
 
         std::vector<Constraint *> usable;
