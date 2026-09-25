@@ -545,9 +545,8 @@ tester 1560-lenscheck     "bash '$T/unit_check.sh' 1560"
 # HOST has one. The host python3 calls in i1510p2_run.sh and its siblings are not a
 # counter-example -- they are command substitutions computing a wall time, so the stub
 # costs them an empty field and not a failure, which is exactly why this was invisible.
-# 1532-guard IS one, though, and is not #1560's to move: it is
-# `python3 '$T/i1532_guard.py' ...` from this file and it answers rc=49 on this box,
-# measured 2026-09-25 while proving these two rows green.
+# 1532-guard WAS one, measured rc=49 on this box 2026-09-25 while proving these two rows
+# green; #1588 moved it into the image the same way (i1532_check.sh).
 # MEASURED 2026-09-25 on this box, #1341's rule: 91, 92, 93, 95, 96 and 97 s over six
 # runs through run_all.sh, and 99 s standalone, against the 1200 s default. The spread
 # rather than the best of them, because one number cannot tell a reader whether a slow
@@ -660,7 +659,15 @@ tester 1531-corpus       "bash '$T/i1531_run.sh'"
 # no secret, release.yml does not run the journey, and the pull_request `paths:` filter covers
 # every file src/launcher/main.cpp reaches through an #include -- so a new header is caught on
 # this gate rather than by a pull request that silently skipped the check. Python, no build.
-tester 1532-guard        "python3 '$T/i1532_guard.py' '$OD_TREE_ROOT'"
+# #1588: through i1532_check.sh, which runs the same file on the same tree INSIDE $OD_IMAGE,
+# because this line was a HOST `python3` and the box that runs the suite has none (the
+# Store stub, rc=49) -- #1560's rule, written beside 1560-lensmodel above. The workflow
+# still calls i1532_guard.py on the runner's own python; only this row moved.
+# MEASURED 2026-09-25 on the 4-core WSL box at load 5.9-7.5, #1341's rule: 1, 1, 1, 1, 1
+# and 3 s as run_all.sh reports the row over six runs of `run_all.sh 1532-guard`, and
+# 1.3, 2.0 and 2.1 s for i1532_check.sh standalone -- nearly all of it the container
+# start, the guard itself being a file read. No `slow`: 1200 is four hundred times the worst.
+tester 1532-guard        "bash '$T/i1532_check.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"
