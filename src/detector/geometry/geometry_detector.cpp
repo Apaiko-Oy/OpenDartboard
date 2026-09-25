@@ -89,7 +89,48 @@ namespace
     // over-long budget therefore costs start-up seconds on a board that is already in
     // trouble; an over-short one sets a healthy camera aside for the evening, which is the
     // fault this issue was filed on.
-    constexpr int kFurtherLooks = 12;
+    //
+    // #1605: TWELVE WAS OUTRUN BY A DART STANDING IN THE BOARD, and the budget is now 31.
+    // rig-20260922 did not exist when the table above was taken. On it, in the dev window,
+    // camera 1 is refused on the averaged frame and on all twelve looks, so it is set aside
+    // for the whole clip -- a third of that run scored on two cameras. The cause is on the
+    // frames, not in any gate: visit 1's second dart (the 16, v1.2) arrives at f64 and its
+    // barrel stands straight through camera 1's bull (annotated shaft x=652..654 from y=103
+    // to y=364; the bull is at (653,302)) until visit 1 is pulled at f203-241. A bull cut in
+    // two by a barrel is two half-bulls, and the bull stage picks one: (640,302) or
+    // (667,302), 13-14 px either side of the opening window's (653,302), at 0.072-0.078 of
+    // the board where a whole bull is 0.093. Every stage after it is measured from that
+    // wrong centre -- the 25 ring refused, R=0.577558 on the wire model, then the treble
+    // ring traced as the board -- which is exactly what the bull says it will be.
+    //
+    // MEASURED 2026-09-25 by testers/i1605_run.sh (the look census of #1445, run on that
+    // clip from its dev seek, one frame every five cycles; frame indices are 0-based):
+    //
+    //     rig-20260922/cam_1, dev window   averaged f90..f119     REFUSED
+    //                                      looks 1-24, f124..f239  24 of 24 REFUSED
+    //                                      looks 25-89, f244..f564 65 of 65 CALIBRATE
+    //
+    // So the longest run of refused looks on a camera whose average was refused is 24, and
+    // twelve does not outlast it: 1445-looks.sh's own phase B assertion, applied to the
+    // fixture it now also reads. 24 is where THIS start happened to land inside the dart's
+    // stay. The dart stood from f64 until at least f239, and a start whose averaged frame
+    // began the moment it arrived (f64..f93) reads look k at f93+5k, which first reaches
+    // f244 at k = 31. So 31
+    // outlasts the whole of the only bull-blocking dart measured, from any moment in its
+    // stay that a board could have been started. That is a margin of 31/24 = 1.3 on this
+    // start, much less than twelve's 2.4, and deliberately: the disturbance lasts as long
+    // as a player leaves a dart in the board, so no margin over one example bounds it.
+    //
+    // The cost is the one argued above and nothing else. Looking stops the moment the
+    // last refused camera calibrates, so a camera that calibrated within twelve looks
+    // spends exactly what it spent before, and a board whose cameras all calibrate on the
+    // averaged frame never gets here (rig-20260918, in both windows). What grows is the
+    // start-up of a board with a camera that never calibrates: 31 looks where it was 12.
+    //
+    // OD_LOOK_BUDGET=1445 restores twelve, so the population can be counted twice on one
+    // binary (#1340); testers/i1605_run.sh is that count.
+    constexpr int kFurtherLooks = 31;
+    constexpr int kFurtherLooksAsOf1445 = 12;
 
     // How many capture cycles pass between one look and the next. Consecutive frames are
     // not independent readings -- whatever the camera is reading that a board does not
@@ -114,6 +155,22 @@ namespace
         {
             const char *e = std::getenv("OD_CALIBRATION_LOOKS");
             return e && std::string(e) == "once";
+        }();
+        return v;
+    }
+
+    /**
+     * #1605: how many further looks a refused camera is given. OD_LOOK_BUDGET=1445 is the
+     * pin: #1445's twelve, which is what every commit before #1605 did. Anything but that
+     * exact word is ignored, so a typo gets the longer budget rather than silently the
+     * one this issue was filed on.
+     */
+    int furtherLookBudget()
+    {
+        static int v = []
+        {
+            const char *e = std::getenv("OD_LOOK_BUDGET");
+            return (e && std::string(e) == "1445") ? kFurtherLooksAsOf1445 : kFurtherLooks;
         }();
         return v;
     }
@@ -189,18 +246,27 @@ void GeometryDetector::lookAgainAtRefusedCameras()
     // refusal, with every camera named (#1389), if there is one.
     const string fault_before_looking = board_sight::faultDetail();
 
+    // #1605: the budget, read once, and said when it is the pinned one.
+    const int budget = furtherLookBudget();
+    if (budget != kFurtherLooks)
+    {
+        log_warning("OD_LOOK_BUDGET=1445 is set: a refused camera gets #1445's " + to_string(budget) +
+                    " further looks and not " + to_string(kFurtherLooks) +
+                    ", as it did before #1605");
+    }
+
     string names;
     for (size_t i : still_refused)
     {
         names += (names.empty() ? "" : ", ") + to_string((int)i + 1);
     }
     log_info("LOOK AGAIN: camera(s) " + names + " were refused on this start's averaged frame, "
-             "which is one picture and not an evening. Up to " + to_string(kFurtherLooks) +
+             "which is one picture and not an evening. Up to " + to_string(budget) +
              " further looks, " + to_string(kFramesBetweenLooks) +
              " capture cycles apart, before any of them is set aside for the run");
 
     int looks_spent = 0;
-    for (int look = 1; look <= kFurtherLooks && !still_refused.empty(); look++)
+    for (int look = 1; look <= budget && !still_refused.empty(); look++)
     {
         vector<camera::Frame> frames;
         for (int cycle = 0; cycle < kFramesBetweenLooks; cycle++)
@@ -235,7 +301,7 @@ void GeometryDetector::lookAgainAtRefusedCameras()
             // overwrite. This is a FIRST calibration for this camera, arriving late.
             calibrations[i] = fresh;
             log_info("LOOK AGAIN: camera " + to_string((int)i + 1) + " calibrated on look " +
-                     to_string(look) + " of " + to_string(kFurtherLooks) +
+                     to_string(look) + " of " + to_string(budget) +
                      ", so the averaged frame was a worse reading than this one and not a "
                      "camera that cannot be scored with");
         }

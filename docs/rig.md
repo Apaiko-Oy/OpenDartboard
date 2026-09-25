@@ -72,6 +72,12 @@ camera transmits. A format read there can never refuse a camera (#1336).
 - Camera 1 on the current setup sits near the admission threshold: twenty-fold wire
   coherence measured at 0.578 against the 0.60 gate on `mocks/rig-20260922`
   replays, admitting on some runs and not others (turnaus#1551).
+  **Corrected 2026-09-25 (turnaus#1605):** it is not near a threshold. #1551 showed the
+  flip was the calibration window, and #1605 found what is in that window: visit 1's
+  16 stands with its barrel through camera 1's bull from f64 until the pull at
+  f203-241, so the bull stage reads a half-bull 13-14 px off centre. On a clear board
+  the same camera calibrates on every look (R=0.87 at the opening). The look budget
+  now outlasts that dart (`geometry_detector.cpp`, `kFurtherLooks`).
 
 ## Board
 
