@@ -540,6 +540,15 @@ namespace camera
         // What this camera ended up being, in words, for the log.
         virtual std::string describe(size_t i) const = 0;
 
+        // #1618: a dev build's DEBUG_SEEK_VIDEO seeks each FILE camera to a different
+        // frame (3.00 s, 2.82 s, 2.64 s: frames 90, 84 and 79 of a 30 fps clip), which is
+        // the calibration window #1551 pinned -- and, until this, also the replay: the
+        // three cameras watched the recording 6 and 11 frames apart for the whole clip.
+        // Called once calibration is finished, this reads the lagging files forward so
+        // every file camera shows the same frame index from then on. A device has no
+        // position and is never touched; the default does nothing.
+        virtual void alignSeekedFiles() {}
+
         // #1282: every source is a FILE and every one of them has reached its end.
         //
         // This is not "the board cannot see". A camera never ends, so this is false for

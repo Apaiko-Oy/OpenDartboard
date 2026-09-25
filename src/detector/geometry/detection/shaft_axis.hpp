@@ -271,6 +271,43 @@ namespace shaft_axis
         // blob shapes the rms gate exists to refuse. (3) Board-plane geometry with
         // the light: nothing in this repository knows where the light is, and
         // estimating an illuminant per camera is a slice of its own.
+
+        // #1586: THE COMPOSITE RESCUE. A figure the straightness gate refuses is, on the
+        // rigs, almost always ONE dart with something else linked into it, not a bent
+        // dart: the cause census (testers/i1586_census.py, run over #1555's four
+        // replays at b3528e5) found "not straight" to be the dominant reason a camera
+        // was unusable on a TOO-FEW-CONSTRAINTS dart -- 27 of 50 unusable cameras, on
+        // 18 of the 21 refused darts -- and in all 27 the hand annotation shows the
+        // camera SAW the dart, with the refused (contaminated) plain fit already within
+        // 5 deg and 15 px of the annotated line on 15 of them. So the refusal was
+        // needless where the figure holds one clearly dominant straight component: the
+        // rescue looks for it among the centreline columns (the line most columns agree
+        // with, to the straightness gate's own tolerance), cuts the figure to a
+        // corridor about it, and fits THAT with every gate unchanged. It is refused by
+        // name when no component is dominant (`rescue_min_fraction`) or when a second
+        // straight component rivals it (`rescue_rival_ratio`) -- two crossing rods, a
+        // bent silhouette and a parallel older dart are all "two lines" and stay
+        // refused. OFF BY DEFAULT, here and in the pipeline: OD_AXIS_RESCUE=on
+        // (dart_processing.cpp) turns it on, and unset is the old exclusion byte for
+        // byte. MEASURED why it is not the default (testers/i1586_run.sh, both fixtures,
+        // both windows): it takes TOO-FEW-CONSTRAINTS over matched darts from 21 to 12
+        // and the nine darts it newly solves read 8 exact -- the solver's usual ~90% --
+        // but the vote was already exact on 7 of those 8, and the one dart it newly gets
+        // right (rig-20260922 dev v8.2, S18 -> S4) is paid for by one it newly gets
+        // wrong (rig-20260922 opening v5.3, an exact S7 -> S19 across the 7/19 wire, a
+        // WIRE-UNCERTAIN solve). #1586's bar is that no exact dart regresses.
+        bool rescue_composite = false;
+
+        // The dominant component must hold at least this share of the figure's
+        // centreline columns: a clear majority of the figure's length is one straight
+        // object, so the component IS the figure and the rest is what was linked into
+        // it. A shape fact, not a fixture fit: at one half two equal objects tie.
+        double rescue_min_fraction = 0.6;
+
+        // And no second straight component, among the columns the first does not
+        // explain, may hold this share of the first's columns: a figure with two
+        // comparable lines in it is two objects whichever the vote favours.
+        double rescue_rival_ratio = 0.5;
     };
 
     /** One centreline sample: one one-pixel column along the axis. Kept for overlays
@@ -322,6 +359,18 @@ namespace shaft_axis
         bool shadowApplied = false;      // the returned spine is the subtracted one
         int shadowPixels = 0;            // support pixels classified as cast shadow
         int shadowColumns = 0;           // columns dropped because only shadow remained
+
+        // #1586: the composite rescue's own census. `rescueTried` says the plain fit
+        // failed the straightness gate alone and the rescue looked; `rescued` says the
+        // returned axis is the dominant component's, cut to its corridor. The plain
+        // fit's figures are kept beside it so a reader can see what was refused first.
+        bool rescueTried = false;
+        bool rescued = false;
+        double rescuePlainRmsPx = 0.0;   // the plain fit's centreline rms, the refused one
+        double rescuePlainAngleDeg = 0.0;
+        double rescueFraction = 0.0;     // dominant component's share of the columns
+        double rescueRivalRatio = 0.0;   // best rival component over the dominant one
+        std::string rescueNote;          // why the rescue refused, when it did
 
         // Event and frame identity, filled by the caller that owns them
         // (dart_processing::processDartState): which camera, which completed window,
@@ -392,7 +441,7 @@ namespace shaft_axis
      * leaves the fit exactly #1511's, and `shadowSubtracted` says which happened --
      * the absence is reported, never silent.
      */
-    inline AxisObservation observeShaftAxis(const std::vector<cv::Point> &supportPixels,
+    inline AxisObservation observeShaftAxisOnce(const std::vector<cv::Point> &supportPixels,
                                             const cv::Mat &current, const cv::Mat &reference,
                                             const AxisParams &params = AxisParams())
     {
@@ -816,7 +865,7 @@ namespace shaft_axis
         {
             AxisParams plainParams = params;
             plainParams.subtract_shadow = false;
-            AxisObservation plain = observeShaftAxis(supportPixels, cv::Mat(), cv::Mat(),
+            AxisObservation plain = observeShaftAxisOnce(supportPixels, cv::Mat(), cv::Mat(),
                                                      plainParams);
             if (plain.extentPx > 0.0 && out.extentPx > 0.0 &&
                 plain.centrelineRmsPx < out.centrelineRmsPx)
@@ -834,6 +883,290 @@ namespace shaft_axis
             out.shadowApplied = true; // live, nothing classified: the plain spine won
         }
         return out;
+    }
+
+    namespace detail
+    {
+        /** One centreline sample of the rescue's own binning: t along, u across. */
+        struct RescueColumn
+        {
+            double t = 0.0, u = 0.0, width = 0.0;
+        };
+
+        /**
+         * #1586: the straight component most columns of `idx` agree with, to `band` px
+         * perpendicular. Deterministic: candidate lines through pairs of an evenly
+         * strided subsample, pairs at least a quarter of the span apart (a line through
+         * two neighbouring columns is any direction at all), the first best count wins,
+         * then two least-squares refits on the inliers. Returns the inlier count; `a`,
+         * `b` are u = a + b * t, and `inliers` the members, in `idx` order.
+         */
+        inline int dominantComponent(const std::vector<RescueColumn> &cols,
+                                     const std::vector<int> &idx, double band,
+                                     double &a, double &b, std::vector<int> &inliers)
+        {
+            inliers.clear();
+            a = b = 0.0;
+            if (idx.size() < 3)
+            {
+                return 0;
+            }
+            const double span = cols[idx.back()].t - cols[idx.front()].t;
+            const size_t step = std::max<size_t>(1, idx.size() / 80);
+            std::vector<int> cand;
+            for (size_t k = 0; k < idx.size(); k += step)
+            {
+                cand.push_back(idx[k]);
+            }
+            auto countFor = [&](double aa, double bb, std::vector<int> *members)
+            {
+                const double scale = std::sqrt(1.0 + bb * bb);
+                int n = 0;
+                for (int i : idx)
+                {
+                    if (std::fabs(cols[i].u - (aa + bb * cols[i].t)) <= band * scale)
+                    {
+                        n++;
+                        if (members)
+                        {
+                            members->push_back(i);
+                        }
+                    }
+                }
+                return n;
+            };
+            int best = 0;
+            for (size_t i = 0; i < cand.size(); i++)
+            {
+                for (size_t j = i + 1; j < cand.size(); j++)
+                {
+                    const RescueColumn &p = cols[cand[i]], &q = cols[cand[j]];
+                    if (q.t - p.t < 0.25 * span)
+                    {
+                        continue;
+                    }
+                    const double bb = (q.u - p.u) / (q.t - p.t);
+                    const double aa = p.u - bb * p.t;
+                    const int n = countFor(aa, bb, nullptr);
+                    if (n > best)
+                    {
+                        best = n;
+                        a = aa;
+                        b = bb;
+                    }
+                }
+            }
+            if (best < 3)
+            {
+                return 0;
+            }
+            for (int round = 0; round < 2; round++)
+            {
+                inliers.clear();
+                countFor(a, b, &inliers);
+                if (inliers.size() < 3)
+                {
+                    return 0;
+                }
+                double st = 0, su = 0;
+                for (int i : inliers)
+                {
+                    st += cols[i].t;
+                    su += cols[i].u;
+                }
+                const double tb = st / inliers.size(), ub = su / inliers.size();
+                double stt = 0, stu = 0;
+                for (int i : inliers)
+                {
+                    stt += (cols[i].t - tb) * (cols[i].t - tb);
+                    stu += (cols[i].t - tb) * (cols[i].u - ub);
+                }
+                if (!(stt > 0.0))
+                {
+                    return 0;
+                }
+                b = stu / stt;
+                a = ub - b * tb;
+            }
+            inliers.clear();
+            return countFor(a, b, &inliers);
+        }
+    }
+
+    /**
+     * The axis of one fresh figure: #1511's fit (with #1554's shadow subtraction), and
+     * -- where `params.rescue_composite` is on and the plain fit failed the straightness
+     * gate ALONE -- #1586's composite rescue. AxisParams' rescue docblock owns the
+     * measurement that bought it; the rule, in order:
+     *
+     *   1. bin the WHOLE figure at one-pixel pitch along the refused plain fit's line
+     *      (its direction is the figure's, contaminated or not -- a component is looked
+     *      for in the frame the refusal was measured in);
+     *   2. the dominant straight component of those column means, to the straightness
+     *      gate's own tolerance, must hold `rescue_min_fraction` of the columns, and
+     *      the best straight component among the rest must stay under
+     *      `rescue_rival_ratio` of it -- else refused, by name, in `rescueNote`;
+     *   3. the figure is cut to a corridor about that component (half its median column
+     *      width plus 2 px either side, over its own extent plus 2 px) and fitted AGAIN,
+     *      shadow subtraction and every gate included, unchanged. Only a corridor fit
+     *      that passes every gate is an axis.
+     *
+     * Nothing is loosened: the returned axis passed the same 2.5 px straightness, 3.0
+     * elongation, 60 px support and 6 deg sigma gates as any other, on the pixels one
+     * object printed.
+     */
+    inline AxisObservation observeShaftAxis(const std::vector<cv::Point> &supportPixels,
+                                            const cv::Mat &current, const cv::Mat &reference,
+                                            const AxisParams &params = AxisParams())
+    {
+        AxisObservation base = observeShaftAxisOnce(supportPixels, current, reference, params);
+        if (!params.rescue_composite || !params.gated || base.valid ||
+            base.refusal.rfind("not straight:", 0) != 0 ||
+            base.refusal.find("; ") != std::string::npos || base.extentPx <= 0.0)
+        {
+            return base;
+        }
+        base.rescueTried = true;
+        base.rescuePlainRmsPx = base.centrelineRmsPx;
+        base.rescuePlainAngleDeg = base.angleDeg;
+
+        // 1. The whole figure, binned along the refused line.
+        const cv::Point2d O(base.point.x, base.point.y);
+        const cv::Point2d D(base.direction.x, base.direction.y);
+        const cv::Point2d N(-D.y, D.x);
+        double tmin = 1e18, tmax = -1e18;
+        std::vector<double> ts(supportPixels.size()), us(supportPixels.size());
+        for (size_t i = 0; i < supportPixels.size(); i++)
+        {
+            const double dx = supportPixels[i].x - O.x, dy = supportPixels[i].y - O.y;
+            ts[i] = dx * D.x + dy * D.y;
+            us[i] = dx * N.x + dy * N.y;
+            tmin = std::min(tmin, ts[i]);
+            tmax = std::max(tmax, ts[i]);
+        }
+        const int nbins = (int)std::floor(tmax - tmin) + 1;
+        std::vector<double> su(nbins, 0.0), umin(nbins, 1e18), umax(nbins, -1e18);
+        std::vector<int> n(nbins, 0);
+        for (size_t i = 0; i < supportPixels.size(); i++)
+        {
+            const int b = std::min(nbins - 1, (int)std::floor(ts[i] - tmin));
+            su[b] += us[i];
+            umin[b] = std::min(umin[b], us[i]);
+            umax[b] = std::max(umax[b], us[i]);
+            n[b]++;
+        }
+        std::vector<detail::RescueColumn> cols;
+        for (int b = 0; b < nbins; b++)
+        {
+            if (n[b] > 0)
+            {
+                detail::RescueColumn c;
+                c.t = tmin + b + 0.5;
+                c.u = su[b] / n[b];
+                c.width = umax[b] - umin[b] + 1.0;
+                cols.push_back(c);
+            }
+        }
+        std::vector<int> all(cols.size());
+        for (size_t i = 0; i < cols.size(); i++)
+        {
+            all[i] = (int)i;
+        }
+
+        // 2. One dominant component, and no rival.
+        const double band = params.max_centreline_rms_px;
+        double a = 0.0, b = 0.0;
+        std::vector<int> inl;
+        const int best = detail::dominantComponent(cols, all, band, a, b, inl);
+        base.rescueFraction = cols.empty() ? 0.0 : (double)best / cols.size();
+        if (best == 0 || base.rescueFraction < params.rescue_min_fraction)
+        {
+            base.rescueNote = "no dominant straight component: the best holds " +
+                              detail::fmt("%.2f", base.rescueFraction) + " of " +
+                              std::to_string(cols.size()) + " columns against " +
+                              detail::fmt("%.2f", params.rescue_min_fraction);
+            return base;
+        }
+        std::vector<char> taken(cols.size(), 0);
+        for (int i : inl)
+        {
+            taken[i] = 1;
+        }
+        std::vector<int> rest;
+        for (size_t i = 0; i < cols.size(); i++)
+        {
+            if (!taken[i])
+            {
+                rest.push_back((int)i);
+            }
+        }
+        double ra = 0.0, rb = 0.0;
+        std::vector<int> rinl;
+        const int rival = detail::dominantComponent(cols, rest, band, ra, rb, rinl);
+        base.rescueRivalRatio = (double)rival / best;
+        if (base.rescueRivalRatio >= params.rescue_rival_ratio)
+        {
+            base.rescueNote = "two straight components: a rival holds " +
+                              std::to_string(rival) + " columns against the dominant " +
+                              std::to_string(best) + " (ratio " +
+                              detail::fmt("%.2f", base.rescueRivalRatio) + " against " +
+                              detail::fmt("%.2f", params.rescue_rival_ratio) + ")";
+            return base;
+        }
+
+        // 3. The corridor, and the whole fit again on what it holds.
+        std::vector<double> widths;
+        double t0 = 1e18, t1 = -1e18;
+        for (int i : inl)
+        {
+            widths.push_back(cols[i].width);
+            t0 = std::min(t0, cols[i].t);
+            t1 = std::max(t1, cols[i].t);
+        }
+        const double half = 0.5 * detail::medianOf(widths) + 2.0;
+        const double scale = std::sqrt(1.0 + b * b);
+        std::vector<cv::Point> corridor;
+        for (size_t i = 0; i < supportPixels.size(); i++)
+        {
+            if (ts[i] < t0 - 2.0 || ts[i] > t1 + 2.0)
+            {
+                continue;
+            }
+            if (std::fabs(us[i] - (a + b * ts[i])) / scale <= half)
+            {
+                corridor.push_back(supportPixels[i]);
+            }
+        }
+        AxisParams once = params;
+        once.rescue_composite = false;
+        AxisObservation sub = observeShaftAxisOnce(corridor, current, reference, once);
+        if (!sub.valid)
+        {
+            base.rescueNote = "the dominant component's own fit is refused: " + sub.refusal;
+            return base;
+        }
+        sub.rescueTried = true;
+        sub.rescued = true;
+        sub.rescuePlainRmsPx = base.rescuePlainRmsPx;
+        sub.rescuePlainAngleDeg = base.rescuePlainAngleDeg;
+        sub.rescueFraction = base.rescueFraction;
+        sub.rescueRivalRatio = base.rescueRivalRatio;
+        return sub;
+    }
+
+    /** #1586's census line, printed beside I1511AXIS wherever the rescue looked: a
+     *  separate line, so the I1511AXIS head every census parses is byte-for-byte the
+     *  same. */
+    inline std::string rescueLine(const AxisObservation &axis)
+    {
+        char head[260];
+        snprintf(head, sizeof(head),
+                 "I1586RESCUE window=%ld cam=%d rescued=%d plainRms=%.2f plainAngle=%.2f "
+                 "angle=%.2f rms=%.2f fraction=%.3f rival=%.3f note=",
+                 axis.windowOrdinal, axis.camera + 1, axis.rescued ? 1 : 0,
+                 axis.rescuePlainRmsPx, axis.rescuePlainAngleDeg, axis.angleDeg,
+                 axis.centrelineRmsPx, axis.rescueFraction, axis.rescueRivalRatio);
+        return std::string(head) + (axis.rescued ? "-" : axis.rescueNote);
     }
 
     /** #1511's original shape: no images offered, so no shadow subtraction -- the fit

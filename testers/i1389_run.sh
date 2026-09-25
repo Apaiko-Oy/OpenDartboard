@@ -12,7 +12,12 @@
 # asserts it names that site by file and line. That second run is the whole point: a
 # census that has never been shown to fail is a census nobody can trust, and this one
 # exists to catch a line that does not exist yet. It is #997's mutation proof in the
-# shape #1371's census.sh established. No container: it reads files.
+# shape #1371's census.sh established. It reads files and builds nothing, but it runs in
+# a container all the same (#1607): both runs used to be a HOST `python3`, and the box
+# that runs the suite has none -- the Windows Store stub answers "Python ei loytynyt",
+# rc=49, and both halves then read 49. The tree goes in at /app and the planted copy at
+# /run1389/planted, read-only; the same file with the same argument, only its paths are
+# the container's. #1560's rule: the IMAGE has an interpreter, the HOST may not.
 #
 # ARITHMETIC compiles the pure header against testers/i1389_quorum_check.cpp and moves
 # the floor under a fixed board, which a whole binary cannot do without a second build.
@@ -44,7 +49,8 @@ RC=0
 if [ "$WHICH" = both ] || [ "$WHICH" = all ] || [ "$WHICH" = census ]; then
   echo "=================================================================="
   echo "=== the census, over this tree ==="
-  python3 "$OD_TREE_ROOT/testers/i1389_quorum_census.py" "$OD_TREE_ROOT"
+  od_run "i1389-census" --network none -v "$OD_TREE_ROOT":/app:ro -w /app "$OD_IMAGE" \
+    python3 testers/i1389_quorum_census.py /app < /dev/null
   C=$?
   echo
   echo "=== the same census, over a copy of this tree with a fourth call site planted ==="
@@ -68,7 +74,9 @@ namespace
     }
 }
 PLANTED
-  python3 "$OD_TREE_ROOT/testers/i1389_quorum_census.py" "$PLANT"
+  od_run "i1389-census-planted" --network none -v "$OD_TREE_ROOT":/app:ro \
+    -v "$PLANT":/run1389/planted:ro -w /app "$OD_IMAGE" \
+    python3 testers/i1389_quorum_census.py /run1389/planted < /dev/null
   P=$?
   echo
   if [ "$C" = 0 ]; then

@@ -1,7 +1,8 @@
 #!/bin/bash
 # #1512's harness: the entry-intersection census -- geometric position and score
-# against ground truth, side by side with the string-vote baseline, coverage and
-# refusals, overlays, and the inherited falsification targets read out by name.
+# against ground truth, side by side with what was published (by path) and with the
+# string vote's own reading (#1584), coverage and refusals, overlays, and the inherited
+# falsification targets read out by name.
 #
 #   testers/run_all.sh 1512        build the tree and run this (and the pure check)
 #   testers/i1512_run.sh           run it against this checkout

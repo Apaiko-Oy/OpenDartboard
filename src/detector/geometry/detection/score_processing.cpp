@@ -730,6 +730,7 @@ namespace score_processing
             ev.axisPoint = r.axis.point;
             ev.axisDir = r.axis.direction;
             ev.axisSigmaDeg = r.axis.sigmaDeg;
+            ev.axisRescued = r.axis.rescued; // #1586: a last resort, see solveEntry
             ev.tipFound = r.frame_available && r.tip_found;
             ev.tipImage = r.tip_position;
             evidence.push_back(ev);

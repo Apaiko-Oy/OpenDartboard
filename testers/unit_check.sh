@@ -48,6 +48,8 @@ case "$NAME" in
   1554) SRC=i1554_shadow_check.cpp;      EXTRA= ;;
   # #1560: the lens-census model -- control, mutation, and the trap as arithmetic.
   1560) SRC=i1560_lens_check.cpp;        EXTRA= ;;
+  # #1586: the composite rescue of a not-straight figure, on figures whose truth is built.
+  1586) SRC=i1586_rescue_check.cpp;      EXTRA= ;;
   # wire_model.cpp for row 1510's reason: entry_intersection.hpp includes board_model.hpp,
   # whose fit calls into wire_model:: at link time.
   1512) SRC=i1512_intersect_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
@@ -59,7 +61,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517 1553 1554 1560 bull-colour" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1477 1510 1510p2 1511 1512 1517 1553 1554 1560 1586 bull-colour" >&2
     exit 2
     ;;
 esac

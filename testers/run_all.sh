@@ -63,6 +63,9 @@ tester address            "bash '$T/check_default_address.sh'"
 # grey. It compiles nothing and reads no C++: #1452 rejected a lint for nonstandard
 # identifiers on the grounds that a check which looks like a Windows build and is not one
 # is worse than none, and this is not that check.
+# #1607: its python runs INSIDE $OD_IMAGE (the tree at /app, read-only, --network none),
+# because the box that runs the suite has no host python3 and this row read rc=49 there --
+# #1560's rule, written beside 1560-lensmodel below. So it costs one container start now.
 tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
@@ -73,6 +76,10 @@ tester census             "bash '$T/census.sh'"
 # Then the leak check, for the same reason and with the same cost: it starts containers but
 # every one of them is `sleep`, and what it measures -- that a killed harness leaves nothing
 # behind -- is a property of every tester below it (#1341).
+# #1607: it stays on the HOST, because what it measures is the host's process groups and
+# signals. Its victim launcher is no longer a host python3 (the box that runs the suite has
+# none, so all six cases read "never came up"); it is `env --default-signal` and `setsid`,
+# and a box without them is told so by name.
 tester leaks              "bash '$T/leak_check.sh'"
 tester 1346-vote          "bash '$T/unit_check.sh' 1346"
 tester 1347-sector        "bash '$T/unit_check.sh' 1347"
@@ -181,10 +188,13 @@ tester 1554-shadow        "bash '$T/i1554_run.sh'"
 # nothing. Costs one compile plus wire_model.cpp.
 tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
 # #1512's fixture half: the geometric census on both rigs against the ground-truth
-# tables and i1511's annotations, side by side with the string-vote baseline, plus
-# the control proving OD_GEO_SCORE defaults off with published scores untouched and
-# the #1505/#1535 falsification targets read out by name. Four whole-clip replays,
-# i1511's shape and cost.
+# tables and i1511's annotations, side by side with what was published and with the
+# string vote's own reading, plus the control proving OD_GEO_SCORE defaults off with
+# published scores untouched and the #1505/#1535 falsification targets read out by name.
+# #1584: each scorecard column is named for the line it reads -- `published` the SCORE
+# line by the path I1555PUBLISH names, `string-vote` that line's vote= -- and a dart not
+# published under the geometry-first rule the census is told of fails the row by name
+# (I1512 PATH-MISMATCH). Four whole-clip replays, i1511's shape and cost.
 tester 1512-entry         "bash '$T/i1512_run.sh'"
 # #1555: WHICH of the two paths publishes. The decision is `decidePublishedPath`, pure and
 # over primitives so score_processing.hpp need not reach entry_intersection.hpp (four pure
@@ -241,6 +251,18 @@ tester 1556-flag          "bash '$T/i1556_check.sh'"
 # meets a `no answer in 1200s` that this row had 69 s of headroom on a busy box and that
 # the remedy is a quiet box rather than a bug hunt.
 tester 1556-flagcensus    "bash '$T/i1556_run.sh'"
+# #1586: why the geometry refuses a dart, and the composite rescue of the dominant cause
+# (OD_AXIS_RESCUE=on, opt-in: the default binary is the pre-#1586 exclusion). The pure half
+# holds the rescue on built figures (a dart with something linked alongside is recovered
+# onto the dart; two objects stay refused; rescue off is the plain fit). The fixture half is
+# eight whole-clip replays -- both fixtures, both windows, rescue on and default -- asserting
+# the default prints no rescue, the rescue fires, and TOO-FEW-CONSTRAINTS falls; the
+# published before/after and every changed dart are reported by name. MEASURED wall: 856 s
+# for the fixture half on 2026-09-25 (one run, box shared with another agent's censuses),
+# so 1800 s is about twice that, #1341's rule.
+tester 1586-rescuecheck   "bash '$T/unit_check.sh' 1586"
+tester 1586-rescue        "bash '$T/i1586_run.sh'"
+slow 1800
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which
@@ -287,6 +309,8 @@ tester 1394-windows       "bash '$T/i1394_run.sh'"
 # 4-core box, to completion, rc=0: wall 284.8 s at host_busy_pct=60.2, so it takes no
 # `slow` -- it sits well inside the default 1200 and the number is here rather than in
 # nobody's head, which is how 1317-asan's 1200 got to be wrong.
+# #1607: its census half runs INSIDE $OD_IMAGE, twice (the tree, then the planted copy),
+# because it was a host python3 and read rc=49 on the box that runs the suite.
 tester 1437-fixture       "bash '$T/i1437_run.sh'"
 tester 1441-region        "bash '$T/i1441_run.sh'"
 # #1442: twenty is a ceiling as well as a floor. It calibrates the same ninety single
@@ -467,6 +491,10 @@ tester 1474-beat-census   "bash '$T/i1474_run.sh'"
 # accuracy half can be asked of, and the shipped mocks under a cycle budget, whose figures
 # carry #1478's caveat and whose run is where the truncation notice is proved to fire.
 # It asserts NOTHING about the numbers (#1322) and fails on a run it could not read.
+# #1584: since #1555 the confidences mean different things on the two publishing paths,
+# so every dart is censused under the path its own PATH line names, and a dart not
+# published under the geometry-first rule the census is told of fails the row by name
+# (PATH-MISMATCH) -- proved to fire on the rig log itself, censused as the vote's.
 # MEASURED 2026-09-21 on the 4-core box, to completion, rc=0: wall 112.6 s at
 # host_busy_pct=71.5 and load_at_end=7.05 -- a CONTENDED box, with another agent's tester
 # container up alongside it throughout. So it takes no `slow`: it sits well inside the
@@ -495,6 +523,25 @@ tester 1514-stall         "bash '$T/i1514_run.sh'"
 # red here by name. Eleven calibration-window runs, no whole-clip replay.
 # MEASURED 2026-09-24 on the 4-core box: 235 s, well inside the default 1200.
 tester 1551-admission     "bash '$T/i1551_run.sh'"
+# #1605: rig-20260922's camera 1 is set aside in the dev window because visit 1's 16
+# stands with its barrel through that camera's bull from f64 until the pull at f203-241,
+# and #1445's twelve looks end at f179. The look census names the refused run (24 looks);
+# OD_LOOK_BUDGET=1605 (31 looks, opt-in because the rescued camera cost that run
+# accuracy) calibrates camera 1 on the predicted look with the opening window's figures;
+# the default stays main's 2 of 3; rig-20260918 and rig-20260922's opening are
+# byte-identical either way. One look census and eight calibration-only runs, no
+# whole-clip replay.
+# MEASURED 2026-09-25 on the 4-core box at load ~6: 478 s (and 623 s on the first run, at load 6-11), inside the default 1200.
+tester 1605-looks         "bash '$T/i1605_run.sh'"
+# #1618: why #1605's opt-in made rig-20260922 dev worse. A dev build seeks its three file
+# cameras to frames 90, 84 and 79 and never brings them back into step, so once camera 1
+# votes, a throw is called by camera 1 and again by cameras 2 and 3 eleven frames later
+# (echo windows). OD_SEEK_ALIGN=1618 aligns the files after calibration: the opt-in then
+# reads above 15/23, and stays a pin because v7.2 and v8.1 still regress. Three whole-clip
+# replays and one calibration-only run.
+# MEASURED 2026-09-25 on the 4-core box at load ~5: 552 s (9m12s with the build), inside the 1500 given.
+tester 1618-thirdcam      "bash '$T/i1618_run.sh'"
+slow 1500
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
@@ -526,9 +573,8 @@ tester 1560-lenscheck     "bash '$T/unit_check.sh' 1560"
 # HOST has one. The host python3 calls in i1510p2_run.sh and its siblings are not a
 # counter-example -- they are command substitutions computing a wall time, so the stub
 # costs them an empty field and not a failure, which is exactly why this was invisible.
-# 1532-guard IS one, though, and is not #1560's to move: it is
-# `python3 '$T/i1532_guard.py' ...` from this file and it answers rc=49 on this box,
-# measured 2026-09-25 while proving these two rows green.
+# 1532-guard WAS one, measured rc=49 on this box 2026-09-25 while proving these two rows
+# green; #1588 moved it into the image the same way (i1532_check.sh).
 # MEASURED 2026-09-25 on this box, #1341's rule: 91, 92, 93, 95, 96 and 97 s over six
 # runs through run_all.sh, and 99 s standalone, against the 1200 s default. The spread
 # rather than the best of them, because one number cannot tell a reader whether a slow
@@ -591,6 +637,8 @@ tester 1336-probe-admission "bash '$T/unit_check.sh' 1336"
 # drops-the-fraction 9. Each flips its own half and none of them is caught by everything,
 # which is what says the assertions are load-bearing rather than decorative.
 tester 1486-anchor        "bash '$T/i1486_run.sh'"
+# #1389: the census half runs INSIDE $OD_IMAGE since #1607, for the same reason as
+# 1437-fixture's: it was a host python3, and the box that runs the suite has none.
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"
@@ -641,7 +689,15 @@ tester 1531-corpus       "bash '$T/i1531_run.sh'"
 # no secret, release.yml does not run the journey, and the pull_request `paths:` filter covers
 # every file src/launcher/main.cpp reaches through an #include -- so a new header is caught on
 # this gate rather than by a pull request that silently skipped the check. Python, no build.
-tester 1532-guard        "python3 '$T/i1532_guard.py' '$OD_TREE_ROOT'"
+# #1588: through i1532_check.sh, which runs the same file on the same tree INSIDE $OD_IMAGE,
+# because this line was a HOST `python3` and the box that runs the suite has none (the
+# Store stub, rc=49) -- #1560's rule, written beside 1560-lensmodel above. The workflow
+# still calls i1532_guard.py on the runner's own python; only this row moved.
+# MEASURED 2026-09-25 on the 4-core WSL box at load 5.9-7.5, #1341's rule: 1, 1, 1, 1, 1
+# and 3 s as run_all.sh reports the row over six runs of `run_all.sh 1532-guard`, and
+# 1.3, 2.0 and 2.1 s for i1532_check.sh standalone -- nearly all of it the container
+# start, the guard itself being a file read. No `slow`: 1200 is four hundred times the worst.
+tester 1532-guard        "bash '$T/i1532_check.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"

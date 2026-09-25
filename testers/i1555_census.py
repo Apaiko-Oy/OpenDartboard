@@ -30,6 +30,12 @@ more accurate" is four different questions and three of them have different deno
                    wired build and VOTE under OD_SCORE_PATH=vote, and a disagreement means
                    the wiring is not the decision.
 
+    ACCURACY       (#1587) the one figure the accuracy effort is judged by: correct over
+                   EVERY annotated arrival, not over the matched ones, with the 96%
+                   target and each row's shortfall printed beside it. The four columns
+                   above leave out every arrival nothing matched; this one counts it
+                   wrong and names it. See accuracy() for the buckets.
+
 Errors are split the way mocks/rig-20260918/GROUND-TRUTH.md splits them, because they are
 different faults: a RING error is the right number in the wrong band (T13 read S13), a
 WEDGE error is a different number entirely, a PHANTOM is a score published where a miss
@@ -198,7 +204,158 @@ def pool(files):
         print("I1555 VERDICT-BY-FIXTURE %s: vote %d/%d, geometry-first %d/%d, margin %+d"
               % (f, agg["vote_exact"], agg["matched"], agg["first_exact"],
                  agg["matched"], d))
+    pool_accuracy(files)
     return 0
+
+
+TARGET_PERMILLE = 960   # #1488: the accuracy target, 96%, over every arrival
+
+
+def target_line(correct, n):
+    """`target 96% = need/n, short k` -- how many darts this row is short of it."""
+    need = -(-TARGET_PERMILLE * n // 1000)   # ceil(0.96 n), in integers
+    return "target 96%% = %d/%d, short %d" % (need, n, max(0, need - correct))
+
+
+def accuracy(fixture, window, visits, annots, arrivals, assignment):
+    """#1587: ONE figure over every annotated arrival, not over the matched ones.
+
+        correct / every annotated arrival (--no-arrival rows are not arrivals)
+
+    - an on-board arrival is correct only if its matched publication is exact
+      (WRONG-SCORE otherwise, with GROUND-TRUTH.md's ring/wedge/silence word);
+    - an arrival with no matched publication is UNDETECTED, and wrong;
+    - an off-board arrival (thrown MISS) is correct if it publishes MISS or nothing,
+      and OFF-BOARD-SCORED (wrong) if its publication is a score;
+    - a publication no arrival claimed is a PHANTOM, named and counted apart, and it
+      does not enter the denominator.
+
+    AMBIGUOUS, and only where #1504's rule forces it. Nothing joins a publication to a
+    throw but the spatial matcher, and it can decline a pair (cost over its cap). An
+    arrival it left unmatched could still be an UNCLAIMED publication lying between the
+    arrival's matched neighbours in time -- publications keep the order of the throws,
+    so those are exactly its order-preserving placements. Every such placement is
+    evaluated beside "no publication at all"; where they all agree the verdict stands,
+    and where they differ the dart is ambiguous, the correct count is printed as a
+    range and the target shortfall is taken on its lower bound. No placement is ever
+    CHOSEN, and the one that scores best least of all.
+    """
+    tag = "fixture=%s window=%s" % (fixture, window)
+    by_key = dict((key, pos) for pos, key in assignment["assigned"].items())
+    order = [(v, ei) for v, visit in enumerate(visits) for ei in range(len(visit))]
+    flat_index = dict((pos, i) for i, pos in enumerate(order))
+    unclaimed = [pos for pos in assignment["unmatched"]
+                 if visits[pos[0]][pos[1]].pub is not None]
+
+    def published(pos):
+        return norm(visits[pos[0]][pos[1]].pub["score"])
+
+    def name(pos):
+        return "v%d#%d %s" % (pos[0] + 1, pos[1] + 1, published(pos))
+
+    def judge(thrown, pub):
+        """(bucket, reason) for one arrival against one publication, or None."""
+        if pub is None:
+            if thrown == "MISS":
+                return "correct", "nothing published for an off-board throw"
+            return "undetected", "no publication matched"
+        if thrown == "MISS":
+            if pub == "MISS":
+                return "correct", "published MISS"
+            return "off-board-scored", "a score published for an off-board throw"
+        if pub == thrown:
+            return "correct", "exact"
+        return "wrong-score", verdict(pub, thrown)
+
+    buckets = ["correct", "wrong-score", "undetected", "off-board-scored", "ambiguous"]
+    counts = dict((k, 0) for k in buckets)
+    named = []
+    for key in arrivals:
+        thrown = norm(list(annots[key].values())[0]["thrown"])
+        dart = "v%d.%d thrown=%s" % (key[0], key[1], thrown)
+        pos = by_key.get(key)
+        if pos is not None:
+            bucket, reason = judge(thrown, published(pos))
+            counts[bucket] += 1
+            if bucket != "correct":
+                named.append("%s published=%s %s (%s; detected v%d#%d)"
+                             % (dart, published(pos), bucket.upper(), reason,
+                                pos[0] + 1, pos[1] + 1))
+            continue
+        lo = max([flat_index[by_key[k]] for k in by_key if k < key] or [-1])
+        hi = min([flat_index[by_key[k]] for k in by_key if k > key] or [len(order)])
+        cands = [p for p in unclaimed if lo < flat_index[p] < hi]
+        outcomes = [(judge(thrown, None), None)] + \
+                   [(judge(thrown, published(p)), p) for p in cands]
+        # Ambiguous is about CORRECTNESS: undetected under one placement and a wrong
+        # score under another is wrong either way, and stays counted as the matcher
+        # left it (undetected), with the alternatives named.
+        if len(set(o[0][0] == "correct" for o in outcomes)) == 1:
+            bucket, reason = outcomes[0][0]
+            counts[bucket] += 1
+            if bucket != "correct":
+                also = ("; wrong under every order-preserving placement: %s" % ", ".join(
+                    "%s -> %s" % (name(p), o[0]) for o, p in outcomes[1:])) if cands else ""
+                named.append("%s published=- %s (%s%s)"
+                             % (dart, bucket.upper(), reason, also))
+            continue
+        counts["ambiguous"] += 1
+        named.append("%s published=? AMBIGUOUS (the matcher placed no publication; its "
+                     "order-preserving placements read %s)"
+                     % (dart, " | ".join("%s -> %s" % ("none" if p is None else name(p),
+                                                       o[0])
+                                         for o, p in outcomes)))
+    scoring_phantoms = sum(1 for p in unclaimed if published(p) != "MISS")
+    n = len(arrivals)
+    c, amb = counts["correct"], counts["ambiguous"]
+    print("I1555 ACCURACY %s correct %s/%d (%s) | %s | wrong-score %d, undetected %d, "
+          "off-board-scored %d, ambiguous %d | phantoms %d (%d scoring)"
+          % (tag, "%d..%d" % (c, c + amb) if amb else "%d" % c, n,
+             "%.1f%%" % (100.0 * c / n) if n else "n/a", target_line(c, n),
+             counts["wrong-score"], counts["undetected"], counts["off-board-scored"],
+             amb, len(unclaimed), scoring_phantoms))
+    for line in named:
+        print("I1555 ACCURACY-DART " + line)
+    for p in unclaimed:
+        print("I1555 ACCURACY-PHANTOM v%d#%d published=%s -- claimed by no arrival, "
+              "outside the denominator%s"
+              % (p[0] + 1, p[1] + 1, published(p),
+                 " (a MISS: it scores nothing)" if published(p) == "MISS" else ""))
+    print("I1555 ACCURACY-TALLY fixture=%s window=%s arrivals=%d correct=%d "
+          "wrong_score=%d undetected=%d offboard_scored=%d ambiguous=%d phantoms=%d "
+          "scoring_phantoms=%d"
+          % (fixture, window, n, c, counts["wrong-score"], counts["undetected"],
+             counts["off-board-scored"], amb, len(unclaimed), scoring_phantoms))
+
+
+def pool_accuracy(files):
+    """The pooled ACCURACY line over the per-run ACCURACY-TALLY lines, and per fixture."""
+    keys = ["arrivals", "correct", "wrong_score", "undetected", "offboard_scored",
+            "ambiguous", "phantoms", "scoring_phantoms"]
+    rows = []
+    for path in files:
+        for raw in open(path, "r", errors="replace"):
+            if "I1555 ACCURACY-TALLY " not in raw:
+                continue
+            body = ANSI.sub("", raw).split("I1555 ACCURACY-TALLY ", 1)[1]
+            rows.append(dict(t.split("=", 1) for t in body.split() if "=" in t))
+    if not rows:
+        print("I1555 ACCURACY POOLED: no ACCURACY-TALLY lines -- nothing to pool")
+        return
+
+    def line(label, group):
+        t = dict((k, sum(int(r.get(k, 0)) for r in group)) for k in keys)
+        n, c, amb = t["arrivals"], t["correct"], t["ambiguous"]
+        print("I1555 ACCURACY %s over %d run(s): correct %s/%d (%s) | %s | wrong-score "
+              "%d, undetected %d, off-board-scored %d, ambiguous %d | phantoms %d "
+              "(%d scoring)"
+              % (label, len(group), "%d..%d" % (c, c + amb) if amb else "%d" % c, n,
+                 "%.1f%%" % (100.0 * c / n) if n else "n/a", target_line(c, n),
+                 t["wrong_score"], t["undetected"], t["offboard_scored"], amb,
+                 t["phantoms"], t["scoring_phantoms"]))
+    line("POOLED", rows)
+    for f in sorted(set(r.get("fixture", "?") for r in rows)):
+        line("fixture=%s" % f, [r for r in rows if r.get("fixture", "?") == f])
 
 
 def main():
@@ -394,6 +551,7 @@ def main():
           "dart(s), and #1512 left the tip a corroboration rather than a constraint on "
           "purpose" % (uncorroborated, corroborated_counts.get("exact", 0), matched,
                        uncorroborated))
+    accuracy(args.fixture, args.window, visits, annots, arrivals, assignment)
     print("I1555 TALLY fixture=%s window=%s matched=%d vote_exact=%d geo_solved=%d "
           "geo_exact=%d first_exact=%d published_exact=%d"
           % (args.fixture, args.window, matched, vote_counts.get("exact", 0), geo_solved,
