@@ -2,27 +2,34 @@
 # #1560: is #1467's wire residual one lens constant? k1 (and f) per camera, from footage.
 #
 # Two things in one file, and the split matters. With --frames it is an INSTRUMENT --
-# i1499_band_census's kind, host-side, nothing in it can fail on a wrong number: it
-# measures, per camera per fixture, every wedge-boundary wire's bow off its own chord
-# and the four ring conic residuals, fits one pixel-space radial constant per camera,
-# prints the bow residual before and after, and fits f from the rings alone. With
-# --synthetic it is a CHECK and registered as one (run_all.sh, 1560-lensmodel), because
-# the two halves of the solver that cannot live in a header -- the Gauss-Newton camera
-# fit and the rings-only focal-length fit -- still need a control and a mutation.
-# The ENSEMBLE half is inlined in lens_census.hpp and held by i1560_lens_check.cpp
-# through unit_check.sh (1560-lenscheck). The verdict this instrument produced is
-# recorded in that header, beside the constants it measured.
+# i1499_band_census's kind, nothing in it can fail on a wrong number: it measures, per
+# camera per fixture, every wedge-boundary wire's bow off its own chord and the four
+# ring conic residuals, fits one pixel-space radial constant per camera, prints the bow
+# residual before and after, and fits f from the rings alone. With --synthetic it is a
+# CHECK and registered as one -- run_all.sh's 1560-lensmodel, through
+# testers/i1560_check.sh -- because the two halves of the solver that cannot live in a
+# header, the Gauss-Newton camera fit and the rings-only focal-length fit, still need a
+# control and a mutation. The ENSEMBLE half is inlined in lens_census.hpp and held by
+# i1560_lens_check.cpp through unit_check.sh (1560-lenscheck). The verdict this
+# instrument produced is recorded in that header, beside the constants it measured.
 #
-# It runs on the HOST, deliberately: Docker is a shared single resource on this rig
-# (#1552 held it for the life of #1560's branch), the fit is pure math, and the only
-# footage step is a 30-frame average that ffmpeg does exactly as the detector's
-# averageOf does (camera.cpp seeks frame round(fps*(3.0 - 0.18*camIdx)) on registry
-# builds, #1551, then averages 30 frames). No OpenCV, no numpy: stdlib only.
+# NO OPENCV, NO NUMPY: stdlib only, so it runs under any python3 -- which is what lets
+# the registry run it in $OD_IMAGE, and the registry is where it must be run. It was
+# written and measured under a host interpreter and registered as a host command, and
+# the maintainer's box has no host python3, so the row was red in one second and what
+# it reported was the absence of an interpreter. A tester may assume the IMAGE has an
+# interpreter and may never assume the HOST has one.
 #
+#   testers/i1560_check.sh                                  # the registered check
+#   python3 testers/i1560_k1_census.py --synthetic          # the same, directly
 #   python3 testers/i1560_k1_census.py --dump-cmds --mocks mocks --out <dir> | bash
 #   python3 testers/i1560_k1_census.py --frames <dir>       # measure those frames
-#   python3 testers/i1560_k1_census.py --synthetic          # controls + mutations, exits
-#                                                           # on the failure count
+#
+# --dump-cmds prints ffmpeg lines rather than running anything, because the one footage
+# step is a 30-frame average ffmpeg does exactly as the detector's own averageOf does:
+# camera.cpp seeks frame (int)(fps * (3.0 - 0.18 * camIdx)) on registry builds (#1551),
+# then averages 30. Dumping them keeps the extraction re-takeable by hand and keeps
+# this file free of a video dependency it would otherwise have to carry.
 #
 # Frame provenance (SAY the window, #1551): tags r18w3/r22w3 are the registry 3 s
 # calibration window (frames 90/84/79 for cams 1/2/3), r22open is the clip opening
