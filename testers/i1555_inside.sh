@@ -28,6 +28,8 @@
 #   - the WIRING is the decision, on every run: the published score of every matched
 #     dart is the column its own `path=` field names. A build whose published score is
 #     not the path it says it took has a wiring bug that no accuracy figure would show.
+#   - (#1587) every ACCURACY line partitions its arrivals exactly: correct, wrong
+#     score, undetected, off-board scored and ambiguous sum to the denominator.
 # ACCURACY IS NOT ASSERTED. It is the measurement the maintainer's rule is applied to,
 # and a harness that fails on it would be deciding the issue by its own threshold.
 set -u
@@ -183,6 +185,27 @@ for name in r18-dev r18-open r22-dev r22-open; do
     }
 done
 echo "OK   the published column is exactly one of the two paths on every fixture and window"
+
+# #1587: the ACCURACY line is over EVERY arrival, and its buckets must partition that
+# denominator exactly -- a dart counted twice or dropped would move the one figure the
+# accuracy effort is judged by without any column above noticing. This is about the
+# instrument adding up, not about the figure: the figure itself is still not asserted.
+for name in r18-dev r18-open r22-dev r22-open; do
+    A=$(grep '^I1555 ACCURACY-TALLY ' "$RUN/census-$name.txt" | head -1)
+    [ -n "$A" ] || { echo "FAIL census-$name has no ACCURACY-TALLY line"; exit 1; }
+    python3 - "$name" "$A" <<'PY' || { echo "FAIL the $name ACCURACY line does not add up"; exit 1; }
+import sys
+name, line = sys.argv[1], sys.argv[2]
+f = dict(t.split("=", 1) for t in line.split() if "=" in t)
+parts = sum(int(f[k]) for k in ("correct", "wrong_score", "undetected",
+                                "offboard_scored", "ambiguous"))
+print("accuracy %s: arrivals=%s buckets=%d" % (name, f["arrivals"], parts))
+sys.exit(0 if parts == int(f["arrivals"]) > 0 else 1)
+PY
+done
+echo "OK   every ACCURACY line partitions its arrivals exactly"
+grep -h '^I1555 ACCURACY ' "$RUN/census-r18-dev.txt" "$RUN/census-r18-open.txt" \
+    "$RUN/census-r22-dev.txt" "$RUN/census-r22-open.txt" "$RUN/pooled.txt"
 
 echo "I1555 DONE logs, censuses and the pooled tally under $RUN"
 exit 0
