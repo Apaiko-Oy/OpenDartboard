@@ -100,7 +100,7 @@ mkdir -p "$RUN/probe22"
 run_detector rig-20260922 rig22-shadow-on OD_SHAFT_CENSUS=1 OD_SHAFT_PROBE="$RUN/probe22"
 pin_census "$RUN/rig22-shadow-on.txt" on
 census "$RUN/rig22-shadow-on.txt" $T22 $A22 "rig-20260922 shadow-subtraction ON" 4 \
-    "--no-arrival 1.1,1.3" | tee "$RUN/census22-on.txt" || exit 1
+    "--no-arrival 1.1" | tee "$RUN/census22-on.txt" || exit 1
 # A subtraction that never fires on the HARD-SHADOW fixture measures nothing (#1490).
 CLASSIFIED=$(grep 'I1511AXIS' "$RUN/rig22-shadow-on.txt" | grep -c 'shadowPx=[1-9]')
 if [ "$CLASSIFIED" -eq 0 ]; then
@@ -115,7 +115,7 @@ echo "=== 4. rig-20260922, OD_AXIS_SHADOW=off ==="
 run_detector rig-20260922 rig22-shadow-off OD_SHAFT_CENSUS=1 OD_AXIS_SHADOW=off
 pin_census "$RUN/rig22-shadow-off.txt" off
 census "$RUN/rig22-shadow-off.txt" $T22 $A22 "rig-20260922 shadow-subtraction OFF" 4 \
-    "--no-arrival 1.1,1.3" | tee "$RUN/census22-off.txt" || exit 1
+    "--no-arrival 1.1" | tee "$RUN/census22-off.txt" || exit 1
 
 echo "=== the before/after, side by side (reported, not asserted) ==="
 for f in 18 22; do
