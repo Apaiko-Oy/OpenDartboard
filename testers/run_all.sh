@@ -542,6 +542,19 @@ tester 1605-looks         "bash '$T/i1605_run.sh'"
 # MEASURED 2026-09-25 on the 4-core box at load ~5: 552 s (9m12s with the build), inside the 1500 given.
 tester 1618-thirdcam      "bash '$T/i1618_run.sh'"
 slow 1500
+# #1456: a camera refused on its averaged frame seals the look with the HIGHEST R of the
+# budget, ties to the earliest, rather than the first look that passed -- which made the
+# sealed geometry whichever frame first cleared the gate. 1456-lookchoice is the rule as
+# arithmetic (look_choice.hpp: best-of, the tie-break, the twelve-look selection window
+# that #1605's opt-in extends only for a camera that passed on none of it, and the
+# OD_LOOK_SEAL=first falsifier). A compile and milliseconds.
+tester 1456-lookchoice    "bash '$T/unit_check.sh' 1456"
+# 1456-bestlook is the detector doing it: calibration-only runs of both rig fixtures in
+# both windows, the tree's rule against OD_LOOK_SEAL=first and OD_CALIBRATION_LOOKS=once,
+# recording the sealed look and the bull together, plus rig-20260922 dev under
+# OD_LOOK_BUDGET=1605. No whole-clip replay. OD_I1456_REPS=5 runs the decision's 5-per-arm
+# experiment instead of the registered 2/1/1.
+tester 1456-bestlook      "bash '$T/i1456_run.sh'"
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
