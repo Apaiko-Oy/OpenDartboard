@@ -63,6 +63,9 @@ tester address            "bash '$T/check_default_address.sh'"
 # grey. It compiles nothing and reads no C++: #1452 rejected a lint for nonstandard
 # identifiers on the grounds that a check which looks like a Windows build and is not one
 # is worse than none, and this is not that check.
+# #1607: its python runs INSIDE $OD_IMAGE (the tree at /app, read-only, --network none),
+# because the box that runs the suite has no host python3 and this row read rc=49 there --
+# #1560's rule, written beside 1560-lensmodel below. So it costs one container start now.
 tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
@@ -73,6 +76,10 @@ tester census             "bash '$T/census.sh'"
 # Then the leak check, for the same reason and with the same cost: it starts containers but
 # every one of them is `sleep`, and what it measures -- that a killed harness leaves nothing
 # behind -- is a property of every tester below it (#1341).
+# #1607: it stays on the HOST, because what it measures is the host's process groups and
+# signals. Its victim launcher is no longer a host python3 (the box that runs the suite has
+# none, so all six cases read "never came up"); it is `env --default-signal` and `setsid`,
+# and a box without them is told so by name.
 tester leaks              "bash '$T/leak_check.sh'"
 tester 1346-vote          "bash '$T/unit_check.sh' 1346"
 tester 1347-sector        "bash '$T/unit_check.sh' 1347"
@@ -302,6 +309,8 @@ tester 1394-windows       "bash '$T/i1394_run.sh'"
 # 4-core box, to completion, rc=0: wall 284.8 s at host_busy_pct=60.2, so it takes no
 # `slow` -- it sits well inside the default 1200 and the number is here rather than in
 # nobody's head, which is how 1317-asan's 1200 got to be wrong.
+# #1607: its census half runs INSIDE $OD_IMAGE, twice (the tree, then the planted copy),
+# because it was a host python3 and read rc=49 on the box that runs the suite.
 tester 1437-fixture       "bash '$T/i1437_run.sh'"
 tester 1441-region        "bash '$T/i1441_run.sh'"
 # #1442: twenty is a ceiling as well as a floor. It calibrates the same ninety single
@@ -609,6 +618,8 @@ tester 1336-probe-admission "bash '$T/unit_check.sh' 1336"
 # drops-the-fraction 9. Each flips its own half and none of them is caught by everything,
 # which is what says the assertions are load-bearing rather than decorative.
 tester 1486-anchor        "bash '$T/i1486_run.sh'"
+# #1389: the census half runs INSIDE $OD_IMAGE since #1607, for the same reason as
+# 1437-fixture's: it was a host python3, and the box that runs the suite has none.
 tester 1389-floor         "bash '$T/i1389_run.sh'"
 tester 1317-partial       "bash '$T/i1317_run.sh'"
 tester 1330-ownership     "bash '$T/i1330_run.sh'"

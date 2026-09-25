@@ -11,7 +11,14 @@
 # then runs it again over a copy of the tree with #1416's own shape planted in it, a
 # fixture-wide measurement naming cam_1 and cam_3 of the rig and not cam_2, and asserts it
 # names that file by line. That second run is the whole point: a census that has never
-# been shown to fail is a census nobody can trust. No container: it reads files.
+# been shown to fail is a census nobody can trust. It reads files and builds nothing, but
+# it runs in a container all the same (#1607): both runs used to be a HOST `python3`, and
+# the box that runs the suite has none -- the Windows Store stub answers "Python ei
+# loytynyt", rc=49, and both halves then read 49. The tree goes in at /app and the planted
+# copy at /run1437/planted, read-only; the same file with the same argument, only its
+# paths are the container's. #1560's rule: the IMAGE has an interpreter, the HOST may not.
+# The BUSY=/WALL= lines below are still host python and stay so: a failed substitution
+# costs them an empty field and not a verdict (#1588).
 #
 # FIXTURE runs the real binary and asks what each fixture ANSWERS for, which is the half a
 # file census cannot reach. Its own mutation proof is inside it (phase B).
@@ -42,7 +49,8 @@ RC=0
 if [ "$WHICH" = both ] || [ "$WHICH" = all ] || [ "$WHICH" = census ]; then
   echo "=================================================================="
   echo "=== the census, over this tree ==="
-  python3 "$OD_TREE_ROOT/testers/i1437_fixture_census.py" "$OD_TREE_ROOT"
+  od_run "i1437-census" --network none -v "$OD_TREE_ROOT":/app:ro -w /app "$OD_IMAGE" \
+    python3 testers/i1437_fixture_census.py /app < /dev/null
   C=$?
   echo
   echo "=== the same census, over a copy of this tree with #1416's shape planted ==="
@@ -73,7 +81,9 @@ for c in /app/mocks/rig-20260918/cam_1.mp4 /app/mocks/rig-20260918/cam_3.mp4; do
   measure "$c"
 done
 PLANTED
-  python3 "$OD_TREE_ROOT/testers/i1437_fixture_census.py" "$PLANT"
+  od_run "i1437-census-planted" --network none -v "$OD_TREE_ROOT":/app:ro \
+    -v "$PLANT":/run1437/planted:ro -w /app "$OD_IMAGE" \
+    python3 testers/i1437_fixture_census.py /run1437/planted < /dev/null
   P=$?
   echo
   if [ "$C" = 0 ]; then echo "OK   the census is empty on this tree"

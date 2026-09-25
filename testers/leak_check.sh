@@ -59,14 +59,31 @@ EOF
 # spent the finding working out which it was. So the victim is launched through something
 # that puts the dispositions back to default and then execs, which is what a Ctrl-C at a
 # terminal really hands a harness.
-LAUNCH="$WORK/launch.py"
-cat > "$LAUNCH" <<'PYEOF'
-import os, signal, sys
-for name in ("SIGINT", "SIGQUIT", "SIGHUP", "SIGTERM"):
-    signal.signal(getattr(signal, name), signal.SIG_DFL)
-os.setsid()                       # its own session, so a group kill here is not a group kill there
-os.execvp("bash", ["bash"] + sys.argv[1:])
-PYEOF
+# #1607: that something used to be a host python3 (a signal.SIG_DFL loop, os.setsid and
+# os.execvp) and the box that runs the suite has no host python3 -- the Windows Store stub
+# answered "Python ei loytynyt", rc=49, every victim died at birth, and all six cases read
+# "never came up", which is a finding about the box dressed as a finding about the trap.
+# This check CANNOT move into $OD_IMAGE the way #1588 moved 1532-guard: what it measures
+# is the host's own process groups and signals, with the host's docker client starting the
+# containers, and a container has neither that client nor that session. So the launcher
+# became the two host tools that do the same three things -- coreutils `env
+# --default-signal` puts the dispositions back to default (8.31 and later) and util-linux
+# `setsid` gives the victim a session of its own and then execs, so $! is still the
+# victim's pid, as it was through os.execvp. `setsid` is no new dependency: od_watchdog
+# needs it already, and the harness-KILL case is the one that measures that. Both are
+# asked for by name first, so a box without them fails as itself rather than as six
+# victims that never came up.
+LAUNCH=(env --default-signal=INT,QUIT,HUP,TERM setsid bash)
+if ! env --default-signal=INT true > /dev/null 2>&1; then
+  echo "FAIL host \`env --default-signal\` required (GNU coreutils 8.31 or later) to launch"
+  echo "     the victim with default signal dispositions, so this check measured nothing"
+  exit 1
+fi
+if ! command -v setsid > /dev/null 2>&1; then
+  echo "FAIL host \`setsid\` required (util-linux) to give the victim a session of its own;"
+  echo "     od_watchdog needs it too. This check measured nothing"
+  exit 1
+fi
 
 up_within() {   # up_within <name> <seconds>
   local n="$1" s="$2" i=0
@@ -96,7 +113,7 @@ kill_case() {   # kill_case <phase> <how> <signal>
 
   # Its own session, so a kill aimed at the group is the group kill `timeout` really
   # sends and not a kill of this check.
-  python3 "$LAUNCH" "$VICTIM" "$phase" > /dev/null 2>&1 &
+  "${LAUNCH[@]}" "$VICTIM" "$phase" > /dev/null 2>&1 &
   pid=$!
   # Forgotten as a job, so the shell does not announce its death as
   # `leak_check.sh: line NN: 796944 Killed ...` in the middle of a gate log, where it reads
