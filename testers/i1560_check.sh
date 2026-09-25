@@ -36,6 +36,19 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 
+# Run from Git Bash on Windows -- which is how the suite is run on the box that gates
+# it -- MSYS rewrites every argument that looks like a unix path, and both halves of
+# this call are exposed: `-w /app` reaches Docker as `C:/Program Files/Git/app`
+# (rc=125, the container never starts), and the mount point in `-v <tree>:/app` is
+# rewritten too, so even moving the container path inside a single-quoted `bash -c`
+# only gets as far as `cd: /app: No such file or directory`. Both measured here rather
+# than reasoned about. So this file does what i1552_check.sh and i1555_check.sh do and
+# leaves the answer where it belongs, around the whole suite:
+#
+#   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' bash testers/run_all.sh
+#
+# There is no per-row escape from it worth having -- `//app` would dodge the rewrite
+# and buy an ambiguous POSIX path and one harness unlike its neighbours.
 od_run "1560-check" --network none \
   -v "$OD_TREE_ROOT":/app -w /app "$OD_IMAGE" \
   python3 testers/i1560_k1_census.py --synthetic < /dev/null
