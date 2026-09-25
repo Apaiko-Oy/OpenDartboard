@@ -53,9 +53,34 @@
 # the steps it is about arrive with #1408. So rule 5's census is allowed to be empty, it
 # says so when it is, and it is the only one.
 
-set -uo pipefail
+#
+# ---- where it runs (#1607) --------------------------------------------------------------
+#
+# The python below runs INSIDE $OD_IMAGE, never on the host. It used to be `python3 -
+# "$YML" <<'PY'` straight from this file, a host command, and the maintainer's box has no
+# host python3: the Windows Store stub answered "Python ei loytynyt", rc=49, and this row
+# was red by construction on the only environment that runs the suite. #1560's rule,
+# written beside 1560-lensmodel in run_all.sh: a tester may assume the IMAGE has an
+# interpreter and may never assume the HOST has one. $OD_IMAGE carries 3.11.
+#
+# Nothing about the five rules changed: the same program, byte for byte, handed to the
+# image's python3 as `-c` rather than on stdin (od_run backgrounds `docker run`, and a
+# background command's stdin is /dev/null). The workflow is read through a mount: the
+# tree at /app when it lives in the tree, which is the row's case, and otherwise its own
+# directory at /yml, read-only. So the path the verdict line prints is the one the
+# CONTAINER read -- `.github/workflows/release.yml` rather than the host's absolute path.
+#
+# Run from Git Bash on Windows, MSYS rewrites `-w /app` and the mount points; the answer
+# is the env guards around the whole suite, as for i1532_check.sh and i1560_check.sh:
+#
+#   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' bash testers/run_all.sh 1452-pr-build
+#
+# The script ends on `exit`, never on an `echo`: #1463, #1479.
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+set -uo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+
+ROOT="$OD_TREE_ROOT"
 YML="${1:-$ROOT/.github/workflows/release.yml}"
 
 if [ ! -f "$YML" ]; then
@@ -63,7 +88,14 @@ if [ ! -f "$YML" ]; then
     exit 1
 fi
 
-python3 - "$YML" <<'PY'
+YML_ABS="$(cd "$(dirname "$YML")" && pwd)/$(basename "$YML")"
+case "$YML_ABS" in
+    "$ROOT"/*) MOUNT=(); IN_IMAGE="${YML_ABS#"$ROOT"/}" ;;
+    *)         MOUNT=(-v "$(dirname "$YML_ABS")":/yml:ro); IN_IMAGE="/yml/$(basename "$YML_ABS")" ;;
+esac
+
+# `read -d ''` returns 1 at the end of its input, which is the only way it ends here.
+read -r -d '' PY <<'PY'
 import re
 import sys
 
@@ -350,3 +382,10 @@ if faults:
 print()
 print(f"the pull-request Windows build is reachable and publishes nothing ({path})")
 PY
+
+od_run "i1452-pr-build" --network none \
+  -v "$ROOT":/app:ro "${MOUNT[@]}" -w /app "$OD_IMAGE" \
+  python3 -c "$PY" "$IN_IMAGE" < /dev/null
+RC=$?
+echo "RUN=1452-pr-build rc=$RC"
+exit $RC
