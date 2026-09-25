@@ -28,9 +28,8 @@
 # by construction on the only environment that runs the suite. Every other python in
 # this directory already runs inside $OD_IMAGE, which carries 3.11. Nothing else about
 # the measurement changed: the same file, the same argument, stdlib only, no footage,
-# no network, no build -- this row is the one thing in the suite that needs neither
-# build/ nor mocks/, so it is also the first thing that still works when those are
-# broken.
+# no network and no build -- run_all.sh builds before it runs anything, but this row
+# reads nothing out of build/ or mocks/, so it still answers when either is broken.
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
