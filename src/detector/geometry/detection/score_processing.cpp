@@ -744,6 +744,10 @@ namespace score_processing
         if (geoScoreShadowed())
         {
             log_info(entry_intersection::censusEntryLine(sol, window, publishedScore, publishedConfidence));
+            // #1556: the crossing's own line, beside #1512's rather than inside it --
+            // that line's parser matches its whole head contiguously, so a field inserted
+            // before `story=` silently stops every #1512 census reading anything.
+            log_info(entry_intersection::censusFlagLine(sol, window));
             for (const entry_intersection::Constraint &con : sol.constraints)
             {
                 log_info(entry_intersection::censusCameraLine(con, window));
@@ -946,6 +950,27 @@ namespace score_processing
                                           ? string(entry_intersection::outcomeWord(solution.outcome))
                                           : string();
 
+            // #1556: the crossing, decided in one place for every called dart and BEFORE
+            // the branch below, so no path can be the one that forgets to say it. The
+            // rule is pure and over primitives (`decideBoundaryCall`); the solver
+            // measured the numbers it is given, and a vote publish hands it
+            // `geometryPublished == false`, which is how a degraded dart stays silent
+            // about a millimetre uncertainty nothing measured.
+            const BoundaryCall crossing = decideBoundaryCall(
+                decision.path == ScorePath::Geometry, solution.uncertaintyCrossesWire,
+                solution.score.valid ? solution.score.score : string(),
+                solution.alternativeScore, solution.boundaryKind,
+                solution.boundaryAcrossMm, solution.sigmaAcrossMm);
+            result.boundary_flagged = crossing.flagged;
+            result.alternative_score = crossing.alternative;
+            result.boundary_kind = crossing.kind;
+            result.boundary_mm = crossing.boundaryMm;
+            result.uncertainty_mm = crossing.uncertaintyMm;
+            if (!crossing.account.empty())
+            {
+                log_info(crossing.account);
+            }
+
             if (decision.path == ScorePath::Geometry)
             {
                 const int reference = solution.scoredThroughCamera;
@@ -1102,6 +1127,13 @@ namespace score_processing
                                            result.degraded,
                                            entry_intersection::outcomeWord(solution.outcome),
                                            vote_score, vote_conf, geo_score));
+                // #1556: what the BOARD published about the crossing, beside what the
+                // SOLVER measured about it (I1556FLAG). The two are different questions
+                // on a degraded dart -- the solver may have measured nothing at all --
+                // and the census needs the published half to ask whether a wrong score
+                // landed in the flagged set.
+                log_info(flagCensusLine(window, crossing, result.confidence,
+                                        result.from_geometry, result.score));
             }
             break;
         }

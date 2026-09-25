@@ -121,7 +121,143 @@ namespace score_processing
         bool from_geometry = false;
         bool degraded = false;
         string geometry_outcome;
+        // #1556: THE CROSSING, IN THE PUBLISHED OUTPUT, in the idiom the three fields
+        // above established -- additive fields rather than a new value of an old one. A
+        // dart whose one-sigma position uncertainty reaches a call-flipping wire
+        // publishes the MORE PROBABLE candidate immediately (the maintainer's decision on
+        // #1557: play never blocks) at the demoted confidence `geometricConfidence`
+        // already had, and names the other candidate so a consumer can ask instead of
+        // guessing. There is deliberately NO new confidence float meaning "flagged":
+        // #1489 refused a fourth number for a reason that holds exactly here -- the count
+        // and the subject are two questions, and a float cannot answer both.
+        //
+        // `uncertainty_mm` is the one-sigma position uncertainty RESOLVED ACROSS the
+        // boundary named by `boundary_kind`, floored by measurement; `boundary_mm` is how
+        // far that boundary is. Both are -1 on a vote publish, where no millimetre
+        // uncertainty was measured at all and inventing one would be worse than silence.
+        bool boundary_flagged = false;
+        string alternative_score; // the other candidate; empty where nothing is flagged
+        string boundary_kind;     // "ring" | "wedge"; empty where nothing could flip
+        float boundary_mm = -1.0f;
+        float uncertainty_mm = -1.0f;
     };
+
+    /**
+     * #1556: WHAT A FLAGGED DART PUBLISHES, pure and over PRIMITIVES for
+     * `decidePublishedPath`'s reason -- this header is included by five checks that link
+     * no extra translation unit, and entry_intersection.hpp reaches board_model.hpp and
+     * wire_model.cpp at link time (unit_check.sh's own comment records what that costs:
+     * 1451-scorable did not LINK for two issues). The solver measures the crossing; this
+     * function holds what may be said about it.
+     */
+    struct BoundaryCall
+    {
+        bool flagged = false;
+        std::string published;   // the candidate that publishes -- the more probable one
+        std::string alternative; // the other candidate a tap can pick; empty unless flagged
+        std::string kind;        // "ring" | "wedge"; empty where nothing could flip
+        float boundaryMm = -1.0f;
+        float uncertaintyMm = -1.0f;
+        std::string account; // the one sentence the SCORE log prints about the crossing
+    };
+
+    /**
+     * #1556: the publication rule, and the three things it must never do.
+     *
+     * 1. A VOTE PUBLISH CARRIES NO MILLIMETRE UNCERTAINTY. The string vote picks a
+     *    camera's score STRING; nothing in it measures a board-millimetre position or its
+     *    error, so a `boundary_mm` beside one would be a number with no measurement
+     *    behind it. Every field stays absent, and a degraded dart is therefore silent
+     *    about the crossing rather than confidently clear of it.
+     * 2. A FLAG NAMES TWO CANDIDATES OR IT IS NOT A FLAG. #1557's decision is that the
+     *    dart publishes the more probable candidate and a tap affirms it or picks the
+     *    other; a demotion whose alternative is empty, or is the published score again,
+     *    has nothing for a consumer to ask about. Such a reading publishes UNFLAGGED,
+     *    and the account says the crossing was measured and could not be named.
+     * 3. THE MEASUREMENT IS PUBLISHED WHETHER OR NOT IT FLAGGED. A geometric publish that
+     *    clears every wire still carries its `boundary_mm` and `uncertainty_mm`: "how
+     *    close was this call" is the question the issue is about, and answering it only
+     *    when the answer is "close" makes the absence of a flag unreadable.
+     */
+    inline BoundaryCall decideBoundaryCall(bool geometryPublished, bool uncertaintyCrossesWire,
+                                           const std::string &publishedScore,
+                                           const std::string &alternativeScore,
+                                           const std::string &boundaryKind,
+                                           double boundaryMm, double uncertaintyMm)
+    {
+        BoundaryCall out;
+        if (!geometryPublished)
+        {
+            out.account = "";
+            return out;
+        }
+        out.published = publishedScore;
+        out.kind = boundaryKind;
+        out.boundaryMm = (float)boundaryMm;
+        out.uncertaintyMm = (float)uncertaintyMm;
+        const bool nameable = !alternativeScore.empty() && alternativeScore != publishedScore;
+        if (uncertaintyCrossesWire && nameable)
+        {
+            out.flagged = true;
+            out.alternative = alternativeScore;
+            char margin[64];
+            snprintf(margin, sizeof(margin), "%.1f mm across a %.1f mm one-sigma",
+                     boundaryMm, uncertaintyMm);
+            out.account = "UNCERTAINTY: " + publishedScore + " or " + alternativeScore +
+                          " -- the nearest " + (boundaryKind.empty() ? "scoring" : boundaryKind) +
+                          " wire is " + margin +
+                          ", so " + publishedScore +
+                          " publishes now as the more probable candidate and is flagged; a "
+                          "tap affirms it or appends the other";
+            return out;
+        }
+        if (uncertaintyCrossesWire)
+        {
+            // Measured as crossing, and unnameable. Said out loud rather than published
+            // as a clear call: the reading a reader must not mistake for a comfortable
+            // one is exactly this.
+            out.account = "UNCERTAINTY: " + publishedScore +
+                          " -- the uncertainty reaches a wire and no second candidate "
+                          "could be named, so nothing is flagged";
+            return out;
+        }
+        char margin[96];
+        snprintf(margin, sizeof(margin), "%.1f mm away across a %.1f mm one-sigma",
+                 boundaryMm, uncertaintyMm);
+        out.account = "UNCERTAINTY: " + publishedScore + " clears its nearest " +
+                      (boundaryKind.empty() ? std::string("scoring") : boundaryKind) +
+                      " wire -- " + margin;
+        return out;
+    }
+
+    /**
+     * #1556: the flag's own census line, printed from the same one place `publishCensusLine`
+     * is and parsed by testers/i1556_census.py.
+     *
+     * `board=` IS THE SCORE THE BOARD PUBLISHED and `score=` is the crossing's subject,
+     * and they are two fields for a measured reason. `BoundaryCall::published` is empty on
+     * a VOTE publish by rule 1 above -- a string vote measures no board-millimetre
+     * position, so there is no crossing and nothing to be the subject of one. The first
+     * run of this census read that empty field as the published score, and the four darts
+     * rig-20260918's dev window publishes by the vote came back as `S-`: three of them
+     * correctly scored, all four counted WRONG, turning a catch table of 1 of 2 into 1 of
+     * 5. A census cannot judge what was published from a field about something else.
+     */
+    inline std::string flagCensusLine(long window, const BoundaryCall &call, float confidence,
+                                      bool fromGeometry, const std::string &boardScore)
+    {
+        char line[440];
+        snprintf(line, sizeof(line),
+                 "I1556PUBLISH window=%ld geometry=%d flagged=%d score=%s alt=%s kind=%s "
+                 "boundary=%.2f sigma=%.2f conf=%.2f board=%s",
+                 window, fromGeometry ? 1 : 0, call.flagged ? 1 : 0,
+                 call.published.empty() ? "-" : call.published.c_str(),
+                 call.alternative.empty() ? "-" : call.alternative.c_str(),
+                 call.kind.empty() ? "-" : call.kind.c_str(),
+                 call.boundaryMm, call.uncertaintyMm, confidence,
+                 boardScore.empty() ? "-" : boardScore.c_str());
+        return line;
+    }
 
     /**
      * #1346: what the vote chose, and what the choice is worth.
@@ -382,6 +518,14 @@ namespace score_processing
      * still not telling a reader WHICH kind of 0.9 this was. The subject is a field
      * instead -- `ScoreResult::path` and `ScoreResult::geometry_outcome` -- so the count
      * and the subject stay two questions with two answers.
+     *
+     * #1556 CHANGED WHAT `sigmaReachesAWire` MEASURES AND DELIBERATELY NOT WHAT IT SAYS.
+     * The sentence above is unchanged and the two numbers are unchanged; what moved is
+     * that the sigma is now resolved ACROSS the wire it is measured against rather than
+     * taken as the longest axis of the ellipse in every direction, and that a demotion is
+     * only published where the other candidate can be NAMED. That same issue is where a
+     * fourth number would have been invented if the flag had been given one -- it is a
+     * field pair (`boundary_flagged`, `alternative_score`), for exactly #1489's reason.
      */
     inline float geometricConfidence(bool sigmaReachesAWire)
     {
