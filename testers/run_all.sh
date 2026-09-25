@@ -539,7 +539,7 @@ tester 1605-looks         "bash '$T/i1605_run.sh'"
 # (echo windows). OD_SEEK_ALIGN=1618 aligns the files after calibration: the opt-in then
 # reads above 15/23, and stays a pin because v7.2 and v8.1 still regress. Three whole-clip
 # replays and one calibration-only run.
-# MEASURED 2026-09-25 on the 4-core box: WALL_PENDING
+# MEASURED 2026-09-25 on the 4-core box at load ~5: 552 s (9m12s with the build), inside the 1500 given.
 tester 1618-thirdcam      "bash '$T/i1618_run.sh'"
 slow 1500
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
