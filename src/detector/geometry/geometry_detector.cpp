@@ -89,7 +89,56 @@ namespace
     // over-long budget therefore costs start-up seconds on a board that is already in
     // trouble; an over-short one sets a healthy camera aside for the evening, which is the
     // fault this issue was filed on.
+
     constexpr int kFurtherLooks = 12;
+
+    // #1605: TWELVE IS OUTRUN BY A DART STANDING IN THE BOARD, and a longer budget exists
+    // but is OPT-IN (OD_LOOK_BUDGET=1605), because admitting the camera it rescues makes
+    // that run score WORSE. Both halves are measured; read both before flipping it.
+    //
+    // THE CAUSE. rig-20260922 did not exist when the table above was taken. On it, in the
+    // dev window, camera 1 is refused on the averaged frame and on all twelve looks, so it
+    // is set aside for the whole clip. The fault is on the frames, not in any gate: visit
+    // 1's second dart (the 16, v1.2) arrives at f64 and its barrel stands straight down
+    // through camera 1's bull (annotated shaft x=652..654 from y=103 to y=364; the bull is
+    // at (653,302)) until visit 1 is pulled at f203-241. A bull cut in two by a barrel is
+    // two half-bulls, and the bull stage picks one: (640,302) or (667,302), 13-14 px either
+    // side of the opening window's (653,302), at 0.072-0.078 of the board where a whole
+    // bull is 0.093. Every stage after it is measured from that wrong centre -- the 25 ring
+    // refused, R=0.577558 on the wire model, then the treble ring traced as the board.
+    //
+    // MEASURED 2026-09-25 by testers/i1605_run.sh (the look census of #1445, run on that
+    // clip from its dev seek, one frame every five cycles; frame indices are 0-based):
+    //
+    //     rig-20260922/cam_1, dev window   averaged f90..f119      REFUSED
+    //                                      looks 1-24, f124..f239  24 of 24 REFUSED
+    //                                      looks 25-89, f244..f564 65 of 65 CALIBRATE
+    //
+    // So the longest run of refused looks on a camera whose average was refused is 24, and
+    // twelve does not outlast it -- 1445-looks.sh's own phase B assertion, which that
+    // fixture fails on this tree as it did before #1605. The dart stood from f64 until at
+    // least f239, and a start whose averaged frame began the moment it arrived (f64..f93)
+    // reads look k at f93+5k, which first reaches f244 at k = 31. So 31 outlasts the whole
+    // of the only bull-blocking dart measured, from any moment in its stay that a board
+    // could have been started: a margin of 31/24 = 1.3 on this start, much less than
+    // twelve's 2.4, because the disturbance lasts as long as a player leaves a dart in the
+    // board and no margin over one example bounds it.
+    //
+    // WHAT 31 BUYS, and why it is not the default. With it camera 1 calibrates on look 25
+    // (f244) at R=0.918783, bull (654,301), every ring in its window -- the opening
+    // window's figures (R=0.873343, bull (653,302)). But testers/run_all.sh 1555 on the
+    // same binary puts rig-20260922 dev at 11/23 correct where twelve reads 15/23: visit
+    // 2 is now detected but published S9 S9 T9 for 12 T9 T8, and D20 (v3.2), S19 and S7
+    // (v5.2, v5.3), S3 and T9 (v7.2, v7.3) -- all correct on two cameras -- are lost to
+    // the three-camera state vote and to geometric entries read through camera 1. The
+    // calibration is right; what the rest of the detector does with a third camera in
+    // this window is not, and that is the next stage to measure, not this one's to hide.
+    //
+    // The cost of the opt-in is the one argued above. Looking stops the moment the last
+    // refused camera calibrates, so a camera that calibrated within twelve looks spends
+    // exactly what it spent before, and rig-20260918 (every camera on the averaged frame)
+    // and rig-20260922's opening (camera 2 on look 3) are byte-identical either way.
+    constexpr int kFurtherLooksPastAStandingDart = 31;
 
     // How many capture cycles pass between one look and the next. Consecutive frames are
     // not independent readings -- whatever the camera is reading that a board does not
@@ -114,6 +163,22 @@ namespace
         {
             const char *e = std::getenv("OD_CALIBRATION_LOOKS");
             return e && std::string(e) == "once";
+        }();
+        return v;
+    }
+
+    /**
+     * #1605: how many further looks a refused camera is given. #1445's twelve unless
+     * OD_LOOK_BUDGET=1605 asks for the budget that outlasts a dart standing in the board
+     * (see kFurtherLooksPastAStandingDart for why that is opt-in). Anything but that
+     * exact word is ignored, so a typo keeps the default.
+     */
+    int furtherLookBudget()
+    {
+        static int v = []
+        {
+            const char *e = std::getenv("OD_LOOK_BUDGET");
+            return (e && std::string(e) == "1605") ? kFurtherLooksPastAStandingDart : kFurtherLooks;
         }();
         return v;
     }
@@ -189,18 +254,28 @@ void GeometryDetector::lookAgainAtRefusedCameras()
     // refusal, with every camera named (#1389), if there is one.
     const string fault_before_looking = board_sight::faultDetail();
 
+    // #1605: the budget, read once, and said when it is the pinned one.
+    const int budget = furtherLookBudget();
+    if (budget != kFurtherLooks)
+    {
+        log_warning("OD_LOOK_BUDGET=1605 is set: a refused camera gets " + to_string(budget) +
+                    " further looks and not #1445's " + to_string(kFurtherLooks) +
+                    ", enough to outlast a dart standing in the board -- measured to cost "
+                    "accuracy on rig-20260922, so it is not the default (#1605)");
+    }
+
     string names;
     for (size_t i : still_refused)
     {
         names += (names.empty() ? "" : ", ") + to_string((int)i + 1);
     }
     log_info("LOOK AGAIN: camera(s) " + names + " were refused on this start's averaged frame, "
-             "which is one picture and not an evening. Up to " + to_string(kFurtherLooks) +
+             "which is one picture and not an evening. Up to " + to_string(budget) +
              " further looks, " + to_string(kFramesBetweenLooks) +
              " capture cycles apart, before any of them is set aside for the run");
 
     int looks_spent = 0;
-    for (int look = 1; look <= kFurtherLooks && !still_refused.empty(); look++)
+    for (int look = 1; look <= budget && !still_refused.empty(); look++)
     {
         vector<camera::Frame> frames;
         for (int cycle = 0; cycle < kFramesBetweenLooks; cycle++)
@@ -235,7 +310,7 @@ void GeometryDetector::lookAgainAtRefusedCameras()
             // overwrite. This is a FIRST calibration for this camera, arriving late.
             calibrations[i] = fresh;
             log_info("LOOK AGAIN: camera " + to_string((int)i + 1) + " calibrated on look " +
-                     to_string(look) + " of " + to_string(kFurtherLooks) +
+                     to_string(look) + " of " + to_string(budget) +
                      ", so the averaged frame was a worse reading than this one and not a "
                      "camera that cannot be scored with");
         }
@@ -243,6 +318,64 @@ void GeometryDetector::lookAgainAtRefusedCameras()
     }
 
     board_sight::faultDetail() = fault_before_looking;
+
+    // #1605: A LOOK PAST #1445's TWELVE MEANS THE AVERAGED FRAME IS NO LONGER THE BOARD.
+    // The twelve are the transient regime -- a frame's worth of glare or smear -- and
+    // across them the averaged calibration frames are still a fair picture of the board
+    // the detector will be watching. A camera that needed more than that was waiting out
+    // something that STOOD on the board, and on rig-20260922 that was visit 1's darts:
+    // they are in the averaged frames and gone by the look that calibrated camera 1. A
+    // background with darts in it that the board no longer has reads their absence as an
+    // arrival -- measured, the first publication of that run was the pulled 16 -- so the
+    // background is re-taken here, the way the Scorer took the first one: thirty
+    // consecutive reads averaged per camera. Never on a board whose looks ended within
+    // twelve, so rig-20260918, rig-20260922's opening and every start before #1605 keep
+    // the averaged calibration frames as their background, byte for byte. Reachable only
+    // under OD_LOOK_BUDGET=1605, since the default budget IS twelve. Measured with and
+    // without it on that run: without, the first publication is a phantom S16 at the
+    // pulled dart's tip (660,369); with, it is gone and visit 2's three darts publish.
+    if (looks_spent > kFurtherLooks)
+    {
+        const int kBackgroundFrames = 30;
+        vector<Mat> sums;
+        vector<int> counted;
+        for (int n = 0; n < kBackgroundFrames; n++)
+        {
+            const vector<Mat> images = camera::images(further_look());
+            if (sums.empty())
+            {
+                sums.resize(images.size());
+                counted.assign(images.size(), 0);
+            }
+            for (size_t i = 0; i < images.size() && i < sums.size(); i++)
+            {
+                if (images[i].empty())
+                {
+                    continue;
+                }
+                Mat as_float;
+                images[i].convertTo(as_float, CV_32F);
+                if (counted[i] == 0)
+                    sums[i] = as_float;
+                else
+                    sums[i] += as_float;
+                counted[i]++;
+            }
+        }
+        background_after_looks.assign(sums.size(), Mat());
+        for (size_t i = 0; i < sums.size(); i++)
+        {
+            if (counted[i] > 0)
+            {
+                Mat mean = sums[i] / (float)counted[i];
+                mean.convertTo(background_after_looks[i], CV_8U);
+            }
+        }
+        log_info("LOOK AGAIN: the looks ran to " + to_string(looks_spent) + ", past #1445's " +
+                 to_string(kFurtherLooks) + ", so the averaged calibration frames are no longer "
+                 "the board this detector will watch; its background is re-taken from the " +
+                 to_string(kBackgroundFrames) + " frames after the last look (#1605)");
+    }
 
     if (!still_refused.empty())
     {
@@ -797,8 +930,14 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                 // already has its backgrounds out of the file, and the frames this start
                 // took are not the frames its geometry was measured on.
                 background_frames.clear();
-                for (const auto &frame : initial_frames)
-                    background_frames.push_back(frame.clone());
+                for (size_t i = 0; i < initial_frames.size(); i++)
+                {
+                    // #1605: a camera whose re-taken background came back empty keeps
+                    // the averaged frame, so a slot is never emptier than it was.
+                    const bool retaken = i < background_after_looks.size() && !background_after_looks[i].empty();
+                    background_frames.push_back(retaken ? background_after_looks[i].clone()
+                                                        : initial_frames[i].clone());
+                }
             }
 
             // #1372: the same verdict, named for where the geometry came from, because an

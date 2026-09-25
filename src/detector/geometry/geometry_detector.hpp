@@ -98,6 +98,11 @@ protected:
     // and behaves exactly as it did before this issue.
     function<vector<camera::Frame>()> further_look;
 
+    // #1605: the board's background, re-taken after the looks when they ran past
+    // #1445's twelve -- or empty, and then the averaged calibration frames are the
+    // background as they always were. See `lookAgainAtRefusedCameras`.
+    vector<Mat> background_after_looks;
+
     // #1339: each camera's board, in that camera's slot, as the motion stage wants it.
     // Derived from `calibrations` rather than stored beside it, so there is one answer
     // to where a board is and the motion stage cannot drift from the scoring stage.

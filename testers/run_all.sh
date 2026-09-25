@@ -523,6 +523,16 @@ tester 1514-stall         "bash '$T/i1514_run.sh'"
 # red here by name. Eleven calibration-window runs, no whole-clip replay.
 # MEASURED 2026-09-24 on the 4-core box: 235 s, well inside the default 1200.
 tester 1551-admission     "bash '$T/i1551_run.sh'"
+# #1605: rig-20260922's camera 1 is set aside in the dev window because visit 1's 16
+# stands with its barrel through that camera's bull from f64 until the pull at f203-241,
+# and #1445's twelve looks end at f179. The look census names the refused run (24 looks);
+# OD_LOOK_BUDGET=1605 (31 looks, opt-in because the rescued camera cost that run
+# accuracy) calibrates camera 1 on the predicted look with the opening window's figures;
+# the default stays main's 2 of 3; rig-20260918 and rig-20260922's opening are
+# byte-identical either way. One look census and eight calibration-only runs, no
+# whole-clip replay.
+# MEASURED 2026-09-25 on the 4-core box at load ~6: 478 s (and 623 s on the first run, at load 6-11), inside the default 1200.
+tester 1605-looks         "bash '$T/i1605_run.sh'"
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
