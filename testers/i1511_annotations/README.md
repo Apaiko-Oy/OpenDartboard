@@ -32,8 +32,9 @@ order:
    exist (a resting miss), never invented. Notes name occlusion, overlap and
    out-of-plane conditions.
 
-**rig-20260922 since #1585** — fitted to the same pixels the step blend paints, because
-by eye was the limiting error. For a dart that arrives at frame `a`, the mask
+**rig-20260922 since #1585, and rig-20260918's three new visit-6 rows (#1603)** — fitted
+to the same pixels the step blend paints, because by eye was the limiting
+error. For a dart that arrives at frame `a`, the mask
 `|frame(a+29) - frame(a-12)| > 26` is that dart and nothing else on the board; per image
 row the longest contiguous run of mask inside a column window is taken, runs too wide to
 be a shaft (a flight) or too narrow to be one are dropped, and `x = m*y + c` is
@@ -107,14 +108,36 @@ fifth of any real hand event in this clip. It is truth **v2.3, the T8**, and it 
 
 ## What is deliberately absent
 
-- **rig-20260918 visit 6 dart 1** — thrown outside the board entirely (confirmed by
-  the maintainer, #1504); it never rests in any camera's view. Unannotatable.
 - **rig-20260918 visit 7 dart 3** — the footage ends before it lands.
 - **rig-20260922 visit 2 dart 3 on camera 2** — the arrival mask is empty there: the dart
   is fully occluded behind darts 1–2 from that camera. Cameras 1 and 3 carry it. It is the
   **only** absence left on this fixture: 71 rows over all 24 throws and all three cameras.
 - **rig-20260918 visit 4's miss** IS annotated (it rests in view, off the board
   plane) so the census can hold "no event expected" against a real observation.
+
+## rig-20260918's visit 6 named the wrong darts, and its miss is a dart too (#1603)
+
+**Corrected 2026-09-25**, applying #1587's measurement
+(`testers/i1587_accuracy_baseline.md`, *The rows a correction would use*) on the
+maintainer's decision in #1603. This list used to carry **rig-20260918 visit 6 dart 1** as
+"thrown outside the board entirely … it never rests in any camera's view. Unannotatable."
+It rests in the board's **outer black number ring**, off the scoring area, and all three
+cameras see it arrive at f1490-1495 — the same case as rig-20260922's v1.3, and
+`mocks/rig-20260918/GROUND-TRUTH.md` now carries the matching correction.
+
+Because the old rows assumed that dart was not there, they named the wrong darts
+throughout the visit: the three **v6.2** rows are the miss, and the **v6.3** rows on
+cameras 2 and 3 are the 7. Only v6.3 camera 1 was right. So five rows were re-labelled
+(v6.2 → v6.1 on all three cameras, v6.3 → v6.2 on cameras 2 and 3), three rows were added
+for the darts that had none (the 7 on camera 1, the 2 on cameras 2 and 3), and v6.3 camera
+1 is untouched. The three new rows are fits in the #1585 shape above, from
+`i1587_shaft_fit.cpp fit` with the arrival mask `|frame(a+29) - frame(a-12)|`, each at a
+max residual of **3.80–3.91 px**; the re-labelled rows keep the by-eye pixels they were
+measured with, because what was wrong about them was the name, not the line. Each row's
+note carries its arrival and its provenance.
+
+The visit is now nine rows over three darts, and every dart of rig-20260918 is annotated
+on all three cameras except visit 7's third, which the footage never shows landing.
 
 ## rig-20260922's miss is a dart, and camera 1 is annotated
 

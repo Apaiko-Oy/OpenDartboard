@@ -44,12 +44,15 @@ rig-20260918,5,2,4,3,1340,855,150,835,219,,,lower shaft and tip occluded behind 
 rig-20260918,5,3,18,1,1368,444,165,459,300,461,312,lands beside dart 2 -- adjacent-dart overlap case
 rig-20260918,5,3,18,2,1368,727,290,746,425,748,437,
 rig-20260918,5,3,18,3,1368,820,105,792,218,789,224,shaft image slightly bowed; line through red shaft and needle
-rig-20260918,6,2,7,1,1530,1028,325,1014,460,1012,472,dart leans far out of plane at the right rim
-rig-20260918,6,2,7,2,1530,690,35,694,118,,,enters at the top rim; the point is hidden behind the rim from this camera
-rig-20260918,6,2,7,3,1530,303,215,322,318,325,332,flight hangs over the surround; steep out-of-plane lean
+rig-20260918,6,1,miss,1,1530,1028,325,1014,460,1012,472,arrives f1490-1495; THROWN MISS: it comes to rest in the black number ring OUTSIDE the double -- off the scoring area and no scoring event. Re-labelled from v6.2 by #1603 (2026-09-25) applying #1587's measurement: three darts arrive in visit 6 and all three rest in view; this is the first of them. GROUND-TRUTH.md's no-landing-to-detect is about the scoring area rather than about the recording. dart leans far out of plane at the right rim
+rig-20260918,6,1,miss,2,1530,690,35,694,118,,,arrives f1490-1495; thrown miss resting in the black ring outside the double; re-labelled from v6.2 by #1603 (2026-09-25) per #1587; enters at the top rim -- the point is hidden behind the rim from this camera
+rig-20260918,6,1,miss,3,1530,303,215,322,318,325,332,arrives f1490-1495; thrown miss resting in the black ring outside the double; re-labelled from v6.2 by #1603 (2026-09-25) per #1587; flight hangs over the surround; steep out-of-plane lean
+rig-20260918,6,2,7,1,1562,1032,66,953,319,953,319,arrives f1530-1535; NEW row from #1587's fit (f1562 vs f1521 arrival mask; 136/158 image rows kept; max residual 3.88 px); the dart resting in the 7 -- camera 1 carried no row for it before #1603 (2026-09-25)
+rig-20260918,6,2,7,2,1610,513,25,543,148,546,160,arrives f1530-1535; re-labelled from v6.3 by #1603 (2026-09-25) per #1587 -- this row is the 7 rather than the 2; enters near the top rim
+rig-20260918,6,2,7,3,1610,450,310,472,415,475,428,arrives f1530-1535; re-labelled from v6.3 by #1603 (2026-09-25) per #1587 -- this row is the 7 rather than the 2
 rig-20260918,6,3,2,1,1610,724,80,716,168,,,entry hidden behind the retrieving hand; line from the visible shaft above and below it
-rig-20260918,6,3,2,2,1610,513,25,543,148,546,160,enters near the top rim
-rig-20260918,6,3,2,3,1610,450,310,472,415,475,428,
+rig-20260918,6,3,2,2,1597,273,154,333,311,333,311,arrives f1565-1570; NEW row from #1587's fit (f1597 vs f1556 arrival mask; 136/175 image rows kept; max residual 3.91 px); the dart resting in the 2 -- camera 2 carried no row for it before #1603 (2026-09-25)
+rig-20260918,6,3,2,3,1597,1032,180,934,429,934,429,arrives f1565-1570; NEW row from #1587's fit (f1597 vs f1556 arrival mask; 133/192 image rows kept; max residual 3.80 px); the dart resting in the 2 -- camera 3 carried no row for it before #1603 (2026-09-25)
 rig-20260918,7,1,5,1,1745,466,275,456,420,453,438,
 rig-20260918,7,1,5,2,1745,861,185,881,320,884,343,
 rig-20260918,7,1,5,3,1745,642,110,650,185,652,195,

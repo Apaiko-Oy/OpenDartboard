@@ -93,17 +93,28 @@ repository about whether a treble can be read at all. A treble published as a si
 ## Throws that produce no event
 
 Both read from the footage by the maintainer on 2026-09-21 (#1500's closing comment), so
-neither is a detection failure, and neither was known from any run. #1511's hand
-annotations leave out exactly these two throws for the same reasons
-(`testers/i1511_annotations/README.md`), and #1512 calls the same fact a throw with *no
-arrival*. A row here is what lets the census place a gap in a visit; it is a fact about
-the recording, and a run that publishes for one of these throws makes the row place
-nothing.
+neither is a detection failure, and neither was known from any run. #1512 calls the same
+fact a throw with *no arrival* — true of visit 7's throw, and, since the correction below,
+not of visit 6's: #1511's hand annotations carry visit 6 dart 1 as an arrival
+(`testers/i1511_annotations/README.md`). A row here is what lets the census place a gap in
+a visit; it is a fact about the recording, and a run that publishes for one of these
+throws makes the row place nothing.
 
 | visit | throw | what the footage shows |
 | --- | --- | --- |
-| 6 | 1 | thrown outside the board: there is no landing on the board to detect |
+| 6 | 1 | thrown wide of the scoring area: it sticks in the board's outer black number ring, so nothing scores — corrected below |
 | 7 | 3 | lands as the clip ends: the footage stops before the dart can settle |
+
+**Visit 6's first dart is on the recording, and this table said it was not (corrected
+2026-09-25).** The cell above read "thrown outside the board: there is no landing on the
+board to detect". #1587 measured otherwise: the dart arrives at frames 1490-1495, all
+three cameras see it, and it comes to rest in the black number ring outside the double.
+Both halves are true at once — it scores nothing, which is why the throws table says
+`miss` and why the row stays in this table at all, and it is a real arrival a detector may
+legitimately see and must publish as `MISS`, the way this fixture's visit-4 miss is
+treated. It is annotated as an arrival in `testers/i1511_annotations/` (#1603). This is
+the identical claim already corrected for `rig-20260922`'s v1.3 in b3528e5. The only throw
+of this recording that cannot arrive at all is visit 7's third.
 
 ## Measured against it, on merged `main`
 
