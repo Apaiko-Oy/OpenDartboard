@@ -22,7 +22,13 @@
 #
 # What is ASSERTED: the control's zero; that each census parses and solves at least
 # its floor of entries (a census that compared nothing has measured nothing, #1490);
-# that overlays were written. Accuracy figures are REPORTED for the report to carry.
+# that overlays were written; and (#1584) that every dart of runs 2 and 3 was published
+# under the geometry-first rule the census is told of -- OD_SCORE_PATH is unset here --
+# with the census proved to refuse, by name, the rig-18 log read as the vote's. Accuracy
+# figures are REPORTED for the report to carry, each column named for the line it reads:
+# `published` the SCORE line by path, `string-vote` I1555PUBLISH's vote=, `geometry`
+# I1512ENTRY. Until #1584 the "string-vote" column read the SCORE line, which since
+# #1555 is the geometric publish.
 set -u
 
 BIN=/app/build/opendartboard
@@ -69,9 +75,24 @@ mkdir -p "$RUN/probe18geo"
 run_detector rig-20260918 rig18-on OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_GEO_PROBE="$RUN/probe18geo"
 python3 /app/testers/i1512_census.py --log "$RUN/rig18-on.txt" --truth $T18 \
     --annotations $A18 --fixture "mocks/rig-20260918 (the ground-truthed rig)" \
-    --min-solved 4 | tee "$RUN/census18.txt"
+    --min-solved 4 --expect-path geometry-first | tee "$RUN/census18.txt"
 CRC=${PIPESTATUS[0]}
 if [ "$CRC" -ne 0 ]; then exit 1; fi
+# #1584: the path check's own control, on the log just read and at no replay's cost: the
+# same run censused as if the string vote had published it must be refused by name.
+python3 /app/testers/i1512_census.py --log "$RUN/rig18-on.txt" --truth $T18 \
+    --annotations $A18 --fixture "rig-20260918 censused as the vote (control)" \
+    --min-solved 4 --expect-path vote > "$RUN/census18-mismatch-control.txt"
+MRC=$?
+NAMED=$(grep -c '^I1512 PATH-MISMATCH ' "$RUN/census18-mismatch-control.txt")
+grep -m1 '^I1512 PUBLISHED-PATH' "$RUN/census18-mismatch-control.txt"
+grep -m1 '^I1512 PATH-MISMATCH' "$RUN/census18-mismatch-control.txt"
+if [ "$MRC" -ne 3 ] || [ "$NAMED" -eq 0 ]; then
+    echo "FAIL the rig-18 run censused as the vote exited $MRC naming $NAMED darts; the"
+    echo "     census cannot be shown to report a path it was not told (#1584)"
+    exit 1
+fi
+echo "OK   the rig-18 run censused as the vote is refused: rc=3, $NAMED darts named PATH-MISMATCH"
 P18=$(ls "$RUN/probe18geo" | wc -l)
 if [ "$P18" -eq 0 ]; then
     echo "FAIL the probe run wrote no overlay images"
@@ -90,7 +111,7 @@ run_detector rig-20260922 rig22-on OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_GEO_PROB
 # no annotation at all, so it names nothing here (#1585).
 python3 /app/testers/i1512_census.py --log "$RUN/rig22-on.txt" --truth $T22 \
     --annotations $A22 --fixture "mocks/rig-20260922 (the current rig)" \
-    --min-solved 2 --no-arrival 1.1 | tee "$RUN/census22.txt"
+    --min-solved 2 --no-arrival 1.1 --expect-path geometry-first | tee "$RUN/census22.txt"
 CRC=${PIPESTATUS[0]}
 if [ "$CRC" -ne 0 ]; then exit 1; fi
 echo "OK   $(ls "$RUN/probe22geo" | wc -l) overlay images under $RUN/probe22geo"
