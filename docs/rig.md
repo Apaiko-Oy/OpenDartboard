@@ -76,8 +76,10 @@ camera transmits. A format read there can never refuse a camera (#1336).
   flip was the calibration window, and #1605 found what is in that window: visit 1's
   16 stands with its barrel through camera 1's bull from f64 until the pull at
   f203-241, so the bull stage reads a half-bull 13-14 px off centre. On a clear board
-  the same camera calibrates on every look (R=0.87 at the opening). The look budget
-  now outlasts that dart (`geometry_detector.cpp`, `kFurtherLooks`).
+  the same camera calibrates on every look (R=0.87 at the opening). A look budget
+  that outlasts that dart exists behind `OD_LOOK_BUDGET=1605` and is not the default:
+  admitting the camera in that window cost accuracy (`geometry_detector.cpp`,
+  `kFurtherLooksPastAStandingDart`).
 
 ## Board
 
