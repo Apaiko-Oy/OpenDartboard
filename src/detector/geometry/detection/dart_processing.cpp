@@ -413,6 +413,22 @@ namespace dart_processing
         return v;
     }
 
+    //   OD_AXIS_RESCUE=off  #1586's falsification pin, axisGateIsOff's shape: the
+    //                       composite rescue (shaft_axis.hpp, AxisParams::rescue_composite)
+    //                       is not attempted, so a figure the straightness gate refuses
+    //                       stays refused exactly as before #1586 and the solver sees
+    //                       the old exclusion. Anything else, unset included, leaves the
+    //                       rescue on.
+    static bool axisRescueIsOff()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_AXIS_RESCUE");
+            return e != nullptr && std::string(e) == "off";
+        }();
+        return v;
+    }
+
     // The smallest distance between two contours, in pixels. Bounding boxes first: a
     // figure here holds nine contours at its worst (measured over the whole of
     // mocks/rig-20260918: 51 readings, 1 to 9 contours, median 3), and CHAIN_APPROX_SIMPLE
@@ -1379,6 +1395,7 @@ namespace dart_processing
                         shaft_axis::AxisParams axis_params;
                         axis_params.gated = !axisGateIsOff();
                         axis_params.subtract_shadow = !axisShadowIsOff();
+                        axis_params.rescue_composite = !axisRescueIsOff();
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
@@ -1732,6 +1749,10 @@ namespace dart_processing
                 if (shaftCensusOn())
                 {
                     log_info(shaft_axis::censusLine(r.axis, tip_gap));
+                    if (r.axis.rescueTried)
+                    {
+                        log_info(shaft_axis::rescueLine(r.axis));
+                    }
                 }
                 if (!shaftProbeDir().empty() && i < window_frames.size() && !window_frames[i].empty())
                 {
