@@ -128,8 +128,17 @@ done
 run_arm r22-dev-1605 $R22 tree  1 OD_LOOK_BUDGET=1605
 run_arm r22-dev-1605 $R22 first 1 OD_LOOK_BUDGET=1605 OD_LOOK_SEAL=first
 
-BAD=0; for k in "${!RC_OF[@]}"; do [ "${RC_OF[$k]}" = 0 ] || { echo "     rc ${RC_OF[$k]}: $k"; BAD=1; }; done
-[ $BAD = 0 ]; note $? "every calibration run ended cleanly (${#RC_OF[@]} runs)"
+# rig-20260922 dev under OD_CALIBRATION_LOOKS=once leaves camera 3 alone -- camera 1 has a
+# dart through its bull and camera 2 needs a look -- and one camera is under the quorum
+# of two (camera_quorum.hpp), so that start does not initialise and exits 75. Measured on
+# the first run of this harness; it is the pin's board, not a fault of this one.
+BAD=0; for k in "${!RC_OF[@]}"; do
+  want=0; case "$k" in r22-dev.once.*) want=75 ;; esac
+  [ "${RC_OF[$k]}" = $want ] || { echo "     rc ${RC_OF[$k]} (wanted $want): $k"; BAD=1; }
+done
+[ $BAD = 0 ]; note $? "every calibration run ended as predicted (${#RC_OF[@]} runs; r22-dev under OD_CALIBRATION_LOOKS=once rc 75, every other rc 0)"
+grep -q "Failed to initialize detector" $RUN/r22-dev.once.1.log
+note $? "r22-dev under OD_CALIBRATION_LOOKS=once: one camera of three, so the detector does not initialise"
 grep -q "DEBUG_SEEK_VIDEO: video 1 seeked forward" $RUN/r22-dev.tree.1.log
 note $? "the binary carries the dev seek, so the dev window is the one measured"
 
@@ -178,6 +187,14 @@ for s in r22-dev r22-open r22-dev-1605; do
     note $? "$s camera $c: and the pin stops looking there ($(field "$F" looked) looks)"
   done
 done
+
+# The default EXERCISES the rule on a real start, measured on the first run of this harness:
+# rig-20260922's opening, camera 2 passes on look 3 at R=0.927525 and on look 4 at
+# R=0.940764, so best-of seals look 4 where the first-pass rule sealed look 3. (Same bull,
+# (644,232); the dev window's camera 2 seals look 9 under either rule.)
+T="$(seal_of r22-open tree 2)"; F="$(seal_of r22-open first 2)"
+[ -n "$(field "$T" look)" ] && [ "$(field "$T" look)" != "$(field "$F" look)" ]
+note $? "r22-open camera 2: the default seals a DIFFERENT look from the first to pass (tree $(field "$T" look), pin $(field "$F" look)) -- the rule is exercised without any opt-in"
 
 echo
 echo "---- D. every run of an arm seals the same look at the same bull ----"
