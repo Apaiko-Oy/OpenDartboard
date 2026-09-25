@@ -58,8 +58,15 @@ g++ -std=c++17 -O1 -I /app/src -I /app/src/utils -I /app/src/detector/geometry/c
   -o "$BIN" /app/testers/i1437_wire_census.cpp \
   /app/src/detector/geometry/calibration/*.cpp $(pkg-config --cflags --libs opencv4) \
   > /run1442/build_census.log 2>&1 || { echo "FAIL could not build the wire census; nothing below measures anything"; exit 2; }
+# wire_model.cpp is named here because score_processing.cpp reaches it at LINK time:
+# since the geometric path landed (#1510 board_model, #1512 entry_intersection, #1555
+# wiring them into the publish decision), score_processing.cpp pulls in both headers
+# and they call wire_model::planeOf, imageOfBoardAngle, fitTwentyFold, coherenceAtFold
+# and minimumCoherence. A hand-rolled link line naming score_processing.cpp must name
+# wire_model.cpp too, or ld answers "undefined reference" and the row measures nothing.
 g++ -std=c++17 -O1 -o "$UNIT" /app/testers/i1442_count_check.cpp \
   /app/src/detector/geometry/calibration/wire_processing.cpp \
+  /app/src/detector/geometry/calibration/wire_model.cpp \
   /app/src/detector/geometry/calibration/perspective_processing.cpp \
   /app/src/detector/geometry/detection/score_processing.cpp \
   -I/app/src -I/app/src/utils \

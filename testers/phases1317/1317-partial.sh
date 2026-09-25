@@ -37,8 +37,12 @@ echo "--- the three guards, called directly ---"
 # `WireData::wholeRing()`. Only #1442's own build line was updated, so this one has not
 # linked since -- `undefined reference to wire_processing::isAWholeRing(int)` -- which is
 # a tester that cannot be built rather than one that fails, and reads as neither.
+# wire_model.cpp joined this line for the same reason, one layer later: since the
+# geometric path landed (#1510/#1512/#1555), score_processing.cpp reaches board_model
+# and entry_intersection, and both call into wire_model:: at link time.
 g++ -std=c++17 -O1 -o /run1317/guards /app/testers/i1317_guards.cpp \
   /app/src/detector/geometry/calibration/wire_processing.cpp \
+  /app/src/detector/geometry/calibration/wire_model.cpp \
   /app/src/detector/geometry/calibration/perspective_processing.cpp \
   /app/src/detector/geometry/detection/score_processing.cpp \
   -I/app/src -I/app/src/utils \
