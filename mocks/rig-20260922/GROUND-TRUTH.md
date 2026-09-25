@@ -9,10 +9,17 @@ against the old line was one too high.
 
 **The whole of visit 1 is thrown before the recording's clean frame (~9 s, index ~270).**
 The first dart, the 8, is the parked dart #1514 found: it is on the board from frame
-one, so it cannot "arrive" and no arrival-based detector can ever score it. What visit 1
-offers a detector is therefore one arrival (the 16) and one miss (nothing to see). A
-comparison that counts the 8 or the miss as detection failures is measuring the
-recording, not the detector.
+one, so it cannot "arrive" and no arrival-based detector can ever score it. A comparison
+that counts the 8 as a detection failure is measuring the recording, not the detector.
+
+**The miss is on the recording, and this file said it was not (corrected 2026-09-25).**
+The sentence here read "one miss (nothing to see)". #1585 measured otherwise: the third
+dart of visit 1 arrives at frame 123 and rests in the board's outer black ring, off the
+scoring area, and all three cameras see it. Both halves are true at once — it scores
+nothing, which is why the line above says `miss`, and it is a real arrival a detector may
+legitimately see and must publish as `MISS`, the way `rig-20260918`'s visit-4 miss is
+treated. It is annotated as an arrival in `testers/i1511_annotations/`. The only throw of
+this recording that cannot arrive is the parked 8.
 
 Derived copies of this line must carry the correction:
 `testers/i1499_truth_rig20260922.md` is the table the census harnesses actually parse.
