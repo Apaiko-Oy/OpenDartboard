@@ -178,6 +178,7 @@ namespace camera
             delivered_.clear();
             failures_.clear();
             ended_.clear();
+            seeked_to_.clear();
             nominal_fps_ = static_cast<double>(fps);
 
             log_info("Initializing " + log_string(sources.size()) + " cameras...");
@@ -186,6 +187,9 @@ namespace camera
             {
                 cv::VideoCapture cap;
                 log_debug("Opening camera " + log_string(i + 1) + ": " + sources[i]);
+                // #1618: the frame DEBUG_SEEK_VIDEO put this file at, 0 where nothing
+                // seeked it. What alignSeekedFiles() evens out once calibration is done.
+                int seeked_to = 0;
 
                 CaptureClock clock = CaptureClock::Unknown;
                 // #1319: the rate the DEVICE was asked for, which the verification
@@ -251,6 +255,7 @@ namespace camera
                         {
                             int target_frame = static_cast<int>(video_fps * seek_seconds);
                             cap.set(cv::CAP_PROP_POS_FRAMES, target_frame);
+                            seeked_to = target_frame;
                             log_info("DEBUG_SEEK_VIDEO: video " + log_string(i + 1) + " seeked forward by " +
                                      log_string(seek_seconds) + " seconds (frame " + log_string(target_frame) +
                                      ") -- every calibration number of this run belongs to this window, and a "
@@ -398,6 +403,7 @@ namespace camera
                 delivered_.push_back(false);
                 failures_.push_back(0);
                 ended_.push_back(false);
+                seeked_to_.push_back(seeked_to);
                 log_info("Camera/video " + log_string(i + 1) + " initialized successfully");
             }
 
@@ -417,6 +423,48 @@ namespace camera
         std::string describe(size_t i) const override
         {
             return i < descriptions_.size() ? descriptions_[i] : std::string("");
+        }
+
+        // #1618: see CaptureSource::alignSeekedFiles. Every read() since open() took one
+        // frame from every file, so a file seeked to an earlier frame is still behind the
+        // furthest one by exactly the difference of the two seeks; it is read forward by
+        // that many frames and nothing else moves. A file nothing seeked (a release
+        // build, or OD_SEEK_VIDEO=off) has seeked_to_ 0 on every camera and reads nothing.
+        void alignSeekedFiles() override
+        {
+            int furthest = 0;
+            for (size_t i = 0; i < seeked_to_.size(); i++)
+            {
+                if (i < is_file_.size() && is_file_[i])
+                    furthest = std::max(furthest, seeked_to_[i]);
+            }
+            std::string said;
+            for (size_t i = 0; i < seeked_to_.size() && i < captures_.size(); i++)
+            {
+                if (i >= is_file_.size() || !is_file_[i])
+                    continue;
+                const int behind = furthest - seeked_to_[i];
+                int read_forward = 0;
+                for (int n = 0; n < behind; n++)
+                {
+                    if (!captures_[i].grab())
+                        break;
+                    read_forward++;
+                }
+                seeked_to_[i] += read_forward;
+                if (behind > 0)
+                {
+                    said += (said.empty() ? "" : ", ") + std::string("video ") + log_string(i + 1) +
+                            " read forward " + log_string(read_forward) + " of " + log_string(behind) +
+                            " frame(s)";
+                }
+            }
+            if (!said.empty())
+            {
+                log_info("SEEK ALIGN: " + said + ", so every file camera now shows the same instant "
+                         "of the recording -- DEBUG_SEEK_VIDEO's staggered seek stays the "
+                         "calibration window and stops being the replay (#1618)");
+            }
         }
 
         // #1282: true only when there is at least one source, every one of them is a
@@ -835,6 +883,7 @@ namespace camera
         std::vector<bool> delivered_;  // this source has handed over at least one frame
         std::vector<int> failures_;    // consecutive failed reads, reset by any success
         std::vector<bool> ended_;      // this file has reached its end and said so once
+        std::vector<int> seeked_to_;   // #1618: the frame the dev seek put each file at
         double nominal_fps_ = 0.0;
     };
 

@@ -80,6 +80,13 @@ camera transmits. A format read there can never refuse a camera (#1336).
   that outlasts that dart exists behind `OD_LOOK_BUDGET=1605` and is not the default:
   admitting the camera in that window cost accuracy (`geometry_detector.cpp`,
   `kFurtherLooksPastAStandingDart`).
+  **Measured 2026-09-25 (turnaus#1618): that cost is the dev replay's, not the rig's.**
+  A dev build (`DEBUG_SEEK_VIDEO`) seeks each file camera by 3 − 0.18·i s, frames
+  90, 84 and 79 on both fixtures, and nothing re-aligns them, so every dev-window
+  replay watches camera 1 six frames ahead of camera 2 and eleven ahead of camera 3.
+  Once camera 1 votes, one throw is called twice. `OD_SEEK_ALIGN=1618` aligns the
+  files after calibration; a release build and live cameras never seek. The
+  `opening` window (`OD_SEEK_VIDEO=off`) has always been in step.
 
 ## Board
 

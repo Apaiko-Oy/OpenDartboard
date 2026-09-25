@@ -27,6 +27,42 @@ using namespace cv;
 // ---- #899: the three numbers the sight-loss lifecycle is spelled with. ----
 namespace
 {
+    // #1618: whether a dev replay's staggered DEBUG_SEEK_VIDEO seek is evened out once
+    // calibration is done (CaptureSource::alignSeekedFiles). OPT-IN, OD_SEEK_ALIGN=1618.
+    //
+    // THE FINDING. A dev build seeks camera i by 3 - 0.18 i seconds, so rig-20260922's
+    // files start at frames 90, 84 and 79 and every dev-window replay has watched the
+    // recording with camera 1 six frames ahead of camera 2 and eleven ahead of camera 3.
+    // With two scoring cameras (2 and 3, five frames apart) that mostly went unseen. With
+    // #1605's OD_LOOK_BUDGET=1605 camera 1 scores too, and an eleven-frame skew between
+    // voters splits a throw in two: camera 1 calls it, and cameras 2 and 3 call it again
+    // 7-11 cycles later as if a new dart had landed. That is rig-22 dev's 15/23 -> 11/23:
+    // v2.3, v5.3 and v7.3 are lost to those echoes (v5.3's and v2.3's windows ARE the
+    // echo; v7.3 finds the board already at DART_3), v5.2 and v2.2 solve through camera 3
+    // before camera 3 has seen them, and v3.2's vote meets camera 3 still showing the
+    // thrower (72.9% of its frame). Measured by testers/i1618_run.sh: with the files
+    // aligned, the same opt-in reads 19/23 and the echoes are gone.
+    //
+    // WHY IT IS NOT THE DEFAULT, measured and not assumed. Aligned, rig-20260918 dev
+    // gains v2.3 and v4.3 but loses v5.1 (S15 read T15 -- the dart #1555 recorded as the
+    // opening window's one loss, now lost here too, because dev now watches what opening
+    // watches); rig-22 dev with the opt-in still loses v7.2 (a lone camera-1 reading
+    // 0.7 deg past the 3/19 wire, not the skew) and v8.1 (a takeout whose event is
+    // abandoned, so the next dart's window reconciles CLEAN over it); and with two
+    // cameras alone rig-22 dev falls to 13..14/23 on the same takeout. #1618's bar is
+    // that nothing correct on main regresses, so it stays a pin. A release build and a
+    // live rig never seek, so none of this reaches a board: it is the dev replay that
+    // was measuring three cameras out of step.
+    bool seekAlignIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_SEEK_ALIGN");
+            return e != nullptr && std::string(e) == "1618";
+        }();
+        return v;
+    }
+
     // How long every camera has to be silent before the board calls it a sight loss
     // rather than a dropped frame. #798's CAPDROP is the dropped-frame instrument and it
     // fires on one cycle; this is a different observable and wants a different unit.
@@ -252,6 +288,14 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     {
         log_info("Detector initialized successfully");
         board_sight::calibrated() = true;
+    }
+
+    // #1618: calibration -- the averaged frames, every look, and #1605's re-taken
+    // background -- is finished, so the calibration window has done its job and the
+    // files are brought to one instant before a single scoring frame is read.
+    if (seekAlignIsOn())
+    {
+        capture->alignSeekedFiles();
     }
 }
 
