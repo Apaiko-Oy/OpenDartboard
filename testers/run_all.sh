@@ -515,7 +515,7 @@ tester 1551-admission     "bash '$T/i1551_run.sh'"
 # the default stays main's 2 of 3; rig-20260918 and rig-20260922's opening are
 # byte-identical either way. One look census and eight calibration-only runs, no
 # whole-clip replay.
-# MEASURED 2026-09-25 on the 4-core box at load ~6: WALL_PENDING s.
+# MEASURED 2026-09-25 on the 4-core box at load ~6: 478 s (and 623 s on the first run, at load 6-11), inside the default 1200.
 tester 1605-looks         "bash '$T/i1605_run.sh'"
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
