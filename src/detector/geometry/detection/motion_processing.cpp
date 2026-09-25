@@ -78,6 +78,20 @@ namespace motion_processing
         return settleTrigger() ? 2 : params.min_cameras_for_event;
     }
 
+    // #1627's pin, in the shape of the two above: OD_SETTLE_SPIKE=discard restores what
+    // case STABILIZING did before #1627 with a spike while an event settles -- drop the
+    // event and go back to IDLE -- on the same binary. See that case for why it no longer
+    // does.
+    static bool settleSpikeDiscards()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_SETTLE_SPIKE");
+            return e && std::string(e) == "discard";
+        }();
+        return v;
+    }
+
     // The mask for one camera, built on first sight of its board and kept.
     static const Region &regionFor(size_t i, const vector<BoardExtent> &boards, Size frame, const MotionParams &params)
     {
@@ -466,8 +480,58 @@ namespace motion_processing
                 // Motion increased - could be dart removal or false positive
                 if (current_intensity > spikeThreshold(params))
                 {
-                    // Big spike during stabilization - probably dart removal, reset
-                    current_state = DartEventState::IDLE;
+                    // #1627: a spike while the event settles is more of the same motion,
+                    // so the event goes on: it re-opens here, on this cycle, exactly as
+                    // IDLE would re-open it on the next cycle if the motion were still
+                    // above the spike threshold there. Before #1627 this line went to
+                    // IDLE ("probably dart removal"), and that loses the whole event
+                    // whenever the spike is a one- or two-cycle blip: nothing re-opens
+                    // it, no window is made, and the motion it was about -- a takeout,
+                    // on mocks/rig-20260922 visit 7 -- never reaches the dart vote. The
+                    // next arrival's window then reads the fall from three darts to one
+                    // as a takeout (#1518's CLEAN BY REVERSION) and re-bases the clean
+                    // reference with the new dart standing in it. Measured there under
+                    // OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 (#1618's trace): camera 3
+                    // read 0.0107 and 0.0426 of its board on the two cycles after the
+                    // takeout settled, the average 0.0142 crossed 0.011, and v8.1's T1
+                    // was baked into the empty board.
+                    // When the motion persists this is IDLE's own re-entry one cycle
+                    // early; only the blip case changes what happens.
+                    // OD_SETTLE_SPIKE=discard restores the old line. So do #1358's and
+                    // #1339's falsification switches, for the reason case COOLDOWN gives:
+                    // a falsification run keeps the whole machine it was written against.
+                    std::string ratios;
+                    for (size_t i = 0; i < motion_data.size(); i++)
+                    {
+                        ratios += string(i ? " " : "") + "cam" + to_string(i + 1) + "=" +
+                                  (motion_data[i].measured ? to_string(motion_data[i].motion_ratio) : string("-"));
+                    }
+                    const bool discard = settleSpikeDiscards() || settleTrigger() || measuredAgainstTheFrame();
+                    log_info(string("I1627 SETTLE SPIKE cycle=") + to_string(od_clock::cycles().load()) +
+                             " stable=" + to_string(stable_frame_count) +
+                             " average=" + to_string(current_intensity) +
+                             " threshold=" + to_string(spikeThreshold(params)) + " " + ratios +
+                             (discard ? " -> IDLE: the event is discarded (the pre-#1627 line, pinned)"
+                                      : " -> SPIKE_DETECTED: the event goes on"));
+                    if (discard)
+                    {
+                        current_state = DartEventState::IDLE;
+                    }
+                    else
+                    {
+                        current_state = DartEventState::SPIKE_DETECTED;
+                        event_start_time = now;
+                        fill(cameras_spiked.begin(), cameras_spiked.end(), false);
+                        intensity_history.clear();
+                        stable_frame_count = 0;
+                        for (size_t i = 0; i < motion_data.size(); i++)
+                        {
+                            if (motion_data[i].motion_ratio > spikeThreshold(params))
+                            {
+                                cameras_spiked[i] = true;
+                            }
+                        }
+                    }
                 }
                 else
                 {

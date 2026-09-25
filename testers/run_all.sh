@@ -566,6 +566,14 @@ tester 1628-wire          "bash '$T/i1628_check.sh'"
 # ~300-400 s from one such replay's cost inside #1555's bakeoff; the 1500 is a guess
 # with headroom, to be replaced by the first measured number.
 tester 1628-lonefix       "bash '$T/i1628_run.sh'"
+# #1627: with OD_LOOK_BUDGET=1605 and OD_SEEK_ALIGN=1618 on, rig-20260922's visit-7
+# takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
+# to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
+# its T1 into the clean reference. A spike while an event settles now keeps the event;
+# OD_SETTLE_SPIKE=discard restores the old line. Three whole-clip rig-20260922 dev replays:
+# pinned, repaired, and the default.
+# NOT YET MEASURED: three whole-clip replays, about 13 min at load ~10 by #1627's single replays (264 s each); slow 1500 is 1618-thirdcam's allowance.
+tester 1627-takeout       "bash '$T/i1627_run.sh'"
 slow 1500
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
