@@ -512,10 +512,25 @@ tester 1560-lenscheck     "bash '$T/unit_check.sh' 1560"
 # the instrument's own solver: the full Gauss-Newton camera fit recovering a planted k1,
 # and the rings-only focal-length fit recovering a planted f at 430 and at 725 -- with
 # its mutation, an ORTHOGRAPHIC board whose perspective term is removed, which must come
-# back "not resolved", because a scale is not a focal length. Stdlib python3, no
-# footage, no container; the same file with --frames re-takes the measurement itself.
-# MEASURED 2026-09-25 on this box: 87 s, well inside the default 1200.
-tester 1560-lensmodel     "python3 '$T/i1560_k1_census.py' --synthetic"
+# back "not resolved", because a scale is not a focal length. Stdlib python only, no
+# footage, no network, no build; the same file with --frames re-takes the measurement.
+#
+# It goes through i1560_check.sh rather than calling python straight from here, and the
+# reason is a red row rather than a preference. This line was
+# `python3 '$T/i1560_k1_census.py' --synthetic`, which is a HOST command -- and the box
+# that runs this suite has no host python3, so the Windows Store stub answered "Python
+# ei loytynyt" and the row failed rc=49 in one second, every time, on the only working
+# environment. Every other python in this directory already runs inside $OD_IMAGE,
+# which carries 3.11, and now so does this one. The rule the next row should inherit:
+# a tester may assume the IMAGE has an interpreter and may never assume the HOST has
+# one. (The host python3 calls in i1510p2_run.sh and its siblings are not a
+# counter-example -- they are command substitutions computing a wall time, so the stub
+# costs them an empty field and not a failure.)
+# MEASURED 2026-09-25 on this box, #1341's rule: 92 s through run_all.sh and 99 s run
+# standalone, against the 1200 s default. Both numbers rather than the better one. It
+# is the container's python 3.11 doing the arithmetic the host's 3.14 did in 87, plus
+# the container start; no `slow` line, because 1200 is thirteen times either figure.
+tester 1560-lensmodel     "bash '$T/i1560_check.sh'"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
 # BOARD PLANE, so one physical tip projects to a different board radius from every
