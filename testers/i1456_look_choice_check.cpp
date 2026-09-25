@@ -7,12 +7,14 @@
 //   2. THE TIE-BREAK, STATED: equal R goes to the EARLIEST look, whatever order the looks
 //      are listed in. Nothing passed means nothing is sealed (-1).
 //   3. THE WINDOW: every refused camera is looked at through #1445's twelve; past twelve
-//      (only under #1605's opt-in budget of 31) only a camera that passed on none of the
-//      first twelve, and then to the end of the budget -- #1605's guarantee that its
-//      longer budget never touches a camera the default admitted.
+//      (only under #1605's budget of 31, the default since #1631) only a camera that
+//      passed on none of the first twelve, and then to the end of the budget -- #1605's
+//      guarantee that its longer budget never touches a camera the twelve admitted.
+//      (#1631 relabelled the checks below "default"/"pin OD_LOOK_BUDGET=12"; the budgets
+//      and expected values are unchanged.)
 //   4. THE LOOK CENSUSES, replayed through the rule: rig-20260922 camera 1 from the dev
-//      seek (looks 1-24 refused, 25+ calibrate; #1605's census) is set aside by the default
-//      and admitted by the opt-in, sealing the best of looks 25-31, never a look the
+//      seek (looks 1-24 refused, 25+ calibrate; #1605's census) is set aside by the pin
+//      OD_LOOK_BUDGET=12 and admitted by the default 31, sealing the best of looks 25-31, never a look the
 //      census refused.
 //   5. THE FALSIFIER, OD_LOOK_SEAL=first: the pinned rule seals the first look that passed
 //      and stops looking at that camera, which is what every build before #1456 did.
@@ -104,10 +106,10 @@ int main()
         for (int look = 1; look <= 12; look++)
             all = all && look_choice::looksAt(look, 12, 12, true) && look_choice::looksAt(look, 12, 31, true);
         check(all, "3a every look 1..12 is taken, passed or not, under either budget");
-        check(!look_choice::looksAt(13, 12, 12, false), "3b the default budget ends at 12 for a camera still refused");
-        check(!look_choice::looksAt(13, 12, 31, true), "3c the opt-in's look 13 is NOT spent on a camera that passed within 12 (#1605 E)");
+        check(!look_choice::looksAt(13, 12, 12, false), "3b the OD_LOOK_BUDGET=12 pin ends at 12 for a camera still refused");
+        check(!look_choice::looksAt(13, 12, 31, true), "3c the default 31's look 13 is NOT spent on a camera that passed within 12 (#1605 E)");
         check(look_choice::looksAt(13, 12, 31, false) && look_choice::looksAt(31, 12, 31, false),
-              "3d the opt-in's looks 13..31 ARE spent on a camera that passed on none of the first 12");
+              "3d the default 31's looks 13..31 ARE spent on a camera that passed on none of the first 12");
         check(!look_choice::looksAt(32, 12, 31, false) && !look_choice::looksAt(0, 12, 31, false),
               "3e nothing outside 1..budget");
     }
@@ -120,10 +122,10 @@ int main()
         auto passes = [](int look) { return look >= 25; };
         auto r = [](int look) { return 0.90 - 0.001 * (look - 28) * (look - 28); };
         const Replay d = replay(12, 12, false, passes, r);
-        check(d.sealed == 0 && d.looked == 12, "4a default: camera 1 is looked at 12 times and set aside, as on main");
+        check(d.sealed == 0 && d.looked == 12, "4a pin OD_LOOK_BUDGET=12: camera 1 is looked at 12 times and set aside, the default before #1631");
         const Replay o = replay(12, 31, false, passes, r);
         check(o.sealed == 28 && o.passed == 7 && o.looked == 31,
-              "4b OD_LOOK_BUDGET=1605: looks 25..31 pass (7) and the best of them (28) is sealed, not look 25");
+              "4b the default 31: looks 25..31 pass (7) and the best of them (28) is sealed, not look 25");
         const Replay of = replay(12, 31, true, passes, r);
         check(of.sealed == 25 && of.looked == 25, "4c the same under OD_LOOK_SEAL=first: look 25, and looking stops there (#1605's run)");
 
@@ -135,7 +137,7 @@ int main()
               "4d a camera passing from look 3 at a flat R is looked at 12 times, not 31, and seals look 3 on the tie");
         const Replay c2d = replay(12, 12, false, from3, flat);
         check(c2d.sealed == c2.sealed && c2d.looked == c2.looked,
-              "4e ... identically with and without the opt-in (#1605 E holds under #1456)");
+              "4e ... identically under the default and the OD_LOOK_BUDGET=12 pin (#1605 E holds under #1456)");
     }
 
     // ---- 5. the falsifier ----------------------------------------------------------------------

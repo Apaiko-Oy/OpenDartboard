@@ -1,5 +1,5 @@
 #!/bin/bash
-# #1627's harness: with #1605's OD_LOOK_BUDGET=1605 and #1618's OD_SEEK_ALIGN=1618 on, the
+# #1627's harness: with #1605's look budget and #1618's alignment on (the default since #1631), the
 # visit-7 takeout on mocks/rig-20260922 lost its motion event to a camera-3 blip while it
 # settled, and v8.1's arrival window then read the takeout and baked the T1 into the empty
 # board. The census that shows it, and the pin (OD_SETTLE_SPIKE=discard) that restores it.

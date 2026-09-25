@@ -1,6 +1,7 @@
 set -u
 # #1618, inside the container: why a correctly calibrated third camera made rig-20260922 dev
-# WORSE (15/23 -> 11/23 under #1605's OD_LOOK_BUDGET=1605), and the pin that shows it.
+# WORSE (15/23 -> 11/23 under #1605's 31 looks), and the alignment that repairs it --
+# the default since #1631, with OD_SEEK_ALIGN=off as the pin.
 #
 # THE FINDING. It is the dev replay, not the third camera. A dev build (DEBUG_SEEK_VIDEO)
 # seeks file camera i by 3 - 0.18 i seconds -- frames 90, 84 and 79 -- and nothing ever
@@ -11,24 +12,32 @@ set -u
 # later, when their copy of the recording reaches it: an ECHO window. Visit 2's third dart,
 # v5.3 and v7.3 are lost to echoes, v2.2 and v5.2 are solved through a camera 3 that has
 # not yet seen them, and v3.2's vote meets a camera 3 still showing the thrower. Camera 1's
-# own axes are as good as the opening window's. OD_SEEK_ALIGN=1618 reads the lagging
+# own axes are as good as the opening window's. The alignment (default since #1631) reads the lagging
 # files forward once calibration is done (scorer.cpp, seekAlignIsOn); a release build and
 # a live rig never seek at all.
 #
+# #1631 MADE BOTH THE DEFAULT, so the three replays are the same three configurations
+# under new names: `r22-dev-pinned` (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off) is what was
+# the default, `r22-dev-noalign` (OD_SEEK_ALIGN=off) is what was #1605's opt-in alone,
+# and `r22-dev` (no switch) is what was the opt-in aligned.
+#
 # WHAT IS ASSERTED, predictions first in the output:
-#   A  THE CAUSE: the dev seek staggers the three files; the default and #1605's opt-in
-#      are not aligned (no SEEK ALIGN line), so this pin changes neither.
-#   B  THE MECHANISM, under OD_LOOK_BUDGET=1605: echo windows, each closer behind the
-#      previous call than the 11-frame skew plus one cycle; none on the default run.
+#   A  THE CAUSE: the dev seek staggers the three files; under OD_SEEK_ALIGN=off, with
+#      either budget, nothing is aligned (no SEEK ALIGN line) and the pin says it is set.
+#   B  THE MECHANISM, 31 looks and OD_SEEK_ALIGN=off: echo windows, each closer behind
+#      the previous call than the 11-frame skew plus one cycle; none with both pins.
 #   C  CAMERA 1 IS NOT THE FAULT: its valid axes in that run sit a median <= 1.0 deg and
 #      <= 6 px (annotated tip off the axis) from the hand annotations.
-#   D  THE REPAIR, OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618: the files are read forward by
-#      exactly the seek differences, no echo is left, rig-22 dev reads ABOVE 15/23, and
-#      every dart the account attributes to the skew is correct again.
-#   E  WHY IT IS STILL A PIN: the darts correct on the default run and not on the aligned
-#      one are exactly v7.2 and v8.1, neither of which is an echo (a lone camera-1 reading
-#      past the 3/19 wire; a takeout whose event is abandoned). #1618's bar is none.
-#   F  AN UNSEEKED WINDOW IS UNTOUCHED: at the clip's opening nothing is read forward.
+#   D  THE REPAIR, the default (31 looks, aligned): the files are read forward by
+#      exactly the seek differences, no echo is left, rig-22 dev reads ABOVE 15/23 and
+#      above the pinned run, and every dart the account attributes to the skew is
+#      correct again.
+#   E  WHAT THE DEFAULT STILL LOSES: the darts correct with both pins and not by default
+#      are exactly v7.2 -- a lone camera-1 reading past the 3/19 wire, not an echo
+#      (#1628, no safe rule). Before #1627 it was v7.2 and v8.1; #1627 repaired v8.1's
+#      takeout. The set is asserted exactly, so a new loss or a v7.2 repair is red here.
+#   F  AN UNSEEKED WINDOW IS UNTOUCHED: at the clip's opening, under the default,
+#      nothing is read forward.
 #
 # Three whole-clip rig-20260922 replays and one calibration-only run.
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
@@ -72,36 +81,38 @@ accuracy_of() { grep -oE 'correct [0-9.]+/[0-9]+' "$1" | head -1; }
 correct_n() { grep -oE 'correct [0-9]+' "$1" | head -1 | grep -oE '[0-9]+$'; }
 
 echo "---- the three replays: rig-20260922, dev window ----"
-replay r22-dev;                                          RC1=$?
-replay r22-dev-1605       OD_LOOK_BUDGET=1605;           RC2=$?
-replay r22-dev-1605-align OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618; RC3=$?
+replay r22-dev-pinned     OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off; RC1=$?
+replay r22-dev-noalign    OD_SEEK_ALIGN=off;             RC2=$?
+replay r22-dev;                                          RC3=$?
 [ "$RC1$RC2$RC3" = 000 ]; note $? "all three replays ended cleanly (rc $RC1 $RC2 $RC3)"
-for r in r22-dev r22-dev-1605 r22-dev-1605-align; do
+for r in r22-dev-pinned r22-dev-noalign r22-dev; do
   echo "     $r: $(grep '^I1555 ACCURACY ' $RUN/census-$r.txt | sed 's/^I1555 ACCURACY //')"
 done
 
 echo
 echo "---- A. the cause: the dev seek staggers the files ----"
-SEEKS="$(grep -oE 'video [0-9] seeked forward by [0-9.]+ seconds \(frame [0-9]+\)' $RUN/r22-dev.txt | sed -E 's/video ([0-9]).*frame ([0-9]+).*/\1:\2/' | tr '\n' ' ')"
+SEEKS="$(grep -oE 'video [0-9] seeked forward by [0-9.]+ seconds \(frame [0-9]+\)' $RUN/r22-dev-pinned.txt | sed -E 's/video ([0-9]).*frame ([0-9]+).*/\1:\2/' | tr '\n' ' ')"
 echo "     PREDICTED: frames 90, 84 and 79.  measured: $SEEKS"
 [ "$SEEKS" = "1:90 2:84 3:79 " ]; note $? "the three file cameras start 0, 6 and 11 frames apart"
-! grep -q 'SEEK ALIGN' $RUN/r22-dev.txt; note $? "the default run is not aligned"
-! grep -q 'SEEK ALIGN' $RUN/r22-dev-1605.txt; note $? "#1605's opt-in on its own is not aligned"
+! grep -q 'SEEK ALIGN' $RUN/r22-dev-pinned.txt; note $? "both pins (the old default): not aligned"
+! grep -q 'SEEK ALIGN' $RUN/r22-dev-noalign.txt; note $? "31 looks with OD_SEEK_ALIGN=off (the old opt-in alone): not aligned"
+grep -q 'OD_SEEK_ALIGN=off is set' $RUN/r22-dev-pinned.txt && grep -q 'OD_SEEK_ALIGN=off is set' $RUN/r22-dev-noalign.txt
+note $? "and both say the alignment pin is set"
 
 echo
 echo "---- B. the mechanism: echo windows once camera 1 votes ----"
-grep -E '^I1618 (ECHO|ECHOES) ' $RUN/i1618-r22-dev-1605.txt | sed 's/^/     /'
-E1="$(sed -n 's/^I1618 ECHOES r22-dev n=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev.txt)"
-E2="$(sed -n 's/^I1618 ECHOES r22-dev-1605 n=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev-1605.txt)"
-G2="$(sed -n 's/^I1618 ECHOES r22-dev-1605 .*max_gap=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev-1605.txt)"
-echo "     PREDICTED: three or more echoes under the opt-in, each within 12 cycles (the 11-frame skew + 1); none by default"
+grep -E '^I1618 (ECHO|ECHOES) ' $RUN/i1618-r22-dev-noalign.txt | sed 's/^/     /'
+E1="$(sed -n 's/^I1618 ECHOES r22-dev-pinned n=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev-pinned.txt)"
+E2="$(sed -n 's/^I1618 ECHOES r22-dev-noalign n=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev-noalign.txt)"
+G2="$(sed -n 's/^I1618 ECHOES r22-dev-noalign .*max_gap=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev-noalign.txt)"
+echo "     PREDICTED: three or more echoes with 31 looks and OD_SEEK_ALIGN=off, each within 12 cycles (the 11-frame skew + 1); none with both pins"
 [ "${E2:-0}" -ge 3 ] && [ -n "$G2" ] && [ "$G2" -le 12 ]
-note $? "OD_LOOK_BUDGET=1605: ${E2:-0} echo window(s), the widest ${G2:-none} cycles behind the call before it"
-[ "${E1:-x}" = 0 ]; note $? "default: ${E1:-?} echo windows"
+note $? "31 looks, OD_SEEK_ALIGN=off: ${E2:-0} echo window(s), the widest ${G2:-none} cycles behind the call before it"
+[ "${E1:-x}" = 0 ]; note $? "both pins: ${E1:-?} echo windows"
 
 echo
-echo "---- C. camera 1's own evidence under the opt-in ----"
-C1="$(grep '^I1618 CAM1 ' $RUN/i1618-r22-dev-1605.txt)"
+echo "---- C. camera 1's own evidence, 31 looks and OD_SEEK_ALIGN=off ----"
+C1="$(grep '^I1618 CAM1 ' $RUN/i1618-r22-dev-noalign.txt)"
 echo "     $C1"
 MA="$(echo "$C1" | sed -n 's/.*median_dAng=\([0-9.]*\).*/\1/p')"
 MP="$(echo "$C1" | sed -n 's/.*median_tipPerp=\([0-9.]*\).*/\1/p')"
@@ -109,49 +120,50 @@ MP="$(echo "$C1" | sed -n 's/.*median_tipPerp=\([0-9.]*\).*/\1/p')"
 note $? "camera 1's valid axes: median ${MA:-?} deg and ${MP:-?} px from the annotations (<= 1.0 deg, <= 6 px)"
 
 echo
-echo "---- D. the pin: OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 ----"
-AL="$(grep -oE 'SEEK ALIGN: video 2 read forward [0-9]+ of [0-9]+ frame\(s\), video 3 read forward [0-9]+ of [0-9]+ frame\(s\)' $RUN/r22-dev-1605-align.txt)"
+echo "---- D. the repair, now the default: 31 looks, aligned ----"
+AL="$(grep -oE 'SEEK ALIGN: video 2 read forward [0-9]+ of [0-9]+ frame\(s\), video 3 read forward [0-9]+ of [0-9]+ frame\(s\)' $RUN/r22-dev.txt)"
 echo "     PREDICTED: video 2 read forward 6, video 3 read forward 11; no echo; above 15/23"
 echo "     measured:  ${AL:-no SEEK ALIGN line}"
 [ "$AL" = "SEEK ALIGN: video 2 read forward 6 of 6 frame(s), video 3 read forward 11 of 11 frame(s)" ]
 note $? "the lagging files are read forward by exactly the seek differences"
-E3="$(sed -n 's/^I1618 ECHOES r22-dev-1605-align n=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev-1605-align.txt)"
+E3="$(sed -n 's/^I1618 ECHOES r22-dev n=\([0-9]*\).*/\1/p' $RUN/i1618-r22-dev.txt)"
 [ "${E3:-x}" = 0 ]; note $? "aligned: ${E3:-?} echo windows"
-N1="$(correct_n $RUN/census-r22-dev.txt)"; N2="$(correct_n $RUN/census-r22-dev-1605.txt)"
-N3="$(correct_n $RUN/census-r22-dev-1605-align.txt)"
-echo "     correct: default ${N1:-?}/23, opt-in ${N2:-?}/23, opt-in aligned ${N3:-?}/23"
+N1="$(correct_n $RUN/census-r22-dev-pinned.txt)"; N2="$(correct_n $RUN/census-r22-dev-noalign.txt)"
+N3="$(correct_n $RUN/census-r22-dev.txt)"
+echo "     correct: both pins ${N1:-?}/23, OD_SEEK_ALIGN=off ${N2:-?}/23, default ${N3:-?}/23"
 [ -n "$N3" ] && [ -n "$N1" ] && [ "$N3" -gt 15 ] && [ "$N3" -gt "$N1" ]
-note $? "aligned, the opt-in reads above 15/23 and above the default"
-correct_set $RUN/census-r22-dev-1605.txt > $RUN/c2
-correct_set $RUN/census-r22-dev-1605-align.txt > $RUN/c3
-correct_set $RUN/census-r22-dev.txt > $RUN/c1
+note $? "the default reads above 15/23 and above both pins"
+correct_set $RUN/census-r22-dev-noalign.txt > $RUN/c2
+correct_set $RUN/census-r22-dev.txt > $RUN/c3
+correct_set $RUN/census-r22-dev-pinned.txt > $RUN/c1
 SKEW_DARTS="v2.2 v2.3 v3.2 v5.2 v5.3 v7.3"
 BACK=0
 for d in $SKEW_DARTS; do
   in2=$(grep -cx "$d" $RUN/c2); in3=$(grep -cx "$d" $RUN/c3)
-  echo "     $d: opt-in $( [ "$in2" = 1 ] && echo correct || echo wrong ) -> aligned $( [ "$in3" = 1 ] && echo correct || echo wrong )"
+  echo "     $d: unaligned $( [ "$in2" = 1 ] && echo correct || echo wrong ) -> aligned $( [ "$in3" = 1 ] && echo correct || echo wrong )"
   [ "$in2" = 0 ] && [ "$in3" = 1 ] && BACK=$((BACK + 1))
 done
-[ "$BACK" = 6 ]; note $? "all six darts the account lays on the skew are wrong under the opt-in and correct aligned ($BACK of 6)"
+[ "$BACK" = 6 ]; note $? "all six darts the account lays on the skew are wrong unaligned and correct aligned ($BACK of 6)"
 
 echo
-echo "---- E. why it stays a pin: what the default gets right that the aligned opt-in does not ----"
+echo "---- E. what the default still loses: correct with both pins and not by default ----"
 LOST="$(comm -23 $RUN/c1 $RUN/c3 | tr '\n' ' ')"
 GAINED="$(comm -13 $RUN/c1 $RUN/c3 | tr '\n' ' ')"
-echo "     PREDICTED lost: v7.2 v8.1   measured lost: ${LOST:-none}   gained: ${GAINED:-none}"
-[ "$LOST" = "v7.2 v8.1 " ]; note $? "exactly v7.2 and v8.1 regress against the default"
-grep -E '^I1618 DART r22-dev-1605-align v(7\.2|8\.1) ' $RUN/i1618-r22-dev-1605-align.txt | cut -c1-260 | sed 's/^/     /'
+echo "     PREDICTED lost: v7.2 (v8.1 repaired by #1627)   measured lost: ${LOST:-none}   gained: ${GAINED:-none}"
+[ "$LOST" = "v7.2 " ]; note $? "exactly v7.2 regresses against the pinned run (the old default)"
+grep -qx v8.1 $RUN/c3; note $? "v8.1 is correct by default (#1627's takeout repair holds)"
+grep -E '^I1618 DART r22-dev v(7\.2|8\.1) ' $RUN/i1618-r22-dev.txt | cut -c1-260 | sed 's/^/     /'
 
 echo
 echo "---- F. an unseeked window is untouched ----"
 rm -rf $RUN/cache $RUN/debug_frames
-( cd $RUN && env OD_MAX_CYCLES=1 OD_SEEK_VIDEO=off OD_SEEK_ALIGN=1618 timeout 600 $BIN \
+( cd $RUN && env OD_MAX_CYCLES=1 OD_SEEK_VIDEO=off timeout 600 $BIN \
     --cams "$R22/cam_1.mp4,$R22/cam_2.mp4,$R22/cam_3.mp4" --width 1280 --height 720 \
     > $RUN/r22-open-align.out 2>&1 ); RC4=$?
 [ "$RC4" = 0 ] && ! grep -q 'SEEK ALIGN' $RUN/r22-open-align.out
-note $? "OD_SEEK_VIDEO=off with the pin on: nothing is read forward (rc $RC4)"
+note $? "OD_SEEK_VIDEO=off under the default alignment: nothing is read forward (rc $RC4)"
 
 echo
 if [ "$FAIL" -gt 0 ]; then echo "RESULT: $FAIL failure(s)"; exit 1; fi
-echo "RESULT: rig-20260922 dev lost darts under OD_LOOK_BUDGET=1605 because the dev seek runs its cameras 0/6/11 frames apart and a voting camera 1 calls each throw twice; aligned, the opt-in reads ${N3}/23, and it stays a pin because v7.2 and v8.1 still regress"
+echo "RESULT: rig-20260922 dev lost darts under the 31-look budget unaligned because the dev seek runs its cameras 0/6/11 frames apart and a voting camera 1 calls each throw twice; the default (aligned) reads ${N3}/23, and against both pins it loses only v7.2"
 exit 0

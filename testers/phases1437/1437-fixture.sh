@@ -15,6 +15,12 @@ set -u
 #   A  THE CONTROL. Each fixture calibrates for every clip it holds, in an ordinary run.
 #      This is the claim, and on its own it is worth little: it is one grep that would
 #      also pass if the detector printed the line for a reason unrelated to cameras.
+#      #1631: an ordinary run is the DEFAULT one, and rig-20260922's camera 1 answers in
+#      it only because the default look budget is #1605's 31 since #1631 -- a dart
+#      stands through that camera's bull for the first 24 looks of the dev window. Under
+#      the pin OD_LOOK_BUDGET=12 (the default before #1631) this phase read rig-20260922
+#      at 2 of 3 and failed; 1605-looks section D holds that pinned board. The assertion
+#      here is unchanged: every clip, in a run with no switch set.
 #
 #   B  THE MUTATION PROOF, which is what makes A a rule. The same fixture with ONE clip
 #      replaced by footage of a warm room and no dartboard (#1318's generator). The run

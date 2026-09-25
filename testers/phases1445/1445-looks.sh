@@ -21,6 +21,13 @@ set -u
 #      consecutive disagreeing samples, asked of this observable -- and the constants are
 #      read out of the source rather than restated here, so a moved constant or a re-shot
 #      fixture fails HERE and not in a pub.
+#      #1631: the budget asked about is the one a board spends BY DEFAULT, which since
+#      #1631 is #1605's kFurtherLooksPastAStandingDart (31), with OD_LOOK_BUDGET=12 as
+#      the pin to #1445's kFurtherLooks. Before #1631 the default was kFurtherLooks and
+#      this phase was red on rig-20260922/cam_1 (a refused run of 24, #1605). The
+#      assertion is the same -- the default budget must outlast the longest refused run
+#      -- and the pin's twelve is printed beside it, not asserted, because 1605-looks A
+#      and D already hold that twelve does NOT outlast it.
 #
 #   C  THE od_fix SHAPE (#1340). One binary, the retry disabled at run time with
 #      OD_CALIBRATION_LOOKS=once, held to the ACTUAL pre-change numbers -- 2 of 3 on the
@@ -56,14 +63,23 @@ FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
 # The constants this board really uses, read from the source. Restating them here is how a
-# harness and a repair drift apart.
-LOOKS="$(grep -oE 'constexpr int kFurtherLooks = [0-9]+' /app/src/detector/geometry/geometry_detector.cpp | grep -oE '[0-9]+$')"
-SPACING="$(grep -oE 'constexpr int kFramesBetweenLooks = [0-9]+' /app/src/detector/geometry/geometry_detector.cpp | grep -oE '[0-9]+$')"
-if [ -z "${LOOKS:-}" ] || [ -z "${SPACING:-}" ]; then
-  echo "FAIL could not read kFurtherLooks/kFramesBetweenLooks out of geometry_detector.cpp; nothing below is about the board's own budget"
+# harness and a repair drift apart. LOOKS is the DEFAULT budget (#1631: #1605's 31), and
+# PIN_LOOKS the twelve OD_LOOK_BUDGET=12 restores. That the default IS the longer one is
+# read from furtherLookBudget itself: it must return the longer constant unless the pin
+# word is given, or this phase is not asking about the board's own budget.
+GD=/app/src/detector/geometry/geometry_detector.cpp
+LOOKS="$(grep -oE 'constexpr int kFurtherLooksPastAStandingDart = [0-9]+' $GD | grep -oE '[0-9]+$')"
+PIN_LOOKS="$(grep -oE 'constexpr int kFurtherLooks = [0-9]+' $GD | grep -oE '[0-9]+$')"
+SPACING="$(grep -oE 'constexpr int kFramesBetweenLooks = [0-9]+' $GD | grep -oE '[0-9]+$')"
+if [ -z "${LOOKS:-}" ] || [ -z "${PIN_LOOKS:-}" ] || [ -z "${SPACING:-}" ]; then
+  echo "FAIL could not read kFurtherLooksPastAStandingDart/kFurtherLooks/kFramesBetweenLooks out of geometry_detector.cpp; nothing below is about the board's own budget"
   exit 2
 fi
-echo "=== the budget this tree holds: $LOOKS further looks, $SPACING capture cycles apart ==="
+if ! grep -qF 'std::string(e) == "12") ? kFurtherLooks : kFurtherLooksPastAStandingDart' $GD; then
+  echo "FAIL furtherLookBudget no longer reads 'the pin 12, else kFurtherLooksPastAStandingDart', so which budget is the default is not what this phase assumes"
+  exit 2
+fi
+echo "=== the budget this tree holds: $LOOKS further looks by default ($PIN_LOOKS under the pin OD_LOOK_BUDGET=12), $SPACING capture cycles apart ==="
 
 echo
 echo "=== building: the look census ==="
@@ -176,10 +192,11 @@ fi
 if [ "$RESCUABLE" = 0 ]; then
   say "FAIL no camera of either fixture has an averaged frame refused where the single frames answer, so this slice repairs nothing measurable here and phase A is the only thing keeping it honest" no
 elif [ "$LOOKS" -le "$WORST" ]; then
-  say "FAIL the budget is $LOOKS looks and the longest run of consecutive refused looks measured here is $WORST ($WORST_WHO); a budget that does not outlast the observed disturbance is a camera set aside for the evening" no
+  say "FAIL the default budget is $LOOKS looks and the longest run of consecutive refused looks measured here is $WORST ($WORST_WHO); a budget that does not outlast the observed disturbance is a camera set aside for the evening" no
 else
-  say "OK   $LOOKS looks (${SPAN_S}s) against a longest observed run of $WORST (${WORST_S}s, $WORST_WHO) -- the budget outlasts the disturbance it was sized against, with $((LOOKS - WORST)) looks to spare" ok
+  say "OK   the default $LOOKS looks (${SPAN_S}s) against a longest observed run of $WORST (${WORST_S}s, $WORST_WHO) -- the budget outlasts the disturbance it was sized against, with $((LOOKS - WORST)) looks to spare" ok
 fi
+echo "  (the pin OD_LOOK_BUDGET=12's $PIN_LOOKS looks $( [ "$PIN_LOOKS" -gt "$WORST" ] && echo outlast || echo 'do NOT outlast' ) that run; 1605-looks holds that, not this phase)"
 
 # ---- the detector runs ----------------------------------------------------------------
 await() {
