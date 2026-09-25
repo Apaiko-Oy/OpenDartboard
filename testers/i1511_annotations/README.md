@@ -57,7 +57,12 @@ uncertainty at roughly ±1.5–4°.
 The fit is tighter and the tightening is measured rather than claimed: on rig-20260922
 the residual bound above puts each fitted endpoint inside ~±1 px, so the angle floor is
 about ±0.5–1°, and the axis census now reports median angle errors of 0.23–0.51° against
-it. **That is why the by-eye rows for visits 2-4 were re-measured rather than kept**: a
+it. **Where the fit is thin it is the row that is wrong, and it says so in its note** — two
+camera-1 rows first came back from windows that held only part of the shaft (17 rows over
+114 px, 19 over 79 px) and one of them read 10.7° from the detector's axis; refitted over
+the clear 165 px and 221 px the same mask really holds, they read 0.2° and 1.5°. A row with
+few kept rows over a short span is the thing to re-window, before it is anything to
+conclude. **That is why the by-eye rows for visits 2-4 were re-measured rather than kept**: a
 census whose reference has two floors reports the worse one. The move is small and was
 checked before it was made — truth v2.1 on cam2 was 7 px off at its upper endpoint (~3°),
 inside the by-eye floor and obvious at 7x zoom.
@@ -105,20 +110,35 @@ fifth of any real hand event in this clip. It is truth **v2.3, the T8**, and it 
 - **rig-20260918 visit 6 dart 1** — thrown outside the board entirely (confirmed by
   the maintainer, #1504); it never rests in any camera's view. Unannotatable.
 - **rig-20260918 visit 7 dart 3** — the footage ends before it lands.
-- **rig-20260922 visit 1 dart 3 (the miss)** — the only one of the fixture's 24 throws
-  that never reaches the board. There is nothing to annotate and nothing a detector could
-  score; 23 of 24 is the ceiling on this recording.
 - **rig-20260922 visit 2 dart 3 on camera 2** — the arrival mask is empty there: the dart
-  is fully occluded behind darts 1–2 from that camera. Cameras 3 carries it.
-- **rig-20260922 camera 1** — **only the dev window's exclusion, and it is not a property
-  of the camera.** With the registry build's 3 s seek that camera never admits on this box
-  (wire coherence 0.578 against the 0.60 gate, the #1510 watch item) and produces **0 valid
-  axes in 18 windows**, so annotating it would measure nothing there. With
-  `OD_SEEK_VIDEO=off` the same camera admits and produces **14 valid axes in 22 windows**
-  (#1551), where an annotation WOULD measure something. It is left unannotated as a scope
-  bound of #1585, recorded rather than hidden.
+  is fully occluded behind darts 1–2 from that camera. Cameras 1 and 3 carry it. It is the
+  **only** absence left on this fixture: 71 rows over all 24 throws and all three cameras.
 - **rig-20260918 visit 4's miss** IS annotated (it rests in view, off the board
   plane) so the census can hold "no event expected" against a real observation.
+
+## rig-20260922's miss is a dart, and camera 1 is annotated
+
+Two things were recorded as unannotatable before #1585 measured them.
+
+**Visit 1 dart 3, the miss, is on the recording.** `GROUND-TRUTH.md` says it "never hit the
+board", which reads as nothing to see. It arrives at **f123** — an ordinary thrown dart,
+between the 16 at f64 and the takeout at f203 — and comes to rest in the board's **outer
+black ring**, off the scoring area. All three cameras see it: camera 3 shows it plainly
+in the rim at the left of the board, camera 1 across the lower right, and camera 2 sees
+only the flight standing above the top rim and running out of frame. So the truth line and
+the footage are both right — it never hit anything that scores — and the row goes in for
+the reason rig-20260918's visit-4 miss does: a census can then hold "no event expected"
+against a real observation rather than against nothing. It is an **arrival**, so it is not
+a `--no-arrival` row.
+
+**Camera 1 is annotated, and which window you run in is what decides whether it measures
+anything.** With the registry build's 3 s seek that camera never admits on this box (wire
+coherence 0.578 against the 0.60 gate, the #1510 watch item) and produces **0 valid axes in
+18 windows**. With `OD_SEEK_VIDEO=off` (#1551) the same camera admits and produces **14
+valid axes in 22 windows**, and against these rows it reports a median angle error of
+**0.35°**, p90 1.08°, max 4.26° — the same order as cameras 2 and 3. The old README said
+this camera "does not admit on this box"; that was true of one calibration window and was
+being read as a property of the camera.
 
 ## Rows that are lines but not arrivals
 
