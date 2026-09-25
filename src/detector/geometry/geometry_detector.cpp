@@ -127,7 +127,12 @@ namespace
     //
     // WHAT 31 BUYS, and why it is not the default. With it camera 1 calibrates on look 25
     // (f244) at R=0.918783, bull (654,301), every ring in its window -- the opening
-    // window's figures (R=0.873343, bull (653,302)). But testers/run_all.sh 1555 on the
+    // window's figures (R=0.873343, bull (653,302)). [#1456: that was the FIRST look to
+    // pass. Since #1456 the camera is looked at to 31 and seals the best of looks 25-31,
+    // which is look 28 at R=0.948774, bull (654,300); OD_LOOK_SEAL=first gives look 25.
+    // Measured on rig-20260922 dev: 12/23 under the opt-in against main's 11/23, and 20/23
+    // with OD_SEEK_ALIGN=1618 against 19/23 -- v2.1 S12 gained in both, nothing lost.]
+    // But testers/run_all.sh 1555 on the
     // same binary puts rig-20260922 dev at 11/23 correct where twelve reads 15/23: visit
     // 2 is now detected but published S9 S9 T9 for 12 T9 T8, and D20 (v3.2), S19 and S7
     // (v5.2, v5.3), S3 and T9 (v7.2, v7.3) -- all correct on two cameras -- are lost to
@@ -414,8 +419,12 @@ void GeometryDetector::lookAgainAtRefusedCameras()
         {
             every += (every.empty() ? "" : " ") + to_string(p.look) + ":" + to_string(p.r);
         }
+        // "of N" is the looks THIS camera was given, not the active budget: a camera that
+        // passed within #1445's twelve is given twelve under either budget, so its line
+        // reads the same with and without OD_LOOK_BUDGET=1605 (1605-looks section E).
+        const int given = (first_wins || !w.passed_within_selection) ? budget : selection;
         log_info("LOOK AGAIN: camera " + to_string((int)w.camera + 1) + " seals look " +
-                 to_string(w.passed[k].look) + " of " + to_string(budget) + " at R=" +
+                 to_string(w.passed[k].look) + " of " + to_string(given) + " at R=" +
                  to_string(w.passed[k].r) +
                  (first_wins ? string(", the first of its ") + to_string(w.looked_at) +
                                    " looks to pass (OD_LOOK_SEAL=first; look:R " + every + ")"
