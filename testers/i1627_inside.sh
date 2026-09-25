@@ -5,7 +5,8 @@
 # of the measured cameras' board ratios over the spike threshold -- by going to IDLE
 # ("probably dart removal, reset"). When the spike is a one- or two-cycle blip nothing
 # re-opens the event, so the motion it was about never makes a window. On
-# mocks/rig-20260922 dev under OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 that motion is the
+# mocks/rig-20260922 dev with #1605's budget and #1618's alignment on (the default since
+# #1631; OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off are the pins) that motion is the
 # visit-7 takeout: it settles, camera 3 alone reads 0.0107 and then 0.0426 of its board,
 # the average 0.0142 crosses 0.011, and the event is gone. The next window is v8.1's own
 # arrival: cameras 1 and 3 see their cumulative change FALL from three darts to one,
@@ -17,14 +18,16 @@
 # over the threshold then. OD_SETTLE_SPIKE=discard restores the old line.
 #
 # WHAT IS ASSERTED
-#   A  THE DROPPED EVENT, pinned (OD_SETTLE_SPIKE=discard), both switches on: a SETTLE
+#   A  THE DROPPED EVENT, pinned (OD_SETTLE_SPIKE=discard), both switches on (the
+#      default since #1631, so no switch is passed for them): a SETTLE
 #      SPIKE line that discards, carried by camera 3 alone; the window after it is not a
 #      takeout window but v8.1's, and reads CLEAN BY REVERSION on two or more cameras;
 #      v8.1 is undetected.
 #   B  THE REPAIR, same switches: the same spike keeps the event; the window after it is a
 #      plain CLEAN (no reversion needed) and the one after that publishes T1; v8.1 is T1;
 #      nothing the pinned run gets right is lost.
-#   C  THE DEFAULT (both switches off): v8.1 is T1 as it is on main.
+#   C  BOTH SWITCHES PINNED OFF (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off, the default
+#      before #1631): v8.1 is T1 as it is on main.
 #
 # PREDICTION, stated before the repaired binary was first replayed (2026-09-25 19:45):
 # one SETTLE SPIKE near cycle 2563, camera 3 about 0.043, average about 0.014; a takeout
@@ -73,11 +76,13 @@ dart_line() { grep -E "^I1555 (PAIR|ACCURACY-DART) $2 " "$1" | head -1; }
 field() { echo "$1" | grep -oE "(^| )$2=[^ ]*" | head -1 | sed "s/^ *$2=//"; }
 
 echo "---- the replays: rig-20260922, dev window ----"
-replay r22-on-discard OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 OD_SETTLE_SPIKE=discard; RC1=$?
-replay r22-on         OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618;                         RC2=$?
-replay r22-default;                                                                    RC3=$?
+# #1631: both switches are the default, so "on" passes nothing for them, and "off" is the
+# two pins that restore the default before #1631.
+replay r22-on-discard OD_SETTLE_SPIKE=discard;                                         RC1=$?
+replay r22-on;                                                                         RC2=$?
+replay r22-off        OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off;                             RC3=$?
 [ "$RC1$RC2$RC3" = 000 ]; note $? "all three replays ended cleanly (rc $RC1 $RC2 $RC3)"
-for r in r22-on-discard r22-on r22-default; do
+for r in r22-on-discard r22-on r22-off; do
   echo "     $r: $(grep '^I1555 ACCURACY ' $RUN/census-$r.txt | sed 's/^I1555 ACCURACY //')"
   sed 's/^/     /' $RUN/i1627-$r.txt
 done
@@ -121,12 +126,14 @@ echo "     pinned -> repaired: lost ${LOST:-none}, gained ${GAINED:-none}"
 note $? "nothing correct pinned is lost, and v8.1 is gained"
 
 echo
-echo "---- C. the default: both switches off ----"
-D3="$(dart_line $RUN/census-r22-default.txt v8.1)"
+echo "---- C. both switches pinned off (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off) ----"
+grep -q 'OD_LOOK_BUDGET=12 is set' $RUN/r22-off.txt && grep -q 'OD_SEEK_ALIGN=off is set' $RUN/r22-off.txt
+note $? "the pinned run says both pins are set"
+D3="$(dart_line $RUN/census-r22-off.txt v8.1)"
 echo "     $D3"
-echo "$D3" | grep -qE 'published=T1 exact'; note $? "default: v8.1 publishes T1, as on main"
+echo "$D3" | grep -qE 'published=T1 exact'; note $? "both pins: v8.1 publishes T1, as on main"
 
 echo
 if [ "$FAIL" -gt 0 ]; then echo "RESULT: $FAIL failure(s)"; exit 1; fi
-echo "RESULT: a spike while an event settles no longer drops the event; rig-20260922's visit-7 takeout gets its window and v8.1 publishes T1 with OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 on"
+echo "RESULT: a spike while an event settles no longer drops the event; rig-20260922's visit-7 takeout gets its window and v8.1 publishes T1 under the default (#1605's budget and #1618's alignment on)"
 exit 0

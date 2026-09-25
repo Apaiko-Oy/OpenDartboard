@@ -526,19 +526,19 @@ tester 1551-admission     "bash '$T/i1551_run.sh'"
 # #1605: rig-20260922's camera 1 is set aside in the dev window because visit 1's 16
 # stands with its barrel through that camera's bull from f64 until the pull at f203-241,
 # and #1445's twelve looks end at f179. The look census names the refused run (24 looks);
-# OD_LOOK_BUDGET=1605 (31 looks, opt-in because the rescued camera cost that run
-# accuracy) calibrates camera 1 on the predicted look with the opening window's figures;
-# the default stays main's 2 of 3; rig-20260918 and rig-20260922's opening are
-# byte-identical either way. One look census and eight calibration-only runs, no
+# the 31-look budget (the default since #1631; it was opt-in behind OD_LOOK_BUDGET=1605)
+# calibrates camera 1 on the predicted look with the opening window's figures; the pin
+# OD_LOOK_BUDGET=12 restores the old default's 2 of 3; rig-20260918 and rig-20260922's
+# opening are byte-identical either way. One look census and eight calibration-only runs, no
 # whole-clip replay.
 # MEASURED 2026-09-25 on the 4-core box at load ~6: 478 s (and 623 s on the first run, at load 6-11), inside the default 1200.
 tester 1605-looks         "bash '$T/i1605_run.sh'"
 # #1618: why #1605's opt-in made rig-20260922 dev worse. A dev build seeks its three file
 # cameras to frames 90, 84 and 79 and never brings them back into step, so once camera 1
 # votes, a throw is called by camera 1 and again by cameras 2 and 3 eleven frames later
-# (echo windows). OD_SEEK_ALIGN=1618 aligns the files after calibration: the opt-in then
-# reads above 15/23, and stays a pin because v7.2 and v8.1 still regress. Three whole-clip
-# replays and one calibration-only run.
+# (echo windows). The alignment after calibration (the default since #1631; OD_SEEK_ALIGN=off
+# is the pin) reads above 15/23, and against both pins loses exactly v7.2 (#1628; v8.1 was
+# repaired by #1627). Three whole-clip replays and one calibration-only run.
 # MEASURED 2026-09-25 on the 4-core box at load ~5: 552 s (9m12s with the build), inside the 1500 given.
 tester 1618-thirdcam      "bash '$T/i1618_run.sh'"
 slow 1500
@@ -546,13 +546,13 @@ slow 1500
 # budget, ties to the earliest, rather than the first look that passed -- which made the
 # sealed geometry whichever frame first cleared the gate. 1456-lookchoice is the rule as
 # arithmetic (look_choice.hpp: best-of, the tie-break, the twelve-look selection window
-# that #1605's opt-in extends only for a camera that passed on none of it, and the
+# that #1605's 31-look budget extends only for a camera that passed on none of it, and the
 # OD_LOOK_SEAL=first falsifier). A compile and milliseconds.
 tester 1456-lookchoice    "bash '$T/unit_check.sh' 1456"
 # 1456-bestlook is the detector doing it: calibration-only runs of both rig fixtures in
 # both windows, the tree's rule against OD_LOOK_SEAL=first and OD_CALIBRATION_LOOKS=once,
-# recording the sealed look and the bull together, plus rig-20260922 dev under
-# OD_LOOK_BUDGET=1605. No whole-clip replay. OD_I1456_REPS=5 runs the decision's 5-per-arm
+# recording the sealed look and the bull together, plus rig-20260922 dev under the pin
+# OD_LOOK_BUDGET=12 (since #1631 the default is the 31-look budget). No whole-clip replay. OD_I1456_REPS=5 runs the decision's 5-per-arm
 # experiment instead of the registered 2/1/1.
 tester 1456-bestlook      "bash '$T/i1456_run.sh'"
 # #1628: a lone vote reading within its sigma of a wedge wire (rig-20260922 dev v7.2, S3
@@ -566,12 +566,12 @@ tester 1628-wire          "bash '$T/i1628_check.sh'"
 # ~300-400 s from one such replay's cost inside #1555's bakeoff; the 1500 is a guess
 # with headroom, to be replaced by the first measured number.
 tester 1628-lonefix       "bash '$T/i1628_run.sh'"
-# #1627: with OD_LOOK_BUDGET=1605 and OD_SEEK_ALIGN=1618 on, rig-20260922's visit-7
+# #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
 # its T1 into the clean reference. A spike while an event settles now keeps the event;
 # OD_SETTLE_SPIKE=discard restores the old line. Three whole-clip rig-20260922 dev replays:
-# pinned, repaired, and the default.
+# pinned, repaired (the default), and both #1631 pins (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off).
 # NOT YET MEASURED: three whole-clip replays, about 13 min at load ~10 by #1627's single replays (264 s each); slow 1500 is 1618-thirdcam's allowance.
 tester 1627-takeout       "bash '$T/i1627_run.sh'"
 slow 1500

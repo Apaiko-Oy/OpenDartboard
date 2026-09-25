@@ -28,13 +28,20 @@ using namespace cv;
 namespace
 {
     // #1618: whether a dev replay's staggered DEBUG_SEEK_VIDEO seek is evened out once
-    // calibration is done (CaptureSource::alignSeekedFiles). OPT-IN, OD_SEEK_ALIGN=1618.
+    // calibration is done (CaptureSource::alignSeekedFiles). THE DEFAULT since #1631;
+    // OD_SEEK_ALIGN=off is the pin that restores the staggered replay (the default before
+    // #1631). OD_SEEK_ALIGN=1618, the old opt-in, is accepted and means the default.
+    //
+    // WHAT IT REACHES: only a DEV build replaying FILE cameras. DEBUG_SEEK_VIDEO is the
+    // only thing that seeks, a release build never seeks, and a live camera has no
+    // position to align (alignSeekedFiles leaves devices alone), so this changes what the
+    // dev replays measure and never what a board does live.
     //
     // THE FINDING. A dev build seeks camera i by 3 - 0.18 i seconds, so rig-20260922's
     // files start at frames 90, 84 and 79 and every dev-window replay has watched the
     // recording with camera 1 six frames ahead of camera 2 and eleven ahead of camera 3.
     // With two scoring cameras (2 and 3, five frames apart) that mostly went unseen. With
-    // #1605's OD_LOOK_BUDGET=1605 camera 1 scores too, and an eleven-frame skew between
+    // #1605's 31-look budget camera 1 scores too, and an eleven-frame skew between
     // voters splits a throw in two: camera 1 calls it, and cameras 2 and 3 call it again
     // 7-11 cycles later as if a new dart had landed. That is rig-22 dev's 15/23 -> 11/23:
     // v2.3, v5.3 and v7.3 are lost to those echoes (v5.3's and v2.3's windows ARE the
@@ -43,22 +50,27 @@ namespace
     // thrower (72.9% of its frame). Measured by testers/i1618_run.sh: with the files
     // aligned, the same opt-in reads 19/23 and the echoes are gone.
     //
-    // WHY IT IS NOT THE DEFAULT, measured and not assumed. Aligned, rig-20260918 dev
+    // WHY IT WAS NOT THE DEFAULT until #1631, measured and not assumed. Aligned, rig-20260918 dev
     // gains v2.3 and v4.3 but loses v5.1 (S15 read T15 -- the dart #1555 recorded as the
     // opening window's one loss, now lost here too, because dev now watches what opening
     // watches); rig-22 dev with the opt-in still loses v7.2 (a lone camera-1 reading
     // 0.7 deg past the 3/19 wire, not the skew) and v8.1 (a takeout whose event is
     // abandoned, so the next dart's window reconciles CLEAN over it); and with two
     // cameras alone rig-22 dev falls to 13..14/23 on the same takeout. #1618's bar is
-    // that nothing correct on main regresses, so it stays a pin. A release build and a
+    // that nothing correct on main regresses, so it stayed a pin. A release build and a
     // live rig never seek, so none of this reaches a board: it is the dev replay that
     // was measuring three cameras out of step.
+    //
+    // #1631 made it the default with #1605's budget: #1627 repaired v8.1, so with both on
+    // the four windows read 68/84 against 65..66/84 with both off. rig-22 dev v7.2 (#1628,
+    // no safe rule) and rig-18 dev v5.1 are the known losses. Anything but the exact word
+    // "off" is ignored, so a typo keeps the default.
     bool seekAlignIsOn()
     {
         static const bool v = []
         {
             const char *e = std::getenv("OD_SEEK_ALIGN");
-            return e != nullptr && std::string(e) == "1618";
+            return !(e != nullptr && std::string(e) == "off");
         }();
         return v;
     }
@@ -293,9 +305,15 @@ Scorer::Scorer(const string &model, int w, int h, int fps, const vector<string> 
     // #1618: calibration -- the averaged frames, every look, and #1605's re-taken
     // background -- is finished, so the calibration window has done its job and the
     // files are brought to one instant before a single scoring frame is read.
+    // #1631: the pin says itself, so a replay under it cannot be read as the default's.
     if (seekAlignIsOn())
     {
         capture->alignSeekedFiles();
+    }
+    else
+    {
+        log_warning("OD_SEEK_ALIGN=off is set: the files stay at DEBUG_SEEK_VIDEO's "
+                    "staggered seek for the whole replay, the default before #1631 (#1618)");
     }
 }
 

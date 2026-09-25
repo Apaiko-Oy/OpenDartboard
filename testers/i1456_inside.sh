@@ -10,9 +10,16 @@ set -u
 #
 # WHO TAKES LOOKS AT ALL (measured on main, 1605-looks and #1551's census): rig-20260918
 # none, in either window -- every camera calibrates on its averaged frame. rig-20260922
-# dev: camera 2 (passes from look 9) and camera 1 (refused on all 12 by the default; a
-# dart stands through its bull until f239, #1605). rig-20260922 opening: camera 2 (passes
-# from look 3). So these two starts are where the rule can move a seal by default.
+# dev: camera 2 (passes from look 9) and camera 1 (refused on all 12; a dart stands
+# through its bull until f239, #1605 -- so under #1605's 31-look budget, the default since
+# #1631, it passes on 25..31). rig-20260922 opening: camera 2 (passes from look 3). So
+# these two starts are where the rule can move a seal by default.
+#
+# #1631 SWAPPED WHICH RUN IS PINNED. Before it, `r22-dev` was the twelve-look default and
+# a separate `r22-dev-1605` arm (OD_LOOK_BUDGET=1605) held section F. Now `r22-dev` is the
+# 31-look default and carries F, and `r22-dev-12` (OD_LOOK_BUDGET=12, tree and first)
+# holds the twelve-look board the old default was: camera 1 refused on every look, camera
+# 2 sealed within twelve.
 #
 # THE ARMS (the issue's HYPOTHESIS section, rewritten by the decision comment):
 #   tree   this binary, best of the budget
@@ -29,7 +36,8 @@ set -u
 #      (700,298) of its dev window are the AVERAGED frame's bulls (f90..119, f84..113,
 #      f79..108 of cameras 1, 2, 3) and this issue does not move them.
 #   B  THE RULE, on every start that looks: each camera that seals a look was looked at to
-#      the end of its window (12 by default), sealed the highest R in its own look:R list
+#      the end of its window (12, or 31 for a camera that passed on none of the first
+#      12 when the budget is 31), sealed the highest R in its own look:R list
 #      with ties to the earliest, and the bull GEOMETRY SEALED carries is the bull that
 #      look measured -- the seal is that look's calibration, not the last one taken.
 #   C  THE FALSIFIER: under OD_LOOK_SEAL=first each camera seals the first look of the
@@ -37,10 +45,12 @@ set -u
 #      and stops looking there.
 #   D  REPRODUCIBLE: every run of an arm on a start seals the same look at the same bull.
 #   E  OD_CALIBRATION_LOOKS=once takes no look and sets the refused cameras aside.
-#   F  UNDER OD_LOOK_BUDGET=1605 (rig-20260922 dev): camera 1, refused on all of looks
+#   F  THE DEFAULT 31-LOOK BUDGET (rig-20260922 dev): camera 1, refused on all of looks
 #      1..12, is looked at to 31 and seals the best of the looks that pass (25..31);
 #      camera 2, which passed within twelve, is looked at 12 times and not 31; the
 #      background is re-taken; and OD_LOOK_SEAL=first puts camera 1 back on look 25.
+#      Under the pin OD_LOOK_BUDGET=12 camera 1 is refused on every look, as it was by
+#      default before #1631, and camera 2 seals the same look as under the default.
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 
@@ -125,8 +135,8 @@ for start in r22-dev r22-open; do
   run_arm $start $R22 first "$PINREPS" "${envs[@]}" OD_LOOK_SEAL=first
   run_arm $start $R22 once  "$PINREPS" "${envs[@]}" OD_CALIBRATION_LOOKS=once
 done
-run_arm r22-dev-1605 $R22 tree  1 OD_LOOK_BUDGET=1605
-run_arm r22-dev-1605 $R22 first 1 OD_LOOK_BUDGET=1605 OD_LOOK_SEAL=first
+run_arm r22-dev-12 $R22 tree  1 OD_LOOK_BUDGET=12
+run_arm r22-dev-12 $R22 first 1 OD_LOOK_BUDGET=12 OD_LOOK_SEAL=first
 
 # rig-20260922 dev under OD_CALIBRATION_LOOKS=once leaves camera 3 alone -- camera 1 has a
 # dart through its bull and camera 2 needs a look -- and one camera is under the quorum
@@ -156,7 +166,7 @@ done
 
 echo
 echo "---- B. the rule, on every start that looks ----"
-for s in r22-dev r22-open r22-dev-1605; do
+for s in r22-dev r22-open r22-dev-12; do
   for c in 1 2 3; do
     L="$(seal_of $s tree $c)"
     look="$(field "$L" look)"
@@ -169,7 +179,7 @@ for s in r22-dev r22-open r22-dev-1605; do
     note $? "$s camera $c: sealed look $look is the highest R of its list, ties to the earliest (list: $list)"
     [ "$(field "$L" sealed_bull)" = "$(field "$L" look_bull)" ] && [ -n "$(field "$L" look_bull)" ]
     note $? "$s camera $c: GEOMETRY SEALED carries look $look's own bull ($(field "$L" look_bull)), not another look's"
-    want=12; [ $s = r22-dev-1605 ] && [ $c = 1 ] && want=31
+    want=12; [ $s = r22-dev ] && [ $c = 1 ] && want=31
     [ "$(field "$L" looked)" = "$want" ]
     note $? "$s camera $c: looked at $(field "$L" looked) times, to the end of its window ($want)"
   done
@@ -177,7 +187,7 @@ done
 
 echo
 echo "---- C. the falsifier, OD_LOOK_SEAL=first ----"
-for s in r22-dev r22-open r22-dev-1605; do
+for s in r22-dev r22-open r22-dev-12; do
   for c in 1 2 3; do
     T="$(seal_of $s tree $c)"; F="$(seal_of $s first $c)"
     case "$(field "$T" look)" in none|averaged|"") continue ;; esac
@@ -214,12 +224,20 @@ for s in r22-dev r22-open; do
 done
 
 echo
-echo "---- F. under OD_LOOK_BUDGET=1605, rig-20260922 dev ----"
-C1="$(seal_of r22-dev-1605 tree 1)"; C1F="$(seal_of r22-dev-1605 first 1)"
+echo "---- F. the default 31-look budget, rig-20260922 dev, and the pin OD_LOOK_BUDGET=12 ----"
+C1="$(seal_of r22-dev tree 1)"; C1F="$(seal_of r22-dev first 1)"
 [ "$(field "$C1" first)" = 25 ] && [ "$(field "$C1" passed)" = 7 ]
 note $? "camera 1 passes from look 25 (#1605's census) on all 7 of looks 25..31 (passed $(field "$C1" passed), first $(field "$C1" first))"
 [ "$(field "$C1F" look)" = 25 ]; note $? "OD_LOOK_SEAL=first puts camera 1 back on look 25, #1605's seal"
-grep -q "its background is re-taken" $RUN/r22-dev-1605.tree.1.log; note $? "the looks ran past 12, so the background is re-taken"
+grep -q "its background is re-taken" $RUN/r22-dev.tree.1.log; note $? "the looks ran past 12, so the background is re-taken"
+P1="$(seal_of r22-dev-12 tree 1)"; P2="$(seal_of r22-dev-12 tree 2)"; D2="$(seal_of r22-dev tree 2)"
+grep -q "OD_LOOK_BUDGET=12 is set" $RUN/r22-dev-12.tree.1.log && ! grep -q "OD_LOOK_BUDGET=12 is set" $RUN/r22-dev.tree.1.log
+note $? "the pinned run says it is pinned, and the default run does not"
+[ "$(field "$P1" refused_on_every_look)" = 1 ]
+note $? "OD_LOOK_BUDGET=12: camera 1 is refused on every look, the board before #1631 ($P1)"
+[ -n "$(field "$P2" look)" ] && [ "$(field "$P2" look)" = "$(field "$D2" look)" ] && [ "$(field "$P2" sealed_bull)" = "$(field "$D2" sealed_bull)" ]
+note $? "camera 2 seals the same look at the same bull under the pin and the default (pin $(field "$P2" look) $(field "$P2" sealed_bull), default $(field "$D2" look) $(field "$D2" sealed_bull))"
+! grep -q "its background is re-taken" $RUN/r22-dev-12.tree.1.log; note $? "and under the pin no background is re-taken"
 
 echo
 if [ "$FAIL" -gt 0 ]; then echo "RESULT: $FAIL failure(s)"; exit 1; fi

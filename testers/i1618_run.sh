@@ -1,7 +1,8 @@
 #!/bin/bash
 # #1618's harness: a correctly calibrated third camera made rig-20260922 dev worse under
-# #1605's OD_LOOK_BUDGET=1605, and the cause is the dev replay's staggered seek. The
-# census that shows the echo windows, and the pin (OD_SEEK_ALIGN=1618) that removes them.
+# #1605's 31-look budget, and the cause is the dev replay's staggered seek. The census
+# that shows the echo windows, and the alignment that removes them (the default since
+# #1631; OD_SEEK_ALIGN=off is the pin that restores the stagger).
 #
 #   testers/run_all.sh 1618      build the tree and run this
 #   testers/i1618_run.sh         run it against this checkout's src/ and build/

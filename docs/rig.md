@@ -77,9 +77,9 @@ camera transmits. A format read there can never refuse a camera (#1336).
   16 stands with its barrel through camera 1's bull from f64 until the pull at
   f203-241, so the bull stage reads a half-bull 13-14 px off centre. On a clear board
   the same camera calibrates on every look (R=0.87 at the opening). A look budget
-  that outlasts that dart exists behind `OD_LOOK_BUDGET=1605` and is not the default:
-  admitting the camera in that window cost accuracy (`geometry_detector.cpp`,
-  `kFurtherLooksPastAStandingDart`).
+  that outlasts that dart (31 looks) was added behind `OD_LOOK_BUDGET=1605` and was not
+  the default then: admitting the camera in that window cost accuracy
+  (`geometry_detector.cpp`, `kFurtherLooksPastAStandingDart`).
   **Measured 2026-09-25 (turnaus#1618): that cost is the dev replay's, not the rig's.**
   A dev build (`DEBUG_SEEK_VIDEO`) seeks each file camera by 3 − 0.18·i s, frames
   90, 84 and 79 on both fixtures, and nothing re-aligns them, so every dev-window
@@ -87,9 +87,21 @@ camera transmits. A format read there can never refuse a camera (#1336).
   Once camera 1 votes, one throw is called twice. `OD_SEEK_ALIGN=1618` aligns the
   files after calibration; a release build and live cameras never seek. The
   `opening` window (`OD_SEEK_VIDEO=off`) has always been in step.
+- **Both are the default since turnaus#1631.** The 31-look budget and the dev-replay
+  alignment are on unless pinned off. `OD_LOOK_BUDGET=12` restores #1445's twelve looks
+  (`geometry_detector.cpp`, `furtherLookBudget`), and `OD_SEEK_ALIGN=off` restores the
+  staggered dev replay (`scorer.cpp`, `seekAlignIsOn`). The old opt-in words `1605` and
+  `1618` are still accepted and mean the default. Each pin logs a warning when it is
+  set. `OD_SEEK_ALIGN` only reaches a dev build that seeks file cameras: a release
+  build and live cameras never seek, so it changes what the replays measure and not
+  what a board does live. With both on, #1627's census read 68/84 (81.0%) across the
+  four windows, against 65..66/84 with both off. The known losses are rig-20260922 dev
+  v7.2 (a lone camera-1 reading past the 3/19 wire; #1628 found no safe rule) and
+  rig-20260918 dev v5.1 (the marginal dart already recorded as flipping between
+  windows).
 - **A camera refused on its averaged frame seals its best look (turnaus#1456).** It is
-  looked at for all of #1445's twelve looks, and to 31 under `OD_LOOK_BUDGET=1605` only
-  if none of the twelve passed. It then seals the look with the highest wire-fit R,
+  looked at for all of #1445's twelve looks, and to 31 (the default since #1631;
+  `OD_LOOK_BUDGET=12` pins twelve) only if none of the twelve passed. It then seals the look with the highest wire-fit R,
   and a tie goes to the earliest look. `OD_LOOK_SEAL=first` restores the first look
   that passed. `rig-20260918` takes no look in either window. On `rig-20260922`,
   camera 2 seals look 9 in the dev window, as before. At the opening it seals look 4
