@@ -529,12 +529,12 @@ tester 1560-lenscheck     "bash '$T/unit_check.sh' 1560"
 # 1532-guard IS one, though, and is not #1560's to move: it is
 # `python3 '$T/i1532_guard.py' ...` from this file and it answers rc=49 on this box,
 # measured 2026-09-25 while proving these two rows green.
-# MEASURED 2026-09-25 on this box, #1341's rule: 92, 93, 95, 96 and 97 s over five runs
-# through run_all.sh, and 99 s standalone, against the 1200 s default. Every number
-# rather than the best one, because the spread is what tells a reader the row has
-# twelvefold headroom and that a slow run is the box rather than a bug. It is the
-# container's python 3.11 doing the arithmetic the host's 3.14 did in 87, plus the
-# container start; no `slow` line, 1200 being twelve times the worst of them.
+# MEASURED 2026-09-25 on this box, #1341's rule: 91, 92, 93, 95, 96 and 97 s over six
+# runs through run_all.sh, and 99 s standalone, against the 1200 s default. The spread
+# rather than the best of them, because one number cannot tell a reader whether a slow
+# run is the box or a bug. It is the container's python 3.11 doing the arithmetic the
+# host's 3.14 did in 87, plus the container start; no `slow` line, 1200 being twelve
+# times the worst of them.
 tester 1560-lensmodel     "bash '$T/i1560_check.sh'"
 # #1505: a dart outside the board was published as a score, and WHY is measured before
 # anything is changed. Both of rig-20260918's thrown misses came to rest OUT OF THE
