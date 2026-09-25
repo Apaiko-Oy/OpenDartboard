@@ -93,9 +93,11 @@ namespace
 
     constexpr int kFurtherLooks = 12;
 
-    // #1605: TWELVE IS OUTRUN BY A DART STANDING IN THE BOARD, and a longer budget exists
-    // but is OPT-IN (OD_LOOK_BUDGET=1605), because admitting the camera it rescues makes
-    // that run score WORSE. Both halves are measured; read both before flipping it.
+    // #1605: TWELVE IS OUTRUN BY A DART STANDING IN THE BOARD, so the longer budget below
+    // is THE DEFAULT since #1631, and OD_LOOK_BUDGET=12 is the pin that restores #1445's
+    // twelve. It was opt-in (OD_LOOK_BUDGET=1605, still accepted and meaning the default)
+    // while admitting the camera it rescues made that run score WORSE; #1618, #1627 and
+    // #1456 took that cost away (the account is at the end of this comment).
     //
     // THE CAUSE. rig-20260922 did not exist when the table above was taken. On it, in the
     // dev window, camera 1 is refused on the averaged frame and on all twelve looks, so it
@@ -125,7 +127,7 @@ namespace
     // twelve's 2.4, because the disturbance lasts as long as a player leaves a dart in the
     // board and no margin over one example bounds it.
     //
-    // WHAT 31 BUYS, and why it is not the default. With it camera 1 calibrates on look 25
+    // WHAT 31 BUYS, and why it was not the default until #1631. With it camera 1 calibrates on look 25
     // (f244) at R=0.918783, bull (654,301), every ring in its window -- the opening
     // window's figures (R=0.873343, bull (653,302)). [#1456: that was the FIRST look to
     // pass. Since #1456 the camera is looked at to 31 and seals the best of looks 25-31,
@@ -147,11 +149,20 @@ namespace
     // so camera 1 sees each throw eleven frames before camera 3 does, and once camera 1
     // votes, a throw is called twice. With the files aligned after calibration
     // (OD_SEEK_ALIGN=1618; the per-dart account is at scorer.cpp's seekAlignIsOn) this
-    // budget reads 19/23 on that run. Both stay pins: two darts correct on main (v7.2,
-    // v8.1) still regress with them, and aligning alone costs rig-20260918 dev its v5.1.
+    // budget reads 19/23 on that run. Both stayed pins while two darts correct on main
+    // (v7.2, v8.1) still regressed with them, and aligning alone costs rig-20260918 dev its
+    // v5.1.
     //
-    // The cost of the opt-in is the one argued above. A camera that calibrated within
-    // twelve looks spends exactly what it spent without the opt-in -- since #1456 that is
+    // #1631: BOTH ARE NOW THE DEFAULT. #1627 repaired v8.1 (a settle spike no longer
+    // loses the visit-7 takeout's event), and #1456's best-look seal composes with this
+    // budget, so the measured figure with both on is 68/84 (81.0%) against 65..66/84 with
+    // both off (#1627's 1555 census). The known losses against the old default are
+    // rig-22 dev v7.2 (a lone camera-1 reading past the 3/19 wire; #1628 found no safe
+    // rule) and rig-18 dev v5.1 (the marginal dart already recorded as flipping between
+    // windows). OD_LOOK_BUDGET=12 and OD_SEEK_ALIGN=off restore the old default.
+    //
+    // The cost of the longer budget is the one argued above. A camera that calibrated within
+    // twelve looks spends exactly what it spent under the twelve-look pin -- since #1456 that is
     // all twelve, the selection window (look_choice.hpp) -- and looks past twelve are
     // spent only on a camera that passed on none of them, so rig-20260918 (every camera on
     // the averaged frame) and rig-20260922's opening (camera 2 passes from look 3) are
@@ -186,17 +197,18 @@ namespace
     }
 
     /**
-     * #1605: how many further looks a refused camera is given. #1445's twelve unless
-     * OD_LOOK_BUDGET=1605 asks for the budget that outlasts a dart standing in the board
-     * (see kFurtherLooksPastAStandingDart for why that is opt-in). Anything but that
-     * exact word is ignored, so a typo keeps the default.
+     * #1605/#1631: how many further looks a refused camera is given. The budget that
+     * outlasts a dart standing in the board (kFurtherLooksPastAStandingDart) by default;
+     * OD_LOOK_BUDGET=12 is the pin that restores #1445's twelve, the default before #1631.
+     * OD_LOOK_BUDGET=1605, the old opt-in, is the default and is accepted as such. Anything
+     * but the exact word "12" is ignored, so a typo keeps the default.
      */
     int furtherLookBudget()
     {
         static int v = []
         {
             const char *e = std::getenv("OD_LOOK_BUDGET");
-            return (e && std::string(e) == "1605") ? kFurtherLooksPastAStandingDart : kFurtherLooks;
+            return (e && std::string(e) == "12") ? kFurtherLooks : kFurtherLooksPastAStandingDart;
         }();
         return v;
     }
@@ -287,14 +299,15 @@ void GeometryDetector::lookAgainAtRefusedCameras()
     // refusal, with every camera named (#1389), if there is one.
     const string fault_before_looking = board_sight::faultDetail();
 
-    // #1605: the budget, read once, and said when it is the pinned one.
+    // #1605: the budget, read once, and said when it is the pinned one (#1631).
     const int budget = furtherLookBudget();
-    if (budget != kFurtherLooks)
+    if (budget != kFurtherLooksPastAStandingDart)
     {
-        log_warning("OD_LOOK_BUDGET=1605 is set: a refused camera gets " + to_string(budget) +
-                    " further looks and not #1445's " + to_string(kFurtherLooks) +
-                    ", enough to outlast a dart standing in the board -- measured to cost "
-                    "accuracy on rig-20260922, so it is not the default (#1605)");
+        log_warning("OD_LOOK_BUDGET=12 is set: a refused camera gets #1445's " + to_string(budget) +
+                    " further looks and not the default " +
+                    to_string(kFurtherLooksPastAStandingDart) +
+                    ", so a dart standing through a camera's bull can outlast them -- the "
+                    "default before #1631, kept as a pin (#1605)");
     }
 
     string names;
@@ -309,7 +322,7 @@ void GeometryDetector::lookAgainAtRefusedCameras()
 
     // #1456: every look that passes is a CANDIDATE, and the one sealed is chosen once the
     // budget is spent -- the highest R, a tie to the earliest look (look_choice.hpp holds
-    // the rule and why the window is #1445's twelve even under #1605's opt-in). Before this
+    // the rule and why the window is #1445's twelve even under #1605's 31, the default since #1631). Before this
     // the loop adopted the first look that passed, which made the seal whichever frame
     // first cleared the gate.
     struct Watched
@@ -421,7 +434,7 @@ void GeometryDetector::lookAgainAtRefusedCameras()
         }
         // "of N" is the looks THIS camera was given, not the active budget: a camera that
         // passed within #1445's twelve is given twelve under either budget, so its line
-        // reads the same with and without OD_LOOK_BUDGET=1605 (1605-looks section E).
+        // reads the same under the default and the OD_LOOK_BUDGET=12 pin (1605-looks section E).
         const int given = (first_wins || !w.passed_within_selection) ? budget : selection;
         log_info("LOOK AGAIN: camera " + to_string((int)w.camera + 1) + " seals look " +
                  to_string(w.passed[k].look) + " of " + to_string(given) + " at R=" +
@@ -448,8 +461,8 @@ void GeometryDetector::lookAgainAtRefusedCameras()
     // background is re-taken here, the way the Scorer took the first one: thirty
     // consecutive reads averaged per camera. Never on a board whose looks ended within
     // twelve, so rig-20260918, rig-20260922's opening and every start before #1605 keep
-    // the averaged calibration frames as their background, byte for byte. Reachable only
-    // under OD_LOOK_BUDGET=1605, since the default budget IS twelve. Measured with and
+    // the averaged calibration frames as their background, byte for byte. Unreachable
+    // under the OD_LOOK_BUDGET=12 pin, whose budget IS twelve. Measured with and
     // without it on that run: without, the first publication is a phantom S16 at the
     // pulled dart's tip (660,369); with, it is gone and visit 2's three darts publish.
     if (looks_spent > kFurtherLooks)

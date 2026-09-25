@@ -17,12 +17,13 @@
 // strictly better, so "best" never depends on the order two equal readings arrived in.
 // Cost accepted there: up to twelve fits, paid only by a camera the averaged frame refused.
 //
-// WHICH BUDGET IS "THE BUDGET". #1445's twelve is the selection window. #1605's opt-in
-// (OD_LOOK_BUDGET=1605, 31 looks) exists for ADMISSION -- to outlast a dart standing in
-// the board -- and is spent past look twelve only on a camera that has not passed on any
-// of the first twelve, which is #1605's own guarantee (1605-looks section E: a start whose
-// cameras all passed within twelve is byte-identical with and without the opt-in). Such a
-// camera is then looked at to the end of the opt-in budget and seals the best of the looks
+// WHICH BUDGET IS "THE BUDGET". #1445's twelve is the selection window. #1605's 31 looks
+// (the default since #1631; OD_LOOK_BUDGET=12 pins the old twelve) exist for ADMISSION --
+// to outlast a dart standing in the board -- and are spent past look twelve only on a
+// camera that has not passed on any of the first twelve, which is #1605's own guarantee
+// (1605-looks section E: a start whose cameras all passed within twelve is byte-identical
+// under the default and the pin). Such a camera is then looked at to the end of the
+// budget and seals the best of the looks
 // that passed there. So best-of-budget holds over whichever budget is active, and the
 // longer budget still never touches a camera the shorter one admitted.
 namespace look_choice
@@ -53,7 +54,7 @@ namespace look_choice
     }
 
     // Whether a camera the averaged frame refused is looked at on look `look` (1-based).
-    // `selection` is #1445's twelve, `budget` the active budget (twelve, or #1605's 31),
+    // `selection` is #1445's twelve, `budget` the active budget (#1605's 31 by default, twelve under the pin),
     // `passed_within_selection` whether this camera already passed on a look <= selection.
     // Every camera is looked at through the selection window; past it, only one that has
     // not passed yet, and then to the end of the budget.
