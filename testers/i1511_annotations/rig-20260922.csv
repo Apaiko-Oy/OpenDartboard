@@ -1,18 +1,72 @@
 fixture,visit,dart,thrown,camera,frame,x1,y1,x2,y2,tip_x,tip_y,note
-rig-20260922,1,1,8,2,455,770,180,771,300,773,313,parked before frame one (maintainer correction e53891a): a real resting line with no arrival on this recording -- census runs pass --no-arrival 1.1
-rig-20260922,1,1,8,3,455,748,95,737,235,734,246,parked before frame one; see the cam2 row
-rig-20260922,1,2,16,2,485,838,170,824,295,822,311,the #1535 re-report dart: lands one wedge from dart 1
-rig-20260922,1,2,16,3,485,716,90,712,230,710,240,
-rig-20260922,1,3,7,3,520,606,90,602,215,601,224,HAND-PLACED (#1554 frame check: spot empty at f490; hand blur over it at f520; dart standing at f540) -- a real resting line with no ballistic arrival; census runs pass --no-arrival 1.3; cam2 unmeasurable: fully occluded behind darts 1-2 (see README)
-rig-20260922,2,1,12,2,815,606,330,610,440,608,454,
-rig-20260922,2,1,12,3,815,943,120,921,230,915,251,
-rig-20260922,2,2,T9,2,868,596,395,604,470,605,478,lands one wedge from dart 1 on almost the same sightline; short visible baseline
-rig-20260922,2,2,T9,3,868,950,110,926,232,922,244,overlaps dart 1 in view; endpoints uncertain +-5 px
-rig-20260922,2,3,T8,2,935,497,310,524,400,528,409,
-rig-20260922,2,3,T8,3,935,956,145,933,245,929,257,
-rig-20260922,3,1,20,2,1295,817,40,822,118,824,126,dark by f1265 so measured at f1295; landed in (1230 1235]
-rig-20260922,3,1,20,3,1265,484,140,470,222,468,230,
-rig-20260922,3,2,D20,2,1265,459,45,488,170,493,186,
-rig-20260922,3,2,D20,3,1265,717,255,703,390,701,402,leans across the bull; needle crosses the bull ring visually
-rig-20260922,3,3,1,2,1330,525,155,543,255,546,271,
-rig-20260922,3,3,1,3,1330,828,162,798,290,795,301,
+rig-20260922,1,1,8,1,150,606,230,620,355,620,359,parked before frame one; measured against f260 (board empty) in a window narrow enough to exclude the other two visit-1 darts; see the cam2 row
+rig-20260922,1,1,8,2,150,770,68,757,206,757,207,the parked dart #1514 found: on the board at frame 0 and never arrives; taken out with the rest of visit 1 at f203-241 -- a real resting line with no arrival on this recording; measured against f260 (board empty); census runs pass --no-arrival 1.1
+rig-20260922,1,1,8,3,150,421,120,405,252,405,252,parked before frame one; measured against f260 (board empty); see the cam2 row
+rig-20260922,1,2,16,1,100,652,103,654,364,654,364,arrives f64
+rig-20260922,1,2,16,2,100,720,55,715,207,715,207,arrives f64; the ONE arrival visit 1 offers a detector (GROUND-TRUTH.md): lands f64 while the parked 8 stands beside it
+rig-20260922,1,2,16,3,100,631,128,629,263,629,264,arrives f64
+rig-20260922,1,3,miss,1,152,744,292,808,591,808,591,arrives f123; THROWN MISS: it arrives at f123 and comes to rest in the board's OUTER BLACK RING -- off the scoring area and no scoring event. GROUND-TRUTH.md's never-hit-the-board is about the scoring area rather than about the recording. Annotated for the reason rig-20260918's visit-4 miss is: the census can then hold 'no event expected' against a real observation
+rig-20260922,1,3,miss,2,152,834,40,816,102,815,104,arrives f123; thrown miss resting in the outer black ring; from this camera only the flight shows -- above the board's top rim and running out of frame; short visible baseline; endpoints uncertain +-4 px
+rig-20260922,1,3,miss,3,152,424,102,410,218,406,250,arrives f123; thrown miss resting in the outer black ring at the left of the board
+rig-20260922,2,1,12,1,430,454,59,485,290,488,312,arrives f401
+rig-20260922,2,1,12,2,430,780,170,769,313,769,314,arrives f401
+rig-20260922,2,1,12,3,430,759,85,740,209,739,216,arrives f401
+rig-20260922,2,2,T9,1,492,412,93,465,353,466,355,arrives f463
+rig-20260922,2,2,T9,2,492,844,160,820,306,820,307,arrives f463; lands one wedge from dart 1 -- the #1535 re-report pair
+rig-20260922,2,2,T9,3,492,728,80,712,201,712,201,arrives f463
+rig-20260922,2,3,T8,1,547,535,261,579,426,579,426,arrives f518; the shaft is partly behind darts 1-2 from this camera; fitted over the clear lower 165 px
+rig-20260922,2,3,T8,3,547,611,80,603,219,603,219,arrives f518; empty at f517; the flight blurred across the upper left at f518-519; standing on this line from f520 -- a thrown dart and not the hand placement #1554 read into these frames (README); cam2 carries no line for it: the arrival mask is empty there because it is fully occluded behind darts 1-2
+rig-20260922,3,1,20,1,825,420,57,466,201,468,208,arrives f796
+rig-20260922,3,1,20,2,825,612,320,605,457,605,458,arrives f796
+rig-20260922,3,1,20,3,825,947,115,927,203,919,237,arrives f796
+rig-20260922,3,2,D20,1,886,412,56,455,206,455,207,arrives f857
+rig-20260922,3,2,D20,2,886,597,385,610,481,610,482,arrives f857; the entry stands in the bottom double ring -- the D20 the truth line names
+rig-20260922,3,2,D20,3,886,959,125,928,230,927,231,arrives f857; overlaps dart 1 in view
+rig-20260922,3,3,1,1,947,495,40,529,198,530,199,arrives f918
+rig-20260922,3,3,1,2,947,496,300,531,415,531,415,arrives f918
+rig-20260922,3,3,1,3,947,980,135,926,265,926,265,arrives f918
+rig-20260922,4,1,7,1,1225,684,231,732,500,732,500,arrives f1196
+rig-20260922,4,1,7,2,1225,825,33,809,126,808,128,arrives f1196; dark by f1265 so the line is measured on f1225
+rig-20260922,4,1,7,3,1225,487,130,465,240,465,240,arrives f1196
+rig-20260922,4,2,T15,1,1281,810,34,797,255,797,255,arrives f1252; the shaft runs over a black wedge; fitted over the 221 px the arrival mask holds
+rig-20260922,4,2,T15,2,1281,457,52,493,182,493,183,arrives f1252
+rig-20260922,4,2,T15,3,1281,730,245,697,407,697,407,arrives f1252; leans across the bull; needle crosses the bull ring visually
+rig-20260922,4,3,4,1,1342,624,42,647,202,652,243,arrives f1313
+rig-20260922,4,3,4,2,1342,529,151,546,272,546,273,arrives f1313
+rig-20260922,4,3,4,3,1342,836,155,795,310,795,310,arrives f1313
+rig-20260922,5,1,4,1,1627,615,92,652,282,652,282,arrives f1598
+rig-20260922,5,1,4,2,1627,611,110,614,247,614,247,arrives f1598
+rig-20260922,5,1,4,3,1627,763,145,728,295,728,295,arrives f1598
+rig-20260922,5,2,19,1,1716,666,87,687,332,687,332,arrives f1687
+rig-20260922,5,2,19,2,1716,673,71,662,205,662,205,arrives f1687
+rig-20260922,5,2,19,3,1716,654,140,647,290,647,290,arrives f1687; abuts dart 3 from this camera
+rig-20260922,5,3,7,1,1779,651,104,679,335,679,335,arrives f1750
+rig-20260922,5,3,7,2,1779,709,70,671,205,671,205,arrives f1750
+rig-20260922,5,3,7,3,1779,641,138,642,285,642,289,arrives f1750; lands immediately left of dart 2 and is largely hidden behind it from this camera: the arrival mask is a narrow strip; this line is the visible strip's centre and is uncertain +-6 px laterally
+rig-20260922,6,1,19,1,2035,727,195,731,361,731,362,arrives f2006
+rig-20260922,6,1,19,2,2035,679,45,674,175,674,175,arrives f2006
+rig-20260922,6,1,19,3,2035,601,150,593,297,593,297,arrives f2006
+rig-20260922,6,2,18,1,2097,589,32,620,205,629,260,arrives f2068
+rig-20260922,6,2,18,2,2097,587,123,597,261,597,268,arrives f2068
+rig-20260922,6,2,18,3,2097,795,166,775,285,775,285,arrives f2068
+rig-20260922,6,3,6,1,2156,670,73,687,272,687,273,arrives f2127
+rig-20260922,6,3,6,2,2156,577,120,579,233,579,233,arrives f2127; lands touching dart 2 -- adjacent-dart overlap case
+rig-20260922,6,3,6,3,2156,743,162,728,319,728,319,arrives f2127
+rig-20260922,7,1,15,1,2420,691,62,718,291,718,291,arrives f2391
+rig-20260922,7,1,15,2,2420,594,70,594,207,594,207,arrives f2391
+rig-20260922,7,1,15,3,2420,703,166,682,325,682,325,arrives f2391
+rig-20260922,7,2,3,1,2487,645,58,682,311,682,314,arrives f2458
+rig-20260922,7,2,3,2,2487,646,64,642,170,642,170,arrives f2458
+rig-20260922,7,2,3,3,2487,692,157,670,292,670,293,arrives f2458; overlaps dart 1 from this camera
+rig-20260922,7,3,T9,1,2557,383,74,461,341,461,342,arrives f2528
+rig-20260922,7,3,T9,2,2557,842,185,811,318,811,318,arrives f2528; the entry stands in the 9 triple ring -- the T9 the truth line names
+rig-20260922,7,3,T9,3,2557,754,70,727,201,727,201,arrives f2528
+rig-20260922,8,1,T1,1,3226,540,62,566,220,566,221,arrives f3197
+rig-20260922,8,1,T1,2,3226,523,221,555,354,555,354,arrives f3197; the entry stands in the 1 triple ring
+rig-20260922,8,1,T1,3,3226,915,150,867,279,867,279,arrives f3197
+rig-20260922,8,2,4,1,3285,639,55,645,253,645,254,arrives f3256
+rig-20260922,8,2,4,2,3285,549,110,570,269,570,269,arrives f3256
+rig-20260922,8,2,4,3,3285,804,165,777,305,776,306,arrives f3256
+rig-20260922,8,3,BULL,1,3351,622,58,649,295,650,306,arrives f3322
+rig-20260922,8,3,BULL,2,3351,638,107,646,234,646,234,arrives f3322; the needle stands in the bull
+rig-20260922,8,3,BULL,3,3351,724,145,696,284,696,285,arrives f3322
