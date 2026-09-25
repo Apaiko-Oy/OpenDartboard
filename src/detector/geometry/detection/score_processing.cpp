@@ -773,6 +773,14 @@ namespace score_processing
         return sol;
     }
 
+    // #1628: the lone-reading sigma is #1556's measured floor, reused rather than fitted,
+    // and the scoring radius is the board spec's -- held equal here, where both are in
+    // reach, because the header deliberately does not include entry_intersection.hpp.
+    static_assert(entry_intersection::Params{}.sigmaAcrossFloorMm == (double)kLoneReadingSigmaMm,
+                  "#1628: the lone-reading sigma is #1556's floor; change both or neither");
+    static_assert(perspective_processing::DartboardSpec{}.outerDoubleRadius == kScoringRadiusMm,
+                  "#1628: the wedge margin's scale is the board's scoring radius");
+
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
     {
 
@@ -906,7 +914,19 @@ namespace score_processing
             // measured, at 0.5. #796 measured the failure this removes: S20 S20 S20
             // published over a hand-verified 36, two constants outvoting the camera
             // that measured.
-            const ScoreChoice choice = chooseScore(point_scores, may_vote);
+            const ScoreChoice vote_choice = chooseScore(point_scores, may_vote);
+
+            // #1628: where no two cameras agree, the fallback's reading is checked against
+            // the wedge wires by its own rulers and the log says how close it was. The
+            // reselection the check makes possible was measured 1:1 and is off unless
+            // OD_LONE_WIRE=clear; pure, in the header, beside that measurement.
+            const LoneWireCheck lone_wire = checkLoneReadingAgainstWires(
+                point_scores, may_vote, vote_choice, !loneWireReselectIsOn());
+            const ScoreChoice choice = lone_wire.choice;
+            if (!lone_wire.account.empty())
+            {
+                log_info(lone_wire.account);
+            }
 
             // #1512/#1555: the geometric entry, for EVERY called dart -- the no-winner
             // MISS included, because a lone-witness phantom (#1505) is exactly an event
@@ -1124,6 +1144,7 @@ namespace score_processing
                 // reports what the geometry would have said beside what the vote
                 // published. That is the whole point of keeping the losing path
                 // reachable -- one binary, both answers, on the same dart.
+                log_info(loneWireCensusLine(window, point_scores, may_vote, vote_choice, lone_wire));
                 log_info(publishCensusLine(window, decision.path, result.score, result.confidence,
                                            result.degraded,
                                            entry_intersection::outcomeWord(solution.outcome),

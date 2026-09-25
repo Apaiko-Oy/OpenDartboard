@@ -1,6 +1,8 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -782,6 +784,219 @@ namespace score_processing
             out.by_default = true;
         }
         return out;
+    }
+
+    // ---- #1628: a lone reading that sits on a wire does not stand alone over a clear one --
+    //
+    // WHAT WENT WRONG, measured on rig-20260922 dev v7.2 (a thrown S3) with #1605's budget
+    // and #1618's alignment on. The geometric entry REFUSED the dart -- TOO-FEW-CONSTRAINTS,
+    // every camera's axis "not straight" (5.06, 4.70 and 3.53 px RMS against the 2.5 px
+    // gate: the new dart's silhouette merged with v7.1's beside it) -- so the vote
+    // published it. No two cameras agreed, and #1517's fallback took the first camera
+    // that fitted every ring, which is camera 1. Camera 1's tip is 2-4 px from the hand
+    // annotation, and its angular ruler put it at 189.7 degrees -- 0.7 degrees, 0.3 mm of
+    // arc at a 21 mm radius, past the 3/19 wire -- so S19 published at 0.7 with nothing
+    // in the output saying the call was a coin toss. Camera 2 read S3 in the middle of
+    // its wedge. The fallback asked WHICH camera, never HOW CLOSE its reading was.
+    //
+    // THE RULE. Where no two cameras agree, the reading the fallback would publish is
+    // checked against the wedge wires by its own rulers: its distance to the nearest
+    // wedge wire in board millimetres is `radius * 170 mm * sin(angle to that wire)`.
+    // If that distance is inside kLoneReadingSigmaMm, and another voting camera read a
+    // DIFFERENT score whose own distance to every wedge wire is at least that sigma --
+    // and it is no less ring-complete than the reading it would replace (#1517's
+    // preference is not undone) -- the clearest such reading publishes instead, at the
+    // same 0.7. Otherwise nothing changes. A consensus is never touched.
+    //
+    // WHY WEDGE WIRES ONLY. The wedge a reading names IS its angular fraction: the
+    // distance above is measured by the same ruler that made the call. The ring is not --
+    // scorePoint decides it by ellipse containment in pixels, and the radial ruler that
+    // gives `radius` is a separate instrument with its own measured biases (#1492's short
+    // tip, #1553's treble bloom), so a "ring margin" from it would be a number about a
+    // different measurement than the call. A bull or an outer bull has no wedge and is
+    // never near a wedge wire nor clear of one; the rule leaves it where it is.
+    //
+    // WHY 5.0 mm. It is #1556's measured floor on the SOLVED entry's across-boundary
+    // sigma (entry_intersection Params::sigmaAcrossFloorMm; the instrument reads ~6 mm).
+    // A lone camera's tip read on its own rulers is not a better instrument than several
+    // cameras intersected, so the solve's floor is the least a lone reading's one-sigma
+    // can be. It is reused, not fitted: score_processing.cpp asserts the two are equal.
+    //
+    // MEASURED AND REFUSED AS THE DEFAULT. Over #1555's five replays with #1605's budget
+    // and #1618's alignment on (testers/i1628_census.py over every dart of both fixtures
+    // in both windows), the rule reselects on the vote path exactly twice: rig-20260922
+    // dev v7.2 S19 -> S3 (wrong to right) and rig-20260922 OPENING v7.2 S3 -> S11 (right
+    // to wrong -- the dart named at risk before the run). In the opening window camera 1
+    // reads the correct S3 0.86 mm from the same wire, and camera 2 reads S11 9.18 mm
+    // clear of ITS wires: a clear reading of the wrong wedge. Camera 2's tip sits at a
+    // ruler radius of ~55 mm for a dart at ~21 mm, and its angular ruler moves that same
+    // pixel from 180 degrees (dev) to the 11 (opening); a margin measured by a ruler says
+    // nothing about whether the ruler is right. Pooled accuracy stays 67/84, a 1:1 trade,
+    // and no sigma separates the two (2.5 mm: 1 gained, 2 lost; 5 and 7.5: 1 and 1; 10:
+    // nothing moves). The nothing-correct-may-regress rule refuses it.
+    //
+    // So the DEFAULT is #1517's fallback, unchanged, and the check runs only to SAY how
+    // close the lone reading was (the LONE-WIRE account, the I1628LONE census line).
+    // OD_LONE_WIRE=clear turns the reselection on, on the same binary, so the refusal can
+    // be re-measured rather than re-argued (#1505's shape for a refused repair).
+    inline constexpr float kLoneReadingSigmaMm = 5.0f;
+    inline constexpr float kScoringRadiusMm = 170.0f; // DartboardSpec::outerDoubleRadius
+
+    inline bool loneWireReselectIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_LONE_WIRE");
+            return e != nullptr && std::string(e) == "clear";
+        }();
+        return v;
+    }
+
+    /**
+     * #1628: this reading's distance to its nearest WEDGE wire in board millimetres, by
+     * its own rulers; -1 where the reading measured no wedge (asserted, ring-only, a
+     * MISS) or has no radius or angle to measure it with. Wedge wires sit at 9 + 18k
+     * degrees in BoardPosition's frame.
+     */
+    inline float wedgeWireMarginMm(const PointScore &p)
+    {
+        if (p.score == "MISS" || !p.wedge_measured || p.ring_only || p.wedge_asserted ||
+            !p.board.has_angle || !p.board.has_radius || p.board.radius < 0.0f)
+        {
+            return -1.0f;
+        }
+        float d = std::fmod(p.board.angle - 9.0f + 720.0f, 18.0f);
+        d = std::min(d, 18.0f - d);
+        return p.board.radius * kScoringRadiusMm * std::sin(d * (float)CV_PI / 180.0f);
+    }
+
+    /** #1628: what the wire check did to the vote's choice. */
+    struct LoneWireCheck
+    {
+        ScoreChoice choice;          // what publishes
+        bool checked = false;        // a no-consensus measured reading was asked at all
+        bool near_wire = false;      // the fallback's reading is inside the sigma
+        bool reselected = false;     // a clear reading replaced it
+        int passed_over = -1;        // the camera whose near-wire reading was replaced
+        float margin_mm = -1.0f;     // the fallback's reading's margin
+        float chosen_margin_mm = -1.0f; // the published reading's margin
+        std::string account;         // the log sentence; empty when nothing was checked
+    };
+
+    /**
+     * #1628: the rule above, pure, applied AFTER chooseScore so the vote itself (and
+     * #1346's and #1517's checks of it) is unchanged. `pinnedOff` is
+     * !loneWireReselectIsOn() at the call site -- true by default, because the
+     * reselection was measured and refused -- and a parameter here so a tester can hold
+     * both answers in one process.
+     */
+    inline LoneWireCheck checkLoneReadingAgainstWires(const vector<PointScore> &points,
+                                                     const vector<bool> &may_vote,
+                                                     const ScoreChoice &choice,
+                                                     bool pinnedOff,
+                                                     float sigmaMm = kLoneReadingSigmaMm)
+    {
+        LoneWireCheck out;
+        out.choice = choice;
+        if (choice.camera < 0 || choice.agreeing != 1 || choice.by_default ||
+            choice.camera >= (int)points.size())
+        {
+            return out;
+        }
+        const PointScore &lone = points[choice.camera];
+        out.margin_mm = wedgeWireMarginMm(lone);
+        out.chosen_margin_mm = out.margin_mm;
+        if (out.margin_mm < 0.0f)
+        {
+            return out;
+        }
+        out.checked = true;
+        out.near_wire = out.margin_mm < sigmaMm;
+        char head[160];
+        snprintf(head, sizeof(head), "camera %d's %s is %.1f mm from a wedge wire",
+                 choice.camera, lone.score.c_str(), out.margin_mm);
+        if (!out.near_wire)
+        {
+            out.account = std::string("LONE-WIRE: ") + head + ", clear of the " +
+                          std::to_string((int)sigmaMm) + " mm sigma";
+            return out;
+        }
+        int best = -1;
+        float bestMargin = -1.0f;
+        for (size_t i = 0; i < points.size(); i++)
+        {
+            if ((int)i == choice.camera || i >= may_vote.size() || !may_vote[i])
+            {
+                continue;
+            }
+            const PointScore &p = points[i];
+            if (p.score == lone.score || (lone.rings_complete && !p.rings_complete))
+            {
+                continue;
+            }
+            const float m = wedgeWireMarginMm(p);
+            if (m >= sigmaMm && m > bestMargin)
+            {
+                best = (int)i;
+                bestMargin = m;
+            }
+        }
+        if (best < 0)
+        {
+            out.account = std::string("LONE-WIRE: ") + head +
+                          ", inside the sigma, and no other camera read a different score "
+                          "clear of every wedge wire, so it stands";
+            return out;
+        }
+        if (pinnedOff)
+        {
+            out.account = std::string("LONE-WIRE: ") + head + ", inside the sigma; camera " +
+                          std::to_string(best) + "'s " + points[best].score +
+                          " is clear, but the reselection is off (OD_LONE_WIRE=clear turns it on; "
+                          "#1628 measured it 1:1), so it stands";
+            return out;
+        }
+        out.reselected = true;
+        out.passed_over = choice.camera;
+        out.chosen_margin_mm = bestMargin;
+        out.choice.camera = best;
+        out.choice.preferred_complete = false;
+        out.choice.ring_only = points[best].ring_only;
+        char tail[200];
+        snprintf(tail, sizeof(tail),
+                 ", inside the %.1f mm sigma, so camera %d's %s, %.1f mm clear of every "
+                 "wedge wire, publishes instead",
+                 sigmaMm, best, points[best].score.c_str(), bestMargin);
+        out.account = std::string("LONE-WIRE: ") + head + tail;
+        return out;
+    }
+
+    /**
+     * #1628's census line, one per called dart under the census pin: every voting
+     * camera's reading and wedge-wire margin, what #1517's fallback chose and what
+     * publishes. Parsed by testers/i1628_census.py.
+     */
+    inline std::string loneWireCensusLine(long window, const vector<PointScore> &points,
+                                          const vector<bool> &may_vote,
+                                          const ScoreChoice &before, const LoneWireCheck &after)
+    {
+        std::string cams;
+        for (size_t i = 0; i < points.size(); i++)
+        {
+            char c[96];
+            const bool votes = i < may_vote.size() && may_vote[i];
+            snprintf(c, sizeof(c), " cam%zu=%s/%.2f/%d/%d", i + 1,
+                     votes ? points[i].score.c_str() : "-", wedgeWireMarginMm(points[i]),
+                     points[i].rings_complete ? 1 : 0, votes ? 1 : 0);
+            cams += c;
+        }
+        char line[200];
+        snprintf(line, sizeof(line),
+                 "I1628LONE window=%ld agreeing=%d fallback=%d published=%d near=%d "
+                 "reselected=%d margin=%.2f",
+                 window, before.agreeing, before.camera + 1, after.choice.camera + 1,
+                 after.near_wire ? 1 : 0, after.reselected ? 1 : 0, after.margin_mm);
+        return std::string(line) + cams;
     }
 
     // ---- #1451: whether a point can be SCORED from this camera, and how each one reads ----

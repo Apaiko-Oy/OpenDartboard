@@ -555,6 +555,18 @@ tester 1456-lookchoice    "bash '$T/unit_check.sh' 1456"
 # OD_LOOK_BUDGET=1605. No whole-clip replay. OD_I1456_REPS=5 runs the decision's 5-per-arm
 # experiment instead of the registered 2/1/1.
 tester 1456-bestlook      "bash '$T/i1456_run.sh'"
+# #1628: a lone vote reading within its sigma of a wedge wire (rig-20260922 dev v7.2, S3
+# thrown, camera 1 S19 0.26 mm past the 3/19 wire). The check SAYS how close the lone
+# reading was; the reselection to a camera clear of every wire was measured 1:1 over both
+# fixtures and windows (dev v7.2 gained, opening v7.2 lost) and is off unless
+# OD_LONE_WIRE=clear. The pure half: one compile, three runs, the mutation proof inside.
+tester 1628-wire          "bash '$T/i1628_check.sh'"
+# #1628's fixture half: rig-20260922 dev with both #1605/#1618 switches on, replayed
+# default and OD_LONE_WIRE=clear. NOT YET MEASURED: two whole-clip replays, estimated
+# ~300-400 s from one such replay's cost inside #1555's bakeoff; the 1500 is a guess
+# with headroom, to be replaced by the first measured number.
+tester 1628-lonefix       "bash '$T/i1628_run.sh'"
+slow 1500
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
