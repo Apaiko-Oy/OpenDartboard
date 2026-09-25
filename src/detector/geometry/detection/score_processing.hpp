@@ -822,16 +822,32 @@ namespace score_processing
     // cameras intersected, so the solve's floor is the least a lone reading's one-sigma
     // can be. It is reused, not fitted: score_processing.cpp asserts the two are equal.
     //
-    // OD_LONE_WIRE=index restores #1517's fallback on the same binary.
+    // MEASURED AND REFUSED AS THE DEFAULT. Over #1555's five replays with #1605's budget
+    // and #1618's alignment on (testers/i1628_census.py over every dart of both fixtures
+    // in both windows), the rule reselects on the vote path exactly twice: rig-20260922
+    // dev v7.2 S19 -> S3 (wrong to right) and rig-20260922 OPENING v7.2 S3 -> S11 (right
+    // to wrong -- the dart named at risk before the run). In the opening window camera 1
+    // reads the correct S3 0.86 mm from the same wire, and camera 2 reads S11 9.18 mm
+    // clear of ITS wires: a clear reading of the wrong wedge. Camera 2's tip sits at a
+    // ruler radius of ~55 mm for a dart at ~21 mm, and its angular ruler moves that same
+    // pixel from 180 degrees (dev) to the 11 (opening); a margin measured by a ruler says
+    // nothing about whether the ruler is right. Pooled accuracy stays 67/84, a 1:1 trade,
+    // and no sigma separates the two (2.5 mm: 1 gained, 2 lost; 5 and 7.5: 1 and 1; 10:
+    // nothing moves). The nothing-correct-may-regress rule refuses it.
+    //
+    // So the DEFAULT is #1517's fallback, unchanged, and the check runs only to SAY how
+    // close the lone reading was (the LONE-WIRE account, the I1628LONE census line).
+    // OD_LONE_WIRE=clear turns the reselection on, on the same binary, so the refusal can
+    // be re-measured rather than re-argued (#1505's shape for a refused repair).
     inline constexpr float kLoneReadingSigmaMm = 5.0f;
     inline constexpr float kScoringRadiusMm = 170.0f; // DartboardSpec::outerDoubleRadius
 
-    inline bool loneWireCheckIsPinnedOff()
+    inline bool loneWireReselectIsOn()
     {
         static const bool v = []
         {
             const char *e = std::getenv("OD_LONE_WIRE");
-            return e != nullptr && std::string(e) == "index";
+            return e != nullptr && std::string(e) == "clear";
         }();
         return v;
     }
@@ -870,8 +886,9 @@ namespace score_processing
     /**
      * #1628: the rule above, pure, applied AFTER chooseScore so the vote itself (and
      * #1346's and #1517's checks of it) is unchanged. `pinnedOff` is
-     * loneWireCheckIsPinnedOff() at the call site and a parameter here so a tester can
-     * hold both answers in one process.
+     * !loneWireReselectIsOn() at the call site -- true by default, because the
+     * reselection was measured and refused -- and a parameter here so a tester can hold
+     * both answers in one process.
      */
     inline LoneWireCheck checkLoneReadingAgainstWires(const vector<PointScore> &points,
                                                      const vector<bool> &may_vote,
@@ -935,7 +952,8 @@ namespace score_processing
         {
             out.account = std::string("LONE-WIRE: ") + head + ", inside the sigma; camera " +
                           std::to_string(best) + "'s " + points[best].score +
-                          " is clear, but OD_LONE_WIRE=index is pinned, so it stands";
+                          " is clear, but the reselection is off (OD_LONE_WIRE=clear turns it on; "
+                          "#1628 measured it 1:1), so it stands";
             return out;
         }
         out.reselected = true;

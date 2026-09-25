@@ -917,11 +917,11 @@ namespace score_processing
             const ScoreChoice vote_choice = chooseScore(point_scores, may_vote);
 
             // #1628: where no two cameras agree, the fallback's reading is checked against
-            // the wedge wires by its own rulers, and a reading inside the lone-reading
-            // sigma does not stand alone over a camera that read a different score clear
-            // of every wire. Pure, in the header, beside the rule's measurement.
+            // the wedge wires by its own rulers and the log says how close it was. The
+            // reselection the check makes possible was measured 1:1 and is off unless
+            // OD_LONE_WIRE=clear; pure, in the header, beside that measurement.
             const LoneWireCheck lone_wire = checkLoneReadingAgainstWires(
-                point_scores, may_vote, vote_choice, loneWireCheckIsPinnedOff());
+                point_scores, may_vote, vote_choice, !loneWireReselectIsOn());
             const ScoreChoice choice = lone_wire.choice;
             if (!lone_wire.account.empty())
             {

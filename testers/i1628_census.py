@@ -48,6 +48,19 @@ THE PREDICTION, STATED BEFORE THE RULE WAS FIRST RUN (committed ahead of the run
        opening reading is clear of its wires, the rule turns a correct dart wrong and it
        is refused.
 
+WHAT HAPPENED (the first run, #1555's five replays with both switches on, the rule ON):
+
+    1. HELD. v7.2 dev: camera 1 S19 at 0.26 mm, camera 2 S3 at 9.22 mm, camera 3 no vote;
+       S3 published. rig-20260922 dev read 20/23 (from 19/23).
+    2. Held on the pure check (i1628_check.sh). The fixture tester (i1628_run.sh) holds it
+       on the real binary and has NOT been run yet -- skipped for time on 2026-09-25.
+    3. The at-risk dart went wrong: rig-20260922 opening v7.2, camera 1's correct S3 at
+       0.86 mm, camera 2's S11 at 9.18 mm clear -- reselected, S3 -> S11, 16/23 -> 15/23.
+       Pooled over every dart of both fixtures in both windows: two reselections on the
+       vote path, one wrong-to-right, one right-to-wrong, pooled 67/84 either way. The
+       SWEEP gives no sigma that separates them. The reselection is therefore OFF by
+       default and reachable behind OD_LONE_WIRE=clear.
+
 A reporter in i1555_census.py's mould: it decides nothing about the numbers. Exit 0 when
 the run parsed and matched something, 2 when there was nothing to census.
 """
