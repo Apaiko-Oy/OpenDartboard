@@ -87,6 +87,15 @@ camera transmits. A format read there can never refuse a camera (#1336).
   Once camera 1 votes, one throw is called twice. `OD_SEEK_ALIGN=1618` aligns the
   files after calibration; a release build and live cameras never seek. The
   `opening` window (`OD_SEEK_VIDEO=off`) has always been in step.
+- **A camera refused on its averaged frame seals its best look (turnaus#1456).** It is
+  looked at for all of #1445's twelve looks, and to 31 under `OD_LOOK_BUDGET=1605` only
+  if none of the twelve passed. It then seals the look with the highest wire-fit R,
+  and a tie goes to the earliest look. `OD_LOOK_SEAL=first` restores the first look
+  that passed. `rig-20260918` takes no look in either window. On `rig-20260922`,
+  camera 2 seals look 9 in the dev window, as before. At the opening it seals look 4
+  instead of look 3. Look 3's clip wires and printed numbers disagreed by five
+  wedges; look 4's agree. Because the camera is looked at to the end of the window,
+  scoring at the opening starts about 45 frames later.
 
 ## Board
 
