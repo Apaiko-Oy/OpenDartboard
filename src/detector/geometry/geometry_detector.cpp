@@ -5,6 +5,7 @@
 
 #include "geometry_detector.hpp"
 #include "camera_quorum.hpp"
+#include "look_choice.hpp"
 #include "calibration/board_look.hpp"
 #include "calibration/geometry_calibration.hpp"
 #include "detection/dart_processing.hpp"
@@ -126,7 +127,12 @@ namespace
     //
     // WHAT 31 BUYS, and why it is not the default. With it camera 1 calibrates on look 25
     // (f244) at R=0.918783, bull (654,301), every ring in its window -- the opening
-    // window's figures (R=0.873343, bull (653,302)). But testers/run_all.sh 1555 on the
+    // window's figures (R=0.873343, bull (653,302)). [#1456: that was the FIRST look to
+    // pass. Since #1456 the camera is looked at to 31 and seals the best of looks 25-31,
+    // which is look 28 at R=0.948774, bull (654,300); OD_LOOK_SEAL=first gives look 25.
+    // Measured on rig-20260922 dev: 12/23 under the opt-in against main's 11/23, and 20/23
+    // with OD_SEEK_ALIGN=1618 against 19/23 -- v2.1 S12 gained in both, nothing lost.]
+    // But testers/run_all.sh 1555 on the
     // same binary puts rig-20260922 dev at 11/23 correct where twelve reads 15/23: visit
     // 2 is now detected but published S9 S9 T9 for 12 T9 T8, and D20 (v3.2), S19 and S7
     // (v5.2, v5.3), S3 and T9 (v7.2, v7.3) -- all correct on two cameras -- are lost to
@@ -144,10 +150,12 @@ namespace
     // budget reads 19/23 on that run. Both stay pins: two darts correct on main (v7.2,
     // v8.1) still regress with them, and aligning alone costs rig-20260918 dev its v5.1.
     //
-    // The cost of the opt-in is the one argued above. Looking stops the moment the last
-    // refused camera calibrates, so a camera that calibrated within twelve looks spends
-    // exactly what it spent before, and rig-20260918 (every camera on the averaged frame)
-    // and rig-20260922's opening (camera 2 on look 3) are byte-identical either way.
+    // The cost of the opt-in is the one argued above. A camera that calibrated within
+    // twelve looks spends exactly what it spent without the opt-in -- since #1456 that is
+    // all twelve, the selection window (look_choice.hpp) -- and looks past twelve are
+    // spent only on a camera that passed on none of them, so rig-20260918 (every camera on
+    // the averaged frame) and rig-20260922's opening (camera 2 passes from look 3) are
+    // byte-identical either way.
     constexpr int kFurtherLooksPastAStandingDart = 31;
 
     // How many capture cycles pass between one look and the next. Consecutive frames are
@@ -189,6 +197,21 @@ namespace
         {
             const char *e = std::getenv("OD_LOOK_BUDGET");
             return (e && std::string(e) == "1605") ? kFurtherLooksPastAStandingDart : kFurtherLooks;
+        }();
+        return v;
+    }
+
+    /**
+     * #1456's falsifier: OD_LOOK_SEAL=first seals the first look that passes and stops
+     * looking at that camera, as every build before #1456 did (look_choice.hpp). Anything
+     * but that exact word is ignored, so a typo keeps the best-of-budget rule.
+     */
+    bool firstLookWins()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_LOOK_SEAL");
+            return e && std::string(e) == "first";
         }();
         return v;
     }
@@ -284,9 +307,53 @@ void GeometryDetector::lookAgainAtRefusedCameras()
              " further looks, " + to_string(kFramesBetweenLooks) +
              " capture cycles apart, before any of them is set aside for the run");
 
-    int looks_spent = 0;
-    for (int look = 1; look <= budget && !still_refused.empty(); look++)
+    // #1456: every look that passes is a CANDIDATE, and the one sealed is chosen once the
+    // budget is spent -- the highest R, a tie to the earliest look (look_choice.hpp holds
+    // the rule and why the window is #1445's twelve even under #1605's opt-in). Before this
+    // the loop adopted the first look that passed, which made the seal whichever frame
+    // first cleared the gate.
+    struct Watched
     {
+        size_t camera = 0;
+        bool passed_within_selection = false;
+        int looked_at = 0;
+        vector<look_choice::Passed> passed;
+        vector<DartboardCalibration> fits; // fits[k] is passed[k]'s calibration
+    };
+    const int selection = std::min(kFurtherLooks, budget);
+    const bool first_wins = firstLookWins();
+    if (first_wins)
+    {
+        log_warning("OD_LOOK_SEAL=first is set: a refused camera seals the first look that "
+                    "passes and is not looked at again, as before #1456, rather than the "
+                    "look with the highest R of the budget");
+    }
+    auto looks_at = [&](int look, const auto &w)
+    {
+        return first_wins ? look_choice::looksAtFirstWins(look, budget, !w.passed.empty())
+                          : look_choice::looksAt(look, selection, budget, w.passed_within_selection);
+    };
+    vector<Watched> watched;
+    for (size_t i : still_refused)
+    {
+        Watched w;
+        w.camera = i;
+        watched.push_back(w);
+    }
+
+    int looks_spent = 0;
+    for (int look = 1; look <= budget; look++)
+    {
+        bool anyone = false;
+        for (const Watched &w : watched)
+        {
+            anyone = anyone || looks_at(look, w);
+        }
+        if (!anyone)
+        {
+            break;
+        }
+
         vector<camera::Frame> frames;
         for (int cycle = 0; cycle < kFramesBetweenLooks; cycle++)
         {
@@ -295,36 +362,77 @@ void GeometryDetector::lookAgainAtRefusedCameras()
         looks_spent = look;
 
         const vector<Mat> images = camera::images(frames);
-        vector<size_t> carried;
-        for (size_t i : still_refused)
+        for (Watched &w : watched)
         {
+            const size_t i = w.camera;
+            if (!looks_at(look, w))
+            {
+                continue;
+            }
             if (i >= images.size() || images[i].empty())
             {
                 // The camera has gone quiet between the average and now. That is not a
                 // refusal and it is not agreement either; it is a look that did not
                 // happen, and it costs the budget nothing to say so.
-                carried.push_back(i);
                 continue;
             }
 
+            w.looked_at++;
             DartboardCalibration fresh = geometry_calibration::calibrateSingleCamera(images[i], (int)i, false);
             if (!fresh.sees_board)
             {
-                carried.push_back(i);
                 continue;
             }
 
-            // The only write in this function, and it is into a slot that held nothing a
-            // board can be scored through: a refused calibration returns before the
-            // perspective fit and before orientation, so there is no measurement here to
-            // overwrite. This is a FIRST calibration for this camera, arriving late.
-            calibrations[i] = fresh;
+            const double r = fresh.wires.fit_coherence;
+            w.passed.push_back({look, r});
+            w.fits.push_back(fresh);
+            if (look <= selection)
+            {
+                w.passed_within_selection = true;
+            }
             log_info("LOOK AGAIN: camera " + to_string((int)i + 1) + " calibrated on look " +
-                     to_string(look) + " of " + to_string(budget) +
-                     ", so the averaged frame was a worse reading than this one and not a "
-                     "camera that cannot be scored with");
+                     to_string(look) + " of " + to_string(budget) + " at R=" + to_string(r) +
+                     (first_wins ? string(" -- the first look that passed, sealed (OD_LOOK_SEAL=first)")
+                                 : string(" -- a candidate, not yet the seal: the camera is looked at to "
+                                          "the end of the budget and the look with the highest R is "
+                                          "sealed (#1456)")));
         }
-        still_refused = carried;
+    }
+
+    // The only write in this function, and it is into a slot that held nothing a board can
+    // be scored through: a refused calibration returns before the perspective fit and before
+    // orientation, so there is no measurement here to overwrite. This is a FIRST calibration
+    // for this camera, arriving late -- and it is the best of the looks, not the first.
+    still_refused.clear();
+    for (const Watched &w : watched)
+    {
+        const int k = first_wins ? look_choice::firstWins(w.passed) : look_choice::best(w.passed);
+        if (k < 0)
+        {
+            still_refused.push_back(w.camera);
+            continue;
+        }
+        calibrations[w.camera] = w.fits[k];
+        string every;
+        for (const look_choice::Passed &p : w.passed)
+        {
+            every += (every.empty() ? "" : " ") + to_string(p.look) + ":" + to_string(p.r);
+        }
+        // "of N" is the looks THIS camera was given, not the active budget: a camera that
+        // passed within #1445's twelve is given twelve under either budget, so its line
+        // reads the same with and without OD_LOOK_BUDGET=1605 (1605-looks section E).
+        const int given = (first_wins || !w.passed_within_selection) ? budget : selection;
+        log_info("LOOK AGAIN: camera " + to_string((int)w.camera + 1) + " seals look " +
+                 to_string(w.passed[k].look) + " of " + to_string(given) + " at R=" +
+                 to_string(w.passed[k].r) +
+                 (first_wins ? string(", the first of its ") + to_string(w.looked_at) +
+                                   " looks to pass (OD_LOOK_SEAL=first; look:R " + every + ")"
+                             : string(", the highest R of the ") + to_string((int)w.passed.size()) +
+                                   " of its " + to_string(w.looked_at) + " looks that passed (a tie "
+                                   "goes to the earliest look; look:R " + every + ")") +
+                 ", so the averaged frame was a worse "
+                 "reading than this one and not a camera that cannot be scored with (#1456)");
     }
 
     board_sight::faultDetail() = fault_before_looking;
