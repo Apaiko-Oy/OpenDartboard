@@ -134,6 +134,16 @@ namespace
     // calibration is right; what the rest of the detector does with a third camera in
     // this window is not, and that is the next stage to measure, not this one's to hide.
     //
+    // #1618 MEASURED IT, AND IT IS NEITHER THE VOTE'S THRESHOLDS NOR CAMERA 1'S EVIDENCE.
+    // Camera 1's valid axes in that run sit a median 0.6 deg and 3.9 px from the hand
+    // annotations (12 darts; the opening window's: 0.3 deg and 3.8 px over 14). The fault
+    // is the dev replay: DEBUG_SEEK_VIDEO starts the three files at frames 90, 84 and 79,
+    // so camera 1 sees each throw eleven frames before camera 3 does, and once camera 1
+    // votes, a throw is called twice. With the files aligned after calibration
+    // (OD_SEEK_ALIGN=1618; the per-dart account is at scorer.cpp's seekAlignIsOn) this
+    // budget reads 19/23 on that run. Both stay pins: two darts correct on main (v7.2,
+    // v8.1) still regress with them, and aligning alone costs rig-20260918 dev its v5.1.
+    //
     // The cost of the opt-in is the one argued above. Looking stops the moment the last
     // refused camera calibrates, so a camera that calibrated within twelve looks spends
     // exactly what it spent before, and rig-20260918 (every camera on the averaged frame)
