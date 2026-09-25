@@ -181,10 +181,13 @@ tester 1554-shadow        "bash '$T/i1554_run.sh'"
 # nothing. Costs one compile plus wire_model.cpp.
 tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
 # #1512's fixture half: the geometric census on both rigs against the ground-truth
-# tables and i1511's annotations, side by side with the string-vote baseline, plus
-# the control proving OD_GEO_SCORE defaults off with published scores untouched and
-# the #1505/#1535 falsification targets read out by name. Four whole-clip replays,
-# i1511's shape and cost.
+# tables and i1511's annotations, side by side with what was published and with the
+# string vote's own reading, plus the control proving OD_GEO_SCORE defaults off with
+# published scores untouched and the #1505/#1535 falsification targets read out by name.
+# #1584: each scorecard column is named for the line it reads -- `published` the SCORE
+# line by the path I1555PUBLISH names, `string-vote` that line's vote= -- and a dart not
+# published under the geometry-first rule the census is told of fails the row by name
+# (I1512 PATH-MISMATCH). Four whole-clip replays, i1511's shape and cost.
 tester 1512-entry         "bash '$T/i1512_run.sh'"
 # #1555: WHICH of the two paths publishes. The decision is `decidePublishedPath`, pure and
 # over primitives so score_processing.hpp need not reach entry_intersection.hpp (four pure
@@ -479,6 +482,10 @@ tester 1474-beat-census   "bash '$T/i1474_run.sh'"
 # accuracy half can be asked of, and the shipped mocks under a cycle budget, whose figures
 # carry #1478's caveat and whose run is where the truncation notice is proved to fire.
 # It asserts NOTHING about the numbers (#1322) and fails on a run it could not read.
+# #1584: since #1555 the confidences mean different things on the two publishing paths,
+# so every dart is censused under the path its own PATH line names, and a dart not
+# published under the geometry-first rule the census is told of fails the row by name
+# (PATH-MISMATCH) -- proved to fire on the rig log itself, censused as the vote's.
 # MEASURED 2026-09-21 on the 4-core box, to completion, rc=0: wall 112.6 s at
 # host_busy_pct=71.5 and load_at_end=7.05 -- a CONTENDED box, with another agent's tester
 # container up alongside it throughout. So it takes no `slow`: it sits well inside the
