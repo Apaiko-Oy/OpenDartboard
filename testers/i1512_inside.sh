@@ -84,13 +84,13 @@ mkdir -p "$RUN/probe22geo"
 run_detector rig-20260922 rig22-on OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_GEO_PROBE="$RUN/probe22geo"
 # --no-arrival: the maintainer's ground-truth correction of 2026-09-24 (main e53891a).
 # Visit 1 is thrown before the recording's clean frame: the 8 (1.1) is the parked dart
-# #1514 found on the board from frame one, and the third dart (1.3) never hit the
-# board at all -- so neither can arrive on this recording, their absence is a fact
-# about the footage rather than a detection failure, and an event matched to either
-# annotation is itself suspect.
+# #1514 found on the board from frame one, so it cannot arrive on this recording, its
+# absence is a fact about the footage rather than a detection failure, and an event
+# matched to its annotation is itself suspect. Visit 1's third dart is the miss and has
+# no annotation at all, so it names nothing here (#1585).
 python3 /app/testers/i1512_census.py --log "$RUN/rig22-on.txt" --truth $T22 \
     --annotations $A22 --fixture "mocks/rig-20260922 (the current rig)" \
-    --min-solved 2 --no-arrival 1.1,1.3 | tee "$RUN/census22.txt"
+    --min-solved 2 --no-arrival 1.1 | tee "$RUN/census22.txt"
 CRC=${PIPESTATUS[0]}
 if [ "$CRC" -ne 0 ]; then exit 1; fi
 echo "OK   $(ls "$RUN/probe22geo" | wc -l) overlay images under $RUN/probe22geo"

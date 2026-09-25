@@ -77,12 +77,13 @@ census22() { # $1 log basename, $2 window word
     shift 2
     # --no-arrival: the maintainer's ground-truth correction of 2026-09-24. Visit 1 is
     # thrown before the recording's clean frame -- the 8 is #1514's parked dart, on the
-    # board from frame one, and the third dart never hit the board -- so neither can
-    # arrive, their absence is a fact about the footage, and an event matched to either
-    # annotation is itself suspect and stays out of every denominator here.
+    # board from frame one -- so it cannot arrive, its absence is a fact about the
+    # footage, and an event matched to its annotation is itself suspect and stays out of
+    # every denominator here. Visit 1's third dart is the miss: no annotation, nothing to
+    # name (#1585).
     python3 /app/testers/i1555_census.py --log "$RUN/$out.txt" --truth $T22 \
         --annotations $A22 --fixture rig-20260922 --window "$window" \
-        --min-matched 2 --no-arrival 1.1,1.3 "$@" | tee "$RUN/census-$out.txt"
+        --min-matched 2 --no-arrival 1.1 "$@" | tee "$RUN/census-$out.txt"
     return ${PIPESTATUS[0]}
 }
 
