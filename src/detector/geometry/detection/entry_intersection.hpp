@@ -375,6 +375,9 @@ namespace entry_intersection
         // same `scoreFromModel` and the same camera the published score was read through
         // -- never composed out of new ring or wedge arithmetic (#1512's rule). Empty
         // where no second candidate could be named, and `alternativeRefusal` says why.
+        // Read on EVERY solve that measured a boundary, not only on the ones close enough
+        // to flag: it is a measurement about the call, and the census's threshold sweep
+        // cannot count a dart whose second candidate is unnamed.
         std::string alternativeScore;
         std::string alternativeRefusal;
         // The verdict. A dart is flagged only where a SECOND CANDIDATE COULD BE NAMED: a
@@ -1158,25 +1161,36 @@ namespace entry_intersection
                                               : out.score.wedgeBoundaryMm;
                 out.sigmaAcrossMm = radial ? out.sigmaRadialMm : out.sigmaTangentMm;
                 out.crossingSigmas = z;
-                if (z <= params.crossingSigmas)
+                // READ WHENEVER A BOUNDARY WAS MEASURED TO, not only where the call is
+                // close enough to flag, and the reason is a measurement rather than a
+                // preference. The census publishes a THRESHOLD SWEEP -- the flag rate and
+                // the catch at every k from 0.25 to 2.0 -- and it can only count a dart
+                // whose second candidate is named. Computing the alternative behind the
+                // threshold made every row at and above k=1.0 read 100%: rig-20260918's
+                // dev window reported flagged 10/10 at k=1.00, 1.25, 1.50 and 2.00 on the
+                // first run of this census, because the only darts the sweep could see
+                // were the ones the threshold had already admitted. A sweep that can only
+                // measure its own threshold is not one.
+                //
+                // The alternative is a MEASUREMENT about the call; the flag is the
+                // DECISION, and `score_processing::decideBoundaryCall` is still the only
+                // thing that publishes one.
+                if (refFit == nullptr)
                 {
-                    if (refFit == nullptr)
+                    out.alternativeRefusal =
+                        "no camera's fit could be kept to read the other side through";
+                }
+                else
+                {
+                    out.alternativeScore =
+                        alternativeAcross(profile, *refFit, refAnchor, X,
+                                          out.boundaryAcrossMm, radial, out.score.score);
+                    if (out.alternativeScore.empty())
                     {
                         out.alternativeRefusal =
-                            "no camera's fit could be kept to read the other side through";
-                    }
-                    else
-                    {
-                        out.alternativeScore =
-                            alternativeAcross(profile, *refFit, refAnchor, X,
-                                              out.boundaryAcrossMm, radial, out.score.score);
-                        if (out.alternativeScore.empty())
-                        {
-                            out.alternativeRefusal =
-                                "the board reads " + out.score.score +
-                                " on both sides of the nearest boundary, so there is no "
-                                "second candidate to name";
-                        }
+                            "the board reads " + out.score.score +
+                            " on both sides of the nearest boundary, so there is no "
+                            "second candidate to name";
                     }
                 }
             }

@@ -297,8 +297,16 @@ int main(int argc, char **argv)
             "a dart mid-segment solves and scores S1 (" + sol.score.score + ")");
         say(sol.outcome == Outcome::Solved && !sol.uncertaintyCrossesWire,
             std::string("and is NOT flagged: ") + outcomeWord(sol.outcome));
-        say(sol.alternativeScore.empty(),
-            "and names no second candidate, because there is nothing to name");
+        // The solver still READS what is across its nearest boundary -- that is a
+        // measurement about the call, and the census's threshold sweep needs it on every
+        // dart -- but nothing is PUBLISHED: `decideBoundaryCall` hands out an alternative
+        // only where the flag is set, and section 8 holds that half with no geometry
+        // behind it at all.
+        sayPure(decideBoundaryCall(true, sol.uncertaintyCrossesWire, sol.score.score,
+                                   sol.alternativeScore, sol.boundaryKind,
+                                   sol.boundaryAcrossMm, sol.sigmaAcrossMm)
+                    .alternative.empty(),
+                "and publishes no second candidate, because nothing is flagged");
         sayFlag(sol.boundaryAcrossMm > 5.0 && sol.crossingSigmas > 1.0,
             "its nearest boundary is " + fmt2(sol.boundaryAcrossMm) + " mm away, " +
                 fmt2(sol.crossingSigmas) + " sigmas, and the measurement is published "
@@ -414,8 +422,9 @@ int main(int argc, char **argv)
         const EntrySolution sol = solveAt(canonAt(200.0, 1.5));
         say(sol.solved && sol.score.score == "MISS",
             "a dart 30 mm past the double's outer edge scores MISS (" + sol.score.score + ")");
-        say(!sol.uncertaintyCrossesWire && sol.alternativeScore.empty(),
-            "and is not flagged, 30 mm being a long way in sigmas");
+        say(!sol.uncertaintyCrossesWire, "and is not flagged");
+        sayFlag(sol.crossingSigmas > 1.0,
+                "30 mm being " + fmt2(sol.crossingSigmas) + " sigmas -- a long way");
     }
 
     // ---- 7. the invariants every solve must satisfy ----------------------------------------
