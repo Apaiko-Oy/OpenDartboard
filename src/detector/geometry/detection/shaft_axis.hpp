@@ -287,10 +287,15 @@ namespace shaft_axis
         // name when no component is dominant (`rescue_min_fraction`) or when a second
         // straight component rivals it (`rescue_rival_ratio`) -- two crossing rods, a
         // bent silhouette and a parallel older dart are all "two lines" and stay
-        // refused. Off by default in the pure fit so #1511's and #1554's figure checks
-        // keep measuring the plain gate; the pipeline turns it on, and OD_AXIS_RESCUE=off
-        // (dart_processing.cpp) is the falsification pin that restores the old
-        // exclusion on the same binary.
+        // refused. OFF BY DEFAULT, here and in the pipeline: OD_AXIS_RESCUE=on
+        // (dart_processing.cpp) turns it on, and unset is the old exclusion byte for
+        // byte. MEASURED why it is not the default (testers/i1586_run.sh, both fixtures,
+        // both windows): it takes TOO-FEW-CONSTRAINTS over matched darts from 21 to 12
+        // and the nine darts it newly solves read 8 exact -- the solver's usual ~90% --
+        // but the vote was already exact on 7 of those 8, and the one dart it newly gets
+        // right (rig-20260922 dev v8.2, S18 -> S4) is paid for by one it newly gets
+        // wrong (rig-20260922 opening v5.3, an exact S7 -> S19 across the 7/19 wire, a
+        // WIRE-UNCERTAIN solve). #1586's bar is that no exact dart regresses.
         bool rescue_composite = false;
 
         // The dominant component must hold at least this share of the figure's

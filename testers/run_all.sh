@@ -241,16 +241,18 @@ tester 1556-flag          "bash '$T/i1556_check.sh'"
 # meets a `no answer in 1200s` that this row had 69 s of headroom on a busy box and that
 # the remedy is a quiet box rather than a bug hunt.
 tester 1556-flagcensus    "bash '$T/i1556_run.sh'"
-# #1586: why the geometry refuses a dart, and the composite rescue of the dominant cause.
-# The pure half holds the rescue on built figures (a dart with something linked alongside
-# is recovered onto the dart; two objects stay refused; rescue off is the plain fit). The
-# fixture half is eight whole-clip replays -- both fixtures, both windows, each with the
-# rescue live and under OD_AXIS_RESCUE=off -- and asserts the pin restores the old
-# exclusion, TOO-FEW-CONSTRAINTS falls, published exact rises, and no dart exact under the
-# pin regresses. MEASURED wall: see the slow line.
+# #1586: why the geometry refuses a dart, and the composite rescue of the dominant cause
+# (OD_AXIS_RESCUE=on, opt-in: the default binary is the pre-#1586 exclusion). The pure half
+# holds the rescue on built figures (a dart with something linked alongside is recovered
+# onto the dart; two objects stay refused; rescue off is the plain fit). The fixture half is
+# eight whole-clip replays -- both fixtures, both windows, rescue on and default -- asserting
+# the default prints no rescue, the rescue fires, and TOO-FEW-CONSTRAINTS falls; the
+# published before/after and every changed dart are reported by name. MEASURED wall: 856 s
+# for the fixture half on 2026-09-25 (one run, box shared with another agent's censuses),
+# so 1800 s is about twice that, #1341's rule.
 tester 1586-rescuecheck   "bash '$T/unit_check.sh' 1586"
 tester 1586-rescue        "bash '$T/i1586_run.sh'"
-slow 2400
+slow 1800
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which

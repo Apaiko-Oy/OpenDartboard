@@ -413,18 +413,23 @@ namespace dart_processing
         return v;
     }
 
-    //   OD_AXIS_RESCUE=off  #1586's falsification pin, axisGateIsOff's shape: the
-    //                       composite rescue (shaft_axis.hpp, AxisParams::rescue_composite)
-    //                       is not attempted, so a figure the straightness gate refuses
-    //                       stays refused exactly as before #1586 and the solver sees
-    //                       the old exclusion. Anything else, unset included, leaves the
-    //                       rescue on.
-    static bool axisRescueIsOff()
+    //   OD_AXIS_RESCUE=on   #1586's composite rescue (shaft_axis.hpp,
+    //                       AxisParams::rescue_composite), OPT-IN. Unset or anything else
+    //                       and a figure the straightness gate refuses stays refused
+    //                       exactly as before #1586. It is not the default because the
+    //                       measured before/after (testers/i1586_run.sh) does not clear
+    //                       the issue's bar: it solves 9 of the 21 refused darts, 8 of
+    //                       them exact, but 7 of those 8 the vote already published
+    //                       exact, and the one it newly gets right (rig-22 dev v8.2) is
+    //                       paid for by one it newly gets wrong (rig-22 opening v5.3,
+    //                       an exact S7 published as S19 across the 7/19 wire). A default
+    //                       that regresses an exact dart is not one this issue may ship.
+    static bool axisRescueIsOn()
     {
         static const bool v = []
         {
             const char *e = std::getenv("OD_AXIS_RESCUE");
-            return e != nullptr && std::string(e) == "off";
+            return e != nullptr && std::string(e) == "on";
         }();
         return v;
     }
@@ -1395,7 +1400,7 @@ namespace dart_processing
                         shaft_axis::AxisParams axis_params;
                         axis_params.gated = !axisGateIsOff();
                         axis_params.subtract_shadow = !axisShadowIsOff();
-                        axis_params.rescue_composite = !axisRescueIsOff();
+                        axis_params.rescue_composite = axisRescueIsOn();
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
