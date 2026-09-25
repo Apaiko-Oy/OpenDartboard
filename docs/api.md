@@ -179,11 +179,20 @@ band (a `T20` to an `S20`), `"wedge"` if it would change number (an `S19` to an 
 bull, an outer bull and a miss have no wedge in them at all, so only a ring wire can flip
 them and `boundary_kind` is never `"wedge"` there.
 
-**The flag rate is a real number and it is not small.** At this detector's precision most
-darts genuinely sit within one sigma of some wire, and the census in `testers/i1556_census.py`
-reports the rate on every run. A client that treats every flag as a question for a human will
-ask on most darts; the honest reading of the field is "this call was close", and what to do
-about it is the client's decision, taken with `uncertainty` and `boundary` beside it.
+**The flag rate is a real number and it is not small: 73% of published darts carry one.**
+Measured over both ground-truthed fixtures in both calibration windows - 37 of 51 solved
+darts, and `testers/i1556_census.py` reports it on every run. At a solved-position precision
+of about six millimetres most darts genuinely sit within one sigma of some wire: a wedge is
+31 mm of arc wide at the treble ring, so half of it is inside one sigma of a 6 mm instrument.
+**A client that treats every flag as a question for a human asks on three darts in four, not
+on one in eight**, and anything built on this field has to be designed for that.
+
+**The flag is not a wrong-answer detector.** On the one fixture that can carry an accuracy
+claim, every wrongly-scored dart the geometry published was flagged, in both calibration
+windows independently - and so were 16 of the 30 correctly-scored ones. The honest reading of
+the field is "this call was close", with `uncertainty` and `boundary` beside it, and what to
+do about that is the client's decision. `alternative` is a question, never a correction: of
+the two wrong darts, one's other candidate is exactly what was thrown and the other's is not.
 
 **The push to Turnaus says the same thing more narrowly, and the difference is deliberate**
 (#1366). A detection posted to `/api/v1/{autoscorer,casual}/detections` carries the same two

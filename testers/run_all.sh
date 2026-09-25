@@ -233,9 +233,12 @@ tester 1556-flag          "bash '$T/i1556_check.sh'"
 # harness that failed on it would be deciding the issue by its own threshold. Five
 # whole-clip replays, i1511's shape and cost.
 #
-# MEASURED, #1341's rule: see the row above -- the same five replays on the same fixtures,
-# and this row's own wall time is written in below once it has been measured on a quiet
-# box.
+# MEASURED, #1341's rule: 751 s wall on a quiet box and 1079 s on a loaded one, two whole
+# runs of the wired tree on 2026-09-25, against the 1200 s default. No `slow` line: 1200
+# has not been exceeded, and #1341's budget is twice the limit that really failed rather
+# than twice the cost measured here. Both numbers are written down rather than the better
+# one, because the spread is what tells whoever first meets a `no answer in 1200s` that
+# this row has only 120 s of headroom on a busy box.
 tester 1556-flagcensus    "bash '$T/i1556_run.sh'"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a

@@ -192,6 +192,17 @@ namespace entry_intersection
         // testers/i1556_census.py re-measures it on every run: it prints the same
         // position-error distribution beside the claimed across-boundary sigma, so a
         // floor that stopped matching the instrument is visible rather than inherited.
+        //
+        // MEASURED, AND IT IS A GUARD RATHER THAN A DRIVER -- said here because a
+        // constant whose effect was never measured is how a threshold becomes folklore.
+        // Recomputing every solve of all four replays at other floors (the error ellipse
+        // and the boundary distances are both in the census lines, so this is exact and
+        // reproduces the binary's own verdict on 51 of 51 rows at 5.0): the pooled flag
+        // count reads 37/51 at a floor of 0.0, 2.0, 4.0 AND 5.0 alike. The first verdict
+        // moves at 6.0 mm (38/51), and 7.0 moves five (42/51). So on these two fixtures
+        // the floor changes no dart's verdict: it exists so that resolving the ellipse
+        // cannot claim a precision no reference in this repository can see, and today it
+        // never has to.
         double sigmaAcrossFloorMm = 5.0;
 
         // #1556: how many ACROSS-BOUNDARY sigmas of clearance a call needs before the
@@ -199,11 +210,26 @@ namespace entry_intersection
         // that is what the published vocabulary already means: #1555 wired 0.7 to "the
         // sigma reaches a call-flipping wire" and this issue changes how that sigma is
         // measured, not what the demotion says. Fitting the number to the fixtures was
-        // refused with its own arithmetic -- the two wrong solves on rig-20260918 sit at
-        // 0.08 and 0.39 sigmas of their boundary, so any k down to 0.4 would still catch
-        // both while flagging far less, which is a rule fitted to two darts. The sweep
-        // is REPORTED by the census instead, at every k from 0.25 to 2.0, so moving it is
-        // a decision somebody takes on a table rather than a constant somebody nudges.
+        // refused with its own arithmetic. MEASURED, the census's own SWEEP line on
+        // rig-20260918, flagged over the matched darts the geometry published, beside
+        // how many of that window's wrongly-scored geometric darts the threshold catches:
+        //
+        //   k      dev flagged   dev caught   opening flagged   opening caught
+        //   -----  ------------  -----------  ----------------  --------------
+        //   0.25    2/13 (15%)   1 of 1        1/14  (7%)       0 of 1
+        //   0.50    7/13 (54%)   1 of 1        5/14 (36%)       1 of 1
+        //   0.75    9/13 (69%)   1 of 1        6/14 (43%)       1 of 1
+        //   1.00   10/13 (77%)   1 of 1        8/14 (57%)       1 of 1
+        //   1.50   11/13 (85%)   1 of 1       11/14 (79%)       1 of 1
+        //   2.00   12/13 (92%)   1 of 1       11/14 (79%)       1 of 1
+        //
+        // So k = 0.50 would catch the wrong dart in both windows while flagging 54% and
+        // 36% instead of 77% and 57%. That is a real saving and it is REFUSED here,
+        // because each window has exactly ONE wrongly-scored geometric dart and a
+        // threshold chosen off two darts is fitted to them -- #1322's rule, and #1555's
+        // COUNTERFACTUAL one issue earlier refused a rule fitted to one dart in the same
+        // words. The table is printed on every run so the decision can be retaken on
+        // numbers rather than nudged.
         double crossingSigmas = 1.0;
 
         // Within how many millimetres a placed tip counts as CORROBORATING a solve.
@@ -219,6 +245,63 @@ namespace entry_intersection
         // room and the census prints every distance for re-measurement.
         double tipAgreeMm = 15.0;
     };
+
+    /**
+     * #1556: THE FLAG CENSUS, AND THE NUMBER A CONSUMER HAS TO CARRY.
+     *
+     * Measured by testers/i1556_run.sh on this tree, four whole-clip replays plus the
+     * mutation, every one with OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 so both flag rules
+     * answer about the same dart in the same process. Denominators are stated because
+     * three different ones are in play and they answer three different questions.
+     *
+     *   fixture          window   solved  FLAGGED    #1555's major-axis rule
+     *   ---------------  -------  ------  ---------  -----------------------
+     *   rig-20260918     dev          14  11 (79%)   12 (86%)
+     *   rig-20260918     opening      14   8 (57%)    9 (64%)
+     *   rig-20260922     dev           8   7 (88%)    7 (88%)
+     *   rig-20260922     opening      15  11 (73%)   12 (80%)
+     *   POOLED                       51  37 (73%)   40 (78%)
+     *
+     * SEVENTY-THREE PER CENT OF PUBLISHED DARTS FLAG, AND THAT IS THE FINDING RATHER
+     * THAN A DEFECT IN THE RULE. At a solved-position precision of about six
+     * millimetres most darts really do sit within one sigma of some wire: a wedge is
+     * 31 mm of arc wide at the treble ring, so half of it is inside one sigma of a
+     * 6 mm instrument. Resolving the ellipse along the boundary's own normal is the
+     * honest version of the question and it moves the rate from 78% to 73%, which is
+     * three darts of fifty-one. Anybody designing a one-tap confirmation on top of this
+     * field is designing for a prompt on three darts in four, not on one in eight.
+     *
+     * WHAT THE FLAG CATCHES, on rig-20260918 -- the only fixture that can carry an
+     * accuracy claim, because only 9 of rig-20260922's 24 throws are annotated (#1585)
+     * and its matched darts are an alignment artefact rather than scoring facts:
+     *
+     *   window   matched  wrong  flagged   geometric subset
+     *   -------  -------  -----  --------  --------------------------------
+     *   dev           17      2  1 of 2    1 of 1 wrong geometric darts
+     *   opening       17      2  1 of 2    1 of 1 wrong geometric darts
+     *
+     * EVERY WRONGLY-SCORED GEOMETRIC DART IS IN THE FLAGGED SET, in both windows,
+     * independently -- dev's v2.3 (D12 over a thrown S5, ring boundary 0.78 mm, 0.09
+     * sigmas) and opening's v5.1 (T15 over a thrown S15, ring boundary 1.95 mm, 0.39
+     * sigmas). The dart each window gets wrong and does NOT flag is published by the
+     * STRING VOTE (v6.3, S7 over a thrown S2, the solver refused as
+     * TOO-FEW-CONSTRAINTS), and it cannot flag by construction: a vote publish measures
+     * no board-millimetre position, so there is no uncertainty to cross anything with.
+     * That is a gap in coverage and not in the rule, and it is why the census prints
+     * CATCH and CATCH-GEOMETRIC as two lines.
+     *
+     * THE COST, stated as plainly as the catch: 9 of the 15 correctly-scored darts in
+     * the dev window flag too, and 7 of 15 in the opening one -- 16 of 30 pooled. The
+     * flag is not a wrong-answer detector. It says THIS CALL WAS CLOSE, with the
+     * millimetres beside it, and a consumer that treats every one as a question for a
+     * human will ask on most darts.
+     *
+     * AND ONE OF THE TWO ALTERNATIVES IS THE THROWN SCORE. Opening v5.1's flag reads
+     * "T15 or S15" and S15 is what was thrown, so a tap fixes it. Dev v2.3's reads
+     * "D12 or S12" against a thrown S5 -- a 67.5 mm position error, a different wedge
+     * entirely -- so the tap would offer the wrong repair. A flag is a question, never
+     * a correction.
+     */
 
     /** Why one camera's evidence was or was not usable, and what it said. */
     struct Constraint
