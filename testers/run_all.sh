@@ -533,6 +533,15 @@ tester 1551-admission     "bash '$T/i1551_run.sh'"
 # whole-clip replay.
 # MEASURED 2026-09-25 on the 4-core box at load ~6: 478 s (and 623 s on the first run, at load 6-11), inside the default 1200.
 tester 1605-looks         "bash '$T/i1605_run.sh'"
+# #1618: why #1605's opt-in made rig-20260922 dev worse. A dev build seeks its three file
+# cameras to frames 90, 84 and 79 and never brings them back into step, so once camera 1
+# votes, a throw is called by camera 1 and again by cameras 2 and 3 eleven frames later
+# (echo windows). OD_SEEK_ALIGN=1618 aligns the files after calibration: the opt-in then
+# reads above 15/23, and stays a pin because v7.2 and v8.1 still regress. Three whole-clip
+# replays and one calibration-only run.
+# MEASURED 2026-09-25 on the 4-core box: WALL_PENDING
+tester 1618-thirdcam      "bash '$T/i1618_run.sh'"
+slow 1500
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
