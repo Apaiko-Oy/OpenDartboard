@@ -4,6 +4,7 @@
 #include "utils/streamer.hpp"
 #include "utils/od_clock.hpp"
 #include "utils/od_fix.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -90,6 +91,97 @@ namespace motion_processing
             return e && std::string(e) == "discard";
         }();
         return v;
+    }
+
+    // #1646's switch. OD_SETTLE_EXPOSURE=hold makes an event wait for every camera's
+    // board level to stop moving before it finishes; unset (or anything else) keeps the
+    // settle test as it was -- motion quiet is settled, whatever the exposure is doing.
+    //
+    // OPT-IN, and measured why. On rig-20260922's opening the hold does what it is for:
+    // the visit-2 takeout's window is read on a correctly exposed board, reconciles CLEAN
+    // on all three cameras, and v3.1's S20 gets its own window. But it also removes the
+    // ACCIDENT that ended visit 1: camera 3's exposure-shifted 122223 px "falling" to
+    // 1820 px in v2.1's window was the second CLEAN vote the first takeout needed. Read on
+    // a settled picture, the first takeout cannot reconcile at all -- the calibration
+    // reference holds #1514's parked 8, so cameras 2 and 3 fall only 1373 -> 1208 and
+    // 1256 -> 1084 px, under the 215/182 px dart-sized ceiling -- visit 1 never ends, and
+    // the DART_3 cap swallows T9 and T8 in place of the 12. The hold is half of the fix;
+    // the other half is dart_processing's, and until it lands the default stays put.
+    static bool exposureGateOff()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_SETTLE_EXPOSURE");
+            return !(e && std::string(e) == "hold");
+        }();
+        return v;
+    }
+
+    // #1650's switch. OD_COOLDOWN_EXPIRY=spike makes the cycle on which the cooldown runs
+    // out ask IDLE's spike test as well, instead of only moving to IDLE and leaving the
+    // test to the next cycle. Unset (or anything else) keeps the old line.
+    //
+    // Why: case COOLDOWN tests the clock FIRST, and on the cycle the clock runs out it goes
+    // to IDLE without looking at the motion. Every other cooldown cycle would have turned a
+    // spike into an event (#1358), and IDLE would have done so on the next cycle, but a dart
+    // splash on the weak side of the board is often ONE cycle long. On that cycle and no
+    // other, it is dropped. Measured on mocks/rig-20260918 dev, visit 6: v6.3's (the 2's)
+    // splash is one cycle at 0.0136 of camera 3's board (f1569, cycle 1480), followed by
+    // 0.0005. The 7's event ends at cycle 1447 by default and 1453 under #1646's hold,
+    // which puts the splash 33 and 27 cycles after it. A 1000 ms cooldown ends on the 27th
+    // cycle when cycles run at ~37 ms, the rate a whole-clip replay has at load 4-6, and on
+    // the 33rd only at ~30 ms, which the replay does not reach. That is why the hold lost
+    // the 2 whole-clip and not in the narrowed replays under heavy load (cycles of 70-90 ms).
+    static bool cooldownExpirySpikes()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_COOLDOWN_EXPIRY");
+            return e && std::string(e) == "spike";
+        }();
+        return v;
+    }
+
+    // #1650's instrument, never a setting: OD_COOLDOWN_MS=<ms> replaces cooldown_period_ms.
+    // With OD_MOTION_CLOCK=capture (33.3 ms a cycle, whatever the load) it places the
+    // cooldown's last cycle on a chosen frame, so the swallowed-spike case above can be
+    // replayed on any box instead of only at the load that happens to line it up.
+    static int cooldownMs(const MotionParams &params)
+    {
+        static int v = []
+        {
+            const char *e = std::getenv("OD_COOLDOWN_MS");
+            const int ms = e ? std::atoi(e) : 0;
+            return ms > 0 ? ms : -1;
+        }();
+        return v > 0 ? v : params.cooldown_period_ms;
+    }
+
+    // #1646: each camera's recent board levels, newest last, at most exposure_frames.
+    static vector<vector<double>> level_history;
+    static int exposure_held = 0;      // cycles this event has waited on exposure
+    static bool exposure_logged = false;
+
+    // The largest max-min span of board level over the history, and the camera it is on
+    // (0-based), or a span of 0 when no camera has a full history.
+    static double exposureSpan(const MotionParams &params, int &camera)
+    {
+        double worst = 0.0;
+        camera = -1;
+        for (size_t i = 0; i < level_history.size(); i++)
+        {
+            const vector<double> &h = level_history[i];
+            if ((int)h.size() < params.exposure_frames)
+                continue;
+            const auto mm = minmax_element(h.begin(), h.end());
+            const double span = *mm.second - *mm.first;
+            if (span > worst)
+            {
+                worst = span;
+                camera = (int)i;
+            }
+        }
+        return worst;
     }
 
     // The mask for one camera, built on first sight of its board and kept.
@@ -270,6 +362,8 @@ namespace motion_processing
                 bitwise_and(thresh, region.mask, inside);
                 motion_pixels = countNonZero(inside);
                 region_pixels = region.pixels;
+                // #1646: the board's own grey level, what exposure drift moves.
+                motion_data[i].board_level = mean(curr_gray, region.mask)[0];
             }
             double motion_ratio = region_pixels > 0 ? (double)motion_pixels / region_pixels : 0.0;
 
@@ -351,6 +445,25 @@ namespace motion_processing
             cameras_spiked.resize(motion_data.size(), false);
         }
 
+        // #1646: keep each camera's board level. A camera that did not measure this cycle
+        // loses its history rather than being compared across the gap.
+        if (level_history.size() != motion_data.size())
+        {
+            level_history.assign(motion_data.size(), vector<double>());
+        }
+        for (size_t i = 0; i < motion_data.size(); i++)
+        {
+            vector<double> &h = level_history[i];
+            if (!motion_data[i].measured || motion_data[i].board_level < 0.0)
+            {
+                h.clear();
+                continue;
+            }
+            h.push_back(motion_data[i].board_level);
+            if ((int)h.size() > params.exposure_frames)
+                h.erase(h.begin());
+        }
+
         // Calculate detection duration if we're in an active state
         if (current_state != DartEventState::IDLE && current_state != DartEventState::COOLDOWN)
         {
@@ -410,6 +523,8 @@ namespace motion_processing
             {
                 current_state = DartEventState::STABILIZING;
                 stable_frame_count = 1;
+                exposure_held = 0; // #1646: this event has not waited on exposure yet
+                exposure_logged = false;
             }
             // Timeout if event takes too long or insufficient participation
             else if (event_duration > params.max_event_duration_ms ||
@@ -460,6 +575,43 @@ namespace motion_processing
             if (current_intensity <= params.low_threshold)
             {
                 stable_frame_count++;
+
+                // #1646: quiet motion is not a settled picture while a camera's exposure
+                // is still walking. Asked before either way out below -- the fifteen
+                // stable frames and #815 defect 1's fall-through into END -- so it holds
+                // the event whichever of them would have finished it. Off under its own
+                // pin and, for #1627's reason, under #1358's and #1339's falsification
+                // switches: a falsification run keeps the whole machine it was written
+                // against.
+                if (!exposureGateOff() && !settleTrigger() && !measuredAgainstTheFrame())
+                {
+                    int camera = -1;
+                    const double span = exposureSpan(params, camera);
+                    if (span >= params.exposure_span && exposure_held < params.exposure_hold_cycles)
+                    {
+                        exposure_held++;
+                        if (!exposure_logged)
+                        {
+                            exposure_logged = true;
+                            log_info("I1646 EXPOSURE HOLD cycle=" + to_string(od_clock::cycles().load()) +
+                                     " cam=" + to_string(camera + 1) + " span=" + to_string(span) +
+                                     " gate=" + to_string(params.exposure_span) +
+                                     " -- motion is quiet but this camera's board level is still moving, "
+                                     "so the event waits for the picture to settle before its window opens");
+                        }
+                        break;
+                    }
+                    if (exposure_held > 0 && exposure_logged)
+                    {
+                        exposure_logged = false; // said once per release
+                        log_info("I1646 EXPOSURE RELEASE cycle=" + to_string(od_clock::cycles().load()) +
+                                 " held=" + to_string(exposure_held) + " span=" + to_string(span) +
+                                 (exposure_held >= params.exposure_hold_cycles
+                                      ? " -- the hold ran out, and the event finishes on a moving picture"
+                                      : " -- every camera's board level is still, and the event finishes"));
+                    }
+                }
+
                 if (stable_frame_count >= params.stability_frames)
                 {
                     // Motion event finished!
@@ -555,9 +707,34 @@ namespace motion_processing
         case DartEventState::COOLDOWN:
         {
             long long cooldown_elapsed = now - cooldown_start_time;
-            if (cooldown_elapsed >= params.cooldown_period_ms)
+            if (cooldown_elapsed >= cooldownMs(params))
             {
                 current_state = DartEventState::IDLE;
+                // #1650: see cooldownExpirySpikes. The spike on the cooldown's last cycle
+                // starts its event here, exactly as the arm below would have one cycle
+                // earlier and IDLE would one cycle later.
+                if (cooldownExpirySpikes() && peak_intensity > spikeThreshold(params) &&
+                    !settleTrigger() && !measuredAgainstTheFrame())
+                {
+                    current_state = DartEventState::SPIKE_DETECTED;
+                    event_start_time = now;
+                    fill(cameras_spiked.begin(), cameras_spiked.end(), false);
+                    intensity_history.clear();
+                    stable_frame_count = 0;
+                    std::string ratios;
+                    for (size_t i = 0; i < motion_data.size(); i++)
+                    {
+                        if (motion_data[i].motion_ratio > spikeThreshold(params))
+                            cameras_spiked[i] = true;
+                        ratios += string(i ? " " : "") + "cam" + to_string(i + 1) + "=" +
+                                  (motion_data[i].measured ? to_string(motion_data[i].motion_ratio) : string("-"));
+                    }
+                    log_info("I1650 COOLDOWN EXPIRY SPIKE cycle=" + to_string(od_clock::cycles().load()) +
+                             " elapsed=" + to_string(cooldown_elapsed) + " cooldown=" + to_string(cooldownMs(params)) +
+                             " peak=" + to_string(peak_intensity) + " " + ratios +
+                             " -> SPIKE_DETECTED: the cooldown ran out on a spiking cycle, and the spike "
+                             "is an event rather than being left to an IDLE that only looks next cycle");
+                }
             }
             // #1358: a spike inside the cooldown is a NEW dart, and this is where the
             // rig's missing darts went. An event only ever reaches END by settling --
@@ -596,11 +773,11 @@ namespace motion_processing
                     }
                 }
                 log_debug("COOLDOWN: a spike of " + to_string(peak_intensity) + " on one camera's own board, " +
-                          to_string(params.cooldown_period_ms - cooldown_elapsed) + "ms into the cooldown: a new dart event");
+                          to_string(cooldownMs(params) - cooldown_elapsed) + "ms into the cooldown: a new dart event");
             }
             else if (debug_mode && current_intensity > spikeThreshold(params))
             {
-                log_debug("COOLDOWN: Motion during cooldown period - intensity: " + to_string(current_intensity) + ", remaining: " + to_string(params.cooldown_period_ms - cooldown_elapsed) + "ms");
+                log_debug("COOLDOWN: Motion during cooldown period - intensity: " + to_string(current_intensity) + ", remaining: " + to_string(cooldownMs(params) - cooldown_elapsed) + "ms");
             }
             break;
         }

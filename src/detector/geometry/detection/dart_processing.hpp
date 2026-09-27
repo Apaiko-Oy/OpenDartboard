@@ -510,6 +510,42 @@ namespace dart_processing
         return false;
     }
 
+    /**
+     * #1648: a camera whose only "new" tip this window is a #1535 re-report of an
+     * earlier dart of this visit, AND whose cumulative board figure FELL since the last
+     * completed window, is watching a departure -- it votes CLEAN instead of advancing.
+     *
+     * Why it is needed. Until the first reconciled CLEAN adopts a scene, the clean
+     * reference is the calibration picture, and on mocks/rig-20260922's opening window
+     * that picture holds the parked 8 (v1.1). Once the thrower pulls every dart the
+     * empty board differs from that reference by the 8's hole, so the takeout's
+     * cumulative figure falls by LESS than a dart (camera 2 1373->1208, camera 3
+     * 1256->1084, against ceilings of 215 and 182 px) and #1518's readsAsReversion
+     * cannot fire. The fresh change against the working background is the departing
+     * darts, and the tip picked from it sits on a tip already reported this visit:
+     * camera 2's (718,212), 1 px from S16's. #1535 made that camera abstain from
+     * SCORING; it still voted DART_n+1, so the board advanced on a takeout.
+     *
+     * Both halves are required. A re-report alone is also what #1535 measured on
+     * arrivals (a new dart whose fresh figure the tip was not picked from); on an
+     * arrival the cumulative figure RISES by the new dart. A fall alone is what the
+     * thrower's shadow does to one camera. The pair, and still only a vote: the quorum
+     * decides, as it does for every other candidate.
+     *
+     * `previous_pixels < 0` (no completed window yet) is no verdict. Opt-in:
+     * OD_TAKEOUT_REREPORT=departure (takeoutReReportIsDeparture below). Pure and inline
+     * for the reason readsAsReversion is: testers/i1648_check.cpp holds it.
+     */
+    inline bool readsAsReReportedDeparture(bool tip_is_rereport, int previous_pixels, int current_pixels)
+    {
+        return tip_is_rereport && previous_pixels >= 0 && current_pixels < previous_pixels;
+    }
+
+    // #1648's switch: OD_TAKEOUT_REREPORT=departure turns readsAsReReportedDeparture on.
+    // Anything else, unset included, leaves the #1535 re-report an abstention that still
+    // votes to advance. Defined in dart_processing.cpp, where the other pins live.
+    bool takeoutReReportIsDeparture();
+
     // #1535 falsification switch: OD_TIP_IDENTITY=off restores the tip machinery as it
     // was before #1535 -- every found tip is reported, a re-report of an earlier dart's
     // pixel included. Defined in dart_processing.cpp, where the other pins live.

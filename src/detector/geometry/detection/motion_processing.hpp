@@ -58,6 +58,7 @@ namespace motion_processing
         int motion_pixels = 0;        // Pixels that changed inside the region
         int region_pixels = 0;        // #1339: the area that ratio is a fraction of
         bool measured = false;        // #1339: this camera produced a figure at all
+        double board_level = -1.0;    // #1646: mean grey level inside the region, this cycle
     };
 
     /**
@@ -149,6 +150,23 @@ namespace motion_processing
         // motion this clock exists to ignore is over before the clock starts, and what
         // it used to ignore was the next throw. See processMotion, case COOLDOWN.
         int cooldown_period_ms = 1000;     // Cooldown after dart detection
+
+        // #1646: an event does not finish while a camera's EXPOSURE is still moving.
+        // The motion figure is a frame-to-frame difference, so a camera whose automatic
+        // exposure is walking back after the thrower left its view reads as quiet --
+        // under a grey level a frame -- while its whole board sits 5-15 grey levels off
+        // the picture the dart vote compares against. Measured on mocks/rig-20260922
+        // camera 3 after visit 1's takeout: motion quiet from f242, the frame's centre
+        // at 122 grey at f242, 117 at f248, 114 at f260 and back to 107 only at f272.
+        // The window opened at f243 saw 122223 of camera 3's 182307 board pixels
+        // changed, could not call the board CLEAN, and published the takeout as a dart;
+        // the next arrival's window then saw that figure "fall" and baked the arriving
+        // dart into the clean reference. Under OD_SETTLE_EXPOSURE=hold the settle asks that every measured
+        // camera's board level has spanned less than `exposure_span` grey levels over the
+        // last `exposure_frames` cycles, for at most `exposure_hold_cycles` of waiting.
+        int exposure_frames = 10;       // Cycles the board level is compared across
+        double exposure_span = 1.0;     // Grey levels: the largest max-min that still counts as still
+        int exposure_hold_cycles = 90;  // Longest an otherwise settled event waits (3 s at 30 fps)
     };
 
     // Event states for dart detection
