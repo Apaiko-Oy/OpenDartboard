@@ -585,6 +585,14 @@ slow 1500
 # (2026-09-27); slow 900 is headroom for a loaded box.
 tester 1646-exposure      "bash '$T/i1646_run.sh'"
 slow 900
+# #1648: under the hold, visit 1's takeout on rig-20260922's opening cannot reconcile,
+# because the calibration reference holds the parked 8 and cameras 2 and 3 fall by less
+# than a dart. OD_TAKEOUT_REREPORT=departure (opt-in) lets a camera whose only new tip is
+# a #1535 re-report, and whose cumulative figure fell, vote CLEAN. Two narrowed replays
+# (900 cycles), hold alone and hold with the rule. NOT YET MEASURED as a row; 1646's pair
+# took 265 s at 780 cycles, so slow 900 is its allowance.
+tester 1648-takeout       "bash '$T/i1648_run.sh'"
+slow 900
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
