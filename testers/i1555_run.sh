@@ -49,9 +49,10 @@ T0=$(date +%s.%N)
 # testers/i1655_fps_probe.py), so the run is the rig at its real frame rate on any box.
 # The clock every run used is printed on its ACCURACY lines.
 #
-# The bakeoff DEFAULTS to `capture` (#1655, measured: on it the baseline gave row-identical
-# censuses at two loads, 79/86, and the hold+departure+spike stack 82/86, each the same
-# rows as its wall-clock figure in runs-spread/r1 and runs-i1650; turnaus#1655 has the runs).
+# The bakeoff DEFAULTS to `capture` (#1655, measured 2026-09-27: on it the baseline gave
+# 79/86 and the hold+departure+spike stack 82/86, each row-identical across two runs at
+# different loads (695-946 s wall) and to its wall-clock figure in runs-spread/r1 and
+# runs-i1650; turnaus#1655 has the four runs).
 # OD_MOTION_CLOCK=wall pins the pre-#1655 instrument; its figures move with the box's load.
 export OD_MOTION_CLOCK="${OD_MOTION_CLOCK:-capture}"
 FWD=()
