@@ -9,7 +9,9 @@ Per camera and window, over the looks that calibrated (sees=1): how many, and th
     w129   the 12/9 wire at 88.6 mm carried into the reference plane
     mw129  the same through the doubles band's centre-line plane (#1653)
 and the least-squares slope of w129 on the look's plane centre (bull, or the wire centre
-where ctr= is logged), in degrees per pixel, with the share of w129's variance it explains.
+where ctr= is logged), in degrees per pixel, with the share of w129's variance it explains;
+then with the traced doubles conic's minor axis added, the other half of what planeOf
+builds the plane from.
 A reporter: it asserts nothing.
 """
 import re
@@ -35,23 +37,30 @@ def stats(v):
     return "%+.2f sd %.2f [%+.2f..%+.2f]" % (m, sd, min(v), max(v))
 
 
-def fit2(xs, ys, zs):
-    """z = a + b x + c y, least squares; returns (b, c, r2)."""
-    n = len(zs)
-    if n < 4:
+def fitk(cols, zs):
+    """z = a + sum b_j x_j by least squares; returns (coefficients, r2) or None."""
+    n, k = len(zs), len(cols)
+    if n < k + 3:
         return None
-    mx, my, mz = sum(xs) / n, sum(ys) / n, sum(zs) / n
-    sxx = sum((x - mx) ** 2 for x in xs); syy = sum((y - my) ** 2 for y in ys)
-    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
-    sxz = sum((x - mx) * (z - mz) for x, z in zip(xs, zs)); syz = sum((y - my) * (z - mz) for y, z in zip(ys, zs))
-    det = sxx * syy - sxy * sxy
-    if abs(det) < 1e-9:
-        return None
-    b = (sxz * syy - syz * sxy) / det
-    c = (syz * sxx - sxz * sxy) / det
-    ss = sum((z - mz) ** 2 for z in zs)
-    res = sum((z - mz - b * (x - mx) - c * (y - my)) ** 2 for x, y, z in zip(xs, ys, zs))
-    return b, c, (1 - res / ss) if ss > 0 else 0.0
+    means = [sum(c) / n for c in cols]
+    mz = sum(zs) / n
+    X = [[c[i] - m for c, m in zip(cols, means)] for i in range(n)]
+    z = [v - mz for v in zs]
+    A = [[sum(X[i][a] * X[i][b] for i in range(n)) for b in range(k)] + [sum(X[i][a] * z[i] for i in range(n))]
+         for a in range(k)]
+    for col in range(k):  # Gauss-Jordan with partial pivoting
+        piv = max(range(col, k), key=lambda r: abs(A[r][col]))
+        if abs(A[piv][col]) < 1e-9:
+            return None
+        A[col], A[piv] = A[piv], A[col]
+        for r in range(k):
+            if r != col:
+                f = A[r][col] / A[col][col]
+                A[r] = [x - f * y for x, y in zip(A[r], A[col])]
+    b = [A[r][k] / A[r][r] for r in range(k)]
+    ss = sum(v * v for v in z)
+    res = sum((z[i] - sum(b[j] * X[i][j] for j in range(k))) ** 2 for i in range(n))
+    return b, (1 - res / ss) if ss > 0 else 0.0
 
 
 def main():
@@ -83,15 +92,21 @@ def main():
                     print("      look=%-3s R=%s bull=%s%s own=%s rot=%s w129=%s mw129=%s" % (
                         r["look"], r["R"], r["bull"], (" ctr=" + r["ctr"]) if "ctr" in r else "", r["own"], r["rot"],
                         r["w129"], r.get("mw129", "-")))
-        xs, ys, zs = [], [], []
+        bx, by, cw, zs = [], [], [], []
         for r in allc:
             c = r.get("ctr", r["bull"]).split(",")
-            xs.append(float(c[0])); ys.append(float(c[1])); zs.append(float(r["w129"]))
-        f = fit2(xs, ys, zs)
-        if f:
-            print("  w129 on the plane centre, both windows: %+.2f deg/px in x, %+.2f deg/px in y, explains %.0f%%" % (
-                f[0], f[1], 100 * f[2]))
-
+            bx.append(float(c[0])); by.append(float(c[1])); zs.append(float(r["w129"]))
+            cw.append(float(r["conic"].split("x")[0]))
+        def report(names, cols, what):
+            keep = [(nm, c) for nm, c in zip(names, cols) if max(c) > min(c)]
+            f = fitk([c for _, c in keep], zs) if keep else None
+            if f:
+                print("  w129 on %s: %s, explains %.0f%%" % (what, ", ".join(
+                    "%+.3f deg/px of %s" % (b, nm) for (nm, _), b in zip(keep, f[0])), 100 * f[1]))
+            elif not keep:
+                print("  w129 on %s: every look has the same %s" % (what, "/".join(names)))
+        report(["bull x", "bull y"], [bx, by], "the plane centre")
+        report(["bull x", "bull y", "conic minor"], [bx, by, cw], "the centre and the conic")
 
 if __name__ == "__main__":
     main()
