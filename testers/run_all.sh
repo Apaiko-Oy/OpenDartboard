@@ -776,6 +776,15 @@ tester 822-unreachable    "NET=bridge bash '$T/i1247_run.sh' unreachable '$T/pha
 tester 892-control        "bash '$T/i1247_run.sh' control '$T/phases1247/892-control.sh' /run892"
 tester 895-blind          "bash '$T/i1247_run.sh' blind '$T/phases1247/895-blind.sh' /run895"
 tester 895-dark           "bash '$T/i1247_run.sh' dark '$T/phases1247/895-dark.sh' /run895"
+# The five phases under phases891/ all assert (#1463). Until then each ended on whatever
+# command happened to be last -- a `grep -o "[i803]..."` for the cycle-budget line, or for
+# horizon a transcript printout -- so a label went red on a missing log line and on nothing
+# the phase was about. No tester, harness or document reads their transcripts, so none is a
+# recorder: each now ends on a verdict about its own outcome (contest: both bindings held and
+# every dart at the Casual door; givenup and givenup-nobeat: the evening given up, forgotten
+# and not rejoined, the nobeat one learning it from a refused dart; unreachable: the evening's
+# darts spooled and delivered into it; horizon: only the one fresh, still-owed record
+# delivered) and says in its own first lines exactly what its exit status carries.
 tester 891-contest        "bash '$T/i891_run.sh' contest '$T/phases891/contest.sh'"
 tester 891-horizon        "bash '$T/i891_run.sh' horizon '$T/phases891/horizon.sh'"
 tester 891-givenup        "bash '$T/i891_run.sh' givenup '$T/phases891/givenup.sh'"
