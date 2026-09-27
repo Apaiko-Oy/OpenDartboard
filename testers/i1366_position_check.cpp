@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -326,6 +327,155 @@ int main()
         say(json::parse(once).contains("board_radius"),
             "and those bytes -- the ones the spool file keeps and every retry re-posts -- "
             "are the ones the position is in");
+    }
+
+    // ---- #1651: A CLOSE CALL'S OTHER CANDIDATE, in the grammar the door reads -----------
+    //
+    // #1559's rule, quoted as `CasualDetectionController` and `AutoscorerDetectionController`
+    // spell it -- 'alternative' => ['sometimes', 'nullable', 'string', 'max:16'] -- and then
+    // `Detection::otherThan`, which DROPS rather than refuses one `Sector::PATTERN` cannot
+    // read or one naming the dart's own sector. A drop is silent, so an untranslated OUTER
+    // would never be a 422 anybody saw: it would be a tap that never appears.
+    {
+        // The literal bytes an unflagged dart has always posted, written out by hand, so
+        // "byte-identical to today" is a comparison with something this change cannot move.
+        const std::string TODAY =
+            "{\"board_angle\":12.3456,\"board_radius\":0.6123,\"bounced_out\":false,"
+            "\"reference\":\"" + REF + "\",\"sector\":\"T20\"}";
+        TurnausClient::DetectionBody plain = TurnausClient::detectionBody(REF, placed("T20", 0.6123f, 12.3456f));
+        say(plain.json == TODAY && !plain.carries_alternative,
+            "an unflagged dart posts exactly the bytes it posted before #1651 (" + plain.json + ")");
+
+        // THE NEEDLE: the same dart, flagged, with the other candidate named.
+        DetectorResult flagged = placed("T20", 0.6123f, 12.3456f);
+        flagged.boundary_flagged = true;
+        flagged.alternative_score = "S20";
+        flagged.boundary_kind = "ring";
+        flagged.boundary_mm = 0.4f;
+        flagged.uncertainty_mm = 1.1f;
+        TurnausClient::DetectionBody f = TurnausClient::detectionBody(REF, flagged);
+        json fj = json::parse(f.json);
+        say(f.carries_alternative && fj.contains("alternative") && fj["alternative"] == "S20",
+            "a flagged dart posts its alternative (" + f.json + ")");
+        json without = fj;
+        without.erase("alternative");
+        say(without.dump() == TODAY,
+            "and nothing else about its body moved: take the key out and it is today's bytes");
+        say(f.json.find("uncertainty") == std::string::npos && f.json.find("boundary") == std::string::npos,
+            "the socket's measurements stay on the socket; the door is sent the candidate only");
+
+        // The same needle unflagged: a name with no flag is not a close call. The socket
+        // publishes null for it, and the body says nothing.
+        DetectorResult named_unflagged = placed("T20", 0.6123f, 12.3456f);
+        named_unflagged.alternative_score = "S20";
+        TurnausClient::DetectionBody u = TurnausClient::detectionBody(REF, named_unflagged);
+        say(u.json == TODAY && !u.carries_alternative,
+            "an alternative the geometry named but did not flag is not sent (" + u.json + ")");
+
+        // A flag with nothing named: what the string-vote path can never produce, held anyway.
+        DetectorResult flag_unnamed = placed("T20", 0.6123f, 12.3456f);
+        flag_unnamed.boundary_flagged = true;
+        say(TurnausClient::detectionBody(REF, flag_unnamed).json == TODAY,
+            "a flag with no candidate named sends no key and no null");
+
+        // A string-vote dart: no position, no crossing, no alternative, by construction.
+        TurnausClient::DetectionBody vote = TurnausClient::detectionBody(REF, dart("D16"));
+        say(vote.json.find("alternative") == std::string::npos && !vote.carries_alternative,
+            "a string-vote dart carries no alternative key (" + vote.json + ")");
+
+        // THROUGH THE SAME SEAM AS THE SECTOR: the socket's words become #821's.
+        struct Pair
+        {
+            std::string published, other, sent;
+        };
+        const Pair pairs[] = {
+            {"S25", "BULL", ""},   // a published score the grammar cannot spell: no body at all
+            {"OUTER", "BULL", "Bull"},
+            {"BULL", "OUTER", "25"},
+            {"S17", "OUTER", "25"},
+            {"D20", "MISS", "None"},
+            {"MISS", "D20", "D20"},
+            {"T19", "S19", "S19"},
+        };
+        for (const Pair &p : pairs)
+        {
+            DetectorResult r = dart(p.published);
+            r.boundary_flagged = true;
+            r.alternative_score = p.other;
+            TurnausClient::DetectionBody b = TurnausClient::detectionBody(REF, r);
+            if (b.json.empty())
+            {
+                say(p.sent.empty(), "'" + p.published + "' is still no body, alternative or none");
+                continue;
+            }
+            json j = json::parse(b.json);
+            say(j.contains("alternative") && j["alternative"] == p.sent,
+                p.published + " or " + p.other + " posts alternative " + p.sent + " (" + b.json + ")");
+        }
+
+        // Unspellable, or the dart's own sector once both are translated: no key.
+        for (const Pair &p : {Pair{"T20", "X5", ""}, Pair{"T20", "S21", ""}, Pair{"OUTER", "25", ""},
+                              Pair{"BULL", "Bull", ""}, Pair{"MISS", "None", ""},
+                              Pair{"S20", "s20", ""}})
+        {
+            DetectorResult r = dart(p.published);
+            r.boundary_flagged = true;
+            r.alternative_score = p.other;
+            TurnausClient::DetectionBody b = TurnausClient::detectionBody(REF, r);
+            say(!b.json.empty() && b.json.find("alternative") == std::string::npos && !b.carries_alternative,
+                p.published + " or " + p.other + " sends no alternative, because the door would drop it ("
+                    + b.json + ")");
+        }
+
+        // What IS sent is always something `Detection::otherThan` keeps: readable by
+        // Sector::PATTERN (quoted from Sector.php, as i1347_sector_check quotes it), a
+        // string of at most 16, and not the dart's own place -- S20 and s20 are one place.
+        const std::regex server_pattern("^(?:([SsDT])(20|1[0-9]|[1-9])|25|Bull|None)$");
+        int dropped = 0;
+        std::string first;
+        const std::string words[] = {"S1", "s1", "D20", "T20", "S20", "BULL", "OUTER", "MISS",
+                                     "25", "Bull", "None", "S0", "S21", "T", "END", "", "s20"};
+        for (const std::string &published : words)
+        {
+            for (const std::string &other : words)
+            {
+                DetectorResult r = dart(published);
+                r.boundary_flagged = true;
+                r.alternative_score = other;
+                TurnausClient::DetectionBody b = TurnausClient::detectionBody(REF, r);
+                if (b.json.empty())
+                {
+                    continue;
+                }
+                json j = json::parse(b.json);
+                if (!j.contains("alternative"))
+                {
+                    continue;
+                }
+                std::string a = j["alternative"].is_string() ? j["alternative"].get<std::string>() : "";
+                std::string own = j["sector"].get<std::string>();
+                for (std::string *w : {&a, &own})
+                {
+                    if (!w->empty() && (*w)[0] == 's')
+                    {
+                        (*w)[0] = 'S';
+                    }
+                }
+                const bool kept = j["alternative"].is_string() && a.size() <= 16 &&
+                                  std::regex_match(a, server_pattern) && a != own;
+                if (!kept)
+                {
+                    dropped++;
+                    if (first.empty())
+                    {
+                        first = b.json;
+                    }
+                }
+            }
+        }
+        say(dropped == 0, "every alternative the seam sends is one #1559's door keeps rather than drops (" +
+                              std::to_string(dropped) + " dropped" + (first.empty() ? "" : ", first: " + first) +
+                              ")");
     }
 
     // ---- EVERY body this seam can produce satisfies the door ---------------------------
