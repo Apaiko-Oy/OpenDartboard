@@ -197,15 +197,33 @@ namespace shaft_axis
     // the two agree, so the copy cannot drift silently.
     constexpr int kSupportMorphKernel = 4;
 
+    //   OD_MASK_UNSHIFT=on   #1652: dart_processing cleans the fresh diff with the
+    //                        translation-free chain (dart_processing::cleanFreshMask), so
+    //                        the mask, the published tip and the axis support all arrive
+    //                        in the camera's own pixel frame. Unset or anything else: the
+    //                        chain is the old one, byte for byte. It is read here rather
+    //                        than in dart_processing because it decides the switch below.
+    inline bool maskUnshiftIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_MASK_UNSHIFT");
+            return e != nullptr && std::string(e) == "on";
+        }();
+        return v;
+    }
+
     //   OD_AXIS_UNSHIFT=on   #1649: move the support back by supportChainShiftPx before
     //                        the fit. Unset or anything else: the fit is the old one,
-    //                        byte for byte.
+    //                        byte for byte. #1652: IGNORED when OD_MASK_UNSHIFT=on --
+    //                        the support then carries no translation, and undoing one
+    //                        anyway would move the axis (-4, -4) px off the dart.
     inline bool axisUnshiftIsOn()
     {
         static const bool v = []
         {
             const char *e = std::getenv("OD_AXIS_UNSHIFT");
-            return e != nullptr && std::string(e) == "on";
+            return e != nullptr && std::string(e) == "on" && !maskUnshiftIsOn();
         }();
         return v;
     }

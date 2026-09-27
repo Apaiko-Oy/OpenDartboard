@@ -1166,13 +1166,9 @@ namespace dart_processing
             Mat thresh;
             threshold(diff, thresh, params.background_diff_threshold, 255, THRESH_BINARY);
 
-            // Apply morphological operations to clean up the thresholded image
-            Mat morph_kernel = getStructuringElement(MORPH_RECT, Size(params.morph_kernel_size, params.morph_kernel_size));
-            Mat morph_kernel2 = getStructuringElement(MORPH_RECT, Size(params.morph_kernel_size / 2, params.morph_kernel_size / 2));
-            morphologyEx(thresh, thresh, MORPH_CLOSE, morph_kernel);  // Close small gaps in darts
-            morphologyEx(thresh, thresh, MORPH_OPEN, morph_kernel);   // Open small noise
-            morphologyEx(thresh, thresh, MORPH_CLOSE, morph_kernel2); // Close smaller gaps in darts
-            morphologyEx(thresh, thresh, MORPH_OPEN, morph_kernel2);  // Open smaller noise
+            // Apply morphological operations to clean up the thresholded image.
+            // #1652: cleanFreshMask; OD_MASK_UNSHIFT=on makes it translation-free.
+            cleanFreshMask(thresh, params.morph_kernel_size, shaft_axis::maskUnshiftIsOn());
 
             // Count total changed pixels instead of contour analysis
             int total_changed_pixels = countNonZero(thresh);
@@ -1320,10 +1316,7 @@ namespace dart_processing
                     dilate(diff_working, diff_working, Mat(), Point(-1, -1), params.dilate_iterations); // Strengthen dart signals
                     erode(diff_working, diff_working, Mat(), Point(-1, -1), params.erode_iterations);   // Remove small noise
                     threshold(diff_working, single_thresh, params.background_diff_threshold, 255, THRESH_BINARY);
-                    morphologyEx(single_thresh, single_thresh, MORPH_CLOSE, morph_kernel);  // Close small gaps in darts
-                    morphologyEx(single_thresh, single_thresh, MORPH_OPEN, morph_kernel);   // Open small noise
-                    morphologyEx(single_thresh, single_thresh, MORPH_CLOSE, morph_kernel2); // Close smaller gaps in darts
-                    morphologyEx(single_thresh, single_thresh, MORPH_OPEN, morph_kernel2);  // Open smaller noise
+                    cleanFreshMask(single_thresh, params.morph_kernel_size, shaft_axis::maskUnshiftIsOn());
                 }
                 else
                 {

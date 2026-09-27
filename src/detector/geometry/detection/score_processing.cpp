@@ -670,6 +670,21 @@ namespace score_processing
         return v;
     }
 
+    // #1652: OD_MASK_SHIFT_CENSUS=1 prints one I1652TIP line per camera per solved-or-
+    // refused dart, beside #1647's I1647FIT: the published tip the vote scored, where it
+    // sits on that camera's board model, and what the even-kernel chain's (+4, +4) px
+    // translation (shaft_axis::supportChainShiftPx) is worth in board mm AT that tip,
+    // split radial/tangential. Measurement only; nothing reads it.
+    static bool maskShiftCensusOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_MASK_SHIFT_CENSUS");
+            return e != nullptr && string(e) == "1";
+        }();
+        return v;
+    }
+
     static const string &geoProbeDir()
     {
         static const string v = []
@@ -806,6 +821,39 @@ namespace score_processing
                          fits[c].unitPerMm, H(0, 0), H(0, 1), H(0, 2), H(1, 0), H(1, 1),
                          H(1, 2), H(2, 0), H(2, 1), H(2, 2), (double)calibrations[c].bullCenter.x,
                          (double)calibrations[c].bullCenter.y);
+                log_info(line);
+            }
+        }
+
+        if (geoScoreShadowed() && maskShiftCensusOn())
+        {
+            // With the fix on the tip is already in the camera's frame, so the chain's
+            // translation is the step from it to where the old chain would have put it;
+            // with it off, the step from where the tip belongs to where it was published.
+            const float s = (float)shaft_axis::supportChainShiftPx(shaft_axis::kSupportMorphKernel);
+            const bool fixed = shaft_axis::maskUnshiftIsOn();
+            for (size_t c = 0; c < fits.size() && c < evidence.size(); c++)
+            {
+                if (!fits[c].planeBuilt || !evidence[c].tipFound)
+                {
+                    continue;
+                }
+                const Point2f tip = evidence[c].tipImage;
+                const Point2f from = fixed ? tip : tip - Point2f(s, s);
+                const Point2f to = fixed ? tip + Point2f(s, s) : tip;
+                const Point2f b = board_model::boardPointOf(fits[c], tip);
+                const Point2f b0 = board_model::boardPointOf(fits[c], from);
+                const Point2f b1 = board_model::boardPointOf(fits[c], to);
+                const Point2f d = b1 - b0;
+                const double r = std::sqrt((double)b.x * b.x + (double)b.y * b.y);
+                const double ux = r > 0 ? b.x / r : 0.0, uy = r > 0 ? b.y / r : 0.0;
+                char line[400];
+                snprintf(line, sizeof(line),
+                         "I1652TIP window=%ld cam=%d fixed=%d tip=(%.1f,%.1f) board=(%.2f,%.2f) "
+                         "r=%.2f chainMm=%.2f radial=%.2f tangential=%.2f",
+                         window, (int)c + 1, fixed ? 1 : 0, tip.x, tip.y, b.x, b.y, r,
+                         std::sqrt((double)d.x * d.x + (double)d.y * d.y),
+                         d.x * ux + d.y * uy, -d.x * uy + d.y * ux);
                 log_info(line);
             }
         }
