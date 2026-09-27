@@ -13,9 +13,19 @@ namespace number_anchor
         /**
          * The board's own millimetres. Stated here because this module is pure, and the
          * same three numbers #1497's census states for the same reason.
+         *
+         * #1501, WHICH BOARD EACH IS A FACT OF. `kDoublesMm` is REGULATION: the WDF's
+         * 170 mm, true of every board this detector scores. `kRimMm` is NOT a Winmau
+         * Blade 6 fact: 225.5 is half the regulation 451 mm, where board_model's
+         * `rimRadiusMm` holds the Blade 6's own 225 (450 mm overall, Winmau's page). The
+         * half millimetre moves the annulus's outer edge by 0.2% and is left as it is --
+         * changing it moves every sampled cell, which is a score change and not a label.
+         * THAT THE NUMBERS ARE IN THIS ANNULUS AT ALL is a fact of the two boards measured
+         * (#1497): printed on the surround of the Winmau Blade 6, bent wire on the
+         * upstream mocks' Unicorn. A board that prints them elsewhere is not read.
          */
-        constexpr double kDoublesMm = 170.0; // the outer double wire
-        constexpr double kRimMm = 225.5;     // the board's rim
+        constexpr double kDoublesMm = 170.0; // the outer double wire (regulation)
+        constexpr double kRimMm = 225.5;     // the board's rim (regulation 451 mm, not the Blade 6's 450)
 
         /** The number ring: the annulus between the doubles and the rim, in board units. */
         constexpr double kRingInner = 1.0;
@@ -45,6 +55,11 @@ namespace number_anchor
          * than a size: a numeral has to fit inside the ring it is printed in, and every
          * one of these is tried for every cell and every number, so the winner chooses
          * its own and nothing here is fitted to a board (#1322).
+         *
+         * #1501: NO BOARD'S FACT, and neither is the typeface. The templates are
+         * FONT_HERSHEY_SIMPLEX, which is not the Winmau Blade 6's print nor the Unicorn's
+         * wire; the reader never needs a glyph read right (the header's property 1), so no
+         * board's lettering is stated anywhere in this file.
          */
         const double kGlyphHeights[] = {0.25, 0.35, 0.45, 0.55};
 
@@ -171,7 +186,8 @@ namespace number_anchor
             const double v = e ? std::atof(e) : -1.0;
             return (v > 0.0 && v <= 40.0) ? v : -1.0;
         }();
-        // MEASURED, not chosen: testers/i1498_run.sh section 3's sweep.
+        // MEASURED, not chosen: testers/i1498_run.sh section 3's sweep, on a Winmau Blade 6
+        // (rig-20260918) and the upstream Unicorn mocks -- the two boards measured (#1501).
         return (asked > 0.0) ? asked : 2.75;
     }
 
