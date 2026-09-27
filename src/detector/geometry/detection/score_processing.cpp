@@ -753,6 +753,37 @@ namespace score_processing
             {
                 log_info(entry_intersection::censusCameraLine(con, window));
             }
+            // #1641: the solved entry against each camera's OWN treble edges, measured
+            // at the entry's angle (one ray, and the median of +-9 degrees) beside the
+            // 120-ray medians #1553 scores with. Measurement only; nothing reads it.
+            for (const entry_intersection::Constraint &con : sol.constraints)
+            {
+                const size_t c = (size_t)con.camera;
+                if (!sol.solved || !con.solvedImagePlaced || c >= fits.size() ||
+                    !fits[c].planeBuilt)
+                {
+                    continue;
+                }
+                const int kIn = ellipse_processing::kInnerTriple;
+                const int kOut = ellipse_processing::kOuterTriple;
+                const Point2f b = board_model::boardPointOf(fits[c], con.solvedImage);
+                const double r = std::sqrt((double)b.x * b.x + (double)b.y * b.y);
+                const double th = std::atan2((double)b.y, (double)b.x);
+                char line[400];
+                snprintf(line, sizeof(line),
+                         "I1641LOCAL window=%ld cam=%d r=%.2f in0=%.2f in9=%.2f inMed=%.2f "
+                         "out0=%.2f out9=%.2f outMed=%.2f inAdj=%.2f outAdj=%.2f",
+                         window, con.camera + 1, r,
+                         board_model::localRingEdgeMm(fits[c], calibrations[c], kIn, th, 0.0),
+                         board_model::localRingEdgeMm(fits[c], calibrations[c], kIn, th, 9.0),
+                         fits[c].rings[kIn].medianObservedMm,
+                         board_model::localRingEdgeMm(fits[c], calibrations[c], kOut, th, 0.0),
+                         board_model::localRingEdgeMm(fits[c], calibrations[c], kOut, th, 9.0),
+                         fits[c].rings[kOut].medianObservedMm,
+                         board_model::trebleBloomAdjustMm(profile, fits[c], kIn),
+                         board_model::trebleBloomAdjustMm(profile, fits[c], kOut));
+                log_info(line);
+            }
         }
 
         if (!geoProbeDir().empty())
