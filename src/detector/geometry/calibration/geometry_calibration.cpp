@@ -539,6 +539,16 @@ namespace geometry_calibration
             calibration.ellipses = ellipseData;
         }
 
+        // #1656: said only when it is used, so a run without the switch logs as before.
+        if (bull_processing::subpixelBullAsked())
+        {
+            log_info("Camera " + log_string(cameraIdx + 1) + " board plane built through the sub-pixel bull (" +
+                     log_string_src(to_string(calibration.bullSubpixel.x).substr(0, 7)) + "," +
+                     log_string_src(to_string(calibration.bullSubpixel.y).substr(0, 7)) +
+                     ") rather than the whole pixel (" + log_string(bullCenter.x) + "," +
+                     log_string(bullCenter.y) + ") [OD_BULL_SUBPIXEL=on]");
+        }
+
         // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step
         // that looks at the picture on its own terms and before the three that assume a
         // dartboard is in it. Steps 8, 8.5 and 9 fit wires, a perspective and an

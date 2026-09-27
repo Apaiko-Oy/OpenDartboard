@@ -17,10 +17,6 @@ struct DartboardCalibration
 {
     // CORE: Basic calibration data
     Point bullCenter{0, 0};  // Bull center (true dartboard center)
-    // #1656: the same bull to a fraction of a pixel. Always recorded; the board plane is
-    // built through it only under OD_BULL_SUBPIXEL=on (geometry_calibration::planeBullOf).
-    // Everything that reads bullCenter still reads the whole pixel.
-    Point2f bullSubpixel{0.f, 0.f};
     Point frameCenter{0, 0}; // Frame center
     int camera_index = -1;   // Which camera this is for
     int capture_width = -1;  // Width of the captured frame
@@ -45,6 +41,14 @@ struct DartboardCalibration
     // calibration cache with a raw fwrite.
     bool sees_board = false;
     board_look::Evidence look;
+
+    // #1656: the bull to a fraction of a pixel, fitted to the bull's own edge in the
+    // camera frame (bull_processing::refineBullCentre). Always recorded; the board plane
+    // is built through it only under OD_BULL_SUBPIXEL=on (geometry_calibration::planeBullOf).
+    // Everything that reads bullCenter still reads the whole pixel. Last, so the members
+    // above keep their offsets; it still moves sizeof, so a cache written before it is
+    // refused once and the board recalibrates (#1330).
+    Point2f bullSubpixel{0.f, 0.f};
 };
 
 /**
