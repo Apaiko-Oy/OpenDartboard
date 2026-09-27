@@ -607,6 +607,16 @@ tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # NOT YET MEASURED: three whole-clip replays, about 13 min at load ~10 by #1627's single replays (264 s each); slow 1500 is 1618-thirdcam's allowance.
 tester 1627-takeout       "bash '$T/i1627_run.sh'"
 slow 1500
+# #1646: on rig-20260922's opening, camera 3's automatic exposure is still walking back
+# when a takeout's motion event settles, so the takeout's window reads a third of its
+# board as changed and publishes a phantom, and the next arrival's window reads the
+# exposure recovering as the takeout and bakes that dart (v2.1's 12, v3.1's 20) into the
+# clean reference. OD_SETTLE_EXPOSURE=hold (opt-in) makes the event wait for every
+# camera's board level to settle. Two narrowed replays of the opening window, visits 1-3
+# only (780 cycles), default and hold: measured 265 s for the pair at load ~3
+# (2026-09-27); slow 900 is headroom for a loaded box.
+tester 1646-exposure      "bash '$T/i1646_run.sh'"
+slow 900
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
 # #1551 pinned -- one pixel-space radial constant per camera, fitted to the bow of the
 # twenty wedge wires off their own chords, and f from the four rings' perspective.
