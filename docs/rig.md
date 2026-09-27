@@ -129,3 +129,20 @@ diameter, not the scoring diameter.
 - `mocks/cam_*.mp4` — upstream footage, **never evidence** (#1478); see
   `mocks/DO-NOT-USE-cam_1-cam_2-cam_3.md`.
 - A lit, clean, complete re-recording is wanted: turnaus#1558.
+
+**Frame rate, measured 2026-09-27 (turnaus#1655).** Every fixture video, both rigs and
+all three cameras, is constant-rate **30 fps**: the MP4 `stts` table holds a single
+frame duration of 512/15360 s = **33.333 ms** for every frame (1800-1801 frames per
+60 s on rig-20260918, 3601 per 120 s on rig-20260922). `testers/i1655_fps_probe.py`
+reads it off the container; the image has no ffprobe. That is the rate the cameras were
+recorded at (`-framerate 30`, MJPG, no dropped frames: `rig-20260918/README.md`), and
+the rate the rig asks its devices for (`captureRateFloorDefault()` = 30 on Windows).
+
+So `OD_MOTION_CLOCK=capture`, which runs the motion timers (cooldown, spike window,
+safety timeout) on each frame's presentation time, advances them by the rig's real
+frame period: a replay on it is the rig at 30 fps with a detector that keeps up with
+every frame. Nothing outside `testers/` sets `OD_MOTION_CLOCK`, and `od_clock::mode()`
+defaults to `wall`, so a board on live cameras runs its timers on wall time whatever a
+tester does. (`frame_period_ms`, the `--fps` default of 15, is a different number: it
+converts frame counts only under `OD_MOTION_CLOCK=cycle` and `OD_MOTION_FIX=spikewin`,
+neither of which the bakeoff sets, and the capture clock never reads it.)

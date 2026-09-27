@@ -89,6 +89,11 @@ census22() { # $1 log basename, $2 window word
     return ${PIPESTATUS[0]}
 }
 
+# #1655: which clock the motion timers run on, as asked. Every census reads the clock the
+# binary announced back off its own log, and the assertions below require the two agree.
+CLOCK_ASKED="${OD_MOTION_CLOCK:-wall}"
+echo "I1555 CLOCK asked=$CLOCK_ASKED (OD_MOTION_CLOCK=${OD_MOTION_CLOCK-<unset>})"
+
 echo "=== 1. rig-20260918, dev window ==============================================="
 run_detector rig-20260918 r18-dev
 census18 r18-dev dev || { echo "FAIL the rig-18 dev census could not be read"; exit 1; }
@@ -116,6 +121,14 @@ python3 /app/testers/i1555_census.py --pool \
 if [ ${PIPESTATUS[0]} -ne 0 ]; then echo "FAIL nothing to pool"; exit 1; fi
 
 echo "=== assertions ================================================================"
+
+# #1655: every run measured on the clock it was asked for. A variable that did not reach
+# the binary would otherwise leave a wall-clock figure labelled as the intended one.
+for name in r18-dev r18-open r22-dev r22-open r18-pin; do
+    GOT=$(grep '^I1555 ACCURACY-TALLY ' "$RUN/census-$name.txt" | head -1 | sed -n 's/.* clock=\([^ ]*\).*/\1/p')
+    [ "$GOT" = "$CLOCK_ASKED" ] || { echo "FAIL $name ran on clock=$GOT where $CLOCK_ASKED was asked"; exit 1; }
+done
+echo "OK   every run's motion timers ran on clock=$CLOCK_ASKED"
 
 # The pin. Every matched dart of run 5 must publish by the vote, with no degradation
 # reported -- a vote-only board has not fallen back, it never asked.
