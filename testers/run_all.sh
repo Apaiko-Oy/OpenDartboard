@@ -600,7 +600,7 @@ slow 900
 # at a whole-clip cycle rate lines the cooldown's last cycle up with the 2's splash.
 # OD_COOLDOWN_EXPIRY=spike (opt-in) starts the event there. Three narrowed replays (1620
 # cycles) on OD_MOTION_CLOCK=capture OD_COOLDOWN_MS=900, so the alignment does not depend
-# on load: default, hold, hold + the switch. Measured 94-123 s apiece at load 5-8
+# on load: default, hold, hold + the switch. Measured 391 s for the row at load 6-9
 # (2026-09-27); slow 1200 is headroom for a loaded box.
 tester 1650-cooldown      "bash '$T/i1650_run.sh'"
 slow 1200
