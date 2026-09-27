@@ -121,6 +121,11 @@ diameter, not the scoring diameter.
 - `mocks/rig-20260922/` — the deployment recording; starts with a parked dart
   (#1514), clean frame ≈ index 270 (~9 s), visit 1 is `8 16 miss` (corrected
   2026-09-24), footage ends mid-visit 8. Its `GROUND-TRUTH.md` carries the details.
+  On the opening window (`OD_SEEK_VIDEO=off`) the calibration picture holds v1.1's 8.
+  Until the first reconciled CLEAN, that picture is the clean reference, so the visit-1
+  takeout falls by less than a dart on cameras 2 and 3 (#1648). The opt-in
+  `OD_TAKEOUT_REREPORT=departure` lets a camera whose only new tip is a #1535
+  re-report, and whose cumulative figure fell, vote CLEAN.
 - `mocks/cam_*.mp4` — upstream footage, **never evidence** (#1478); see
   `mocks/DO-NOT-USE-cam_1-cam_2-cam_3.md`.
 - A lit, clean, complete re-recording is wanted: turnaus#1558.
