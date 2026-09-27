@@ -581,8 +581,8 @@ slow 1500
 # exposure recovering as the takeout and bakes that dart (v2.1's 12, v3.1's 20) into the
 # clean reference. OD_SETTLE_EXPOSURE=hold (opt-in) makes the event wait for every
 # camera's board level to settle. Two narrowed replays of the opening window, visits 1-3
-# only (780 cycles), default and hold: about two minutes apiece at load ~4, measured by
-# hand before the harness existed; slow 900 is headroom until the harness is timed.
+# only (780 cycles), default and hold: measured 265 s for the pair at load ~3
+# (2026-09-27); slow 900 is headroom for a loaded box.
 tester 1646-exposure      "bash '$T/i1646_run.sh'"
 slow 900
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
