@@ -353,6 +353,11 @@ public:
          * reading of an ordinary board and is said at debug.
          */
         bool position_out_of_bounds = false;
+        /**
+         * #1651: true when a close call's other candidate is in it, as `alternative`, in
+         * #821's grammar. False for every unflagged dart, which carries no such key.
+         */
+        bool carries_alternative = false;
     };
 
     static DetectionBody detectionBody(const std::string &reference, const DetectorResult &result);

@@ -607,6 +607,35 @@ TurnausClient::DetectionBody TurnausClient::detectionBody(const std::string &ref
     body["sector"] = sector;
     body["bounced_out"] = false;
 
+    // #1651: a close call's other candidate (#1556), so #1559's tap can offer it. The same
+    // condition the socket publishes it under -- flagged AND named -- and through the same
+    // seam as `sector`, because the geometry names it in the socket's vocabulary (BULL,
+    // OUTER, MISS) and Turnaus reads #821's grammar: an untranslated alternative is not a
+    // 422, it is silently dropped, so the tap would simply never appear. One the grammar
+    // cannot spell, or one naming the sector this dart already is, offers a correction
+    // that corrects nothing and is left out. A dart with no alternative -- every
+    // string-vote dart, which measures no crossing -- carries NO KEY, so its bytes are
+    // exactly what they were before this field existed.
+    if (result.boundary_flagged && !result.alternative_score.empty())
+    {
+        const std::string alternative = postableSector(result.alternative_score);
+        // Compared by place, as `Detection::otherThan` compares: the grammar spells the
+        // one single two ways, S and s, and S20 beside s20 is the same twenty.
+        auto place = [](std::string word)
+        {
+            if (!word.empty() && word[0] == 's')
+            {
+                word[0] = 'S';
+            }
+            return word;
+        };
+        if (!alternative.empty() && place(alternative) != place(sector))
+        {
+            body["alternative"] = alternative;
+            out.carries_alternative = true;
+        }
+    }
+
     const bool a_miss = sector == "None";
     const bool whole = result.board_radius_known && result.board_angle_known;
 
