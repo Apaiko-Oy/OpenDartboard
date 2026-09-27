@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -136,6 +137,79 @@
  */
 namespace shaft_axis
 {
+    /**
+     * #1649: THE SUPPORT ARRIVES TRANSLATED BY (+4, +4) PX, AND WHY.
+     *
+     * The figure this header fits is cut from a fresh diff that
+     * dart_processing.cpp cleans with four OpenCV morphology passes: CLOSE and OPEN
+     * with a 4x4 rectangle, then CLOSE and OPEN with a 2x2 one
+     * (DartParams::morph_kernel_size = 4 and its half). OpenCV's default anchor for an
+     * even kernel is (k/2, k/2), so the element spans offsets -k/2 .. k/2-1 about it,
+     * and cv::dilate and cv::erode both use that same, UNREFLECTED element. A closing
+     * (dilate then erode) or an opening (erode then dilate) with such an element is
+     * therefore not the textbook idempotent filter: it TRANSLATES what it keeps by one
+     * pixel along +x and +y. A pixel run [a, b] under a 4x4 close becomes
+     * [a-1, b+2] and then [a+1, b+1]. The same holds for the open and for the 2x2 pair,
+     * so the four passes move every figure by exactly (+4, +4) px: image-right and
+     * image-down. An odd kernel (the 3x3 dilate/erode and the median before them) does
+     * not. testers/i1649_unshift_check.cpp runs dart_processing's chain on a built bar
+     * and asserts the (+4, +4) exactly.
+     *
+     * WHAT IT DID TO THE AXIS, MEASURED (turnaus#1649, from #1647's four
+     * 1555-bakeoff logs against testers/i1511_annotations). The perpendicular part of
+     * (+4, +4) is 4(|n_x| + n_y) for the image-right normal n, which is 2.2 to 5.4 px
+     * over these near-vertical shafts. Against rig-20260922's fitted annotations (about
+     * +-1 px), the fitted axis lies +3.3/+4.3/+4.4 px image-right of the annotated tip
+     * (median, cameras 1/2/3). With the predicted translation removed, the residual
+     * medians are -0.10/+0.18/-0.09 px, the median absolute residual is 0.34-0.57 px,
+     * and the sign is split (10/28, 14/22, 12/30 still positive). On rig-20260918, whose
+     * rows are read by eye (+-2 px), the medians drop from +2.4..+4.6 px to -1.7..+1.7.
+     * So the offset #1647 found is the morphology chain, not the scene: not the
+     * lighting, the shadow, the flight or the column binning.
+     *
+     * THE CORRECTION, AND WHY IT IS HERE. The chain is dart_processing's, and the same
+     * translation reaches the tip and every figure measured from that mask. Moving the
+     * chain itself is a change to that file and to everything that reads the mask. This
+     * header can only undo it for the axis: `AxisParams::support_shift_px` moves the
+     * support back by the chain's own arithmetic, `supportChainShiftPx`, before
+     * anything is classified or fitted. That also puts the #1554 shadow classifier on
+     * the pixel it means to read, because `current` and `reference` were never
+     * translated. It is derived from the kernel, not fitted, and it is the same for
+     * every camera. It is off unless OD_AXIS_UNSHIFT=on.
+     */
+    inline int evenKernelShiftPx(int kernel)
+    {
+        // One CLOSE or one OPEN with a k x k rectangle at OpenCV's default anchor
+        // translates by (a - b) px, where the element spans -a .. b with a = k/2 and
+        // b = k-1-a: one pixel for an even k, none for an odd one.
+        return kernel > 1 ? (kernel / 2) - (kernel - 1 - kernel / 2) : 0;
+    }
+
+    /** dart_processing.cpp's chain for a DartParams::morph_kernel_size of `kernel`:
+     *  CLOSE and OPEN at k, then CLOSE and OPEN at k/2. Along x and along y alike. */
+    inline int supportChainShiftPx(int kernel)
+    {
+        return 2 * evenKernelShiftPx(kernel) + 2 * evenKernelShiftPx(kernel / 2);
+    }
+
+    // DartParams::morph_kernel_size, restated because dart_processing.hpp includes this
+    // header and not the other way round. testers/i1649_unshift_check.cpp asserts that
+    // the two agree, so the copy cannot drift silently.
+    constexpr int kSupportMorphKernel = 4;
+
+    //   OD_AXIS_UNSHIFT=on   #1649: move the support back by supportChainShiftPx before
+    //                        the fit. Unset or anything else: the fit is the old one,
+    //                        byte for byte.
+    inline bool axisUnshiftIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_AXIS_UNSHIFT");
+            return e != nullptr && std::string(e) == "on";
+        }();
+        return v;
+    }
+
     /**
      * The gates a figure must pass before its fitted line is called an axis, and the
      * numbers each one encodes. `gated = false` is the falsification arm -- the issue's
@@ -308,6 +382,12 @@ namespace shaft_axis
         // explain, may hold this share of the first's columns: a figure with two
         // comparable lines in it is two objects whichever the vote favours.
         double rescue_rival_ratio = 0.5;
+
+        // #1649: the translation, px along x and along y alike, that the caller's
+        // morphology put on the support; observeShaftAxis moves every support pixel
+        // back by it before anything else. The preamble above AxisParams owns the
+        // arithmetic and the measurement. 0 unless OD_AXIS_UNSHIFT=on.
+        int support_shift_px = axisUnshiftIsOn() ? supportChainShiftPx(kSupportMorphKernel) : 0;
     };
 
     /** One centreline sample: one one-pixel column along the axis. Kept for overlays
@@ -1019,6 +1099,21 @@ namespace shaft_axis
                                             const cv::Mat &current, const cv::Mat &reference,
                                             const AxisParams &params = AxisParams())
     {
+        // #1649: undo the caller's morphology translation first, so the shadow
+        // classifier, the fit and the rescue all see the pixels the scene printed.
+        if (params.support_shift_px != 0)
+        {
+            const cv::Point back(params.support_shift_px, params.support_shift_px);
+            std::vector<cv::Point> moved;
+            moved.reserve(supportPixels.size());
+            for (const cv::Point &p : supportPixels)
+            {
+                moved.push_back(p - back);
+            }
+            AxisParams unshifted = params;
+            unshifted.support_shift_px = 0;
+            return observeShaftAxis(moved, current, reference, unshifted);
+        }
         AxisObservation base = observeShaftAxisOnce(supportPixels, current, reference, params);
         if (!params.rescue_composite || !params.gated || base.valid ||
             base.refusal.rfind("not straight:", 0) != 0 ||

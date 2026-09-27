@@ -38,9 +38,9 @@ T0=$(date +%s.%N)
 # reached the detector and the run silently measured the default. `-e VAR` with no value
 # forwards the host's VAR when it is set and nothing when it is not, so the default run is
 # unchanged. Only the opt-in switches the bakeoff is asked to measure are named here
-# (#1650 added OD_COOLDOWN_EXPIRY).
+# (#1650 added OD_COOLDOWN_EXPIRY, #1649 OD_AXIS_UNSHIFT).
 FWD=()
-for v in OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY; do
+for v in OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT; do
   if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1555 FORWARD $v=${!v}"; fi
 done
 
