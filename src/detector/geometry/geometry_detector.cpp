@@ -423,8 +423,14 @@ void GeometryDetector::lookAgainAtRefusedCameras()
             {
                 w.passed_within_selection = true;
             }
+            // #1457: the bull this look measured is said HERE, because the look's own
+            // "Camera N bull at" line is now at DEBUG (a further look does not re-narrate).
+            // This line is the one place a passing look is news, and the bull is what tells
+            // one candidate's geometry from another's -- 1456-bestlook reads it from here to
+            // prove the seal is the sealed look's own calibration.
             log_info("LOOK AGAIN: camera " + to_string((int)i + 1) + " calibrated on look " +
                      to_string(look) + " of " + to_string(budget) + " at R=" + to_string(r) +
+                     ", bull (" + to_string(fresh.bullCenter.x) + "," + to_string(fresh.bullCenter.y) + ")" +
                      (first_wins ? string(" -- the first look that passed, sealed (OD_LOOK_SEAL=first)")
                                  : string(" -- a candidate, not yet the seal: the camera is looked at to "
                                           "the end of the budget and the look with the highest R is "

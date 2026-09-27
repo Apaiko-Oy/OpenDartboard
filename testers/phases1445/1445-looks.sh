@@ -261,7 +261,8 @@ echo "=== C2. a look is quiet, and a look is not silent ==="
 # #1445's first version said every look out loud (#1457): `calibrateSingleCamera` announces each
 # refusal it reaches as an ERROR, and a further look reaches the same ones, so a camera
 # refused on the averaged frame and on all twelve looks wrote fourteen lines -- thirteen
-# byte-identical refusals plus the summary saying it had been asked more than once --
+# byte-identical refusals plus the summary saying it had been asked more than once, and
+# thirty-three under #1631's default thirty-one --
 # where before the retry an operator read one. phases1318 and phases1392 hold the count
 # from the other side, on a board with a camera refused for good and no --debug.
 #
@@ -270,17 +271,21 @@ echo "=== C2. a look is quiet, and a look is not silent ==="
 # DEBUG look identical in a log without --debug and different in one with it. A retry
 # nobody can debug is not worth having.
 QUIET=""
+CHECKED=0
 for f in $FIXTURES; do
   t="/run1445/c_${f}_on.txt"
   grep -aqE "LOOK AGAIN: camera\(s\) [0-9, ]+ were refused on this start's averaged frame" "$t" || continue
+  CHECKED=$((CHECKED + 1))
   AGAIN="$(grep -acE '^\[DEBUG\]\[GEOMETRY_CALIBRATION\] - Calibrating camera [0-9]+ again' "$t" || true)"
   DUP="$(grep -aE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' "$t" | sort | uniq -d | wc -l | tr -d ' ')"
   echo "  $f: $AGAIN further look(s) written at DEBUG, $DUP calibration ERROR sentence(s) said more than once"
   [ "$AGAIN" -ge 1 ] || QUIET="$QUIET $f(no look is audible even under --debug)"
   [ "$DUP" = 0 ] || QUIET="$QUIET $f($DUP repeated ERROR sentence(s))"
 done
-if [ -z "$QUIET" ]; then
-  say "OK   every look this board took is in its --debug transcript, and no refusal is said twice at ERROR" ok
+if [ "$CHECKED" = 0 ]; then
+  say "FAIL no phase-C run looked again at all, so nothing here measured what a look says" no
+elif [ -z "$QUIET" ]; then
+  say "OK   every look this board took ($CHECKED run(s)) is in its --debug transcript, and no refusal is said twice at ERROR" ok
 else
   say "FAIL:$QUIET" no
 fi

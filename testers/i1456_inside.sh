@@ -87,6 +87,10 @@ calibrate_once() { # $1 fixture dir, $2 out file, $3.. extra env
   return $rc
 }
 
+# #1457: a further look's own "Camera N bull at" line is at DEBUG since #1457 (a repeat look
+# does not re-narrate), and these runs are not --debug, so the bull a look measured is read
+# from that look's own "calibrated on look K" line, which carries it for this reason. The
+# "bull at" / "corrected" rules below still read the averaged frame's pass, which is aloud.
 # One I1456 SEAL line per camera per run: the sealed look, its R, how many of how many
 # looks passed, the list, the bull GEOMETRY SEALED carries and the bull the sealed look
 # measured, the first look that passed and ITS bull.
@@ -97,7 +101,7 @@ seal_table() { # $1 log, $2 label
     /Calibrating camera [0-9]+$/ { c = $NF; if (looking) { n[c]++ } cur[c] = "" }
     /Camera [0-9]+ bull at \(/ { split($0, a, "Camera "); split(a[2], b, " "); c = b[1]; cur[c] = bullof(substr($0, 1, index($0, ")"))) }
     /Camera [0-9]+ bull centre corrected by its wire evidence/ { split($0, a, "Camera "); split(a[2], b, " "); c = b[1]; s = $0; sub(/.* to \(/, "(", s); sub(/\).*/, ")", s); cur[c] = bullof(s) }
-    /LOOK AGAIN: camera [0-9]+ calibrated on look [0-9]+ of/ { split($0, a, "camera "); split(a[2], b, " "); c = b[1]; lk = b[5]; lookbull[c, lk] = cur[c]; if (!(c in first)) first[c] = lk }
+    /LOOK AGAIN: camera [0-9]+ calibrated on look [0-9]+ of/ { split($0, a, "camera "); split(a[2], b, " "); c = b[1]; lk = b[5]; lb = cur[c]; if (match($0, /, bull \([0-9]+,[0-9]+\)/)) { lb = substr($0, RSTART + 8, RLENGTH - 9) } lookbull[c, lk] = lb; if (!(c in first)) first[c] = lk }
     /LOOK AGAIN: camera [0-9]+ seals look/ {
       split($0, a, "camera "); split(a[2], b, " "); c = b[1]; seal[c] = b[4]; r = $0; sub(/.* at R=/, "", r); sub(/,.*/, "", r); sr[c] = r
       l = $0; sub(/.*look:R /, "", l); sub(/\).*/, "", l); list[c] = l
