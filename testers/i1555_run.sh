@@ -33,9 +33,17 @@ mkdir -p "$RUN"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-# #1649: the axis-unshift switch reaches the detector only if it is forwarded; unset
-# forwards an empty value, which the detector reads as off.
-od_run "1555" --cpus=2 --network none -e HOME=/root -e OD_AXIS_UNSHIFT="${OD_AXIS_UNSHIFT:-}" \
+# #1648: docker run does not inherit the host's environment, so an opt-in switch set on
+# the command line (`OD_SETTLE_EXPOSURE=hold testers/run_all.sh 1555-bakeoff`) never
+# reached the detector and the run silently measured the default. `-e VAR` with no value
+# forwards the host's VAR when it is set and nothing when it is not, so the default run is
+# unchanged. Only the opt-in switches the bakeoff is asked to measure are named here.
+FWD=()
+for v in OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_AXIS_UNSHIFT; do
+  if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1555 FORWARD $v=${!v}"; fi
+done
+
+od_run "1555" --cpus=2 --network none -e HOME=/root "${FWD[@]}" \
   -v "$OD_TREE_ROOT":/app -v "$RUN":/run1555 -w /run1555 \
   "$OD_IMAGE" bash /app/testers/i1555_inside.sh 2>&1 | tee "$RUN/out.txt"
 RC=${PIPESTATUS[0]}

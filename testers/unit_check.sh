@@ -44,6 +44,8 @@ case "$NAME" in
   1510p2) SRC=i1510p2_model_check.cpp;   EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   1553) SRC=i1553_bloom_check.cpp;       EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   1511) SRC=i1511_axis_check.cpp;        EXTRA= ;;
+  # #1648: a re-report whose cumulative figure fell is a departure; its sign guard.
+  1648) SRC=i1648_departure_check.cpp;   EXTRA= ;;
   # #1554: the cast-shadow subtraction, on figures whose lighting is built.
   1554) SRC=i1554_shadow_check.cpp;      EXTRA= ;;
   # #1560: the lens-census model -- control, mutation, and the trap as arithmetic.

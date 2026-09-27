@@ -348,6 +348,17 @@ namespace dart_processing
         return v;
     }
 
+    // #1648: opt-in, see readsAsReReportedDeparture in dart_processing.hpp.
+    bool takeoutReReportIsDeparture()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_TAKEOUT_REREPORT");
+            return e != nullptr && std::string(e) == "departure";
+        }();
+        return v;
+    }
+
     // ---- #1511: the shaft-axis observation's three switches ---------------------------
     //
     // The observation itself is ALWAYS computed and carried on CameraDetectionResult --
@@ -1257,6 +1268,9 @@ namespace dart_processing
                              "this camera votes CLEAN (#1518)");
                 }
             }
+            // #1648: what this camera's cumulative figure was one window ago, kept before
+            // it is overwritten, for readsAsReReportedDeparture below.
+            const int board_change_last_window = decides_on_board ? previous_board_change[i] : -1;
             if (decides_on_board)
             {
                 previous_board_change[i] = board_changed_pixels;
@@ -1448,6 +1462,21 @@ namespace dart_processing
                                      "while the fresh change's nearest point is " + to_string((long)(gap_to_figure + 0.5)) +
                                      " px away -- a re-report of an earlier dart, not a second witness, so "
                                      "this camera abstains from scoring this dart (#1535)");
+                            // #1648: and where its cumulative figure fell since the last
+                            // window, what it re-reported is a dart LEAVING: it votes CLEAN.
+                            if (takeoutReReportIsDeparture() &&
+                                readsAsReReportedDeparture(true, board_change_last_window, board_changed_pixels))
+                            {
+                                candidate_state = DartBoardState::CLEAN;
+                                result.camera_results[i].axis.refusal =
+                                    "departure: this camera's only new tip re-reports an earlier dart and "
+                                    "its board change fell, so it reads as a takeout (#1648)";
+                                log_info("I1648 REREPORT DEPARTURE: camera " + to_string(i + 1) +
+                                         "'s only new tip re-reports an earlier dart of this visit and its "
+                                         "cumulative board change fell from " + to_string(board_change_last_window) +
+                                         " to " + to_string(board_changed_pixels) +
+                                         " px, so what changed is a dart leaving and this camera votes CLEAN (#1648)");
+                            }
                         }
                         else
                         {
