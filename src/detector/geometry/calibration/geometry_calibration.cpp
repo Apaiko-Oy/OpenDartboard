@@ -440,8 +440,19 @@ namespace geometry_calibration
         calibration.bullCenter = bullCenter;
         // #1656: the same bull to a fraction of a pixel, from its own edge in the camera
         // frame. Recorded always; the plane is built through it only under OD_BULL_SUBPIXEL.
-        calibration.bullSubpixel = bull.found ? bull_processing::refineBullCentre(orginalFrame, bullCenter, bull.radius)
-                                              : Point2f(bullCenter);
+        // Sized by the larger of the chosen blob and one and a half times the bull this
+        // board should carry. A dart across the bull leaves a blob of half of it, centred
+        // on that half: rig-20260922 camera 1's opening look 13 chose a 14.7 px blob at
+        // (668,302) on a board of 200.8 px, whose ideal bull (18.8 px) does not reach the
+        // other half 23 px away. Not much more: on rig-20260922 camera 3 the board is seen
+        // so obliquely that the trebles are 80 px above and below the bull, and the probe
+        // (testers/i1656_probe.sh) found the fit steady from 20 to 50 px on both cameras
+        // and lost from 60.
+        calibration.bullSubpixel =
+            bull.found ? bull_processing::refineBullCentre(
+                             orginalFrame, bullCenter,
+                             max(bull.radius, 1.5 * bull.boardRadius * bullParams.bullRadiusOfBoardRadius))
+                       : Point2f(bullCenter);
 
         // #1320: a centre nothing can vouch for is not a centre to calibrate from. Every
         // stage below this one takes the bull as given -- the doubles mask is built

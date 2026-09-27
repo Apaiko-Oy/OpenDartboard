@@ -78,14 +78,17 @@ int main(int argc, char **argv)
     printf("I1656PROBE clip=%s cam=%d win=%s look=%s sees=%d bull=%d,%d sub=%.2f,%.2f\n", clip.c_str(), cam + 1,
            dev ? "dev" : "open", look.c_str(), c.sees_board ? 1 : 0, c.bullCenter.x, c.bullCenter.y,
            c.bullSubpixel.x, c.bullSubpixel.y);
+    for (int rad = 20; rad <= 70; rad += 10)
     {
-        // The refinement's own view: the window's chroma and the cut on it, 4x.
+        // The refinement's own view at several radii: the window's chroma, the cut on it,
+        // and the pieces with the edge points kept, 4x.
         cv::Mat dbg, big;
-        bull_processing::refineBullCentre(frame, c.bullCenter, 30.0, &dbg);
+        const cv::Point2f at = bull_processing::refineBullCentre(frame, c.bullCenter, rad, &dbg);
+        printf("I1656PROBE refine at radius %d px: %.2f,%.2f\n", rad, at.x, at.y);
         if (!dbg.empty())
         {
             cv::resize(dbg, big, cv::Size(), 4, 4, cv::INTER_NEAREST);
-            cv::imwrite("refine.png", big);
+            cv::imwrite("refine_" + std::to_string(rad) + ".png", big);
         }
     }
     const int h = 60;

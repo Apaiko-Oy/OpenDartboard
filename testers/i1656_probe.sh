@@ -20,7 +20,7 @@ od_run "1656-probe" --cpus=2 --network none -e HOME=/root -e OD_BULL_SUBPIXEL="$
         -o $B /app/testers/i1656_bull_probe.cpp /app/src/detector/geometry/calibration/*.cpp \
         $(pkg-config --cflags --libs opencv4) > /probe/build.log 2>&1 || { echo FAIL build; tail -20 /probe/build.log; exit 2; }
     fi
-    $B /app/mocks/'"$FX"'/cam_'"$C"'.mp4 '"$((C - 1))"' '"$WIN"' '"$LOOK"' 5 30 2>/dev/null | grep "^I1656PROBE"
+    $B /app/mocks/'"$FX"'/cam_'"$C"'.mp4 '"$((C - 1))"' '"$WIN"' '"$LOOK"' 5 30 2>&1 | grep -aE "^I1656PROBE|Board measured|bull at" | sed "s/\x1b\[[0-9;]*m//g"
     exit 0'
 RC=$?
 echo "dir=$OUT"
