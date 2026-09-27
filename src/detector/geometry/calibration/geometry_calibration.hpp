@@ -8,6 +8,7 @@
 #include "wire_processing.hpp"        // Include full definition for WireData
 #include "orientation_processing.hpp" // Include orientation data
 #include "board_look.hpp"             // #1318: whether this camera saw a dartboard at all
+#include "bull_processing.hpp"        // #1656: OD_BULL_SUBPIXEL
 
 using namespace std;
 using namespace cv;
@@ -40,6 +41,14 @@ struct DartboardCalibration
     // calibration cache with a raw fwrite.
     bool sees_board = false;
     board_look::Evidence look;
+
+    // #1656: the bull to a fraction of a pixel, fitted to the bull's own edge in the
+    // camera frame (bull_processing::refineBullCentre). Always recorded; the board plane
+    // is built through it only under OD_BULL_SUBPIXEL=on (geometry_calibration::planeBullOf).
+    // Everything that reads bullCenter still reads the whole pixel. Last, so the members
+    // above keep their offsets; it still moves sizeof, so a cache written before it is
+    // refused once and the board recalibrates (#1330).
+    Point2f bullSubpixel{0.f, 0.f};
 };
 
 /**
@@ -126,6 +135,20 @@ namespace geometry_calibration
         News,
         ARepeat,
     };
+
+    /**
+     * #1656: the bull the board plane is built through. The whole pixel, as it always
+     * was, unless OD_BULL_SUBPIXEL=on, when it is the sub-pixel bull the calibration
+     * recorded beside it. A calibration that recorded none (all zero) falls back to the
+     * whole pixel rather than building a plane through the image corner.
+     */
+    inline Point2f planeBullOf(const DartboardCalibration &calib)
+    {
+        if (bull_processing::subpixelBullAsked() &&
+            (calib.bullSubpixel.x != 0.f || calib.bullSubpixel.y != 0.f))
+            return calib.bullSubpixel;
+        return Point2f((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+    }
 
     // Calibrate one camera. Declared since #1318, because the probe that decides which
     // cameras a start with no --cams opens calls it on one candidate at a time -- the

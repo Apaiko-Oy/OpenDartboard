@@ -1,6 +1,6 @@
 """#1654: summarise testers/i1654_comb_census.cpp's I1654 lines per camera and window.
 
-    python3 i1654_table.py <census.txt> [...] [--rows]
+    python3 i1654_table.py <census.txt> [...] [--rows] [--sub]
 
 Per camera and window, over the looks that calibrated (sees=1): how many, and the spread
 (sd, and min..max) of
@@ -12,6 +12,9 @@ and the least-squares slope of w129 on the look's plane centre (bull, or the wir
 where ctr= is logged), in degrees per pixel, with the share of w129's variance it explains;
 then with the traced doubles conic's minor axis added, the other half of what planeOf
 builds the plane from.
+#1656: where the census logs sub=x,y (the sub-pixel bull), each window also says the
+spread of the whole-pixel bull and of the sub-pixel one over its looks; --sub regresses on
+the sub-pixel bull, which is the plane centre under OD_BULL_SUBPIXEL=on.
 A reporter: it asserts nothing.
 """
 import re
@@ -66,6 +69,7 @@ def fitk(cols, zs):
 def main():
     paths = [a for a in sys.argv[1:] if not a.startswith("--")]
     show_rows = "--rows" in sys.argv
+    centre_key = "sub" if "--sub" in sys.argv else "bull"
     rows = []
     for p in paths:
         rows += parse(p)
@@ -87,14 +91,20 @@ def main():
             print("  %-4s %2d looks  own %s | rot %s | w129 %s | mw129 %s" % (
                 win, len(looks), stats([float(r["own"]) for r in looks]), stats([float(r["rot"]) for r in looks]),
                 stats([float(r["w129"]) for r in looks]), stats([float(r["mw129"]) for r in looks if "mw129" in r])))
+            if looks and "sub" in looks[0]:
+                def xy(key, i):
+                    return [float(r[key].split(",")[i]) for r in looks]
+                print("  %-4s bull x %s y %s | sub x %s y %s" % (
+                    win, stats(xy("bull", 0)), stats(xy("bull", 1)), stats(xy("sub", 0)), stats(xy("sub", 1))))
             if show_rows:
                 for r in rs:
-                    print("      look=%-3s R=%s bull=%s%s own=%s rot=%s w129=%s mw129=%s" % (
-                        r["look"], r["R"], r["bull"], (" ctr=" + r["ctr"]) if "ctr" in r else "", r["own"], r["rot"],
+                    print("      look=%-3s R=%s bull=%s%s%s own=%s rot=%s w129=%s mw129=%s" % (
+                        r["look"], r["R"], r["bull"], (" sub=" + r["sub"]) if "sub" in r else "",
+                        (" ctr=" + r["ctr"]) if "ctr" in r else "", r["own"], r["rot"],
                         r["w129"], r.get("mw129", "-")))
         bx, by, cw, zs = [], [], [], []
         for r in allc:
-            c = r.get("ctr", r["bull"]).split(",")
+            c = r.get("ctr", r.get(centre_key, r["bull"])).split(",")
             bx.append(float(c[0])); by.append(float(c[1])); zs.append(float(r["w129"]))
             cw.append(float(r["conic"].split("x")[0]))
         def report(names, cols, what):

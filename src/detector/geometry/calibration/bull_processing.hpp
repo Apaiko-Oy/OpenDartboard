@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <string>
+#include <cstdlib>
 
 using namespace cv;
 using namespace std;
@@ -387,6 +388,38 @@ namespace bull_processing
         }
         return largest;
     }
+
+    /**
+     * #1656: WHICH BULL THE BOARD PLANE IS BUILT THROUGH.
+     *
+     * The plane (wire_model::planeOf) is built through the bull and the traced doubles
+     * conic, and #1654 measured those two explaining 94-98% of the 12/9 wire's look-to-look
+     * scatter. The bull was a whole pixel -- the centre of the smallest circle round the
+     * winning blob, rounded -- and on rig-20260922 camera 1 one pixel of bull y moves the
+     * 12/9 wire at 88.6 mm by 0.53 degrees.
+     *
+     * OD_BULL_SUBPIXEL=on builds the plane through refineBullCentre's answer instead
+     * (carried on the calibration as bullSubpixel). Unset, or any other word, the plane is the
+     * integer bull's exactly as before; the integer bull itself never moves either way.
+     */
+    inline bool subpixelBullAsked()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_BULL_SUBPIXEL");
+            return e && string(e) == "on";
+        }();
+        return v;
+    }
+
+    /**
+     * #1656: the bull's centre to a fraction of a pixel, measured in the camera's own
+     * frame rather than in the red/green classification the bull was chosen in. `seed` is
+     * the whole-pixel centre the bull was chosen at and `radius` the chosen blob's disc
+     * radius. Returns the seed unchanged when there is no clean bull edge round it.
+     */
+    // `debug`, when given, receives the window's chroma beside the cut taken on it.
+    Point2f refineBullCentre(const Mat &frame, const Point &seed, double radius, Mat *debug = nullptr);
 
     // Measure the board in a red/green frame, or say why there is not one.
     BoardSighting measureBoard(

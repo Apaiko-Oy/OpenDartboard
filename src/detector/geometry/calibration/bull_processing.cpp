@@ -285,6 +285,156 @@ namespace bull_processing
         return result;
     }
 
+    Point2f refineBullCentre(const Mat &frame, const Point &seed, double radius, Mat *debug)
+    {
+        const Point2f unchanged((float)seed.x, (float)seed.y);
+        if (frame.empty() || frame.channels() != 3 || !(radius > 0.0))
+            return unchanged;
+        // A window two bull radii round the seed: the whole bull even when
+        // the seed is a spiky blob's off-centre middle (rig-20260922 camera 3's seed lands
+        // up to 12 px right of the bull it belongs to), and nowhere near the treble ring,
+        // whose inside edge is 99 mm out against the bull's 15.9 mm: six bull radii.
+        const int reach = max(8, (int)std::ceil(radius * 2.0));
+        const Rect window = Rect(seed.x - reach, seed.y - reach, 2 * reach + 1, 2 * reach + 1) &
+                            Rect(0, 0, frame.cols, frame.rows);
+        if (window.area() <= 0)
+            return unchanged;
+
+        // CHROMA, max - min over B, G, R. The bull is the one saturated thing in this
+        // window: its green ring and red centre are strongly coloured, and what surrounds
+        // them -- cream and black singles, the metal wires, the glare ring between the
+        // two bulls -- is not. Chroma rather than HSV saturation because a black single's
+        // saturation is noise divided by a small value, while its chroma is small. The
+        // cut is Otsu's over the window, so it moves with the light rather than being a
+        // number fitted to one evening.
+        Mat patch = frame(window), chroma(window.size(), CV_8U);
+        for (int y = 0; y < patch.rows; y++)
+        {
+            const Vec3b *in = patch.ptr<Vec3b>(y);
+            uchar *out = chroma.ptr<uchar>(y);
+            for (int x = 0; x < patch.cols; x++)
+                out[x] = (uchar)(max({in[x][0], in[x][1], in[x][2]}) - min({in[x][0], in[x][1], in[x][2]}));
+        }
+        // The cut is taken on the middle of the window, a bull radius round the seed,
+        // where the bull is about half of what is seen, and then applied to all of it: over
+        // the whole window the singles outnumber the bull several times and Otsu splits
+        // them among themselves instead (rig-20260922 camera 3).
+        const int core = max(4, (int)std::ceil(radius));
+        const Rect middle = Rect(seed.x - window.x - core, seed.y - window.y - core, 2 * core + 1, 2 * core + 1) &
+                            Rect(0, 0, window.width, window.height);
+        if (middle.area() <= 0)
+            return unchanged;
+        Mat ignored;
+        const double cut = threshold(chroma(middle), ignored, 0, 255, THRESH_BINARY | THRESH_OTSU);
+        Mat lit;
+        threshold(chroma, lit, cut, 255, THRESH_BINARY);
+        morphologyEx(lit, lit, MORPH_CLOSE, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+
+        if (debug)
+            hconcat(chroma, lit, *debug);
+
+        // THE BULL'S PIECES. Every coloured patch in the window that comes within a bull
+        // radius of the seed (or holds it), and which does not run off the window (a
+        // flight, a treble, anything that is not the bull). Pieces and not one piece,
+        // because a dart standing in the bull cuts its green ring in two (rig-20260922
+        // camera 1's opening looks 11-17), and either half fitted alone is an ellipse
+        // somewhere else.
+        vector<vector<Point>> outlines;
+        findContours(lit.clone(), outlines, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+        const Point2f local((float)(seed.x - window.x), (float)(seed.y - window.y));
+        Mat bull = Mat::zeros(lit.size(), CV_8U);
+        int pieces = 0;
+        for (size_t k = 0; k < outlines.size(); k++)
+        {
+            if (outlines[k].size() < 6)
+                continue;
+            const Rect box = boundingRect(outlines[k]);
+            if (box.x <= 0 || box.y <= 0 || box.x + box.width >= window.width || box.y + box.height >= window.height)
+                continue;
+            if (-pointPolygonTest(outlines[k], local, true) > radius)
+                continue;
+            drawContours(bull, outlines, (int)k, Scalar(255), FILLED);
+            ++pieces;
+        }
+        if (pieces == 0)
+            return unchanged;
+
+        // ITS OUTER EDGE, one point per ray: the furthest bull pixel along each of 180 rays
+        // from the pieces' middle, to a tenth of a pixel. A ray that a dart hides reaches
+        // only the red centre or nothing, so rays far short of the typical reach are
+        // dropped before anything is fitted.
+        const Moments whole = moments(bull, true);
+        if (!(whole.m00 > 0))
+            return unchanged;
+        const Point2f from((float)(whole.m10 / whole.m00), (float)(whole.m01 / whole.m00));
+        constexpr int kRays = 180;
+        vector<Point2f> rim;
+        vector<double> reachOf;
+        for (int k = 0; k < kRays; k++)
+        {
+            const double a = 2.0 * CV_PI * k / kRays;
+            const double dx = cos(a), dy = sin(a);
+            double last = -1.0;
+            for (double t = 0.0; t < 2.0 * reach; t += 0.1)
+            {
+                const int x = cvRound(from.x + t * dx), y = cvRound(from.y + t * dy);
+                if (x < 0 || y < 0 || x >= bull.cols || y >= bull.rows)
+                    break;
+                if (bull.at<uchar>(y, x))
+                    last = t;
+            }
+            if (last > 0.0)
+            {
+                rim.push_back(Point2f((float)(from.x + last * dx), (float)(from.y + last * dy)));
+                reachOf.push_back(last);
+            }
+        }
+        if ((int)rim.size() < kRays / 3)
+            return unchanged;
+        vector<double> sorted = reachOf;
+        nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+        const double typical = sorted[sorted.size() / 2];
+        vector<Point2f> edge;
+        for (size_t k = 0; k < rim.size(); k++)
+            if (reachOf[k] >= 0.6 * typical)
+                edge.push_back(rim[k]);
+        if ((int)edge.size() < kRays / 3)
+            return unchanged;
+
+        RotatedRect e = fitEllipse(edge);
+        // One trimming pass: points further than a pixel and a half off the first fit
+        // (the flat side a dart barrel leaves, a wire's glint) are dropped and the rest
+        // refitted.
+        {
+            const double th = e.angle * CV_PI / 180.0, c = cos(th), sn = sin(th);
+            const double ax = e.size.width * 0.5, by = e.size.height * 0.5;
+            vector<Point2f> kept;
+            for (const Point2f &p : edge)
+            {
+                const double dx = p.x - e.center.x, dy = p.y - e.center.y;
+                const double u = (dx * c + dy * sn) / ax, v = (-dx * sn + dy * c) / by;
+                const double off = fabs(sqrt(u * u + v * v) - 1.0) * min(ax, by);
+                if (off <= 1.5)
+                    kept.push_back(p);
+            }
+            if ((int)kept.size() < kRays / 3)
+                return unchanged;
+            e = fitEllipse(kept);
+            if (debug)
+            {
+                Mat seen = bull / 3;
+                for (const Point2f &p : kept)
+                    seen.at<uchar>(cvRound(p.y), min(seen.cols - 1, cvRound(p.x))) = 255;
+                seen.at<uchar>(cvRound(local.y), cvRound(local.x)) = 128;
+                hconcat(*debug, seen, *debug);
+            }
+        }
+        const Point2f centre((float)(window.x + e.center.x), (float)(window.y + e.center.y));
+        if (!std::isfinite(centre.x) || !std::isfinite(centre.y) || norm(centre - unchanged) > radius)
+            return unchanged;
+        return centre;
+    }
+
     BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
     {
         log_debug("Bull detection camera " + log_string(camera_idx) + " starting...");

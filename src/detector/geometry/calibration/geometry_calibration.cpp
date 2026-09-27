@@ -520,6 +520,21 @@ namespace geometry_calibration
         bull_processing::BullSighting bull = bull_processing::processBull(redGreenFrame, frameCenter, cameraIdx, debugMode, bullParams);
         Point bullCenter = bull.center;
         calibration.bullCenter = bullCenter;
+        // #1656: the same bull to a fraction of a pixel, from its own edge in the camera
+        // frame. Recorded always; the plane is built through it only under OD_BULL_SUBPIXEL.
+        // Sized by the larger of the chosen blob and one and a half times the bull this
+        // board should carry. A dart across the bull leaves a blob of half of it, centred
+        // on that half: rig-20260922 camera 1's opening look 13 chose a 14.7 px blob at
+        // (668,302) on a board of 200.8 px, whose ideal bull (18.8 px) does not reach the
+        // other half 23 px away. Not much more: on rig-20260922 camera 3 the board is seen
+        // so obliquely that the trebles are 80 px above and below the bull, and the probe
+        // (testers/i1656_probe.sh) found the fit steady from 20 to 50 px on both cameras
+        // and lost from 60.
+        calibration.bullSubpixel =
+            bull.found ? bull_processing::refineBullCentre(
+                             orginalFrame, bullCenter,
+                             max(bull.radius, 1.5 * bull.boardRadius * bullParams.bullRadiusOfBoardRadius))
+                       : Point2f(bullCenter);
 
         // #1320: a centre nothing can vouch for is not a centre to calibrate from. Every
         // stage below this one takes the bull as given -- the doubles mask is built
@@ -604,6 +619,10 @@ namespace geometry_calibration
         {
             bullCenter = wireCorrection.centre;
             calibration.bullCenter = bullCenter;
+            // #1656: bullSubpixel is NOT moved with it. It was measured from the bull's own
+            // edge and does not depend on where inside the bull the seed fell; this
+            // correction is a search for the seed's whole-pixel error, which that edge fit
+            // does not have.
             // #1457: the bull position's sibling, and on a further look the same kind of
             // line -- a measurement of this frame, reached above the doubles and wire
             // refusals, so a camera refused there would repeat it once per look.
@@ -619,6 +638,16 @@ namespace geometry_calibration
             ellipseReport = ellipse_processing::processEllipse(orginalFrame, masks, bullCenter,
                                                                frameCenter, cameraIdx, debugMode, ellipseParams);
             calibration.ellipses = ellipseData;
+        }
+
+        // #1656: said only when it is used, so a run without the switch logs as before.
+        if (bull_processing::subpixelBullAsked())
+        {
+            log_info("Camera " + log_string(cameraIdx + 1) + " board plane built through the sub-pixel bull (" +
+                     log_string_src(to_string(calibration.bullSubpixel.x).substr(0, 7)) + "," +
+                     log_string_src(to_string(calibration.bullSubpixel.y).substr(0, 7)) +
+                     ") rather than the whole pixel (" + log_string(bullCenter.x) + "," +
+                     log_string(bullCenter.y) + ") [OD_BULL_SUBPIXEL=on]");
         }
 
         // [===STEP 6.5:===] #1318: IS THIS A DARTBOARD? Asked here, after the last step

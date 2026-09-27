@@ -367,7 +367,7 @@ namespace board_model
     {
         using namespace ellipse_processing;
         BoardFit fit;
-        const cv::Point2f bull((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+        const cv::Point2f bull = geometry_calibration::planeBullOf(calib); // #1656
 
         if (!calib.ellipses.hasValidDoubles || !(ringReach(calib.ellipses.outerDoubleEllipse) > 0.0))
         {
@@ -805,7 +805,7 @@ namespace board_model
         {
             return -1.0;
         }
-        const cv::Point2f bull((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+        const cv::Point2f bull = geometry_calibration::planeBullOf(calib); // #1656
         std::vector<double> mm;
         const double half = halfWindowDeg * CV_PI / 180.0;
         const double step = 2.0 * CV_PI / kResidualRays;
@@ -932,7 +932,7 @@ namespace board_model
         {
             return;
         }
-        const cv::Point2f bull((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+        const cv::Point2f bull = geometry_calibration::planeBullOf(calib); // #1656
 
         // Observations first, thin, so the model is drawn over them.
         int ringOf[kRingCount + 1] = {kInnerBull, kOuterBull, kInnerTriple, kOuterTriple, kInnerDouble, kRingCount};
