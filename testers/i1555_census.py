@@ -67,6 +67,70 @@ END_RE = re.compile(r"SCORE:\s+END\b")
 # It is printed by the same run, immediately before the publish line for the same dart,
 # and it is what the "refuse an uncorroborated solve" counterfactual below is measured on.
 TIPS_RE = re.compile(r"I1512ENTRY .* tips=(\d+)/(\d+) ")
+# #1657: #1556's line, printed right after I1555PUBLISH for the same dart, read for the
+# wire flag the candidate publish rules below are stated in.
+FLAG_RE = re.compile(r"I1556PUBLISH window=(-?\d+) geometry=(\d) flagged=(\d) score=(\S+) "
+                     r"alt=(\S+) kind=(\S+)")
+
+
+# ---- #1657: CANDIDATE PUBLISH RULES, scored offline on a run's own rows ---------------
+#
+# Named on turnaus#1657 (issuecomment-5857307370) BEFORE any dart was counted. Each maps
+# one dart's I1555PUBLISH/I1556PUBLISH fields to the string it would publish; a refused
+# geometry (geo=NONE) always falls back to the vote, as decidePublishedPath does. "The
+# vote is flagged" is voteConf < 0.9 -- no two cameras agreed on the string (#1489's
+# 0.7, a reading with a named reservation). The flag fields exist only where the run
+# published geometry, which on a geometry-first run is every solved dart.
+def _solved(p):
+    return p["geo"] != "NONE"
+
+
+def _vote_flagged(p):
+    return p["voteConf"] < 0.9 - 1e-6
+
+
+def _geo_flagged(p):
+    return p.get("flagged", False)
+
+
+def _rule_a(p):  # geometry-first, today's decidePublishedPath
+    return p["geo"] if _solved(p) else p["vote"]
+
+
+def _rule_b(p):  # vote-first (= OD_SCORE_PATH=vote)
+    return p["vote"]
+
+
+def _rule_c(p):  # geometry only when SOLVED and the vote is flagged
+    return p["geo"] if p["outcome"] == "SOLVED" and _vote_flagged(p) else p["vote"]
+
+
+def _rule_d(p):  # the vote wins every disagreement where geometry is WIRE-UNCERTAIN
+    return p["geo"] if p["outcome"] == "SOLVED" else p["vote"]
+
+
+def _rule_e(p):  # D with #1556's flag in place of the outcome word
+    if not _solved(p):
+        return p["vote"]
+    return p["vote"] if _geo_flagged(p) else p["geo"]
+
+
+def _rule_f(p):  # vote wins only across the very wire the flag names
+    if not _solved(p):
+        return p["vote"]
+    if _geo_flagged(p) and norm(p["vote"]) == norm(p.get("alt", "-")):
+        return p["vote"]
+    return p["geo"]
+
+
+def _rule_g(p):  # C with the flag: geometry only when unflagged and the vote is flagged
+    if _solved(p) and not _geo_flagged(p) and _vote_flagged(p):
+        return p["geo"]
+    return p["vote"]
+
+
+RULES = [("A", _rule_a), ("B", _rule_b), ("C", _rule_c), ("D", _rule_d),
+         ("E", _rule_e), ("F", _rule_f), ("G", _rule_g)]
 
 
 def norm(score):
@@ -127,6 +191,12 @@ def read_publish_blocks(path):
         t = TIPS_RE.search(line)
         if t:
             tips = (int(t.group(1)), int(t.group(2)))
+            continue
+        f = FLAG_RE.search(line)
+        if f and pending is not None and int(f.group(1)) == pending["window"]:
+            pending["flagged"] = f.group(3) == "1"
+            pending["alt"] = f.group(5)
+            pending["kind"] = f.group(6)
             continue
         m = PUBLISH_RE.search(line)
         if m:
@@ -205,6 +275,7 @@ def pool(files):
               % (f, agg["vote_exact"], agg["matched"], agg["first_exact"],
                  agg["matched"], d))
     pool_accuracy(files)
+    pool_rules(files)
     return 0
 
 
@@ -230,7 +301,8 @@ def motion_clock(log):
     return "unknown"
 
 
-def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unknown"):
+def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unknown",
+             rule=None):
     """#1587: ONE figure over every annotated arrival, not over the matched ones.
 
         correct / every annotated arrival (--no-arrival rows are not arrivals)
@@ -254,6 +326,11 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
     CHOSEN, and the one that scores best least of all.
     """
     tag = "fixture=%s window=%s clock=%s" % (fixture, window, clock)
+    # #1657: `rule` is (name, fn) -- the same figure with only the published STRING
+    # replaced by what that candidate rule would have published. Matching, buckets and
+    # placements are this function's own and do not change; the lines carry an I1657
+    # prefix so nothing that pools I1555's lines can read them.
+    head = "I1555 ACCURACY" if rule is None else "I1657 RULE rule=%s ACCURACY" % rule[0]
     by_key = dict((key, pos) for pos, key in assignment["assigned"].items())
     order = [(v, ei) for v, visit in enumerate(visits) for ei in range(len(visit))]
     flat_index = dict((pos, i) for i, pos in enumerate(order))
@@ -261,7 +338,8 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
                  if visits[pos[0]][pos[1]].pub is not None]
 
     def published(pos):
-        return norm(visits[pos[0]][pos[1]].pub["score"])
+        p = visits[pos[0]][pos[1]].pub
+        return norm(p["score"] if rule is None else rule[1](p))
 
     def name(pos):
         return "v%d#%d %s" % (pos[0] + 1, pos[1] + 1, published(pos))
@@ -321,12 +399,16 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
     scoring_phantoms = sum(1 for p in unclaimed if published(p) != "MISS")
     n = len(arrivals)
     c, amb = counts["correct"], counts["ambiguous"]
-    print("I1555 ACCURACY %s correct %s/%d (%s) | %s | wrong-score %d, undetected %d, "
+    print("%s %s correct %s/%d (%s) | %s | wrong-score %d, undetected %d, "
           "off-board-scored %d, ambiguous %d | phantoms %d (%d scoring)"
-          % (tag, "%d..%d" % (c, c + amb) if amb else "%d" % c, n,
+          % (head, tag, "%d..%d" % (c, c + amb) if amb else "%d" % c, n,
              "%.1f%%" % (100.0 * c / n) if n else "n/a", target_line(c, n),
              counts["wrong-score"], counts["undetected"], counts["off-board-scored"],
              amb, len(unclaimed), scoring_phantoms))
+    if rule is not None:
+        print("I1657 RULE-TALLY rule=%s fixture=%s window=%s clock=%s arrivals=%d "
+              "correct=%d ambiguous=%d" % (rule[0], fixture, window, clock, n, c, amb))
+        return
     for line in named:
         print("I1555 ACCURACY-DART " + line)
     for p in unclaimed:
@@ -339,6 +421,79 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
           "scoring_phantoms=%d"
           % (fixture, window, clock, n, c, counts["wrong-score"], counts["undetected"],
              counts["off-board-scored"], amb, len(unclaimed), scoring_phantoms))
+
+
+def counterfactual_rules(fixture, window, visits, annots, arrivals, assignment, clock):
+    """#1657: every candidate rule's ACCURACY on this run's own rows, and each matched
+    dart whose verdict differs from rule A's. REPORTED, wired nowhere."""
+    rows = []
+    mismatch = 0
+    for pos, key in sorted(assignment["assigned"].items(), key=lambda kv: kv[1]):
+        if key not in arrivals:
+            continue
+        p = visits[pos[0]][pos[1]].pub
+        if p is None:
+            continue
+        if norm(_rule_a(p)) != norm(p["score"]):
+            mismatch += 1
+        rows.append((key, norm(list(annots[key].values())[0]["thrown"]), p))
+    print("I1657 RULE-CHECK fixture=%s window=%s rule A reproduces the published string "
+          "on %d of %d matched arrivals" % (fixture, window, len(rows) - mismatch, len(rows)))
+    for name, fn in RULES:
+        accuracy(fixture, window, visits, annots, arrivals, assignment, clock,
+                 rule=(name, fn))
+        for key, thrown, p in rows:
+            a, r = norm(_rule_a(p)), norm(fn(p))
+            ca, cr = a == thrown, r == thrown
+            if ca == cr:
+                continue
+            print("I1657 RULE-PAIR rule=%s fixture=%s window=%s dart=v%d.%d thrown=%s "
+                  "A=%s R=%s %s | vote=%s voteConf=%.2f geo=%s outcome=%s flagged=%d "
+                  "alt=%s kind=%s"
+                  % (name, fixture, window, key[0], key[1], thrown, a, r,
+                     "GAIN" if cr else "LOSS", norm(p["vote"]), p["voteConf"],
+                     norm(p["geo"]), p["outcome"], 1 if p.get("flagged") else 0,
+                     p.get("alt", "-"), p.get("kind", "-")))
+
+
+def pool_rules(files):
+    """#1657: the pooled figure per rule, and its gains and losses per UNIQUE dart -- the
+    two windows see the same throws, so a dart gained in both is one dart, not two."""
+    tallies, pairs = {}, {}
+    for path in files:
+        for raw in open(path, "r", errors="replace"):
+            line = ANSI.sub("", raw)
+            for tagname, store in (("I1657 RULE-TALLY ", tallies), ("I1657 RULE-PAIR ", pairs)):
+                if tagname in line:
+                    body = line.split(tagname, 1)[1]
+                    d = dict(t.split("=", 1) for t in body.split() if "=" in t)
+                    d["_kind"] = "GAIN" if " GAIN " in body else "LOSS"
+                    store.setdefault(d["rule"], []).append(d)
+    if not tallies:
+        return
+    for name, _ in RULES:
+        rows = tallies.get(name, [])
+        n = sum(int(r["arrivals"]) for r in rows)
+        c = sum(int(r["correct"]) for r in rows)
+        amb = sum(int(r["ambiguous"]) for r in rows)
+        dart = {}
+        for d in pairs.get(name, []):
+            dart.setdefault((d["fixture"], d["dart"]), []).append(
+                (d["window"], d["_kind"], d["thrown"], d["A"], d["R"]))
+        ug = sorted(k for k, v in dart.items() if all(x[1] == "GAIN" for x in v))
+        ul = sorted(k for k, v in dart.items() if all(x[1] == "LOSS" for x in v))
+        mixed = sorted(k for k in dart if k not in ug and k not in ul)
+        wg = sum(1 for v in dart.values() for x in v if x[1] == "GAIN")
+        wl = sum(1 for v in dart.values() for x in v if x[1] == "LOSS")
+        print("I1657 RULE-POOLED rule=%s correct %s/%d over %d run(s) | window rows +%d -%d "
+              "| unique darts +%d -%d mixed %d (net %+d)"
+              % (name, "%d..%d" % (c, c + amb) if amb else "%d" % c, n, len(rows),
+                 wg, wl, len(ug), len(ul), len(mixed), len(ug) - len(ul)))
+        for k in sorted(dart):
+            print("I1657 RULE-DART rule=%s %s %s %s"
+                  % (name, k[0], k[1], "; ".join("%s %s thrown=%s A=%s rule=%s"
+                                                 % (w, kind, t, a, r)
+                                                 for w, kind, t, a, r in dart[k])))
 
 
 def pool_accuracy(files):
@@ -573,6 +728,8 @@ def main():
                        uncorroborated))
     accuracy(args.fixture, args.window, visits, annots, arrivals, assignment,
              motion_clock(args.log))
+    counterfactual_rules(args.fixture, args.window, visits, annots, arrivals, assignment,
+                         motion_clock(args.log))
     print("I1555 TALLY fixture=%s window=%s matched=%d vote_exact=%d geo_solved=%d "
           "geo_exact=%d first_exact=%d published_exact=%d"
           % (args.fixture, args.window, matched, vote_counts.get("exact", 0), geo_solved,
