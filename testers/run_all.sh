@@ -591,6 +591,8 @@ slow 900
 # a #1535 re-report, and whose cumulative figure fell, vote CLEAN. Two narrowed replays
 # (900 cycles), hold alone and hold with the rule. NOT YET MEASURED as a row; 1646's pair
 # took 265 s at 780 cycles, so slow 900 is its allowance.
+# #1648's rule as arithmetic: readsAsReReportedDeparture on window 2's own numbers. A compile.
+tester 1648-departure     "bash '$T/unit_check.sh' 1648"
 tester 1648-takeout       "bash '$T/i1648_run.sh'"
 slow 900
 # #1560: the lens, measured from the same two fixtures and the same calibration windows
