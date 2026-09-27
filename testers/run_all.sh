@@ -267,6 +267,10 @@ slow 1800
 # (+4, +4) px, and the fitted axis inherited it. The pure check runs that chain on built
 # figures and holds OD_AXIS_UNSHIFT's correction (shaft_axis.hpp, AxisParams::support_shift_px).
 tester 1649-unshiftcheck  "bash '$T/unit_check.sh' 1649"
+# #1652: the chain itself made translation-free (OD_MASK_UNSHIFT=on, cleanFreshMask in
+# dart_processing.hpp): the bar moves (0, 0), the shape is the old chain's moved (-4, -4),
+# and OD_AXIS_UNSHIFT is ignored beside it.
+tester 1652-maskcheck     "bash '$T/unit_check.sh' 1652"
 # #1518: the CLEAN reference adopts the scene at every reconciled CLEAN, and a takeout on
 # a board the reference no longer matches is read from the DIRECTION of change -- a
 # dart-sized simultaneous fall on a quorum of cameras -- rather than from its size, which

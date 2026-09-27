@@ -15,6 +15,59 @@ using namespace std;
 
 namespace dart_processing
 {
+    /**
+     * #1652: the fresh-diff cleanup -- CLOSE and OPEN with a k x k rectangle, then CLOSE
+     * and OPEN with a (k/2) x (k/2) one -- in one place, so the detector and the testers
+     * run the same chain.
+     *
+     * `centred = false` is the chain as it always was: `morphologyEx` at OpenCV's default
+     * anchor. For an even k that anchor is (k/2, k/2), the element spans -k/2 .. k/2-1,
+     * and dilate and erode both use that same, unreflected element, so every CLOSE and
+     * every OPEN translates what it keeps by +1 px in x and in y. At the rig's k = 4 the
+     * four passes move every mask (+4, +4) px (#1649, shaft_axis::supportChainShiftPx).
+     *
+     * `centred = true` (OD_MASK_UNSHIFT=on) runs each pair's second operation at the
+     * reflected anchor (k-1-k/2, k-1-k/2). OpenCV's even-kernel CLOSE is exactly the true
+     * closing by the element translated by (+1, +1), and the reflected anchor removes
+     * that translation and nothing else, so this chain's output is the old chain's
+     * output moved by (-4, -4) px, pixel for pixel away from the image border
+     * (testers/i1652_mask_check.cpp asserts both). An odd kernel (3 or 5) would also be
+     * shift-free but is a different element, and changes which gaps close and which
+     * specks open -- the same check measures by how much.
+     */
+    inline void cleanFreshMask(cv::Mat &m, int k, bool centred)
+    {
+        const cv::Mat k1 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(k, k));
+        const cv::Mat k2 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(k / 2, k / 2));
+        if (!centred)
+        {
+            cv::morphologyEx(m, m, cv::MORPH_CLOSE, k1); // Close small gaps in darts
+            cv::morphologyEx(m, m, cv::MORPH_OPEN, k1);  // Open small noise
+            cv::morphologyEx(m, m, cv::MORPH_CLOSE, k2); // Close smaller gaps in darts
+            cv::morphologyEx(m, m, cv::MORPH_OPEN, k2);  // Open smaller noise
+            return;
+        }
+        auto pass = [&m](const cv::Mat &e, bool close)
+        {
+            const cv::Point a(e.cols / 2, e.rows / 2);
+            const cv::Point reflected(e.cols - 1 - a.x, e.rows - 1 - a.y);
+            if (close)
+            {
+                cv::dilate(m, m, e, a);
+                cv::erode(m, m, e, reflected);
+            }
+            else
+            {
+                cv::erode(m, m, e, a);
+                cv::dilate(m, m, e, reflected);
+            }
+        };
+        pass(k1, true);
+        pass(k1, false);
+        pass(k2, true);
+        pass(k2, false);
+    }
+
     // Dart board state - exactly as you described
     enum class DartBoardState
     {
