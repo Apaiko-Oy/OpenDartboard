@@ -324,12 +324,27 @@ namespace number_anchor
         // The score matrix, once per half-turn. `flip` 0 is the cell as it was sampled --
         // outward is down the picture, the board's own angle runs left to right -- and 1
         // is the same cell turned through half a turn. Neither is assumed (property 4).
+        //
+        // #1629: WHAT THIS COSTS, AND WHY IT IS SPREAD OVER THE CORES. The matrices are
+        // 2 x 20 x 20 entries, each the best of twelve templates, so one reading is 9,600
+        // `cv::matchTemplate` calls -- measured at 5.6 s of one core per camera on the
+        // 4-core box, which was the whole of what #1498 added to a calibration and what
+        // took 1442-count from 110 s past its 1200 s clock. Each (half-turn, cell) pair is
+        // a job of its own: it reads one cell and the shared templates and writes one row
+        // of one matrix, and no job reads what another writes, so every entry is the SAME
+        // call on the SAME inputs it was when this ran serially and the scores are
+        // identical to the bit; only the wall time moves. Cheaper arithmetic -- one DFT of
+        // a cell shared by its 240 templates -- would move the scores in their last bits,
+        // and a reading judged as a closed-form separation against a cut is not something
+        // a slice about cost gets to perturb.
         std::vector<std::vector<std::vector<double>>> scores(
             2, std::vector<std::vector<double>>(wire_model::kFold, std::vector<double>(wire_model::kFold, 0.0)));
-        for (int flip = 0; flip < 2; flip++)
+        cv::parallel_for_(cv::Range(0, 2 * wire_model::kFold), [&](const cv::Range &jobs)
         {
-            for (int j = 0; j < wire_model::kFold; j++)
+            for (int job = jobs.start; job < jobs.end; job++)
             {
+                const int flip = job / wire_model::kFold;
+                const int j = job % wire_model::kFold;
                 cv::Mat cell = cells[j];
                 if (flip == 1)
                 {
@@ -365,6 +380,9 @@ namespace number_anchor
                     scores[flip][j][m] = best;
                 }
             }
+        });
+        for (int flip = 0; flip < 2; flip++)
+        {
             doubleCentre(scores[flip]);
         }
 
