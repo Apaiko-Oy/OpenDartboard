@@ -114,8 +114,10 @@ namespace
 TurnausClient::TurnausClient(const TurnausConfig &config) : config_(config)
 {
     url_ = odhttp::parseUrl(config_.base_url);
-    spool_path_ = od_paths::join(od_paths::configDir(), "owed.jsonl");
-    cursor_path_ = od_paths::join(od_paths::configDir(), "owed.cursor");
+    // #1660: "" when there is no configDir(), which appendSpool already reads as "no
+    // spool" -- never a bare owed.jsonl in the working directory.
+    spool_path_ = od_paths::configFile("owed.jsonl");
+    cursor_path_ = od_paths::configFile("owed.cursor");
     loadCredential();
 }
 
@@ -340,7 +342,9 @@ TurnausClient::Redemption TurnausClient::redeem(Door door, const std::string &co
         // The directory the credential is really in, which is configDir() unless
         // --credentials named another; creating configDir() for a file kept elsewhere was
         // #822's shape and is kept, so a default start is byte-for-byte what it was.
-        if (!od_paths::ensureDir(od_paths::configDir()))
+        // #1660: and only when there is one. With no configDir() the path is --credentials'
+        // own, and ensureDir("") refusing used to refuse the one escape the header names.
+        if (!od_paths::configDir().empty() && !od_paths::ensureDir(od_paths::configDir()))
         {
             log_error("TURNAUS: could not create the configuration directory");
             return out;

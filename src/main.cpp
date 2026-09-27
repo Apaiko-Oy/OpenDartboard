@@ -170,8 +170,17 @@ int main(int argc, char **argv)
   // paired once and the address it was paired against is the address it keeps, so a
   // pub PC needs no flag and no configuration file of its own after the pairing.
   TurnausConfig turnaus_config;
-  turnaus_config.credentials_path =
-      getArg(argc, argv, "--credentials", od_paths::join(od_paths::configDir(), "credentials.json"));
+  //
+  // #1660: configFile(), not join(configDir(), ...). With no directory join() answered the
+  // bare leaf, so a board under systemd -- no User=, so no $HOME -- kept its credential in
+  // `/`, and pairingBlock()'s NoConfigDir, which tests for an empty path, could never fire.
+  // Now the path is "", pairing says NoConfigDir, and this line says why, once, loudly.
+  turnaus_config.credentials_path = getArg(argc, argv, "--credentials", od_paths::configFile("credentials.json"));
+  if (turnaus_config.credentials_path.empty())
+    log_error(string("TURNAUS: ") + od_paths::noConfigDirReason() +
+              ". Nothing is written to the working directory instead: this board is unpaired and "
+              "cannot be paired until it has one. Run it from opendartboard.service "
+              "(StateDirectory=opendartboard), or pass --credentials <path>.");
   // #1259: OD_ALLOW_PLAINTEXT=1 is --allow-plaintext for a start that has no command line --
   // a double-click -- exactly as OD_TURNAUS_URL is --turnaus. Only the exact value 1.
   turnaus_config.allow_plaintext =
@@ -206,6 +215,13 @@ int main(int argc, char **argv)
         console.say({"Tuntematon päivityskanava '" + asked_channel + "'. Kanavat ovat: " + update_channel::known() + ".",
                      "Unknown update channel '" + asked_channel + "'. The channels are: " + update_channel::known() +
                          "."});
+        return 1;
+      }
+      // #1660: no credential path is no channel path; say why rather than "written to ."
+      if (channel_path.empty())
+      {
+        console.say({"Päivityskanavaa ei voitu tallentaa: tälle taululle ei ole asetushakemistoa.",
+                     string("The update channel could not be written: ") + od_paths::noConfigDirReason() + "."});
         return 1;
       }
       if (!update_channel::save(channel_path, asked_channel))
