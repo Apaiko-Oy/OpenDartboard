@@ -365,7 +365,16 @@ tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
 # show ADR-0080's refusal still fires about it. MEASURED 2026-09-20 on the 4-core box,
 # to completion, rc=0: wall 146 s at load 2.1-2.6, so it takes no `slow` and sits well
 # inside the default 1200.
+# #1632: that was before #1498's number reader ran on every calibration (#1629); phase B's
+# 287 census calibrations are now most of the cost, and the gate of 2026-09-26 killed it
+# at 1200 s partway through B. MEASURED 2026-09-27 on the 4-core box, to completion: wall
+# 2166 s at load 5.5-11.7 (median 7.2; another session's replays alongside), so this is a
+# CEILING -- A 5 min, B 24 min, C 4.5 min, D 2.5 min. The budget is twice it. The row is
+# still red, on phase A, C's rig-20260918 arm and D4: all three rest on rig-20260918/cam_3's
+# averaged frame being refused, and it no longer is (it reads 20 wires, as #1645 found for
+# the same clip). That is a finding and not a budget: #1661.
 tester 1445-looks         "bash '$T/i1445_run.sh'"
+slow 4400
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"

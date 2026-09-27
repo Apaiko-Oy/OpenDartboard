@@ -58,7 +58,13 @@ set -u
 # calibrate takes #895's vigil and stays up on purpose; OD_MAX_CYCLES does not bound it,
 # and phase C's `once` arm and both arms of D4 are exactly that board.
 BIN=/app/build/opendartboard
-WAIT=900   # PLACEHOLDER-1632: measuring run, replaced by the measured figure
+# How long one bounded run may take to seal (C) or reach its review (D4). #1632: checked
+# against #1631's 31-look default rather than widened. MEASURED 2026-09-27 on the 4-core
+# box at load 5.5-11.7 (another session's replays alongside, so a ceiling), with the wait
+# at 900 so that nothing was cut short: the slowest seal came after 102 s
+# (rig-20260922 with the retry on), the reviews after 61 s and 54 s, everything else 39 s
+# or less. 240 is more than twice the slowest, so it stays what it was.
+WAIT=240
 CENSUS=/run1445/look_census
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
