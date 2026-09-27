@@ -311,7 +311,14 @@ tester 1394-windows       "bash '$T/i1394_run.sh'"
 # nobody's head, which is how 1317-asan's 1200 got to be wrong.
 # #1607: its census half runs INSIDE $OD_IMAGE, twice (the tree, then the planted copy),
 # because it was a host python3 and read rc=49 on the box that runs the suite.
+# #1632: under #1631's 31-look default the gate of 2026-09-26 reported `no answer in
+# 1200s` with every assertion it had reached green, and phase D never started. MEASURED
+# 2026-09-27 on the 4-core box, in a gap nothing else ran in, to completion, rc=0: wall
+# 1472 s at load 1.7-4.8 (host_busy_pct=49.3) -- A and B 2 min, C's fifteen holds 12 min,
+# D's nine-clip wire census 10 min. So the 1200 that failed is below what a quiet box
+# needs, and twice it would leave 1.6x; the budget is twice the measured figure instead.
 tester 1437-fixture       "bash '$T/i1437_run.sh'"
+slow 3000
 tester 1441-region        "bash '$T/i1441_run.sh'"
 # #1442: twenty is a ceiling as well as a floor. It calibrates the same ninety single
 # frames #1437 does, TWICE -- once under OD_WIRE_COUNT=atleast, which is the one-sided
@@ -319,9 +326,15 @@ tester 1441-region        "bash '$T/i1441_run.sh'"
 # come off one binary and differ by one comparison and nothing else. Plus a pure check of
 # the count, the two guards it decides and a dart, run four ways including one deliberate
 # mismatch that must FAIL. MEASURED 2026-09-20 on the 4-core box, to completion, rc=0:
-# wall 110 s -- it starts no detector and reads no build/opendartboard, so it takes no
-# `slow` and sits well inside the default 1200.
+# wall 110 s -- it starts no detector and reads no build/opendartboard.
+# #1632: that was before #1498's number reader ran on every calibration (#1629), and the
+# 270 calibrations here are now the whole cost. MEASURED 2026-09-27 on the 4-core box, to
+# completion: wall 1549 s at load 4-15 (another session's replays alongside), so this is a
+# CEILING rather than a quiet figure. It had been killed at ~1133-1200 s. The budget is
+# twice the measured ceiling. (The row is red on its own section C, #1658 -- no frame
+# proposes more than twenty any more -- which is a finding, not a budget.)
 tester 1442-count         "bash '$T/i1442_run.sh'"
+slow 3100
 
 # #1423: which ring the calibration stage measured -- the doubles ring or the treble
 # ring -- read from the image rather than from a constant fitted to a rig. Its statistic
@@ -352,7 +365,16 @@ tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
 # show ADR-0080's refusal still fires about it. MEASURED 2026-09-20 on the 4-core box,
 # to completion, rc=0: wall 146 s at load 2.1-2.6, so it takes no `slow` and sits well
 # inside the default 1200.
+# #1632: that was before #1498's number reader ran on every calibration (#1629); phase B's
+# 287 census calibrations are now most of the cost, and the gate of 2026-09-26 killed it
+# at 1200 s partway through B. MEASURED 2026-09-27 on the 4-core box, to completion: wall
+# 2166 s at load 5.5-11.7 (median 7.2; another session's replays alongside), so this is a
+# CEILING -- A 5 min, B 24 min, C 4.5 min, D 2.5 min. The budget is twice it. The row is
+# still red, on phase A, C's rig-20260918 arm and D4: all three rest on rig-20260918/cam_3's
+# averaged frame being refused, and it no longer is (it reads 20 wires, as #1645 found for
+# the same clip). That is a finding and not a budget: #1661.
 tester 1445-looks         "bash '$T/i1445_run.sh'"
+slow 4400
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"

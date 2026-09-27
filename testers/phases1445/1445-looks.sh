@@ -58,6 +58,13 @@ set -u
 # calibrate takes #895's vigil and stays up on purpose; OD_MAX_CYCLES does not bound it,
 # and phase C's `once` arm and both arms of D4 are exactly that board.
 BIN=/app/build/opendartboard
+# How long one bounded run may take to seal (C) or reach its review (D4). #1632: checked
+# against #1631's 31-look default rather than widened. MEASURED 2026-09-27 on the 4-core
+# box at load 5.5-11.7 (another session's replays alongside, so a ceiling), with the wait
+# at 900 so that nothing was cut short: the slowest seal came after 102 s
+# (rig-20260922 with the retry on), the reviews after 61 s and 54 s, everything else 39 s
+# or less. 240 is more than twice the slowest, so it stays what it was.
+WAIT=240
 CENSUS=/run1445/look_census
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
@@ -215,8 +222,10 @@ run() {
   local tag="$1" cams="$2"; shift 2
   rm -rf /run1445/cache "$HOME/.config" 2>/dev/null; mkdir -p "$HOME/.config"
   env "$@" $BIN --debug --cams "$cams" --width 1280 --height 720 > "/run1445/$tag.out" 2>&1 &
-  local P=$!
-  await "/run1445/$tag.out" 'GEOMETRY SEALED|BOARD FAULTED|Scorer running with' 240 > /dev/null
+  local P=$! W
+  W="$(await "/run1445/$tag.out" 'GEOMETRY SEALED|BOARD FAULTED|Scorer running with' "$WAIT")"
+  # #1632: said, so a wait that runs out is a line in the log rather than a silent absence.
+  echo "  ($tag: sealed or faulted after ${W}s)"
   sleep 4
   kill -TERM $P 2>/dev/null; wait $P 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "/run1445/$tag.out" > "/run1445/$tag.txt"
@@ -366,7 +375,8 @@ for arm in on once; do
   env $ENVARGS $BIN --debug --cams "$RIGCAMS" --width 1280 --height 720 \
     > "/run1445/d4_$arm.out" 2>&1 &
   P=$!
-  await "/run1445/d4_$arm.out" 'BOARD RECOVERED|BOARD MOVED|BOARD FAULTED|GEOMETRY REVIEW' 240 > /dev/null
+  W="$(await "/run1445/d4_$arm.out" 'BOARD RECOVERED|BOARD MOVED|BOARD FAULTED|GEOMETRY REVIEW' "$WAIT")"
+  echo "  (d4_$arm: the review after ${W}s)"
   sleep 3
   kill -TERM $P 2>/dev/null; wait $P 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "/run1445/d4_$arm.out" > "/run1445/d4_$arm.txt"
