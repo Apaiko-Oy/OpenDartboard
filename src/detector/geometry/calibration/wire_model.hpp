@@ -200,6 +200,51 @@ namespace wire_model
                   const cv::Point2f &bull);
 
     /**
+     * #1654: THE PLANE'S CENTRE, READ OFF THE WIRES THEMSELVES.
+     *
+     * The comb has one free parameter because the plane is pinned by the conic and the
+     * bull -- and the bull is an INTEGER pixel read off a blob (bull_processing), which on
+     * rig-20260922 moves by 1 px between looks of a still camera (camera 1: (653,301) /
+     * (653,302) / (654,300)) and, on camera 3, jumps 6 px between two blobs ((698,284) at
+     * R 0.92, (704,285) at R 0.76). A centre error of d px rotates every wire LOCALLY by
+     * about d/r (0.4-0.5 degrees per pixel at a dart 88 mm out on camera 1), with the
+     * sign of a first harmonic round the board, and a twenty-fold comb cannot absorb a
+     * first harmonic: its offset stays put while the wire the dart is judged against
+     * moves. testers/i1654_comb_census.cpp measured it: the comb's own rotation in a
+     * common frame scatters 0.1-0.2 degrees look to look, the 12/9 wire 1-2.5 degrees,
+     * and the 12/9 wire follows the bull pixel.
+     *
+     * The board's twenty wires are rays of ONE point, so the candidates say where that
+     * point is. This is the same M-estimator the comb already is -- the Cauchy loss at
+     * kResidualCutDeg that fitTwentyFold's IRLS minimises over the offset -- minimised
+     * over the centre too, starting at the detected bull, by a pattern search that halves
+     * its step from one pixel to 1/64 px. The conic is untouched; only the point the plane
+     * is built through moves, so the tilt moves with it exactly as planeOf says it must.
+     * Nothing is bounded or tuned: the search is local and stops where the loss does.
+     */
+    struct CentreFit
+    {
+        bool built = false;
+        cv::Point2f centre;       // sub-pixel, image
+        Plane plane;              // the plane through `centre`
+        Fit fit;                  // the comb in that plane
+        double lossBefore = 0.0;  // Cauchy loss at the detected bull
+        double lossAfter = 0.0;   // ... and at `centre`
+    };
+    CentreFit centreFromWires(const cv::RotatedRect &conic, const cv::Point2f &bull, double conicOfDoubles,
+                              const std::vector<cv::Point2f> &candidates);
+
+    /** The comb's Cauchy loss in a plane: sum of log(1 + (res/kResidualCutDeg)^2). */
+    double combLoss(const Plane &plane, const std::vector<cv::Point2f> &candidates, const Fit &fit);
+
+    /**
+     * #1654's switch. `OD_COMB_CENTRE=wires` builds the scored plane through the centre
+     * the wires meet at (centreFromWires) rather than through the bull pixel; anything but
+     * that exact word is ignored, so the default is the bull pixel, byte for byte.
+     */
+    bool centreFromWiresAsked();
+
+    /**
      * The coherence below which this fit is not trusted, and the camera is refused in
      * those words.
      *

@@ -124,7 +124,8 @@ namespace
         const cv::RotatedRect &ei = calib.ellipses.innerDoubleEllipse;
         if (wire_processing::conicOfDoublesFor(calib) != 1.0 || !(ei.size.width > 0) || !(eo.size.width > 0))
             return fit;
-        const cv::Point2d bull(calib.bullCenter.x, calib.bullCenter.y);
+        const cv::Point2d bull(calib.bullCenter.x + (calib.wires.centre_from_wires ? calib.wires.centre_dx : 0.0f),
+                               calib.bullCenter.y + (calib.wires.centre_from_wires ? calib.wires.centre_dy : 0.0f));
         std::vector<cv::Point2f> mid;
         for (int i = 0; i < 360; i++)
         {
@@ -254,6 +255,11 @@ namespace
                  calib.ellipses.outerDoubleEllipse.angle, grayOf(frame, calib), deg(fit.wireOffset),
                  orientation_processing::wedgeCanBeRead(calib.orientation) ? 1 : 0);
         std::cout << line;
+        if (calib.wires.centre_from_wires)
+        {
+            std::cout << cv::format(" ctr=%.2f,%.2f", calib.bullCenter.x + calib.wires.centre_dx,
+                                    calib.bullCenter.y + calib.wires.centre_dy);
+        }
         if (ref.ok && fit.planeBuilt && fit.wireBoundaries == wire_model::kFold)
         {
             std::cout << " rot=" << cv::format("%.3f", combRotation(fit, ref.fit));

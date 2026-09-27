@@ -35,7 +35,10 @@ T0=$(date +%s.%N)
 
 # #1649: the axis-unshift switch reaches the detector only if it is forwarded; unset
 # forwards an empty value, which the detector reads as off.
+# #1654: the wire-centre switch, on its own line for the same reason.
+echo "I1555 FORWARD OD_AXIS_UNSHIFT=${OD_AXIS_UNSHIFT:-} OD_COMB_CENTRE=${OD_COMB_CENTRE:-}"
 od_run "1555" --cpus=2 --network none -e HOME=/root -e OD_AXIS_UNSHIFT="${OD_AXIS_UNSHIFT:-}" \
+  -e OD_COMB_CENTRE="${OD_COMB_CENTRE:-}" \
   -v "$OD_TREE_ROOT":/app -v "$RUN":/run1555 -w /run1555 \
   "$OD_IMAGE" bash /app/testers/i1555_inside.sh 2>&1 | tee "$RUN/out.txt"
 RC=${PIPESTATUS[0]}

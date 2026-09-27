@@ -945,6 +945,34 @@ namespace wire_processing
                             " px and a bull at (" + log_string(calib.bullCenter.x) + "," +
                             log_string(calib.bullCenter.y) + ").");
             }
+            else if (result.fit_trusted && wire_model::centreFromWiresAsked())
+            {
+                // #1654: the plane through the point the wires meet at, not the bull pixel.
+                // Admission above is unchanged -- R and the trust gate are the bull's --
+                // so which cameras and looks calibrate is the default's; only where the
+                // twenty boundaries are generated moves.
+                const wire_model::CentreFit cf = wire_model::centreFromWires(
+                    calib.ellipses.outerDoubleEllipse, Point2f(calib.bullCenter), conicOfDoubles, candidates);
+                const bool moved = cf.built && cf.fit.built;
+                const wire_model::Plane &usePlane = moved ? cf.plane : plane;
+                const wire_model::Fit &useFit = moved ? cf.fit : fit;
+                const wire_model::Ring ring = wire_model::ringFrom(usePlane, useFit, candidates, Point2f(calib.bullCenter));
+                colorWires = ring.endpoints;
+                result.fit_snapped = ring.snapped;
+                if (moved)
+                {
+                    result.centre_dx = cf.centre.x - (float)calib.bullCenter.x;
+                    result.centre_dy = cf.centre.y - (float)calib.bullCenter.y;
+                    result.centre_from_wires = true;
+                }
+                log_info("Camera " + log_string(calib.camera_index + 1) + " wire centre (OD_COMB_CENTRE=wires): " +
+                         (moved ? "the wires meet at (" + log_string(cf.centre.x) + "," + log_string(cf.centre.y) +
+                                      "), " + log_string(result.centre_dx) + "," + log_string(result.centre_dy) +
+                                      " px from the bull pixel; Cauchy loss " + log_string(cf.lossBefore) + " -> " +
+                                      log_string(cf.lossAfter) + ", R " + log_string(fit.coherence) + " -> " +
+                                      log_string(cf.fit.coherence)
+                                : string("no plane could be built off the bull pixel, so the ring is the bull's")));
+            }
             else if (result.fit_trusted)
             {
                 const wire_model::Ring ring = wire_model::ringFrom(plane, fit, candidates, Point2f(calib.bullCenter));
