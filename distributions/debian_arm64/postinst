@@ -1,11 +1,52 @@
 #!/bin/bash
+# #1659: shipped as DEBIAN/postinst by `make deb`. Until #1659 this file sat in the tree and
+# the package carried a binary and nothing else, so nothing here ever ran on a board.
+#
+# On configure (a first install and every upgrade): take the two units the package now
+# carries into account, bring anything a board kept in `/` into the unit's state directory,
+# enable both units for every boot, and (re)start them so an upgrade runs the new binary.
 set -e
-systemctl daemon-reload
 
-# Make them come up every boot
-systemctl enable lock_cams.service
-systemctl enable opendartboard.service
+UNITS="lock_cams.service opendartboard.service"
+STATE=/var/lib/opendartboard
 
-systemctl start --no-block lock_cams.service
-systemctl start --no-block opendartboard.service
+# systemctl can enable (write symlinks) with no manager running -- an image build, a chroot,
+# a container -- but daemon-reload, stop and start need one. Only a booted systemd has this.
+booted() { [ -d /run/systemd/system ]; }
+
+case "$1" in
+  configure)
+    if booted; then
+      systemctl daemon-reload
+      # Stop the detector before moving what it writes, so an old process working in `/`
+      # cannot write a file back there between the move and the restart below.
+      systemctl stop opendartboard.service 2>/dev/null || true
+    fi
+
+    # #1660: a board whose detector ran under a unit before StateDirectory= kept these in
+    # the unit's working directory, `/`. The unit now works in $STATE, so without this an
+    # upgraded board mints a new score_token and every phone that scanned the old one has
+    # to scan again. Moved only when the leaf is a regular file in `/` and $STATE holds
+    # none of its own, so a second configure, or a board that never had the stray files,
+    # changes nothing. Mode 0700 is the unit's StateDirectoryMode=, set here because the
+    # directory may now be made before systemd ever makes it.
+    install -d -m 0700 -o root -g root "$STATE"
+    for leaf in score_token credentials.json channel.json cameras.json owed.jsonl owed.cursor; do
+      if [ -f "/$leaf" ] && [ ! -L "/$leaf" ] && [ ! -e "$STATE/$leaf" ]; then
+        mv "/$leaf" "$STATE/$leaf"
+        echo "opendartboard: moved /$leaf to $STATE/$leaf (#1660)"
+      fi
+    done
+
+    # Come up every boot.
+    systemctl enable $UNITS
+
+    if booted; then
+      # --no-block: the detector opens cameras and calibrates, and apt must not wait on it.
+      # restart, not start: on an upgrade the running process is the old binary.
+      systemctl restart --no-block $UNITS
+    fi
+    ;;
+esac
+
 exit 0

@@ -43,27 +43,63 @@ run-mocks:
 run:
 	opendartboard --debug --autocams --width 1280 --height 720 --fps 30
 
+# #1659: what the package carries. Until #1659 this target staged DEBIAN/control and the
+# binary and nothing else, so a Pi installed from the release had no unit, no lock_cams.sh
+# and nothing that started the detector at boot -- while postinst, postrm and both unit
+# templates sat in the tree beside it. testers/i1659_deb_check.sh holds the list.
+#
+# The camera mode both units are rendered with. The detector's --width/--height/--fps and
+# lock_cams.sh's v4l2 mode must be the same numbers, so they are one set of variables and
+# lock_cams.service passes them to the script. 1280x720@30 is what `make run` and every
+# unit tester (i1334, i1383, i1660) render the template with.
+DEB_WIDTH ?= 1280
+DEB_HEIGHT ?= 720
+DEB_FPS ?= 30
+# envsubst is told which variables are its to replace. Unrestricted, it would also replace
+# $HOME, $XDG_CONFIG_HOME and $STATE_DIRECTORY in the unit's own comments with whatever the
+# build shell happened to hold -- nothing, in CI.
+DEB_UNIT_VARS = '$${WIDTH} $${HEIGHT} $${FPS}'
+DEB_ROOT = dist/staging/opendartboard_$(VERSION)
+
 deb:
 ifndef VERSION
 	$(error VERSION is not set, usage: make deb VERSION=X.X.X)
 endif
 	rm -rf dist/staging
-	mkdir -p dist/staging/opendartboard_$(VERSION)/DEBIAN
-	mkdir -p dist/staging/opendartboard_$(VERSION)/usr/local/bin
+	mkdir -p $(DEB_ROOT)/DEBIAN
 
 	# Use envsubst to inject version/name into the control file
 	env PKG_NAME=opendartboard PKG_VERSION=$(VERSION) \
 		envsubst < distributions/debian_arm64/control \
-		> dist/staging/opendartboard_$(VERSION)/DEBIAN/control
+		> $(DEB_ROOT)/DEBIAN/control
 
-	# Copy binary into correct path
-	cp /usr/local/bin/opendartboard dist/staging/opendartboard_$(VERSION)/usr/local/bin/
+	# Maintainer scripts: enable and start on configure, stop and disable on remove.
+	install -m 0755 distributions/debian_arm64/postinst $(DEB_ROOT)/DEBIAN/postinst
+	install -m 0755 distributions/debian_arm64/prerm $(DEB_ROOT)/DEBIAN/prerm
+	install -m 0755 distributions/debian_arm64/postrm $(DEB_ROOT)/DEBIAN/postrm
 
-	# Build the .deb
-	dpkg-deb --build dist/staging/opendartboard_$(VERSION) dist/
+	# The detector, and the script lock_cams.service runs
+	install -D -m 0755 /usr/local/bin/opendartboard $(DEB_ROOT)/usr/local/bin/opendartboard
+	install -D -m 0755 scripts/lock_cams.sh $(DEB_ROOT)/usr/local/bin/lock_cams.sh
+
+	# The model the unit's ExecStart names with --model
+	install -d -m 0755 $(DEB_ROOT)/usr/local/share/opendartboard/models
+	install -m 0644 models/dart.param models/dart.bin $(DEB_ROOT)/usr/local/share/opendartboard/models/
+
+	# Both units, rendered from their templates
+	install -d -m 0755 $(DEB_ROOT)/lib/systemd/system
+	for unit in opendartboard lock_cams; do \
+		env WIDTH=$(DEB_WIDTH) HEIGHT=$(DEB_HEIGHT) FPS=$(DEB_FPS) \
+			envsubst $(DEB_UNIT_VARS) < templates/$$unit.service.template \
+			> $(DEB_ROOT)/lib/systemd/system/$$unit.service || exit 1; \
+		chmod 0644 $(DEB_ROOT)/lib/systemd/system/$$unit.service; \
+	done
+
+	# Build the .deb. --root-owner-group: the files belong to root on the board, not to
+	# whoever ran the build.
+	dpkg-deb --root-owner-group --build $(DEB_ROOT) dist/
 
 	@echo "\033[32mBuilt .deb package: dist/opendartboard_$(VERSION).deb\033[0m"
-
 
 release:
     # just run the ./scripts/release.sh script

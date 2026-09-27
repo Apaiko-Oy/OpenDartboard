@@ -1,25 +1,30 @@
 #!/bin/bash
+# #1659: shipped as DEBIAN/postrm by `make deb`. The units were stopped and disabled by
+# prerm while their files still existed; dpkg has since removed the files it owns, so what
+# is left is telling a running manager to forget them.
+#
+# The package's own files are dpkg's to delete, and this script no longer deletes them by
+# hand. It used to `sudo rm` the unit files, `sudo killall` the detector and print a tick:
+# maintainer scripts run as root, and an image need not have sudo at all.
 set -e
 
-# Stop and disable the services
-sudo systemctl stop opendartboard.service 2>/dev/null || true
-sudo systemctl disable opendartboard.service 2>/dev/null || true
+case "$1" in
+  remove|purge)
+    # Belt and braces for a board installed before prerm existed, whose symlinks could
+    # outlive the unit files: a dangling wants/ link is harmless but is noise in systemctl.
+    rm -f /etc/systemd/system/multi-user.target.wants/opendartboard.service \
+          /etc/systemd/system/multi-user.target.wants/lock_cams.service
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+esac
 
-sudo systemctl stop lock_cams.service 2>/dev/null || true
-sudo systemctl disable lock_cams.service 2>/dev/null || true
+# Purge is the request to forget this board entirely (ADR-0083 §6: one directory is
+# everything a board holds). It deletes the credential and the score_token with it, so a
+# purged board must be paired again and phones must scan again. `apt remove` keeps it.
+if [ "$1" = purge ]; then
+  rm -rf /var/lib/opendartboard
+fi
 
-# Remove service symlinks (if still present)
-sudo rm -f /etc/systemd/system/multi-user.target.wants/opendartboard.service
-sudo rm -f /etc/systemd/system/multi-user.target.wants/lock_cams.service
-
-# Remove service files (if not owned by .deb, adjust as needed)
-sudo rm -f /lib/systemd/system/opendartboard.service
-sudo rm -f /lib/systemd/system/lock_cams.service
-
-# Reload systemd so it forgets deleted services
-sudo systemctl daemon-reload
-
-# (Optionally kill stray running processes, just in case)
-sudo killall opendartboard 2>/dev/null || true
-
-echo "✅ All opendartboard services stopped, disabled, and cleaned up."
+exit 0

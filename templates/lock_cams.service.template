@@ -16,6 +16,10 @@ StartLimitBurst=5
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/lock_cams.sh
+# #1659: the mode the Description above names, handed to the script. Without these
+# lock_cams.sh fell back to its own defaults (640x360 @ 10) whatever this unit said, and
+# held the cameras in a mode the detector, rendered from the same numbers, did not ask for.
+Environment=WIDTH=${WIDTH} HEIGHT=${HEIGHT} FPS=${FPS}
 Restart=always
 RestartSec=2
 # Avoid spewing to the console during package install
