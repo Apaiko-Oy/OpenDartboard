@@ -40,6 +40,7 @@ set -u
 # the failing holds in C both produce exactly that board, so each run is backgrounded and
 # ended by its own recorded pid. Never by pattern.
 BIN=/app/build/opendartboard
+WAIT=900   # PLACEHOLDER-1632: measuring run, replaced by the measured figure
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
@@ -65,8 +66,10 @@ run() {
   local tag="$1" cams="$2"; shift 2
   rm -rf /run1437/cache "$HOME/.config" 2>/dev/null; mkdir -p "$HOME/.config"
   env "$@" $BIN --debug --cams "$cams" --width 1280 --height 720 > "/run1437/$tag.out" 2>&1 &
-  local P=$!
-  await "/run1437/$tag.out" 'CAMERAS: [0-9]+ of|BOARD FAULTED|Scorer running with' 150 > /dev/null
+  local P=$! W
+  W="$(await "/run1437/$tag.out" 'CAMERAS: [0-9]+ of|BOARD FAULTED|Scorer running with' "$WAIT")"
+  # #1632: said, so a wait that runs out is a line in the log rather than a silent "none".
+  echo "  ($tag: the census line after ${W}s)"
   sleep 4
   kill -TERM $P 2>/dev/null; wait $P 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "/run1437/$tag.out" > "/run1437/$tag.txt"

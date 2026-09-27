@@ -58,6 +58,7 @@ set -u
 # calibrate takes #895's vigil and stays up on purpose; OD_MAX_CYCLES does not bound it,
 # and phase C's `once` arm and both arms of D4 are exactly that board.
 BIN=/app/build/opendartboard
+WAIT=900   # PLACEHOLDER-1632: measuring run, replaced by the measured figure
 CENSUS=/run1445/look_census
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
@@ -215,8 +216,10 @@ run() {
   local tag="$1" cams="$2"; shift 2
   rm -rf /run1445/cache "$HOME/.config" 2>/dev/null; mkdir -p "$HOME/.config"
   env "$@" $BIN --debug --cams "$cams" --width 1280 --height 720 > "/run1445/$tag.out" 2>&1 &
-  local P=$!
-  await "/run1445/$tag.out" 'GEOMETRY SEALED|BOARD FAULTED|Scorer running with' 240 > /dev/null
+  local P=$! W
+  W="$(await "/run1445/$tag.out" 'GEOMETRY SEALED|BOARD FAULTED|Scorer running with' "$WAIT")"
+  # #1632: said, so a wait that runs out is a line in the log rather than a silent absence.
+  echo "  ($tag: sealed or faulted after ${W}s)"
   sleep 4
   kill -TERM $P 2>/dev/null; wait $P 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "/run1445/$tag.out" > "/run1445/$tag.txt"
@@ -366,7 +369,8 @@ for arm in on once; do
   env $ENVARGS $BIN --debug --cams "$RIGCAMS" --width 1280 --height 720 \
     > "/run1445/d4_$arm.out" 2>&1 &
   P=$!
-  await "/run1445/d4_$arm.out" 'BOARD RECOVERED|BOARD MOVED|BOARD FAULTED|GEOMETRY REVIEW' 240 > /dev/null
+  W="$(await "/run1445/d4_$arm.out" 'BOARD RECOVERED|BOARD MOVED|BOARD FAULTED|GEOMETRY REVIEW' "$WAIT")"
+  echo "  (d4_$arm: the review after ${W}s)"
   sleep 3
   kill -TERM $P 2>/dev/null; wait $P 2>/dev/null
   sed 's/\x1b\[[0-9;]*m//g' "/run1445/d4_$arm.out" > "/run1445/d4_$arm.txt"
