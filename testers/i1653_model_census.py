@@ -103,7 +103,7 @@ def scale_for(variant, cam, rings):
         return 1.0
     f, res = rings[cam]
     if variant == "outer":
-        return 1.0 / f  # unit f/170 -> 1/170: millimetres shrink by f
+        return f  # unit f/170 -> 1/170: every millimetre shrinks by the factor f
     dc = 0.5 * (res.get("din", 0.0) + res.get("dout", 0.0))   # doubles centre residual
     tc = 0.5 * (res.get("tin", 0.0) + res.get("tout", 0.0))   # treble centre residual
     s_t = 103.0 / (103.0 + tc)
