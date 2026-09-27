@@ -784,6 +784,30 @@ namespace score_processing
                          board_model::trebleBloomAdjustMm(profile, fits[c], kOut));
                 log_info(line);
             }
+            // #1647: each camera's own board model, whole, so a census can carry the
+            // hand-annotated entry pixels (testers/i1511_annotations) through the SAME
+            // map the solve used and read their radius beside the solved one. H is
+            // board plane -> image; mm = plane / unitPerMm; canonical angle is
+            // advance * (theta - theta20). Measurement only; nothing reads it.
+            for (size_t c = 0; c < fits.size() && c < evidence.size(); c++)
+            {
+                if (!fits[c].planeBuilt)
+                {
+                    continue;
+                }
+                const cv::Matx33d &H = fits[c].plane.H;
+                char line[520];
+                snprintf(line, sizeof(line),
+                         "I1647FIT window=%ld cam=%d resolved=%d theta20=%.6f advance=%.0f "
+                         "unitPerMm=%.9g H=%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g "
+                         "bull=%.2f,%.2f",
+                         window, (int)c + 1, evidence[c].anchor.resolved ? 1 : 0,
+                         evidence[c].anchor.theta20, evidence[c].anchor.advance,
+                         fits[c].unitPerMm, H(0, 0), H(0, 1), H(0, 2), H(1, 0), H(1, 1),
+                         H(1, 2), H(2, 0), H(2, 1), H(2, 2), (double)calibrations[c].bullCenter.x,
+                         (double)calibrations[c].bullCenter.y);
+                log_info(line);
+            }
         }
 
         if (!geoProbeDir().empty())
