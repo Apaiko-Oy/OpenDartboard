@@ -784,6 +784,56 @@ namespace board_model
         return widen * std::min(bloomMm, boundMm);
     }
 
+    /**
+     * #1641: where THIS camera's traced ring edge sits, in board millimetres, along the
+     * rays within `halfWindowDeg` of board angle `theta` -- the median of those rays, or
+     * -1 where no ray reaches the observed ellipse. `RingResidual::signedMedianMm` is the
+     * same measurement taken over all 120 rays; this is it taken locally, so a reader can
+     * say whether a ring call near a treble wire was made against an edge the camera
+     * really sees at that angle or against the ring's average. Measurement only.
+     */
+    inline double localRingEdgeMm(const BoardFit &fit, const DartboardCalibration &calib, int ring,
+                                  double theta, double halfWindowDeg)
+    {
+        if (!fit.planeBuilt || !(fit.unitPerMm > 0.0))
+        {
+            return -1.0;
+        }
+        const cv::RotatedRect &observed = ellipse_processing::ringEllipse(
+            const_cast<ellipse_processing::EllipseBoundaryData &>(calib.ellipses), ring);
+        if (!(ellipse_processing::ringReach(observed) > 0.0))
+        {
+            return -1.0;
+        }
+        const cv::Point2f bull((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+        std::vector<double> mm;
+        const double half = halfWindowDeg * CV_PI / 180.0;
+        const double step = 2.0 * CV_PI / kResidualRays;
+        for (double d = -half; d <= half + 1e-9; d += step)
+        {
+            const cv::Point2f through = imageOfBoard(fit, 100.0, theta + d);
+            cv::Point2f dir = through - bull;
+            const double len = std::sqrt((double)dir.x * dir.x + (double)dir.y * dir.y);
+            if (!(len > 0.0))
+            {
+                continue;
+            }
+            dir *= (float)(1.0 / len);
+            const double reach = rayReachToEllipse(bull, dir, observed);
+            if (!(reach > 0.0))
+            {
+                continue;
+            }
+            const cv::Point2f board = boardPointOf(fit, bull + dir * (float)reach);
+            const double r = std::sqrt((double)board.x * board.x + (double)board.y * board.y);
+            if (std::isfinite(r))
+            {
+                mm.push_back(r);
+            }
+        }
+        return mm.empty() ? -1.0 : detail::medianOf(mm);
+    }
+
     inline ModelScore scoreFromModel(const BoardProfile &profile, const BoardFit &fit,
                                      const ModelAnchor &anchor, const cv::Point2f &image)
     {
