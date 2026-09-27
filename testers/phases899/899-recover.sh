@@ -113,9 +113,27 @@ arm() {
   for i in 1 2 3; do cp /run899/${SWAP}_$i.avi /run899/swap_$i.avi; mv /run899/swap_$i.avi /run899/src_$i.avi; done
   echo "SWAPPED=$SWAP"
 
-  # Long enough for: blindness at cycle 200, sight lost three seconds later, the retries
-  # at 2 s, 4 s and 8 s of backoff, and the cameras coming back at eight seconds.
-  sleep 30
+  # #1476: until the board has DECIDED, not for a fixed thirty seconds. The thirty was
+  # sized for #899's board, which ended the run on the first disagreement: blindness at
+  # cycle 200, sight lost three seconds later, retries at 2, 4 and 8 s of backoff, the
+  # cameras back at eight seconds, one review. #1388 (33d5222) made a Moved verdict spend
+  # a budget of four measurements about 4 s apart before it refuses, and did not touch
+  # this file -- so the refusing arm was killed at measurement 1 of 4, before BOARD MOVED
+  # or BOARD FAULTED could be said, and sections 5, 5b, 7 and 8 read the silence of a
+  # board that had not finished deciding as a refusal that says nothing. Measured on
+  # 6bc8115: `BOARD GEOMETRY: measurement 1 of 4 disagrees`, then signal 15.
+  #
+  # So wait for the line that ends each arm -- BOARD RECOVERED for the one that resumes,
+  # BOARD FAULTED for the vigil the one that refuses takes -- or for the board to exit, or
+  # for a deadline far past the ~12 s budget on a loaded box. Then twelve seconds more,
+  # which is two of the stub's five-second beats: 8b asks what the Station was told AFTER
+  # the decision, and a board killed the moment it decides has told it nothing yet.
+  for _ in $(seq 1 180); do
+    sed 's/\x1b\[[0-9;]*m//g' /run899/$NAME.out | grep -qE 'BOARD RECOVERED|BOARD FAULTED' && break
+    kill -0 $BOARD 2>/dev/null || break
+    sleep 1
+  done
+  sleep 12
   kill -TERM $BOARD 2>/dev/null
   wait $BOARD 2>/dev/null
   echo "${NAME}_RC=$?"
