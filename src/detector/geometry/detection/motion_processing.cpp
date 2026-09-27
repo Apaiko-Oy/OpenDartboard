@@ -117,6 +117,46 @@ namespace motion_processing
         return v;
     }
 
+    // #1650's switch. OD_COOLDOWN_EXPIRY=spike makes the cycle on which the cooldown runs
+    // out ask IDLE's spike test as well, instead of only moving to IDLE and leaving the
+    // test to the next cycle. Unset (or anything else) keeps the old line.
+    //
+    // Why: case COOLDOWN tests the clock FIRST, and on the cycle the clock runs out it goes
+    // to IDLE without looking at the motion. Every other cooldown cycle would have turned a
+    // spike into an event (#1358), and IDLE would have done so on the next cycle, but a dart
+    // splash on the weak side of the board is often ONE cycle long. On that cycle and no
+    // other, it is dropped. Measured on mocks/rig-20260918 dev, visit 6: v6.3's (the 2's)
+    // splash is one cycle at 0.0136 of camera 3's board (f1569, cycle 1480), followed by
+    // 0.0005. The 7's event ends at cycle 1447 by default and 1453 under #1646's hold,
+    // which puts the splash 33 and 27 cycles after it. A 1000 ms cooldown ends on the 27th
+    // cycle when cycles run at ~37 ms, the rate a whole-clip replay has at load 4-6, and on
+    // the 33rd only at ~30 ms, which the replay does not reach. That is why the hold lost
+    // the 2 whole-clip and not in the narrowed replays under heavy load (cycles of 70-90 ms).
+    static bool cooldownExpirySpikes()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_COOLDOWN_EXPIRY");
+            return e && std::string(e) == "spike";
+        }();
+        return v;
+    }
+
+    // #1650's instrument, never a setting: OD_COOLDOWN_MS=<ms> replaces cooldown_period_ms.
+    // With OD_MOTION_CLOCK=capture (33.3 ms a cycle, whatever the load) it places the
+    // cooldown's last cycle on a chosen frame, so the swallowed-spike case above can be
+    // replayed on any box instead of only at the load that happens to line it up.
+    static int cooldownMs(const MotionParams &params)
+    {
+        static int v = []
+        {
+            const char *e = std::getenv("OD_COOLDOWN_MS");
+            const int ms = e ? std::atoi(e) : 0;
+            return ms > 0 ? ms : -1;
+        }();
+        return v > 0 ? v : params.cooldown_period_ms;
+    }
+
     // #1646: each camera's recent board levels, newest last, at most exposure_frames.
     static vector<vector<double>> level_history;
     static int exposure_held = 0;      // cycles this event has waited on exposure
@@ -667,9 +707,34 @@ namespace motion_processing
         case DartEventState::COOLDOWN:
         {
             long long cooldown_elapsed = now - cooldown_start_time;
-            if (cooldown_elapsed >= params.cooldown_period_ms)
+            if (cooldown_elapsed >= cooldownMs(params))
             {
                 current_state = DartEventState::IDLE;
+                // #1650: see cooldownExpirySpikes. The spike on the cooldown's last cycle
+                // starts its event here, exactly as the arm below would have one cycle
+                // earlier and IDLE would one cycle later.
+                if (cooldownExpirySpikes() && peak_intensity > spikeThreshold(params) &&
+                    !settleTrigger() && !measuredAgainstTheFrame())
+                {
+                    current_state = DartEventState::SPIKE_DETECTED;
+                    event_start_time = now;
+                    fill(cameras_spiked.begin(), cameras_spiked.end(), false);
+                    intensity_history.clear();
+                    stable_frame_count = 0;
+                    std::string ratios;
+                    for (size_t i = 0; i < motion_data.size(); i++)
+                    {
+                        if (motion_data[i].motion_ratio > spikeThreshold(params))
+                            cameras_spiked[i] = true;
+                        ratios += string(i ? " " : "") + "cam" + to_string(i + 1) + "=" +
+                                  (motion_data[i].measured ? to_string(motion_data[i].motion_ratio) : string("-"));
+                    }
+                    log_info("I1650 COOLDOWN EXPIRY SPIKE cycle=" + to_string(od_clock::cycles().load()) +
+                             " elapsed=" + to_string(cooldown_elapsed) + " cooldown=" + to_string(cooldownMs(params)) +
+                             " peak=" + to_string(peak_intensity) + " " + ratios +
+                             " -> SPIKE_DETECTED: the cooldown ran out on a spiking cycle, and the spike "
+                             "is an event rather than being left to an IDLE that only looks next cycle");
+                }
             }
             // #1358: a spike inside the cooldown is a NEW dart, and this is where the
             // rig's missing darts went. An event only ever reaches END by settling --
@@ -708,11 +773,11 @@ namespace motion_processing
                     }
                 }
                 log_debug("COOLDOWN: a spike of " + to_string(peak_intensity) + " on one camera's own board, " +
-                          to_string(params.cooldown_period_ms - cooldown_elapsed) + "ms into the cooldown: a new dart event");
+                          to_string(cooldownMs(params) - cooldown_elapsed) + "ms into the cooldown: a new dart event");
             }
             else if (debug_mode && current_intensity > spikeThreshold(params))
             {
-                log_debug("COOLDOWN: Motion during cooldown period - intensity: " + to_string(current_intensity) + ", remaining: " + to_string(params.cooldown_period_ms - cooldown_elapsed) + "ms");
+                log_debug("COOLDOWN: Motion during cooldown period - intensity: " + to_string(current_intensity) + ", remaining: " + to_string(cooldownMs(params) - cooldown_elapsed) + "ms");
             }
             break;
         }
