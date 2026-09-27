@@ -925,7 +925,7 @@ namespace wire_processing
             const double conicOfDoubles = conicOfDoublesFor(calib);
 
             const wire_model::Plane plane =
-                wire_model::planeOf(calib.ellipses.outerDoubleEllipse, Point2f(calib.bullCenter), conicOfDoubles);
+                wire_model::planeOf(calib.ellipses.outerDoubleEllipse, geometry_calibration::planeBullOf(calib), conicOfDoubles); // #1656
             const wire_model::Fit fit = wire_model::fitTwentyFold(plane, candidates);
 
             result.fit_coherence = fit.coherence;
@@ -947,7 +947,7 @@ namespace wire_processing
             }
             else if (result.fit_trusted)
             {
-                const wire_model::Ring ring = wire_model::ringFrom(plane, fit, candidates, Point2f(calib.bullCenter));
+                const wire_model::Ring ring = wire_model::ringFrom(plane, fit, candidates, geometry_calibration::planeBullOf(calib)); // #1656
                 colorWires = ring.endpoints;
                 result.fit_snapped = ring.snapped;
             }

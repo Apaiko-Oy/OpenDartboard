@@ -32,7 +32,7 @@
 // One line per measurement on stdout, prefixed I1654:
 //
 //   I1654 clip=<name> cam=<n> win=<open|dev> look=<avg|k> at=<frame> sees=<0|1> R=..
-//         cand=.. inl=.. rms=.. snapped=.. bull=x,y tilt=.. conic=wxh gray=.. own=..
+//         cand=.. inl=.. rms=.. snapped=.. bull=x,y sub=x,y tilt=.. conic=wxh gray=.. own=..
 //         rot=.. w129=.. mown=.. mrot=.. mw129=.. read=<0|1>
 //
 // The dev window is the dev binary's DEBUG_SEEK_VIDEO seek (capture_opencv.hpp, copied as
@@ -124,7 +124,9 @@ namespace
         const cv::RotatedRect &ei = calib.ellipses.innerDoubleEllipse;
         if (wire_processing::conicOfDoublesFor(calib) != 1.0 || !(ei.size.width > 0) || !(eo.size.width > 0))
             return fit;
-        const cv::Point2d bull(calib.bullCenter.x, calib.bullCenter.y);
+        // #1656: the plane's own bull -- the whole pixel, or the sub-pixel one under OD_BULL_SUBPIXEL=on.
+        const cv::Point2f planeBull = geometry_calibration::planeBullOf(calib);
+        const cv::Point2d bull(planeBull.x, planeBull.y);
         std::vector<cv::Point2f> mid;
         for (int i = 0; i < 360; i++)
         {
@@ -248,8 +250,9 @@ namespace
         }
         char line[600];
         snprintf(line, sizeof(line),
-                 " rms=%.2f bull=%d,%d tilt=%.4f conic=%.1fx%.1f@%.1f gray=%.1f own=%.3f read=%d",
-                 fit.wireRmsDeg, calib.bullCenter.x, calib.bullCenter.y, fit.plane.tilt,
+                 " rms=%.2f bull=%d,%d sub=%.2f,%.2f tilt=%.4f conic=%.1fx%.1f@%.1f gray=%.1f own=%.3f read=%d",
+                 fit.wireRmsDeg, calib.bullCenter.x, calib.bullCenter.y, calib.bullSubpixel.x, calib.bullSubpixel.y,
+                 fit.plane.tilt,
                  calib.ellipses.outerDoubleEllipse.size.width, calib.ellipses.outerDoubleEllipse.size.height,
                  calib.ellipses.outerDoubleEllipse.angle, grayOf(frame, calib), deg(fit.wireOffset),
                  orientation_processing::wedgeCanBeRead(calib.orientation) ? 1 : 0);

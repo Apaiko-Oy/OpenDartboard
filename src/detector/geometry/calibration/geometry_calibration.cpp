@@ -438,6 +438,10 @@ namespace geometry_calibration
         bull_processing::BullSighting bull = bull_processing::processBull(redGreenFrame, frameCenter, cameraIdx, debugMode, bullParams);
         Point bullCenter = bull.center;
         calibration.bullCenter = bullCenter;
+        // #1656: the same bull to a fraction of a pixel, from its own edge in the camera
+        // frame. Recorded always; the plane is built through it only under OD_BULL_SUBPIXEL.
+        calibration.bullSubpixel = bull.found ? bull_processing::refineBullCentre(orginalFrame, bullCenter, bull.radius)
+                                              : Point2f(bullCenter);
 
         // #1320: a centre nothing can vouch for is not a centre to calibrate from. Every
         // stage below this one takes the bull as given -- the doubles mask is built
@@ -517,6 +521,10 @@ namespace geometry_calibration
         {
             bullCenter = wireCorrection.centre;
             calibration.bullCenter = bullCenter;
+            // #1656: bullSubpixel is NOT moved with it. It was measured from the bull's own
+            // edge and does not depend on where inside the bull the seed fell; this
+            // correction is a search for the seed's whole-pixel error, which that edge fit
+            // does not have.
             log_info("Camera " + log_string(cameraIdx + 1) +
                      " bull centre corrected by its wire evidence from (" +
                      log_string(bull.center.x) + "," + log_string(bull.center.y) + ") to (" +

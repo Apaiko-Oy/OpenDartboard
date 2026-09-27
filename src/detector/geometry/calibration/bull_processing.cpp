@@ -285,6 +285,96 @@ namespace bull_processing
         return result;
     }
 
+    Point2f refineBullCentre(const Mat &frame, const Point &seed, double radius, Mat *debug)
+    {
+        const Point2f unchanged((float)seed.x, (float)seed.y);
+        if (frame.empty() || frame.channels() != 3 || !(radius > 0.0))
+            return unchanged;
+        // A window 1.8 of the chosen blob's radius round the seed: the whole bull even when
+        // the seed is a spiky blob's off-centre middle (rig-20260922 camera 3's seed lands
+        // up to 12 px right of the bull it belongs to), and not the treble ring, which on
+        // the smallest board either rig shows is 3.4 bull radii out.
+        const int reach = max(8, (int)std::ceil(radius * 1.8));
+        const Rect window = Rect(seed.x - reach, seed.y - reach, 2 * reach + 1, 2 * reach + 1) &
+                            Rect(0, 0, frame.cols, frame.rows);
+        if (window.area() <= 0)
+            return unchanged;
+
+        // CHROMA, max - min over B, G, R. The bull is the one saturated thing in this
+        // window: its green ring and red centre are strongly coloured, and what surrounds
+        // them -- cream and black singles, the metal wires, the glare ring between the
+        // two bulls -- is not. Chroma rather than HSV saturation because a black single's
+        // saturation is noise divided by a small value, while its chroma is small. The
+        // cut is Otsu's over the window, so it moves with the light rather than being a
+        // number fitted to one evening.
+        Mat patch = frame(window), chroma(window.size(), CV_8U);
+        for (int y = 0; y < patch.rows; y++)
+        {
+            const Vec3b *in = patch.ptr<Vec3b>(y);
+            uchar *out = chroma.ptr<uchar>(y);
+            for (int x = 0; x < patch.cols; x++)
+                out[x] = (uchar)(max({in[x][0], in[x][1], in[x][2]}) - min({in[x][0], in[x][1], in[x][2]}));
+        }
+        Mat lit;
+        threshold(chroma, lit, 0, 255, THRESH_BINARY | THRESH_OTSU);
+        morphologyEx(lit, lit, MORPH_CLOSE, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+
+        // The outline whose filled inside holds the seed, or failing that the one nearest
+        // it: the red centre and the green ring are one filled disc once the glare ring
+        // between them is inside the outline.
+        if (debug)
+            hconcat(chroma, lit, *debug);
+        vector<vector<Point>> outlines;
+        findContours(lit, outlines, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+        const Point2f local((float)(seed.x - window.x), (float)(seed.y - window.y));
+        int chosen = -1;
+        double nearest = 1e300;
+        for (size_t k = 0; k < outlines.size(); k++)
+        {
+            if (outlines[k].size() < 12)
+                continue;
+            const double d = -pointPolygonTest(outlines[k], local, true); // < 0 inside
+            if (d < nearest)
+            {
+                nearest = d;
+                chosen = (int)k;
+            }
+        }
+        if (chosen < 0 || nearest > radius)
+            return unchanged;
+
+        // The bull's own edge, as an ellipse: its centre is the bull's to a fraction of a
+        // pixel. An outline that touches the window's border ran into something that is
+        // not the bull, so it measures nothing.
+        const vector<Point> &edge = outlines[chosen];
+        const Rect box = boundingRect(edge);
+        if (box.x <= 0 || box.y <= 0 || box.x + box.width >= window.width || box.y + box.height >= window.height)
+            return unchanged;
+        RotatedRect e = fitEllipse(edge);
+        // One trimming pass: points further than a pixel and a half off the first fit
+        // (a dart shaft across the edge, a wire's glint) are dropped and the rest refitted.
+        {
+            const double th = e.angle * CV_PI / 180.0, c = cos(th), s = sin(th);
+            const double ax = e.size.width * 0.5, by = e.size.height * 0.5;
+            vector<Point> kept;
+            for (const Point &p : edge)
+            {
+                const double dx = p.x - e.center.x, dy = p.y - e.center.y;
+                const double u = (dx * c + dy * s) / ax, v = (-dx * s + dy * c) / by;
+                const double rr = sqrt(u * u + v * v);
+                const double off = fabs(rr - 1.0) * min(ax, by);
+                if (off <= 1.5)
+                    kept.push_back(p);
+            }
+            if (kept.size() >= std::max<size_t>(12, edge.size() / 2))
+                e = fitEllipse(kept);
+        }
+        const Point2f centre((float)(window.x + e.center.x), (float)(window.y + e.center.y));
+        if (!std::isfinite(centre.x) || !std::isfinite(centre.y) || norm(centre - unchanged) > radius)
+            return unchanged;
+        return centre;
+    }
+
     BullSighting processBull(const Mat &redGreenFrame, const Point &frameCenter, int camera_idx, bool debug_mode, const BullParams &params)
     {
         log_debug("Bull detection camera " + log_string(camera_idx) + " starting...");
