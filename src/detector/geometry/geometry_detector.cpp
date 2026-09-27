@@ -13,6 +13,8 @@
 #include "utils.hpp"
 #include "utils/board_sight.hpp"
 #include "calibration/geometry_agreement.hpp"
+#include "calibration/board_recognition.hpp"
+#include "calibration/number_anchor.hpp"
 
 using namespace cv;
 using namespace std;
@@ -1203,6 +1205,21 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                             ". Set OD_CAMERA_WEDGES to the wedge number at each camera's image "
                             "south, read off the setup view once, to state the anchor this board "
                             "cannot measure.");
+            }
+
+            // #1501: and the board itself, said once, in the same place and for the same
+            // reason -- every anchor is final and nothing is scored yet. One supported board
+            // (the Winmau Blade 6); an unrecognised one is a WARNING naming OD_CAMERA_WEDGES.
+            // Announce-only: it reads `orientations` and decides nothing.
+            const board_recognition::Recognition recognition = board_recognition::recognise(
+                orientations, !number_anchor::notAsked(), number_anchor::minimumSeparation());
+            if (recognition.warn)
+            {
+                log_warning(recognition.sentence);
+            }
+            else
+            {
+                log_info(recognition.sentence);
             }
 
             // #1451: #1449's census one field over, said in the same place and for the

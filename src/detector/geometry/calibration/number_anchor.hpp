@@ -146,6 +146,12 @@ namespace number_anchor
      * and says so, which is the outcome this reader is built to make safe rather than the
      * one it is built to avoid.
      *
+     * #1501, WHICH BOARDS IT IS A FACT OF: the two fixtures are a Winmau Blade 6 -- the
+     * one supported board -- with printed numbers (mocks/rig-20260918) and the upstream
+     * Unicorn with bent-wire numbers (the shipped mocks). It is not a fact of any third
+     * board, and on one that falls under it `board_recognition` says so once, at default
+     * level, naming OD_CAMERA_WEDGES.
+     *
      * `OD_NUMBER_ANCHOR_MIN=<x>` moves it on one binary, which is how that sweep was
      * taken. A value outside (0, 40] names no separation forty candidates can produce, so
      * it is ignored rather than obeyed (`OD_WIRE_FIT_MIN`'s rule).
