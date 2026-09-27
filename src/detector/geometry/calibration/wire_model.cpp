@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
-#include <limits>
 #include <cstdlib>
 #include <string>
 
@@ -279,94 +278,6 @@ namespace wire_model
 
         ring.endpoints = points;
         return ring;
-    }
-
-    double combLoss(const Plane &plane, const std::vector<Point2f> &candidates, const Fit &fit)
-    {
-        double loss = 0.0;
-        for (const Point2f &p : candidates)
-        {
-            const double res = degOf(intoSector(boardAngleOf(plane, p) - fit.offset)) / kResidualCutDeg;
-            loss += std::log1p(res * res);
-        }
-        return loss;
-    }
-
-    CentreFit centreFromWires(const RotatedRect &conic, const Point2f &bull, double conicOfDoubles,
-                              const std::vector<Point2f> &candidates)
-    {
-        CentreFit out;
-        auto at = [&](const Point2f &c, Plane &plane, Fit &fit)
-        {
-            plane = planeOf(conic, c, conicOfDoubles);
-            if (!plane.built)
-            {
-                return std::numeric_limits<double>::infinity();
-            }
-            fit = fitTwentyFold(plane, candidates);
-            return fit.built ? combLoss(plane, candidates, fit) : std::numeric_limits<double>::infinity();
-        };
-        Point2f centre = bull;
-        Plane plane;
-        Fit fit;
-        double loss = at(centre, plane, fit);
-        if (!std::isfinite(loss))
-        {
-            return out;
-        }
-        out.lossBefore = loss;
-        // Pattern search: the eight neighbours at `step`, move to the best that improves,
-        // else halve. From one pixel (the detector's own quantum) to 1/64 px.
-        static const int dirs[8][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
-        double step = 1.0;
-        for (int guard = 0; guard < 2000 && step >= 1.0 / 64.0; guard++)
-        {
-            double bestLoss = loss;
-            Point2f bestCentre = centre;
-            Plane bestPlane;
-            Fit bestFit;
-            for (const auto &d : dirs)
-            {
-                const Point2f c(centre.x + (float)(d[0] * step), centre.y + (float)(d[1] * step));
-                Plane pl;
-                Fit f;
-                const double l = at(c, pl, f);
-                if (l < bestLoss)
-                {
-                    bestLoss = l;
-                    bestCentre = c;
-                    bestPlane = pl;
-                    bestFit = f;
-                }
-            }
-            if (bestLoss < loss)
-            {
-                loss = bestLoss;
-                centre = bestCentre;
-                plane = bestPlane;
-                fit = bestFit;
-            }
-            else
-            {
-                step *= 0.5;
-            }
-        }
-        out.built = true;
-        out.centre = centre;
-        out.plane = plane;
-        out.fit = fit;
-        out.lossAfter = loss;
-        return out;
-    }
-
-    bool centreFromWiresAsked()
-    {
-        static bool v = []
-        {
-            const char *e = std::getenv("OD_COMB_CENTRE");
-            return e && std::string(e) == "wires";
-        }();
-        return v;
     }
 
     // #1551: THE GATE IS DETERMINISTIC ON RECORDED INPUT, AND THE FLIP WAS TWO BINARIES.

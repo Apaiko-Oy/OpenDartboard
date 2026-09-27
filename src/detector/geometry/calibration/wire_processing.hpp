@@ -218,18 +218,6 @@ namespace wire_processing
         bool fit_trusted = false;        // ... and its coherence cleared the minimum
 
         /**
-         * #1654: where the wires meet, as a sub-pixel offset from `bullCenter`, when
-         * OD_COMB_CENTRE=wires asked for it and the fit was trusted
-         * (wire_model::centreFromWires). The twenty endpoints were generated in the plane
-         * through that point, and board_model builds the scored plane through it too.
-         * Zero and false otherwise -- and in every calibration a binary older than #1654
-         * wrote, which the cache's record_bytes refusal recalibrates rather than reads.
-         */
-        float centre_dx = 0.0f;
-        float centre_dy = 0.0f;
-        bool centre_from_wires = false;
-
-        /**
          * Whether this reading may be scored with. #1442's whole-ring question AND
          * #1467's fit question, because a ring of twenty generated from a plane nobody
          * trusts is exactly the plausible-looking wrong answer ADR-0055 refuses.

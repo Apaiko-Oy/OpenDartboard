@@ -367,13 +367,7 @@ namespace board_model
     {
         using namespace ellipse_processing;
         BoardFit fit;
-        // #1654: under OD_COMB_CENTRE=wires the calibration carries where its wires meet,
-        // and the plane is built through that point (wire_model::centreFromWires). Off,
-        // centre_from_wires is false and this is the bull pixel, as before.
-        const cv::Point2f bull = calib.wires.centre_from_wires
-                                     ? cv::Point2f((float)calib.bullCenter.x + calib.wires.centre_dx,
-                                                   (float)calib.bullCenter.y + calib.wires.centre_dy)
-                                     : cv::Point2f((float)calib.bullCenter.x, (float)calib.bullCenter.y);
+        const cv::Point2f bull((float)calib.bullCenter.x, (float)calib.bullCenter.y);
 
         if (!calib.ellipses.hasValidDoubles || !(ringReach(calib.ellipses.outerDoubleEllipse) > 0.0))
         {
