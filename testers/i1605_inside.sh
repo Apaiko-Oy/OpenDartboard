@@ -163,14 +163,24 @@ WD="$(cam1_last $D 'Camera 1 wire model: [0-9]+ candidates')"
 WO="$(cam1_last $RUN/r22-open.cal 'Camera 1 wire model: [0-9]+ candidates')"
 RD="$(echo "$WD" | sed -n 's/.*coherence R=\([0-9.]*\).*/\1/p')"
 RO="$(echo "$WO" | sed -n 's/.*coherence R=\([0-9.]*\).*/\1/p')"
-BD="$(cam1_last $D 'Camera 1 bull at' | sed -n 's/.*bull at (\([0-9]*\),\([0-9]*\)).*/\1 \2/p')"
-BO="$(cam1_last $RUN/r22-open.cal 'Camera 1 bull at' | sed -n 's/.*bull at (\([0-9]*\),\([0-9]*\)).*/\1 \2/p')"
+# #1457: a further look's "Camera 1 bull at" line is at DEBUG (a repeat look does not
+# re-narrate) and these runs are not --debug, so a camera that calibrated on a LOOK has its
+# bull read from that look's own "calibrated on look K ..., bull (x,y)" line; a camera that
+# calibrated on the averaged frame still says "bull at" aloud, and is read there.
+cam1_bull() {
+  local b
+  b="$(cam1_last "$1" 'LOOK AGAIN: camera 1 calibrated on look' | sed -n 's/.*, bull (\([0-9]*\),\([0-9]*\)).*/\1 \2/p')"
+  [ -n "$b" ] || b="$(cam1_last "$1" 'Camera 1 bull at' | sed -n 's/.*bull at (\([0-9]*\),\([0-9]*\)).*/\1 \2/p')"
+  echo "$b"
+}
+BD="$(cam1_bull $D)"
+BO="$(cam1_bull $RUN/r22-open.cal)"
 RINGD="$(cam1_last $D 'Camera 1 rings:')"
 MODELD="$(cam1_last $D 'Camera 1 board model')"
 echo "     dev:     R=${RD:-none} bull=(${BD:-none}) ${RINGD#*- }"
 echo "     opening: R=${RO:-none} bull=(${BO:-none})"
 echo "     dev board model: ${MODELD#*- }" | cut -c1-400
-echo "     the bulls camera 1 read while refused, default run: $(grep -oE 'Camera 1 bull at \([0-9]+,[0-9]+\)' $RUN/r22-dev.cal | grep -oE '\([0-9]+,[0-9]+\)' | sort | uniq -c | tr '\n' ' ')"
+echo "     the bulls camera 1 read aloud (the averaged frame's; a further look's are at DEBUG since #1457), default run: $(grep -oE 'Camera 1 bull at \([0-9]+,[0-9]+\)' $RUN/r22-dev.cal | grep -oE '\([0-9]+,[0-9]+\)' | sort | uniq -c | tr '\n' ' ')"
 [ -n "$RD" ] && [ -n "$RO" ] && awk -v d="$RD" -v o="$RO" 'BEGIN{exit !(d >= 0.60 && d >= o - 0.05)}'
 note $? "coherence R=$RD is over the 0.60 gate and within 0.05 of the opening's R=$RO (or above it)"
 echo "$RINGD" | grep -q "every ring is where the board puts it"
