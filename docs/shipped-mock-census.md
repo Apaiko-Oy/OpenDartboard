@@ -82,8 +82,8 @@ and names the mocks only in its header, and is B.
 ### Where it goes fuzzy, stated rather than hidden
 
 **Most of B needs the fixture to calibrate before its own verdict is reachable.**
-`phases891/contest.sh` and its three siblings exit on `grep -o "\[i803\].*"` — the
-cycle-budget line, printed from inside the scoring loop, which a board that never
+`phases891/contest.sh` and its three siblings require `[i803] cycle budget reached` as one
+clause of their verdict (until #1463 they exited on `grep -o` for it) — the cycle-budget line, printed from inside the scoring loop, which a board that never
 calibrates never reaches. `i1334_inside.sh`'s spool phases are the same shape. The rule
 puts these in B because the condition *names* a lifecycle line and not a vision quantity,
 and because the substitution is safe — the rig README states all three of its cameras
@@ -172,7 +172,7 @@ prose. Nothing here asks what the detector saw.
 | `phases1247/895-blind.sh` | the blind path. Recording phase; exits on `wc -l` |
 | `phases1274/1274-announce.sh` | the `.service` announcement file and a real connect to port 13520 |
 | `phases1317/1317-asan.sh` | AddressSanitizer findings `= 0` over two inputs, plus a pure capacity probe at 9/15/19 wires. The mocks are `#845`'s control input |
-| `phases891/contest.sh` | pairing, Contest binding, credential keys, transcript events. Exits on the cycle-budget line |
+| `phases891/contest.sh` | pairing, Contest binding, credential keys, transcript events. Exits on its own verdict, which includes the cycle-budget line (#1463) |
 | `phases891/givenup.sh` | the evening given up; credential keys; the binding not rejoined after restart |
 | `phases891/givenup-nobeat.sh` | as above, with no Casual beat |
 | `phases891/horizon.sh` | a hand-planted spool and the delivery horizon |
