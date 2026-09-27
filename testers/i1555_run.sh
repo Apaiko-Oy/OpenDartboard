@@ -33,9 +33,9 @@ mkdir -p "$RUN"
 read -r _ u0 n0 s0 i0 w0 q0 sq0 rest < /proc/stat
 T0=$(date +%s.%N)
 
-# #1649: the axis-unshift switch reaches the detector only if it is forwarded; unset
+# #1649 (and #1656's OD_BULL_SUBPIXEL): a switch reaches the detector only if it is forwarded; unset
 # forwards an empty value, which the detector reads as off.
-od_run "1555" --cpus=2 --network none -e HOME=/root -e OD_AXIS_UNSHIFT="${OD_AXIS_UNSHIFT:-}" \
+od_run "1555" --cpus=2 --network none -e HOME=/root -e OD_AXIS_UNSHIFT="${OD_AXIS_UNSHIFT:-}" -e OD_BULL_SUBPIXEL="${OD_BULL_SUBPIXEL:-}" \
   -v "$OD_TREE_ROOT":/app -v "$RUN":/run1555 -w /run1555 \
   "$OD_IMAGE" bash /app/testers/i1555_inside.sh 2>&1 | tee "$RUN/out.txt"
 RC=${PIPESTATUS[0]}
