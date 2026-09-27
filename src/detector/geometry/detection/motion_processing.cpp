@@ -93,15 +93,26 @@ namespace motion_processing
         return v;
     }
 
-    // #1646's pin, in the shape of #1627's: OD_SETTLE_EXPOSURE=off restores the settle
-    // test as it was before #1646 -- motion quiet is settled, whatever the cameras'
-    // exposure is doing -- on the same binary. See case STABILIZING.
+    // #1646's switch. OD_SETTLE_EXPOSURE=hold makes an event wait for every camera's
+    // board level to stop moving before it finishes; unset (or anything else) keeps the
+    // settle test as it was -- motion quiet is settled, whatever the exposure is doing.
+    //
+    // OPT-IN, and measured why. On rig-20260922's opening the hold does what it is for:
+    // the visit-2 takeout's window is read on a correctly exposed board, reconciles CLEAN
+    // on all three cameras, and v3.1's S20 gets its own window. But it also removes the
+    // ACCIDENT that ended visit 1: camera 3's exposure-shifted 122223 px "falling" to
+    // 1820 px in v2.1's window was the second CLEAN vote the first takeout needed. Read on
+    // a settled picture, the first takeout cannot reconcile at all -- the calibration
+    // reference holds #1514's parked 8, so cameras 2 and 3 fall only 1373 -> 1208 and
+    // 1256 -> 1084 px, under the 215/182 px dart-sized ceiling -- visit 1 never ends, and
+    // the DART_3 cap swallows T9 and T8 in place of the 12. The hold is half of the fix;
+    // the other half is dart_processing's, and until it lands the default stays put.
     static bool exposureGateOff()
     {
         static bool v = []
         {
             const char *e = std::getenv("OD_SETTLE_EXPOSURE");
-            return e && std::string(e) == "off";
+            return !(e && std::string(e) == "hold");
         }();
         return v;
     }

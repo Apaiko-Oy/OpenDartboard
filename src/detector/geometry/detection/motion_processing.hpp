@@ -161,7 +161,7 @@ namespace motion_processing
         // The window opened at f243 saw 122223 of camera 3's 182307 board pixels
         // changed, could not call the board CLEAN, and published the takeout as a dart;
         // the next arrival's window then saw that figure "fall" and baked the arriving
-        // dart into the clean reference. So the settle also asks that every measured
+        // dart into the clean reference. Under OD_SETTLE_EXPOSURE=hold the settle asks that every measured
         // camera's board level has spanned less than `exposure_span` grey levels over the
         // last `exposure_frames` cycles, for at most `exposure_hold_cycles` of waiting.
         int exposure_frames = 10;       // Cycles the board level is compared across
