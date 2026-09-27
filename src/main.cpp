@@ -217,6 +217,13 @@ int main(int argc, char **argv)
                          "."});
         return 1;
       }
+      // #1660: no credential path is no channel path; say why rather than "written to ."
+      if (channel_path.empty())
+      {
+        console.say({"Päivityskanavaa ei voitu tallentaa: tälle taululle ei ole asetushakemistoa.",
+                     string("The update channel could not be written: ") + od_paths::noConfigDirReason() + "."});
+        return 1;
+      }
       if (!update_channel::save(channel_path, asked_channel))
       {
         console.say({"Päivityskanavaa ei voitu tallentaa tiedostoon " + channel_path + ".",

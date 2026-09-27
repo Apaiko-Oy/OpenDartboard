@@ -13,7 +13,10 @@
 // with no User= neither $HOME nor $XDG_CONFIG_HOME, so this used to answer "" there and
 // every caller joined "" onto a leaf -- credentials.json, owed.jsonl, channel.json --
 // which is a path relative to the working directory, and a unit's working directory is
-// `/`. The unit now says StateDirectory=opendartboard, systemd creates
+// `/`. MEASURED on 47ea89d under `env -i` against the stub: --pair SPENT the code, then
+// ensureDir("") refused to keep the credential it was given, so the board stayed unpaired
+// and the code was gone; --channel wrote channel.json into the working directory. The
+// unit now says StateDirectory=opendartboard, systemd creates
 // /var/lib/opendartboard root-only and exports it as $STATE_DIRECTORY, and the answer is
 // that directory itself (no /opendartboard appended: systemd has already named it).
 //

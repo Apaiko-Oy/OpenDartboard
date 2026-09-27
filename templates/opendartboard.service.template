@@ -67,8 +67,9 @@ NotifyAccess=main
 #
 # This unit sets no User=, and systemd gives a system unit with no User= neither $HOME nor
 # $XDG_CONFIG_HOME, so od_paths::configDir() had nothing to build on. Its callers then
-# joined "" onto a leaf and the pairing credential, the Turnaus spool and the update
-# channel landed in the working directory -- which for a unit is `/`.
+# joined "" onto a leaf: the update channel and the camera choice were written into the
+# working directory -- which for a unit is `/` -- and a pairing spent its code and then
+# threw the credential away, because it could not create a directory named "".
 #
 # StateDirectory= makes systemd create /var/lib/opendartboard before every start, owned by
 # root and mode 0700 as said below, and export it as $STATE_DIRECTORY, which configDir()
