@@ -40,7 +40,16 @@ set -u
 # the failing holds in C both produce exactly that board, so each run is backgrounded and
 # ended by its own recorded pid. Never by pattern.
 BIN=/app/build/opendartboard
-WAIT=900   # PLACEHOLDER-1632: measuring run, replaced by the measured figure
+# How long one bounded run may take to print its census line. #1632: under #1631's 31-look
+# default a camera refused on its averaged frame is looked at to the end of the budget
+# before the census prints, and the 150 s this used to be ran out on the gate of
+# 2026-09-26 (rig-20260918 hold 900 at look 12 of 31, rig-20260922 hold 60 at look 21),
+# which then read as "none of 3 answered". MEASURED 2026-09-27 on the 4-core box at load
+# 1.7-4.8, with the wait at 900 so that nothing was cut short: the slowest of the 19 runs
+# printed its census after 117 s (rig-20260922 hold 60), the next 79 s and 60 s, and every
+# other run 56 s or less. The wait is twice the slowest. A wait only costs time when a
+# board never answers, and nothing here expects that except phase B, which answers in 15 s.
+WAIT=240
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
