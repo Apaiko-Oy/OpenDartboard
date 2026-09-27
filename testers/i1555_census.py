@@ -217,7 +217,20 @@ def target_line(correct, n):
     return "target 96%% = %d/%d, short %d" % (need, n, max(0, need - correct))
 
 
-def accuracy(fixture, window, visits, annots, arrivals, assignment):
+def motion_clock(log):
+    """#1655: the clock the run's motion timers were on, as the binary itself announced it
+    (`MOTION CLOCK: <wall|cycle|capture> ...`, scorer.cpp), so an ACCURACY figure always says
+    which instrument made it: on `wall` the cooldown and settle timers span a number of
+    replayed frames that depends on the box's load, on `capture` they run on the footage's
+    own presentation times. `unknown` when the log never said."""
+    for raw in open(log, "r", errors="replace"):
+        m = re.search(r"MOTION CLOCK: (\w+)", ANSI.sub("", raw))
+        if m:
+            return m.group(1)
+    return "unknown"
+
+
+def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unknown"):
     """#1587: ONE figure over every annotated arrival, not over the matched ones.
 
         correct / every annotated arrival (--no-arrival rows are not arrivals)
@@ -240,7 +253,7 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment):
     range and the target shortfall is taken on its lower bound. No placement is ever
     CHOSEN, and the one that scores best least of all.
     """
-    tag = "fixture=%s window=%s" % (fixture, window)
+    tag = "fixture=%s window=%s clock=%s" % (fixture, window, clock)
     by_key = dict((key, pos) for pos, key in assignment["assigned"].items())
     order = [(v, ei) for v, visit in enumerate(visits) for ei in range(len(visit))]
     flat_index = dict((pos, i) for i, pos in enumerate(order))
@@ -321,10 +334,10 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment):
               "outside the denominator%s"
               % (p[0] + 1, p[1] + 1, published(p),
                  " (a MISS: it scores nothing)" if published(p) == "MISS" else ""))
-    print("I1555 ACCURACY-TALLY fixture=%s window=%s arrivals=%d correct=%d "
+    print("I1555 ACCURACY-TALLY fixture=%s window=%s clock=%s arrivals=%d correct=%d "
           "wrong_score=%d undetected=%d offboard_scored=%d ambiguous=%d phantoms=%d "
           "scoring_phantoms=%d"
-          % (fixture, window, n, c, counts["wrong-score"], counts["undetected"],
+          % (fixture, window, clock, n, c, counts["wrong-score"], counts["undetected"],
              counts["off-board-scored"], amb, len(unclaimed), scoring_phantoms))
 
 
@@ -343,7 +356,14 @@ def pool_accuracy(files):
         print("I1555 ACCURACY POOLED: no ACCURACY-TALLY lines -- nothing to pool")
         return
 
+    # #1655: the pooled line names the clock of the runs it pooled, and says MIXED rather
+    # than pick one when they differ -- a wall-clock figure and a capture-clock figure are
+    # two instruments' readings, not one.
+    clocks = sorted(set(r.get("clock", "unknown") for r in rows))
+    clock = clocks[0] if len(clocks) == 1 else "MIXED(%s)" % ",".join(clocks)
+
     def line(label, group):
+        label = "%s clock=%s" % (label, clock)
         t = dict((k, sum(int(r.get(k, 0)) for r in group)) for k in keys)
         n, c, amb = t["arrivals"], t["correct"], t["ambiguous"]
         print("I1555 ACCURACY %s over %d run(s): correct %s/%d (%s) | %s | wrong-score "
@@ -551,7 +571,8 @@ def main():
           "dart(s), and #1512 left the tip a corroboration rather than a constraint on "
           "purpose" % (uncorroborated, corroborated_counts.get("exact", 0), matched,
                        uncorroborated))
-    accuracy(args.fixture, args.window, visits, annots, arrivals, assignment)
+    accuracy(args.fixture, args.window, visits, annots, arrivals, assignment,
+             motion_clock(args.log))
     print("I1555 TALLY fixture=%s window=%s matched=%d vote_exact=%d geo_solved=%d "
           "geo_exact=%d first_exact=%d published_exact=%d"
           % (args.fixture, args.window, matched, vote_counts.get("exact", 0), geo_solved,
