@@ -335,6 +335,11 @@ namespace camera_choice
      */
     inline std::string fileBeside(const std::string &credentials_path)
     {
+        // #1660: no credential path is no directory to keep this in, not the working one.
+        if (credentials_path.empty())
+        {
+            return "";
+        }
         size_t cut = credentials_path.find_last_of("/\\");
         if (cut == std::string::npos)
         {

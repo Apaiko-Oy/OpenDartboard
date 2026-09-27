@@ -63,6 +63,29 @@ RestartSec=2
 # has $NOTIFY_SOCKET and its STATUS= is kept and printed, so nothing about when this unit
 # counts as started moves.
 NotifyAccess=main
+# ---- #1660: WHERE THIS BOARD KEEPS WHAT IT WAS GIVEN ----
+#
+# This unit sets no User=, and systemd gives a system unit with no User= neither $HOME nor
+# $XDG_CONFIG_HOME, so od_paths::configDir() had nothing to build on. Its callers then
+# joined "" onto a leaf and the pairing credential, the Turnaus spool and the update
+# channel landed in the working directory -- which for a unit is `/`.
+#
+# StateDirectory= makes systemd create /var/lib/opendartboard before every start, owned by
+# root and mode 0700 as said below, and export it as $STATE_DIRECTORY, which configDir()
+# now reads first. WorkingDirectory= is that same directory, so what the detector keeps
+# relative to where it runs -- score_token, cache/, debug_frames/ -- is in it too, and not
+# in `/`. One directory is then everything a board holds (ADR-0083 §6), and clearing a
+# board by hand is that directory plus the NetworkManager connection (§10a).
+#
+# Somebody at a terminal is not this unit, and sudo gives them root's $HOME: a bare
+# `sudo opendartboard --pair <code>` writes /root/.config/opendartboard, where this unit
+# never looks. By hand, say where the unit keeps it:
+#
+#   sudo STATE_DIRECTORY=/var/lib/opendartboard opendartboard --pair <code>
+#   sudo sh -c 'cd /var/lib/opendartboard && opendartboard --show-token'
+StateDirectory=opendartboard
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/opendartboard
 Nice=-5
 Environment=G_MESSAGES_MIN_LEVEL=3
 StandardOutput=journal

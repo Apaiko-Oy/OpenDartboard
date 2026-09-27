@@ -5,7 +5,21 @@
 // The decision, recorded here because the header is where somebody looks:
 //
 //   Windows  %APPDATA%\OpenDartboard\            (C:\Users\<u>\AppData\Roaming\...)
-//   POSIX    $XDG_CONFIG_HOME/opendartboard/ or $HOME/.config/opendartboard/
+//   POSIX    $STATE_DIRECTORY, then $XDG_CONFIG_HOME/opendartboard/ or
+//            $HOME/.config/opendartboard/
+//
+// #1660: $STATE_DIRECTORY comes first because it is the only one of the three a Pi board
+// under systemd has. opendartboard.service sets no User=, and systemd gives a system unit
+// with no User= neither $HOME nor $XDG_CONFIG_HOME, so this used to answer "" there and
+// every caller joined "" onto a leaf -- credentials.json, owed.jsonl, channel.json --
+// which is a path relative to the working directory, and a unit's working directory is
+// `/`. The unit now says StateDirectory=opendartboard, systemd creates
+// /var/lib/opendartboard root-only and exports it as $STATE_DIRECTORY, and the answer is
+// that directory itself (no /opendartboard appended: systemd has already named it).
+//
+// And "" is no longer something a caller can join onto a leaf by accident: configFile()
+// answers "" with it, so a board with no directory has no credential path at all rather
+// than one in whatever directory it was started in.
 //
 // Not next to the .exe. Both answers lose the credential when a pub PC is re-imaged,
 // so re-imaging does not choose between them; what chooses is who else on the box can
@@ -46,7 +60,8 @@ namespace od_paths
      * The per-user directory this board keeps its credential and its address in.
      * Returns an empty string when no home is discoverable, which the caller must
      * treat as "unpaired and cannot be paired" rather than falling back to the
-     * working directory.
+     * working directory. #1660: that sentence was the rule and nothing kept it; every
+     * caller joined "" onto a leaf. Ask configFile() for a file, which keeps it.
      */
     inline std::string configDir()
     {
@@ -58,6 +73,15 @@ namespace od_paths
         }
         return base + "\\OpenDartboard";
 #else
+        // systemd's StateDirectory=. It may name several directories separated by ':';
+        // the unit names one, and the first is taken. Only an absolute path is honoured,
+        // because a relative one is the working directory again by another name.
+        std::string state = env("STATE_DIRECTORY");
+        state = state.substr(0, state.find(':'));
+        if (!state.empty() && state[0] == '/')
+        {
+            return state;
+        }
         std::string base = env("XDG_CONFIG_HOME");
         if (base.empty())
         {
@@ -112,6 +136,29 @@ namespace od_paths
             return leaf;
         }
         return dir + sep() + leaf;
+    }
+
+    /**
+     * #1660: a file in configDir(), or "" when there is no configDir(). Never the bare
+     * leaf: join("", leaf) is `leaf`, a path relative to the working directory, and that
+     * is how a board under systemd came to be writing its credential into `/`. A caller
+     * given "" has nowhere to keep the file and must say so, not write it somewhere else.
+     */
+    inline std::string configFile(const std::string &leaf)
+    {
+        const std::string dir = configDir();
+        return dir.empty() ? std::string() : join(dir, leaf);
+    }
+
+    /** The sentence a board says when configDir() is "", so every caller says the same. */
+    inline const char *noConfigDirReason()
+    {
+#ifdef _WIN32
+        return "there is no %APPDATA%, so this board has nowhere to keep a credential";
+#else
+        return "there is no $STATE_DIRECTORY, $XDG_CONFIG_HOME or $HOME, so this board has "
+               "nowhere to keep a credential";
+#endif
     }
 
     /** mkdir -p over one path. Silent on "already exists"; false on anything else. */
