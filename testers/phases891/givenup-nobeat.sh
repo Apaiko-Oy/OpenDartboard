@@ -1,10 +1,10 @@
 # An ASSERTING phase (#1463). givenup.sh on a deployment that does not serve the Casual
 # heartbeat, so the board cannot learn of the give-up from a beat: it has to learn it from
-# the next dart the Contest refuses.
+# the next push (a dart or a takeout) the Contest refuses.
 #
 # Its exit status is the verdict at the bottom and nothing else: 0 only when both pairings
 # and both detector runs exited 0, the scoring run reached its cycle budget, no beat was
-# served, the stub gave the evening up, the board ended the binding on a refused DART
+# served, the stub gave the evening up, the board ended the binding on a refused PUSH
 # (`HTTP 401)`, not `on a heartbeat`), darts after that went out of the club's door, the
 # credential file afterwards holds the club token and no `contest`, and the restarted
 # process did not announce the Contest. Until #1463 it ended on `grep -o "[i803]..."`.
@@ -88,7 +88,9 @@ must('casual_given_up' in events, 'the stub gave the evening up')
 must('the binding to Casual Contest 12 has ended (HTTP 401)' in logs,
      'the board ended the binding on a refused dart, not on a beat')
 refused = [r for r in rows if r['event'] == 'casual_refused']
-must(any(r.get('path') == '/api/v1/casual/detections' for r in refused), 'the refusal it learned from was a detection')
+# A dart or a takeout: both are pushes, and either can be the first to meet the ended evening.
+must(bool(refused) and all(r.get('path') in ('/api/v1/casual/detections', '/api/v1/casual/takeouts') for r in refused),
+     'the refusal it learned from was a push, not a beat (%s)' % sorted({r.get('path') for r in refused}))
 after = events[events.index('casual_given_up') + 1:] if 'casual_given_up' in events else []
 must(after.count('casual_counted') == 0, 'nothing was counted into the evening after it was given up (%d)' % after.count('casual_counted'))
 must(after.count('counted') >= 1, 'darts after the give-up went out of the club door (%d)' % after.count('counted'))
