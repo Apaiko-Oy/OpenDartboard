@@ -48,6 +48,12 @@ T0=$(date +%s.%N)
 # footage's own presentation times, which advance 33.333 ms a frame (the rig's 30 fps,
 # testers/i1655_fps_probe.py), so the run is the rig at its real frame rate on any box.
 # The clock every run used is printed on its ACCURACY lines.
+#
+# The bakeoff DEFAULTS to `capture` (#1655, measured: on it the baseline gave row-identical
+# censuses at two loads, 79/86, and the hold+departure+spike stack 82/86, each the same
+# rows as its wall-clock figure in runs-spread/r1 and runs-i1650; turnaus#1655 has the runs).
+# OD_MOTION_CLOCK=wall pins the pre-#1655 instrument; its figures move with the box's load.
+export OD_MOTION_CLOCK="${OD_MOTION_CLOCK:-capture}"
 FWD=()
 for v in OD_MOTION_CLOCK OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS; do
   if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1555 FORWARD $v=${!v}"; fi
