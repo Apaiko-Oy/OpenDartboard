@@ -59,6 +59,14 @@ for i in 1 2 3; do
   /run1317/partial /app/mocks/rig-20260918/cam_$i.mp4 /run1317/partial_$i.avi \
     "$START" "$OCCLUDE" "$BLUR" 300 || exit 1
 done
+# #1475: 3e's clip. Second 15 of the same rig is where, on 76f386b, a camera is refused on
+# the averaged frame and then looked at again -- measured by a scan of seconds 0, 3, 6, 9,
+# 12 and 15, of which only 15 refused anything (camera 3, on the wire model's coherence).
+LOOK_START="${LOOK_START:-15}"
+for i in 1 2 3; do
+  /run1317/partial /app/mocks/rig-20260918/cam_$i.mp4 /run1317/look_$i.avi \
+    "$LOOK_START" 0 0 300 || exit 1
+done
 
 echo "--- the partial detection, WITHOUT --debug ---"
 /app/build/opendartboard \
@@ -80,6 +88,25 @@ kill -TERM $PARTD 2>/dev/null
 wait $PARTD 2>/dev/null
 echo "PARTIAL_DBG_RC=$?"
 
+echo "--- 3e's run: a camera refused on its averaged frame, and the looks after it ---"
+# Ended on the census rather than on a clock: the second pass spends up to 31 looks, five
+# capture cycles apart, and what 3e reads is only final once the census is printed. The
+# cap is there so a detector that never prints one is a FAIL below, not a hung tester.
+# Measured on an idle box the census comes 74 s in; it is ended by its own pid.
+/app/build/opendartboard \
+  --cams /run1317/look_1.avi,/run1317/look_2.avi,/run1317/look_3.avi \
+  --width 1280 --height 720 > /run1317/look.out 2> /run1317/look.err &
+LOOK=$!
+LOOK_T0=$(date +%s)
+while kill -0 $LOOK 2>/dev/null; do
+  grep -qE 'CAMERAS: [0-9]+ of 3' /run1317/look.out && { sleep 2; break; }
+  [ $(( $(date +%s) - LOOK_T0 )) -ge 300 ] && break
+  sleep 1
+done
+kill -TERM $LOOK 2>/dev/null
+wait $LOOK 2>/dev/null
+echo "LOOK_RC=$? after $(( $(date +%s) - LOOK_T0 )) s"
+
 echo "--- the control: the footage the detector is known to calibrate on ---"
 OD_MAX_CYCLES=20 /app/build/opendartboard --cams $MOCKS \
   --width 1280 --height 720 > /run1317/control.out 2> /run1317/control.err
@@ -91,7 +118,7 @@ OD_MAX_CYCLES=20 /app/build/opendartboard --debug --cams $MOCKS \
 echo "CONTROL_DBG_RC=$?"
 
 # Colour codes are in every console line; strip them once and read the plain text.
-for f in partial partial_dbg control control_dbg; do
+for f in partial partial_dbg look control control_dbg; do
   sed 's/\x1b\[[0-9;]*m//g' /run1317/$f.out > /run1317/$f.txt
 done
 
@@ -153,9 +180,12 @@ BLIND=$(echo "$CENSUS" | sed -n 's/.*refused: \([0-9,]*\).*/\1/p' | tr ',' '\n' 
 if [ "$SEEING" != "x" ] && [ $((SEEING + BLIND)) = "3" ]; then
   say "OK   $SEEING seeing plus $BLIND refused is all three cameras" ok
 else say "FAIL $SEEING seeing and $BLIND refused does not account for three cameras" no; fi
-if [ "$REFUSED" -ge 1 ] && [ "$BLIND" -ge "$REFUSED" ]; then
-  say "OK   $REFUSED of the $BLIND cameras the census refused fell short on the wire count" ok
-else say "FAIL the census refused $BLIND cameras and $REFUSED of them on the wire count" no; fi
+# #1475: this used to assert `BLIND >= REFUSED` -- that every camera refused on the wire
+# count is still refused in the census. That is "a camera refused on its averaged frame
+# stays refused", and #1445 made it false on purpose: the refused camera is looked at
+# again and may calibrate on a later look, so the census can refuse none. Asserting "the
+# census refuses none" instead would go red the first time a camera genuinely cannot
+# recover. What #1445 promises is the second pass itself, and 3e asserts that.
 # #1374: both halves of this comparison are taken from ONE calibration round, and until
 # now they were not. The census was the FIRST `CAMERAS: n of 3` line; the PnP count was
 # EVERY `PnP calibration successful` in the whole log. A board that calibrates one camera
@@ -264,6 +294,75 @@ else
   else
     grep -E 'BOARD FAULTED' /run1317/alone.txt | head -2 || true
     say "FAIL BOARD FAULTED does not name the wire count" no
+  fi
+fi
+
+echo "=== 3e. a camera refused on its averaged frame is looked at again, and the census says what the looks found ==="
+# #1475, the maintainer's decision of 2026-09-20: assert the second pass, not a refusal
+# count. Everything is read out of 3e's run rather than pinned -- which camera the averaged
+# frame refuses, and whether its looks recover it, are both allowed to vary; what may not
+# vary is that the camera is looked at again and that the census reports the outcome.
+#
+# "Refused on its averaged frame" is a `did not calibrate` line printed BEFORE the second
+# pass says anything (or before the census, if it never does). It is taken from the first
+# pass's own lines, not from the second pass's announcement, so a second pass that does
+# not run cannot hide the camera it should have looked at.
+L=/run1317/look.txt
+FIRST_END=$(grep -nE 'LOOK AGAIN|CAMERAS: [0-9]+ of 3' "$L" | head -1 | cut -d: -f1)
+if [ -z "${FIRST_END:-}" ]; then
+  say "FAIL 3e's run printed neither a second pass nor a census, so no calibration round finished" no
+else
+  FIRST_REFUSED=$(head -n "$FIRST_END" "$L" | grep -oE 'Camera [0-9]+ did not calibrate' | awk '{print $2}' | sort -un)
+  CENSUS_E=$(grep -E 'CAMERAS: [0-9]+ of 3' "$L" | head -1)
+  CENSUS_E_AT=$(grep -nE 'CAMERAS: [0-9]+ of 3' "$L" | head -1 | cut -d: -f1)
+  echo "${CENSUS_E:-no camera census was printed}"
+  grep -E 'LOOK AGAIN: camera(\(s\))? [0-9, ]+ (were refused|seals)|OD_CALIBRATION_LOOKS' "$L" | cut -c1-200 || true
+  SEEING_E=$(echo "$CENSUS_E" | sed -n 's/.*dartboard (\([0-9,]*\)).*/\1/p' | tr ',' ' ')
+  BLIND_E=$(echo "$CENSUS_E" | sed -n 's/.*refused: \([0-9,]*\).*/\1/p' | tr ',' ' ')
+  ANNOUNCED=$(grep -E 'LOOK AGAIN: camera\(s\) [0-9, ]+ were refused on this start' "$L" | head -1 \
+    | sed 's/.*camera(s) \([0-9, ]*\) were.*/\1/' | tr -d ' ' | tr ',' ' ')
+  SET_ASIDE=$(grep -E 'LOOK AGAIN: camera\(s\) [0-9, ]+ were refused on the averaged frame and on all' "$L" | head -1 \
+    | sed 's/.*camera(s) \([0-9, ]*\) were.*/\1/' | tr -d ' ' | tr ',' ' ')
+  inlist() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
+
+  if [ -z "$FIRST_REFUSED" ]; then
+    say "FAIL no camera was refused on 3e's averaged frame, so the second pass was not exercised and nothing below is measured" no
+  else
+    say "OK   camera(s) $(echo $FIRST_REFUSED) refused on the averaged frame (the positive control)" ok
+    for c in $FIRST_REFUSED; do
+      if inlist "$c" "$ANNOUNCED"; then
+        say "OK   camera $c was looked at again (LOOK AGAIN names it)" ok
+      else
+        say "FAIL camera $c was refused on its averaged frame and never looked at again -- the second pass did not run for it" no
+        continue
+      fi
+      SEALED=$(grep -cE "LOOK AGAIN: camera $c seals look" "$L" || true)
+      ASIDE=0; inlist "$c" "$SET_ASIDE" && ASIDE=1
+      if [ "$SEALED" = "1" ] && [ "$ASIDE" = "0" ]; then
+        if inlist "$c" "$SEEING_E" && ! inlist "$c" "$BLIND_E"; then
+          say "OK   camera $c sealed a later look, and the census counts it as seeing" ok
+        else say "FAIL camera $c sealed a later look, but the census does not count it as seeing" no; fi
+      elif [ "$SEALED" = "0" ] && [ "$ASIDE" = "1" ]; then
+        if inlist "$c" "$BLIND_E"; then
+          say "OK   camera $c was refused on every look and set aside, and the census refuses it" ok
+        else say "FAIL camera $c was set aside after its looks, but the census does not refuse it" no; fi
+      else
+        say "FAIL camera $c was looked at again and the second pass gave it no single outcome ($SEALED seals, set aside: $ASIDE)" no
+      fi
+    done
+  fi
+  # And the census refuses nobody the second pass did not set aside: a camera it refuses
+  # that was never refused on the averaged frame at all would be a census the looks did
+  # not produce.
+  for c in $BLIND_E; do
+    if inlist "$c" "$SET_ASIDE"; then :; else
+      say "FAIL the census refuses camera $c, which the second pass did not set aside" no; fi
+  done
+  LOOK_LAST_E=$(grep -nE 'LOOK AGAIN' "$L" | tail -1 | cut -d: -f1)
+  if [ -n "${CENSUS_E_AT:-}" ] && [ -n "${LOOK_LAST_E:-}" ] && [ "$CENSUS_E_AT" -gt "$LOOK_LAST_E" ]; then
+    say "OK   the census (line $CENSUS_E_AT) is below the second pass's last word (line $LOOK_LAST_E)" ok
+  elif [ -n "${LOOK_LAST_E:-}" ]; then
+    say "FAIL the census (line ${CENSUS_E_AT:-none}) is not below the second pass's last word (line $LOOK_LAST_E)" no
   fi
 fi
 
