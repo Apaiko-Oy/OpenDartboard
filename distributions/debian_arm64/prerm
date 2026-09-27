@@ -1,0 +1,21 @@
+#!/bin/bash
+# #1659: shipped as DEBIAN/prerm by `make deb`.
+#
+# prerm and not postrm, because it needs the unit files: it runs before dpkg deletes them,
+# and `systemctl disable` on a unit whose file is already gone has nothing to read the
+# [Install] section from. On an upgrade nothing is done here -- the new postinst restarts
+# both units onto the new binary -- so a board is never left disabled by an upgrade.
+set -e
+
+UNITS="opendartboard.service lock_cams.service"
+
+case "$1" in
+  remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+      systemctl stop $UNITS 2>/dev/null || true
+    fi
+    systemctl disable $UNITS 2>/dev/null || true
+    ;;
+esac
+
+exit 0
