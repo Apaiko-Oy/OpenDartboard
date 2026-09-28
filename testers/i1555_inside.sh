@@ -220,5 +220,16 @@ echo "OK   every ACCURACY line partitions its arrivals exactly"
 grep -h '^I1555 ACCURACY ' "$RUN/census-r18-dev.txt" "$RUN/census-r18-open.txt" \
     "$RUN/census-r22-dev.txt" "$RUN/census-r22-open.txt" "$RUN/pooled.txt"
 
+# #1536: the detector's own miss-rate off these same four logs -- landed-and-not-detected
+# beside missed-and-not-detected, every arrival's cameras -- and the plant that proves the
+# figure is a count of darts (OD_CENSUS_PLANT drops one named publication before
+# matching; undetected must move by exactly one and name it). No replay: census re-runs.
+echo "=== #1536: the not-detected figures and the plant ============================="
+bash /app/testers/i1536_undetected.sh "$RUN" "$RUN/i1536" > "$RUN/i1536.txt" 2>&1
+I1536_RC=$?
+grep -v '^I1536 CAMERA-DART ' "$RUN/i1536.txt"
+[ $I1536_RC -eq 0 ] || { echo "FAIL the #1536 plant did not move the figure by exactly one"; exit 1; }
+echo "OK   the #1536 plant moved undetected by exactly one; every arrival's cameras in $RUN/i1536.txt"
+
 echo "I1555 DONE logs, censuses and the pooled tally under $RUN"
 exit 0

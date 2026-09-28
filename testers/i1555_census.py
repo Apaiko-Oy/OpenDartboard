@@ -275,6 +275,7 @@ def pool(files):
               % (f, agg["vote_exact"], agg["matched"], agg["first_exact"],
                  agg["matched"], d))
     pool_accuracy(files)
+    pool_detection(files)
     pool_rules(files)
     return 0
 
@@ -361,6 +362,10 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
     buckets = ["correct", "wrong-score", "undetected", "off-board-scored", "ambiguous"]
     counts = dict((k, 0) for k in buckets)
     named = []
+    # #1536: each arrival's bucket and the publication the matcher gave it (None where it
+    # gave none), handed back so the detection split and the camera table are read off
+    # the very verdicts this line printed and cannot drift from them.
+    results = {}
     for key in arrivals:
         thrown = norm(list(annots[key].values())[0]["thrown"])
         dart = "v%d.%d thrown=%s" % (key[0], key[1], thrown)
@@ -368,6 +373,7 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
         if pos is not None:
             bucket, reason = judge(thrown, published(pos))
             counts[bucket] += 1
+            results[key] = (bucket, pos)
             if bucket != "correct":
                 named.append("%s published=%s %s (%s; detected v%d#%d)"
                              % (dart, published(pos), bucket.upper(), reason,
@@ -384,6 +390,7 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
         if len(set(o[0][0] == "correct" for o in outcomes)) == 1:
             bucket, reason = outcomes[0][0]
             counts[bucket] += 1
+            results[key] = (bucket, None)
             if bucket != "correct":
                 also = ("; wrong under every order-preserving placement: %s" % ", ".join(
                     "%s -> %s" % (name(p), o[0]) for o, p in outcomes[1:])) if cands else ""
@@ -391,6 +398,7 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
                              % (dart, bucket.upper(), reason, also))
             continue
         counts["ambiguous"] += 1
+        results[key] = ("ambiguous", None)
         named.append("%s published=? AMBIGUOUS (the matcher placed no publication; its "
                      "order-preserving placements read %s)"
                      % (dart, " | ".join("%s -> %s" % ("none" if p is None else name(p),
@@ -421,6 +429,7 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
           "scoring_phantoms=%d"
           % (fixture, window, clock, n, c, counts["wrong-score"], counts["undetected"],
              counts["off-board-scored"], amb, len(unclaimed), scoring_phantoms))
+    return results
 
 
 def counterfactual_rules(fixture, window, visits, annots, arrivals, assignment, clock):
@@ -533,6 +542,258 @@ def pool_accuracy(files):
         line("fixture=%s" % f, [r for r in rows if r.get("fixture", "?") == f])
 
 
+# ---- #1536: what the detector did not see, and which cameras saw what -----------------
+#
+# The per-camera signal is #1512's I1512CAM line, one per camera per scored window:
+# `usable=1` is a constraint the camera offered the solve (the axis the geometry is
+# intersected from), `excluded=1` a constraint the solve set aside, `tipPlaced=1` a tip the
+# camera placed on its board. The ISSUE's "saw it" is "published a tip or a constraint",
+# so a camera SAW a dart when any of the three holds. It is chosen over the other lines a
+# run prints because it is the only one that is (a) printed for EVERY camera of EVERY
+# scored window on every path -- I1511AXIS is too, but carries no tip, and I1647FIT /
+# I1641LOCAL are about the board fit, not the dart -- and (b) keyed by the window the
+# census already joins to its publication. Measured on the #1655 logs: usable=1 and
+# I1511AXIS valid=1 agree on every camera row, so the axis line is the fallback where a
+# run printed no I1512CAM (a vote-pinned or pre-#1512 log), minus the tip.
+CAM_RE = re.compile(r"I1512CAM window=(\d+) cam=(\d+) usable=(\d) excluded=(\d) .*"
+                    r"tipPlaced=(\d) .*?excl=(.*)$")
+
+
+def _why(text):
+    """`no usable axis: not straight: the kept ...` -> `not-straight`: the exclusion's
+    own first clause, one word, so a table row stays one line."""
+    t = (text or "").strip()
+    if t.startswith("no usable axis:"):
+        t = t[len("no usable axis:"):].strip()
+    t = t.split(":", 1)[0].strip()
+    return "-".join(t.split()[:3]) if t and t != "-" else ""
+
+
+def read_camera_evidence(path, visits):
+    """{window: {cam: state}} and the cameras the run ever reported on.
+
+    state is `C` (a constraint the solve used), `X:<why>` (a constraint it excluded),
+    `t:<why>` (a tip placed, no usable constraint), `-:<why>` (neither)."""
+    ev = {}
+    for raw in open(path, "r", errors="replace"):
+        m = CAM_RE.search(ANSI.sub("", raw).rstrip("\n"))
+        if not m:
+            continue
+        w, cam = int(m.group(1)), int(m.group(2))
+        usable, excluded, tip = m.group(3) == "1", m.group(4) == "1", m.group(5) == "1"
+        why = _why(m.group(6))
+        if usable and not excluded:
+            state = "C"
+        elif usable:
+            state = "X:" + (why or "excluded")
+        elif tip:
+            state = "t:" + (why or "no-axis")
+        else:
+            state = "-:" + (why or "no-axis")
+        ev.setdefault(w, {})[cam] = state
+    source = "I1512CAM"
+    if not ev:
+        source = "I1511AXIS"
+        for visit in visits:
+            for e in visit:
+                for cam, obs in e.cams.items():
+                    ev.setdefault(e.window, {})[cam] = (
+                        "C" if obs["valid"] else "-:" + (_why(obs["refusal"]) or "no-axis"))
+    cams = sorted({c for per in ev.values() for c in per})
+    return ev, cams, source
+
+
+def _saw(state):
+    return state is not None and state[0] in "CXt"
+
+
+def detection_and_cameras(fixture, window, clock, visits, annots, arrivals, assignment,
+                          results, evidence):
+    """#1536: the two not-detected numbers side by side, and the per-camera table.
+
+    NOT DETECTED is what #1587's `undetected` already means -- the matcher placed no
+    publication and no order-preserving placement would make the verdict correct -- split
+    by what was THROWN: a LANDED dart nothing published is a lost score (#1587's
+    `undetected`, identical by construction), a thrown MISS nothing published is the
+    silence the census already counts correct. They are different objects and are never
+    summed. An arrival left AMBIGUOUS by #1587 is in neither and is counted apart.
+
+    Per camera, for every arrival: the state of each camera in the window whose
+    publication the matcher gave it. An arrival with no publication has no window, so
+    no camera is said to have seen it; the unclaimed publications lying between its
+    matched neighbours (#1587's order-preserving placements) are printed beside it as
+    UNATTRIBUTED evidence -- a window nothing claimed is where a dart the detector
+    half-saw would be, but nothing joins it to this dart, so it is shown and not counted.
+    """
+    ev_by_win, cams, source = evidence
+    tag = "fixture=%s window=%s clock=%s" % (fixture, window, clock)
+    by_key = dict((key, pos) for pos, key in assignment["assigned"].items())
+    order = [(v, ei) for v, visit in enumerate(visits) for ei in range(len(visit))]
+    flat_index = dict((pos, i) for i, pos in enumerate(order))
+    unclaimed = [pos for pos in assignment["unmatched"]
+                 if visits[pos[0]][pos[1]].pub is not None]
+
+    def thrown_of(key):
+        return norm(list(annots[key].values())[0]["thrown"])
+
+    def row(win):
+        per = ev_by_win.get(win, {})
+        return " ".join("cam%d=%s" % (c, per.get(c, "none")) for c in cams)
+
+    # ---- item 1: the two numbers ------------------------------------------------------
+    landed = [k for k in arrivals if thrown_of(k) != "MISS"]
+    missed = [k for k in arrivals if thrown_of(k) == "MISS"]
+
+    def not_detected(keys):
+        return [k for k in keys if results[k][1] is None and results[k][0] != "ambiguous"
+                and by_key.get(k) is None]
+
+    def ambiguous(keys):
+        return [k for k in keys if results[k][0] == "ambiguous"]
+
+    lnd, mnd = not_detected(landed), not_detected(missed)
+    lam, mam = ambiguous(landed), ambiguous(missed)
+    print("I1536 DETECTION %s landed-and-not-detected %d/%d | missed-and-not-detected %d/%d"
+          " | unmatched-ambiguous landed %d, missed %d -- two numbers, never summed: an "
+          "unseen landed dart is a lost score, an unseen miss is a silence counted correct"
+          % (tag, len(lnd), len(landed), len(mnd), len(missed), len(lam), len(mam)))
+    for k in lnd:
+        print("I1536 DETECTION-DART v%d.%d thrown=%s LANDED-AND-NOT-DETECTED"
+              % (k[0], k[1], thrown_of(k)))
+    for k in mnd:
+        print("I1536 DETECTION-DART v%d.%d thrown=MISS MISSED-AND-NOT-DETECTED"
+              % (k[0], k[1]))
+    print("I1536 DETECTION-TALLY %s landed=%d landed_not_detected=%d missed=%d "
+          "missed_not_detected=%d landed_ambiguous=%d missed_ambiguous=%d"
+          % (tag, len(landed), len(lnd), len(missed), len(mnd), len(lam), len(mam)))
+
+    # ---- item 2: per camera, for every arrival -----------------------------------------
+    saw = dict((c, 0) for c in cams)
+    constraint = dict((c, 0) for c in cams)
+    seen_by = dict((i, 0) for i in range(len(cams) + 1))
+    constrained_by = dict((i, 0) for i in range(len(cams) + 1))
+    unseen_nothing_between = unseen_window_between = 0
+    for key in arrivals:
+        bucket, _ = results[key]
+        pos = by_key.get(key)
+        head = "I1536 CAMERA-DART %s dart=v%d.%d thrown=%s bucket=%s" % (
+            tag, key[0], key[1], thrown_of(key), bucket)
+        if pos is not None:
+            win = visits[pos[0]][pos[1]].window
+            per = ev_by_win.get(win, {})
+            n = nc = 0
+            for c in cams:
+                if _saw(per.get(c)):
+                    saw[c] += 1
+                    n += 1
+                if per.get(c) == "C":
+                    constraint[c] += 1
+                    nc += 1
+            seen_by[n] += 1
+            constrained_by[nc] += 1
+            print("%s detected=v%d#%d win=%d %s seen_by=%d/%d constrained_by=%d/%d"
+                  % (head, pos[0] + 1, pos[1] + 1, win, row(win), n, len(cams), nc,
+                     len(cams)))
+            continue
+        seen_by[0] += 1
+        constrained_by[0] += 1
+        lo = max([flat_index[by_key[k]] for k in by_key if k < key] or [-1])
+        hi = min([flat_index[by_key[k]] for k in by_key if k > key] or [len(order)])
+        between = [p for p in unclaimed if lo < flat_index[p] < hi]
+        if between:
+            unseen_window_between += 1
+            also = "; ".join(
+                "v%d#%d win=%d published %s, claimed by no arrival: %s"
+                % (p[0] + 1, p[1] + 1, visits[p[0]][p[1]].window,
+                   norm(visits[p[0]][p[1]].pub["score"]), row(visits[p[0]][p[1]].window))
+                for p in between)
+        else:
+            unseen_nothing_between += 1
+            also = "none -- no window published between its matched neighbours, so no " \
+                   "camera reported anything that could be this dart"
+        print("%s detected=- seen_by=0/%d | unattributed windows between its neighbours: %s"
+              % (head, len(cams), also))
+    n = len(arrivals)
+    print("I1536 CAMERA-TALLY %s source=%s arrivals=%d %s %s %s %s unseen_nothing_between=%d "
+          "unseen_unattributed_window=%d"
+          % (tag, source, n,
+             " ".join("cam%d_saw=%d" % (c, saw[c]) for c in cams),
+             " ".join("cam%d_constraint=%d" % (c, constraint[c]) for c in cams),
+             " ".join("seen_by_%d=%d" % (i, seen_by[i]) for i in sorted(seen_by, reverse=True)),
+             " ".join("constrained_by_%d=%d" % (i, constrained_by[i])
+                      for i in sorted(constrained_by, reverse=True)),
+             unseen_nothing_between, unseen_window_between))
+
+
+def pool_detection(files):
+    """#1536: the DETECTION and CAMERA tallies summed, pooled and per fixture."""
+    det, cam = [], []
+    for path in files:
+        for raw in open(path, "r", errors="replace"):
+            line = ANSI.sub("", raw)
+            for tagname, store in (("I1536 DETECTION-TALLY ", det),
+                                   ("I1536 CAMERA-TALLY ", cam)):
+                if tagname in line:
+                    body = line.split(tagname, 1)[1]
+                    store.append(dict(t.split("=", 1) for t in body.split() if "=" in t))
+    if not det:
+        return
+
+    def total(group, k):
+        return sum(int(r.get(k, 0)) for r in group)
+
+    for label, pick in [("POOLED", lambda r: True)] + [
+            ("fixture=%s" % f, (lambda f: lambda r: r.get("fixture") == f)(f))
+            for f in sorted(set(r.get("fixture", "?") for r in det))]:
+        d = [r for r in det if pick(r)]
+        c = [r for r in cam if pick(r)]
+        print("I1536 DETECTION %s over %d run(s): landed-and-not-detected %d/%d | "
+              "missed-and-not-detected %d/%d | unmatched-ambiguous landed %d, missed %d"
+              % (label, len(d), total(d, "landed_not_detected"), total(d, "landed"),
+                 total(d, "missed_not_detected"), total(d, "missed"),
+                 total(d, "landed_ambiguous"), total(d, "missed_ambiguous")))
+        keys = sorted({k for r in c for k in r
+                       if re.match(r"cam\d+_(saw|constraint)$|(seen|constrained)_by_\d+$|unseen_", k)})
+        rank = ("_saw", "_constraint", "seen_by", "constrained_by", "unseen")
+        keys.sort(key=lambda k: (min(i for i, r in enumerate(rank) if r in k),
+                                 -int(k[-1]) if k[-1].isdigit() else 0, k))
+        print("I1536 CAMERA %s over %d run(s): arrivals=%d %s"
+              % (label, len(c), total(c, "arrivals"),
+                 " ".join("%s=%d" % (k, total(c, k)) for k in keys)))
+
+
+def plant(visits, annots, no_arrival, fixture, window):
+    """#1536's plant: OD_CENSUS_PLANT=<fixture>:<window>:<visit>.<dart> removes, BEFORE the
+    matching, the publication the matcher gives that arrival -- the run as if the
+    detector had never published it. The proof it exists for: `undetected` (and
+    landed-and-not-detected) must move by exactly one and name that dart. Returns None
+    when the plant is not for this census, else (ok, message)."""
+    spec = os.environ.get("OD_CENSUS_PLANT", "").strip()
+    if not spec:
+        return None
+    try:
+        f, w, vd = spec.split(":")
+        v, d = (int(x) for x in vd.lstrip("v").split("."))
+    except ValueError:
+        return (False, "I1536 PLANT-FAIL OD_CENSUS_PLANT=%s is not "
+                       "<fixture>:<window>:<visit>.<dart>" % spec)
+    if (f, w) != (fixture, window):
+        return None
+    pre = axis_census.assign_events(visits, annots, no_arrival)
+    pos = dict((key, p) for p, key in pre["assigned"].items()).get((v, d))
+    if pos is None:
+        return (False, "I1536 PLANT-FAIL OD_CENSUS_PLANT=%s: arrival v%d.%d has no matched "
+                       "publication to drop, so the plant proves nothing" % (spec, v, d))
+    ev = visits[pos[0]].pop(pos[1])
+    if not visits[pos[0]]:
+        visits.pop(pos[0])
+    return (True, "I1536 PLANT %s dropped v%d#%d (window %d, published %s) -- the "
+                  "publication the matcher gave arrival v%d.%d -- before matching. THIS "
+                  "CENSUS IS PLANTED: it is a proof of the instrument, not a measurement"
+                  % (spec, pos[0] + 1, pos[1] + 1, ev.window,
+                     norm(ev.pub["score"]) if ev.pub else "-", v, d))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", nargs="*", default=None,
@@ -571,6 +832,12 @@ def main():
     for ev in flat:
         if not hasattr(ev, "pub"):
             ev.pub = None
+    planted = plant(visits, annots, no_arrival, args.fixture, args.window)
+    if planted is not None:
+        print(planted[1])
+        if not planted[0]:
+            return 2
+        flat = [ev for visit in visits for ev in visit]
     with_pub = [ev for ev in flat if ev.pub is not None]
     tag = "fixture=%s window=%s" % (args.fixture, args.window)
     if not with_pub:
@@ -726,8 +993,11 @@ def main():
           "dart(s), and #1512 left the tip a corroboration rather than a constraint on "
           "purpose" % (uncorroborated, corroborated_counts.get("exact", 0), matched,
                        uncorroborated))
-    accuracy(args.fixture, args.window, visits, annots, arrivals, assignment,
-             motion_clock(args.log))
+    results = accuracy(args.fixture, args.window, visits, annots, arrivals, assignment,
+                       motion_clock(args.log))
+    detection_and_cameras(args.fixture, args.window, motion_clock(args.log), visits, annots,
+                          arrivals, assignment, results,
+                          read_camera_evidence(args.log, visits))
     counterfactual_rules(args.fixture, args.window, visits, annots, arrivals, assignment,
                          motion_clock(args.log))
     print("I1555 TALLY fixture=%s window=%s matched=%d vote_exact=%d geo_solved=%d "
