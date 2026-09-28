@@ -142,6 +142,14 @@ namespace score_processing
         string boundary_kind;     // "ring" | "wedge"; empty where nothing could flip
         float boundary_mm = -1.0f;
         float uncertainty_mm = -1.0f;
+        // #1487: the published reading's wedge was ASSERTED -- #1346's fallback, the
+        // camera the vote published had no anchor and the 20 is what it says rather than
+        // what it read. The PointScore flag, carried to the one result that publishes so
+        // the fact is a field and not a reading of `confidence == 0.5`. Deliberately NOT
+        // copied into DetectorResult: docs/api.md (#1556 rule 1, held on #1628) is the
+        // outward contract and says what a vote publish carries; this field feeds the log
+        // (`noticeAnAssertedWedge`) and nothing that leaves the board.
+        bool wedge_asserted = false;
     };
 
     /**
@@ -672,6 +680,91 @@ namespace score_processing
             return "wedge not in this reading";
         }
         return point.wedge_measured ? "wedge measured" : "wedge by default";
+    }
+
+    /**
+     * #1487: the falsifier. `OD_ASSERTED_WEDGE=unsaid` is the board before this issue --
+     * an asserted 20 published and the notice below never said -- reachable on one binary
+     * so the tester can show the notice is doing something. It changes no score: the
+     * fallback, the confidence and every per-dart line are what they are either way.
+     */
+    inline bool assertedWedgeGoesUnsaid()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_ASSERTED_WEDGE");
+            return e != nullptr && std::string(e) == "unsaid";
+        }();
+        return v;
+    }
+
+    /**
+     * #1487: A DART WHOSE WEDGE NOBODY MEASURED IS SAID TO BE ONE -- ONCE.
+     *
+     * #1346 decided the fallback: where no camera can name a wedge the vote publishes
+     * the 20 at 0.5, because a Marker correcting a wrong 20 is a better evening than a
+     * board that drops darts. That stands. What it lacked was a sentence: per dart the
+     * log says `wedge by default` on the BOARD line and "No measured wedge" beside it,
+     * both INFO and both easy to read past, and the float is the only thing that says it
+     * to anybody else. This is the board-level half: the FIRST asserted dart of a run is
+     * said in words, and no later one is (#1457: a refusal re-said on every look is
+     * noise an operator learns to skip).
+     *
+     * WHICH SEVERITY, AND WHY IT REUSES #1501 RATHER THAN REPEATING IT. Where no camera
+     * could be read for a wedge at start (`readable == 0`), the board has already said so
+     * as a WARNING -- #1449's "every dart will publish as an asserted 20", beside #1501's
+     * BOARD RECOGNITION verdict naming OD_CAMERA_WEDGES -- so this is INFO and points
+     * back at those lines instead of saying them a third time. Where some camera CAN be
+     * read, start said nothing alarming, and a dart that reached only unanchored cameras
+     * is news: that is the WARNING. Pure and over primitives, so a tester holds it.
+     *
+     * `published_asserted` is ScoreResult::wedge_asserted; `already_said` is the
+     * caller's latch; `unsaid` is assertedWedgeGoesUnsaid().
+     */
+    struct AssertedWedgeNotice
+    {
+        bool say = false;
+        bool warn = false;
+        std::string sentence;
+    };
+
+    inline AssertedWedgeNotice noticeAnAssertedWedge(bool published_asserted, bool already_said,
+                                                     int readable, int cameras,
+                                                     const std::string &score, float confidence,
+                                                     int camera, bool unsaid)
+    {
+        AssertedWedgeNotice n;
+        if (unsaid || !published_asserted || already_said)
+        {
+            return n;
+        }
+        n.say = true;
+        n.warn = readable > 0;
+        char conf[16];
+        snprintf(conf, sizeof(conf), "%.1f", (double)confidence);
+        const std::string first =
+            "ASSERTED WEDGE: a dart was published as " + score + " at " + conf +
+            " from camera " + std::to_string(camera) +
+            " with NO measured wedge -- the 20 is #1346's assertion, not a reading, and " +
+            "the ring and radius are all that were measured. ";
+        const std::string once =
+            " Said once for this run: every later dart like it says `wedge by default` on "
+            "its BOARD line and nothing more.";
+        if (n.warn)
+        {
+            n.sentence = first + std::to_string(readable) + " of " + std::to_string(cameras) +
+                         " cameras can be read for a wedge, and none of them placed this dart." +
+                         once;
+        }
+        else
+        {
+            n.sentence = first + "No camera on this board can be read for a wedge: the "
+                                 "start-up WARNING said every dart would be asserted, the "
+                                 "BOARD RECOGNITION line beside it says why, and "
+                                 "OD_CAMERA_WEDGES is the remedy." +
+                         once;
+        }
+        return n;
     }
 
     /**
