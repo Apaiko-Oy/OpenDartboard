@@ -93,11 +93,15 @@ namespace motion_processing
         return v;
     }
 
-    // #1646's switch. OD_SETTLE_EXPOSURE=hold makes an event wait for every camera's
-    // board level to stop moving before it finishes; unset (or anything else) keeps the
-    // settle test as it was -- motion quiet is settled, whatever the exposure is doing.
+    // #1646's switch, THE DEFAULT since #1662. Every settled event waits for every camera's
+    // board level to stop moving before it finishes; OD_SETTLE_EXPOSURE=off is the pin that
+    // restores the settle test as it was before #1662 -- motion quiet is settled, whatever
+    // the exposure is doing. OD_SETTLE_EXPOSURE=hold, the old opt-in, is accepted and means
+    // the default. Anything but the exact word "off" is ignored, so a typo keeps the default.
+    // The pin says itself once, on the first reading, so a replay under it cannot be read
+    // as the default's (#1631's rule); motion init reads it, so that is at start-up.
     //
-    // OPT-IN, and measured why. On rig-20260922's opening the hold does what it is for:
+    // WHY IT WAS OPT-IN, measured. On rig-20260922's opening the hold does what it is for:
     // the visit-2 takeout's window is read on a correctly exposed board, reconciles CLEAN
     // on all three cameras, and v3.1's S20 gets its own window. But it also removes the
     // ACCIDENT that ended visit 1: camera 3's exposure-shifted 122223 px "falling" to
@@ -106,13 +110,26 @@ namespace motion_processing
     // reference holds #1514's parked 8, so cameras 2 and 3 fall only 1373 -> 1208 and
     // 1256 -> 1084 px, under the 215/182 px dart-sized ceiling -- visit 1 never ends, and
     // the DART_3 cap swallows T9 and T8 in place of the 12. The hold is half of the fix;
-    // the other half is dart_processing's, and until it lands the default stays put.
+    // the other half is dart_processing's (#1648, takeoutReReportIsDeparture), and the two
+    // became the default together.
+    //
+    // #1662: WHY IT IS THE DEFAULT. On #1655's capture-clock bakeoff the two together read
+    // 82/86 (95.3%) against 79/86 (91.9%) with both pinned off: rig-20260922's opening goes
+    // from 20/23 with two phantoms to 23/23 (v2.1's 12, v3.1's 20 and v5.2's 19 gained),
+    // and rig-20260918 and rig-20260922 dev publish the same darts either way. The pins
+    // OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off restore 79/86 row for row.
     static bool exposureGateOff()
     {
         static bool v = []
         {
             const char *e = std::getenv("OD_SETTLE_EXPOSURE");
-            return !(e && std::string(e) == "hold");
+            const bool off = e && std::string(e) == "off";
+            if (off)
+            {
+                log_warning("OD_SETTLE_EXPOSURE=off is set: an event settles on quiet motion whatever "
+                            "a camera's exposure is doing, the default before #1662 (#1646)");
+            }
+            return off;
         }();
         return v;
     }
@@ -127,8 +144,9 @@ namespace motion_processing
     // splash on the weak side of the board is often ONE cycle long. On that cycle and no
     // other, it is dropped. Measured on mocks/rig-20260918 dev, visit 6: v6.3's (the 2's)
     // splash is one cycle at 0.0136 of camera 3's board (f1569, cycle 1480), followed by
-    // 0.0005. The 7's event ends at cycle 1447 by default and 1453 under #1646's hold,
-    // which puts the splash 33 and 27 cycles after it. A 1000 ms cooldown ends on the 27th
+    // 0.0005. The 7's event ends at cycle 1447 under the OD_SETTLE_EXPOSURE=off pin (the
+    // default before #1662) and 1453 under #1646's hold (the default since #1662), which
+    // puts the splash 33 and 27 cycles after it. A 1000 ms cooldown ends on the 27th
     // cycle when cycles run at ~37 ms, the rate a whole-clip replay has at load 4-6, and on
     // the 33rd only at ~30 ms, which the replay does not reach. That is why the hold lost
     // the 2 whole-clip and not in the narrowed replays under heavy load (cycles of 70-90 ms).
@@ -281,6 +299,7 @@ namespace motion_processing
 
             initialized = true;
             log_debug("Motion processing initialized with " + to_string(current_frames.size()) + " cameras");
+            (void)exposureGateOff(); // #1662: the pin, if set, says so at start-up
 
 #ifdef DEBUG_VIA_VIDEO_INPUT
             // #812: see dart_processing.cpp — the debug build and the debug flag, both.

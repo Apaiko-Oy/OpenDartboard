@@ -585,8 +585,8 @@ namespace dart_processing
      * thrower's shadow does to one camera. The pair, and still only a vote: the quorum
      * decides, as it does for every other candidate.
      *
-     * `previous_pixels < 0` (no completed window yet) is no verdict. Opt-in:
-     * OD_TAKEOUT_REREPORT=departure (takeoutReReportIsDeparture below). Pure and inline
+     * `previous_pixels < 0` (no completed window yet) is no verdict. The default since
+     * #1662; OD_TAKEOUT_REREPORT=off pins it off (takeoutReReportIsDeparture below). Pure and inline
      * for the reason readsAsReversion is: testers/i1648_check.cpp holds it.
      */
     inline bool readsAsReReportedDeparture(bool tip_is_rereport, int previous_pixels, int current_pixels)
@@ -594,9 +594,10 @@ namespace dart_processing
         return tip_is_rereport && previous_pixels >= 0 && current_pixels < previous_pixels;
     }
 
-    // #1648's switch: OD_TAKEOUT_REREPORT=departure turns readsAsReReportedDeparture on.
-    // Anything else, unset included, leaves the #1535 re-report an abstention that still
-    // votes to advance. Defined in dart_processing.cpp, where the other pins live.
+    // #1648's switch, the default since #1662: readsAsReReportedDeparture is on unless
+    // OD_TAKEOUT_REREPORT=off, the pin that leaves the #1535 re-report an abstention that
+    // still votes to advance (the default before #1662). "departure", the old opt-in, means
+    // the default. Defined in dart_processing.cpp, where the other pins live.
     bool takeoutReReportIsDeparture();
 
     // #1535 falsification switch: OD_TIP_IDENTITY=off restores the tip machinery as it

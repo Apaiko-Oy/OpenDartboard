@@ -348,13 +348,24 @@ namespace dart_processing
         return v;
     }
 
-    // #1648: opt-in, see readsAsReReportedDeparture in dart_processing.hpp.
+    // #1648: see readsAsReReportedDeparture in dart_processing.hpp. The default since
+    // #1662; OD_TAKEOUT_REREPORT=off is the pin that restores the #1535 re-report as an
+    // abstention that still votes to advance. OD_TAKEOUT_REREPORT=departure, the old
+    // opt-in, is accepted and means the default; anything but the exact word "off" is
+    // ignored, so a typo keeps the default. The pin says itself once, on the first reading
+    // (processDartState reads it on its first window), #1631's rule.
     bool takeoutReReportIsDeparture()
     {
         static bool v = []
         {
             const char *e = std::getenv("OD_TAKEOUT_REREPORT");
-            return e != nullptr && std::string(e) == "departure";
+            const bool off = e != nullptr && std::string(e) == "off";
+            if (off)
+            {
+                log_warning("OD_TAKEOUT_REREPORT=off is set: a camera whose only new tip re-reports an "
+                            "earlier dart abstains and never votes CLEAN, the default before #1662 (#1648)");
+            }
+            return !off;
         }();
         return v;
     }
@@ -922,6 +933,7 @@ namespace dart_processing
                                      bool movement_finished, bool debug_mode, const DartParams &params)
     {
         DartStateResult result;
+        (void)takeoutReReportIsDeparture(); // #1662: the pin, if set, says so on the first window
 
         // #1355: every per-camera array is sized from the camera count, in one place.
         // `previous_states` was a static brace-initialised with exactly THREE CLEANs and
