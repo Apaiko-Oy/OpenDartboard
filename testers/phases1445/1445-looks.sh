@@ -9,7 +9,8 @@ set -u
 # the mean at a thirtieth of its contrast, and a wire boundary that moved between them is
 # smeared across the result. That is a picture no camera ever saw.
 #
-#   A  THE FACT, on a quiet box. mocks/rig-20260918/cam_3's averaged frame against the
+#   A  RETIRED by #1661, 2026-09-28 -- the reason is where it stood, below. It was:
+#      THE FACT, on a quiet box. mocks/rig-20260918/cam_3's averaged frame against the
 #      single frames after it. #1442's author flagged its own 21 as taken at load 12-15;
 #      this re-derives it, and asserts the RELATIONSHIP (the average is refused, a single
 #      frame is not) rather than the literal, so it goes on being true of a re-shot
@@ -33,6 +34,8 @@ set -u
 #      OD_CALIBRATION_LOOKS=once, held to the ACTUAL pre-change numbers -- 2 of 3 on the
 #      rig, 3 of 3 on the shipped mocks -- rather than merely to refusing. A switch that
 #      only ever refuses passes any test that asks it to refuse.
+#      #1661, 2026-09-28: the rig-20260918 arm's refusal half is retired (see C below);
+#      rig-20260922 is the rig this is held to now.
 #
 #   D  NOTHING ADOPTS FRESH GEOMETRY MID-RUN (ADR-0080 section 2), in four parts, because
 #      getting this wrong is worse than the defect it repairs:
@@ -44,7 +47,8 @@ set -u
 #        2  the retry ADDS and never CHANGES: every camera that calibrated with the retry
 #           off has a BYTE-IDENTICAL entry in the seal taken with it on.
 #        3  BOARD ADOPTED GEOMETRY MID-RUN is said by neither run.
-#        4  and the refusal really fires about a RETRIED camera. The rig is run blind and
+#        4  RETIRED by #1661, 2026-09-28 (see D4 below). It was: the refusal really fires
+#           about a RETRIED camera. The rig is run blind and
 #           camera 3 -- the camera that only has geometry because a look gave it one --
 #           comes back nudged 20 px across and 15 px down. With the retry ON the board
 #           must refuse: BOARD MOVED. With it OFF the same nudge must go UNNOTICED, because
@@ -56,7 +60,7 @@ set -u
 #
 # EVERY DETECTOR RUN BELOW IS UNDER A BOUND, by its own recorded pid. A board that cannot
 # calibrate takes #895's vigil and stays up on purpose; OD_MAX_CYCLES does not bound it,
-# and phase C's `once` arm and both arms of D4 are exactly that board.
+# and phase C's `once` arm on rig-20260922 is exactly that board.
 BIN=/app/build/opendartboard
 # How long one bounded run may take to seal (C) or reach its review (D4). #1632: checked
 # against #1631's 31-look default rather than widened. MEASURED 2026-09-27 on the 4-core
@@ -117,26 +121,24 @@ longest_refused_run() { look_whole "$1" | awk '{ if($1==0){r++; if(r>m)m=r} else
 answers_at_all()      { look_whole "$1" | awk '{ if($1==1)n++ } END{print n+0}'; }
 looks_taken()         { look_whole "$1" | wc -l | tr -d ' '; }
 
-SUBJECT=/app/mocks/rig-20260918/cam_3.mp4
-SUBJECT_CAM=2   # 0-based: cam_3 is the third slot, and the seek follows the slot
 
 echo
-echo "=== A. the camera this issue is about: its averaged frame, and the frames after it ==="
-census "$SUBJECT" "$SUBJECT_CAM" /run1445/a_subject.txt
-AW="$(avg_wires /run1445/a_subject.txt)"; AOK="$(avg_whole /run1445/a_subject.txt)"
-LN="$(looks_taken /run1445/a_subject.txt)"; LOK="$(answers_at_all /run1445/a_subject.txt)"
-echo "  rig-20260918/cam_3 averaged over 30 frames: proposes ${AW:-none} wire boundaries, whole ring=${AOK:-none}"
-echo "  the $LN single looks after it: $LOK read a whole ring"
-echo "  what each look proposed: $(look_wires /run1445/a_subject.txt | tr '\n' ' ')"
-if [ -z "${AW:-}" ] || [ "$LN" = 0 ]; then
-  say "FAIL the census measured nothing at all, so nothing here was asked" no
-elif [ "$AOK" != 0 ]; then
-  say "FAIL the averaged frame of rig-20260918/cam_3 is NOT refused on this box ($AW wires), so the defect this slice repairs does not reproduce here and the slice changes shape" no
-elif [ "$LOK" = 0 ]; then
-  say "FAIL the averaged frame is refused and so is every one of the $LN single looks after it; there is no better picture to find and a retry cannot be the repair" no
-else
-  say "OK   the averaged frame proposes $AW and is refused; $LOK of the $LN single looks after it read a whole ring -- the average is a worse reading than frames composing it" ok
-fi
+# === A, RETIRED by #1661 (maintainer's decision, 2026-09-28) ===
+# A asserted that mocks/rig-20260918/cam_3's averaged calibration frame is refused while
+# single looks after it read a whole ring -- the fact this slice was built on. It is no
+# longer a fact of that clip. MEASURED on fork 47ea89d (plus #1632's tester-only
+# commits), and the same at gate-final on 76f386b at load about 2 and in #1457's gate, so
+# not a property of the box: the averaged frame proposes 20 and reads a whole ring, and
+# all 40 single looks after it read 20 as well. A printed `the averaged frame of
+# rig-20260918/cam_3 is NOT refused on this box (20 wires)`. INFERRED, not bisected: the
+# same change as #1645, where every camera of rig-20260918 finds 20 wires at the dev
+# seek. The decision was to retire rather than plant a synthetic frame: the calibration
+# work (#1445, #1456, #1467, #1631) removed the case from real footage, and a planted
+# frame would guard a scenario the rig no longer reaches.
+#
+# The shape A asked about is still measured, on the cameras that still have it: B counts
+# every camera whose averaged frame is refused while single looks answer (#1661 measured
+# two, both on rig-20260922) and fails if there are none.
 
 echo
 echo "=== B. the budget, against the longest run of consecutive refused looks ==="
@@ -185,7 +187,9 @@ done
 # measured in. A look costs one frame read and one calibration, so the span the budget
 # really covers is looks x spacing frames, and both are converted through the stream's own
 # frame rate rather than through --fps.
-FPS="$(sed -n 's/.*I1445 .* fps=\([0-9.]*\) .*/\1/p' /run1445/a_subject.txt | head -1)"
+# #1661: read from B's own censuses. It was read from phase A's, and with A retired a
+# stale path here would have fallen through to the 30 below without a word.
+FPS="$(cat /run1445/b_*.txt 2>/dev/null | sed -n 's/.*I1445 .* fps=\([0-9.]*\) .*/\1/p' | head -1)"
 FPS="${FPS:-30}"
 WORST_S="$(awk -v r="$WORST" -v s="$SPACING" -v f="$FPS" 'BEGIN{printf "%.2f", (f>0)? r*s/f : 0}')"
 SPAN_S="$(awk -v l="$LOOKS" -v s="$SPACING" -v f="$FPS" 'BEGIN{printf "%.2f", (f>0)? l*s/f : 0}')"
@@ -197,7 +201,7 @@ if [ -n "$SILENT" ]; then
   echo "  clips that answered at no look in the window (not a budget question, #1437's):$SILENT"
 fi
 if [ "$RESCUABLE" = 0 ]; then
-  say "FAIL no camera of either fixture has an averaged frame refused where the single frames answer, so this slice repairs nothing measurable here and phase A is the only thing keeping it honest" no
+  say "FAIL no camera of either fixture has an averaged frame refused where the single frames answer, so this slice repairs nothing measurable here -- and since #1661 retired phase A, nothing else in this tester would say so" no
 elif [ "$LOOKS" -le "$WORST" ]; then
   say "FAIL the default budget is $LOOKS looks and the longest run of consecutive refused looks measured here is $WORST ($WORST_WHO); a budget that does not outlast the observed disturbance is a camera set aside for the evening" no
 else
@@ -238,6 +242,17 @@ cams_of() { clips_of "$1" | tr '\n' ',' | sed 's/,$//'; }
 
 echo
 echo "=== C. one binary, the retry on and off, held to the actual numbers ==="
+# #1661 (maintainer's decision, 2026-09-28): the rig-20260918 arm's refusal half is
+# RETIRED. It required that fixture to answer for fewer than all three with the retry
+# disabled, and it no longer does. MEASURED on fork 47ea89d (plus #1632's tester-only
+# commits): both arms print `CAMERAS: 3 of 3` and neither takes a look, because the
+# averaged frame of cam_3 -- the camera A was about -- is no longer refused. The pair is
+# still RUN, because D1-D3 read both transcripts and still have a subject there, and the
+# retry-on half ("answers for all of its clips") is still asserted of it; only "and fewer
+# without the retry" is not. rig-20260922 keeps the whole arm: #1661 measured 3 of 3 with
+# the retry and 1 of 3 without. The name is written out rather than inferred, so a rig
+# that stops refusing is still a red here and not a quiet exemption.
+NO_REFUSAL_ARM=" rig-20260918 "
 for f in $FIXTURES; do
   run "c_${f}_on"   "$(cams_of "$f")"
   run "c_${f}_once" "$(cams_of "$f")" OD_CALIBRATION_LOOKS=once
@@ -255,6 +270,8 @@ for f in $FIXTURES; do
     say "FAIL $f answers for $ON of its $N clips WITH the retry, which is what this slice exists to fix" no
   elif [ "$f" = mocks ] && [ "$OFF" != "$N" ]; then
     say "FAIL the shipped mocks answer $OFF of $N without the retry; this fixture's readings must not have moved and the retry must not be what is holding them up" no
+  elif [ "$f" != mocks ] && [ "$OFF" = "$N" ] && [ "${NO_REFUSAL_ARM#* $f }" != "$NO_REFUSAL_ARM" ]; then
+    say "OK   $f: $ON of $N with the retry; $OFF of $N without it is not asserted (#1661: this rig no longer refuses a camera on its averaged frame)" ok
   elif [ "$f" != mocks ] && [ "$OFF" = "$N" ]; then
     say "FAIL $f answers for all $N with the retry DISABLED, so the switch changes nothing and phase C cannot fail" no
   else
@@ -348,54 +365,15 @@ else
   say "FAIL these runs adopted geometry while running: $ADOPTED" no
 fi
 
-echo
-echo "=== D4. the camera a look calibrated is a camera ADR-0080's review asks about ==="
-# The claim is that a look produces SEALED geometry, under exactly the guard everything
-# else is under -- not a second-class measurement the mid-run refusal is blind to. The
-# observable is `reviewGeometry`, which is the thing ADR-0080 section 2 acts through: it
-# asks every camera whose `sees_board` is true and SKIPS the rest without a word (#1318 --
-# a slot that abstained has no held geometry to compare a picture against). So a camera
-# that only has geometry because a look gave it one must be ASKED, by name, and the same
-# camera on the same footage with the retry off must not be asked at all.
-#
-# That pair is the distinction the issue asks for. The other half -- that the refusal still
-# FIRES -- is #899's and #1388's testers, which measure exactly that and are on this tree;
-# duplicating them here badly would be worse than running them, and the first attempt at
-# it measured the wrong thing twice over (#899's MJPG warp moves which camera is refused,
-# so the nudged fixture was not about camera 3 at all).
-#
-# The board is made blind with OD_BLIND_AFTER and gets its cameras back, which is the one
-# path that reaches reviewGeometry. Bounded by its own recorded pid, not by OD_MAX_CYCLES:
-# a board with a suspended score is still a board that never exits (#895).
-RIGCAMS="$(cams_of rig-20260918)"
-for arm in on once; do
-  rm -rf /run1445/cache "$HOME/.config" 2>/dev/null; mkdir -p "$HOME/.config"
-  ENVARGS="OD_BLIND_AFTER=40 OD_BLIND_FOR_MS=6000"
-  [ "$arm" = once ] && ENVARGS="$ENVARGS OD_CALIBRATION_LOOKS=once"
-  env $ENVARGS $BIN --debug --cams "$RIGCAMS" --width 1280 --height 720 \
-    > "/run1445/d4_$arm.out" 2>&1 &
-  P=$!
-  W="$(await "/run1445/d4_$arm.out" 'BOARD RECOVERED|BOARD MOVED|BOARD FAULTED|GEOMETRY REVIEW' "$WAIT")"
-  echo "  (d4_$arm: the review after ${W}s)"
-  sleep 3
-  kill -TERM $P 2>/dev/null; wait $P 2>/dev/null
-  sed 's/\x1b\[[0-9;]*m//g' "/run1445/d4_$arm.out" > "/run1445/d4_$arm.txt"
-  echo "  arm=$arm: $(grep -aoE 'CAMERAS: [0-9]+ of [0-9]+' "/run1445/d4_$arm.txt" | head -1); the review asked about camera(s): $(grep -aoE 'GEOMETRY REVIEW: camera [0-9]+' "/run1445/d4_$arm.txt" | grep -oE '[0-9]+$' | sort -u | tr '\n' ',' | sed 's/,$//')"
-done
-ON_ASKED="$(grep -aoE 'GEOMETRY REVIEW: camera 3' /run1445/d4_on.txt | wc -l | tr -d ' ')"
-OFF_ASKED="$(grep -aoE 'GEOMETRY REVIEW: camera 3' /run1445/d4_once.txt | wc -l | tr -d ' ')"
-ON_ANY="$(grep -aoE 'GEOMETRY REVIEW: camera [0-9]+' /run1445/d4_on.txt | wc -l | tr -d ' ')"
-OFF_ANY="$(grep -aoE 'GEOMETRY REVIEW: camera [0-9]+' /run1445/d4_once.txt | wc -l | tr -d ' ')"
-if [ "$ON_ANY" = 0 ] || [ "$OFF_ANY" = 0 ]; then
-  say "FAIL one of the arms never reached a geometry review at all (on=$ON_ANY lines, once=$OFF_ANY), so nothing here was asked" no
-elif [ "$ON_ASKED" = 0 ]; then
-  say "FAIL camera 3 has geometry only because a look gave it one, and ADR-0080's review did not ask it: a retry's geometry is not under the same guard as the rest" no
-elif [ "$OFF_ASKED" != 0 ]; then
-  say "FAIL the review asked camera 3 with the retry DISABLED too, so being asked is not attributable to the look and this proves nothing" no
-else
-  grep -aE 'GEOMETRY REVIEW: camera 3' /run1445/d4_on.txt | head -1 | sed 's/^/       /'
-  say "OK   the review asks camera 3 on the board that calibrated it by a look ($ON_ASKED line(s) of $ON_ANY) and does not ask it at all on the board that set it aside -- a look produces sealed geometry, not a second-class measurement" ok
-fi
+# === D4, RETIRED by #1661 (maintainer's decision, 2026-09-28) ===
+# D4 blinded rig-20260918 (OD_BLIND_AFTER) with the retry on and off, and asserted that
+# ADR-0080's review asks camera 3 only on the board where a LOOK gave camera 3 its
+# geometry. That rests on camera 3 being refused on its averaged frame, and it no longer
+# is. MEASURED on fork 47ea89d (plus #1632's tester-only commits): camera 3 calibrates on
+# its first frame, so the `once` arm scores it too and the review asked it there as well
+# -- D4 printed `the review asked camera 3 with the retry DISABLED too`. The decision was
+# to retire rather than plant a synthetic frame (see A above). D1-D3 still hold what a
+# look may and may not do to the seal, on every run phase C made.
 
 echo
 echo "=== the verdict ==="

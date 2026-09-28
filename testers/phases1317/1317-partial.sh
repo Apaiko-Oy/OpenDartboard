@@ -1,6 +1,11 @@
 set -u
 # #1317: a partial wire detection, the three guards, and the control, in one run.
 #
+# #1645, 2026-09-28: it no longer does. Second 6 of rig-20260918 now gives every camera its
+# twenty wires, and the sections that were about the shortfall (2, 3 and 3d) are retired
+# where they stood, each with the measured reason. The history below is kept because it is
+# why the clip and the second were chosen, and why 3c and 3e still read this footage.
+#
 # The partial detection is NOT constructed. mocks/rig-20260918 is the rig that produced
 # `Selected 9 averaged wires from 21 candidates` live on 2026-09-18, and it reproduces the
 # fault: over its clean first fifteen seconds the ensemble selects 18, 19 or 20 wires
@@ -130,31 +135,31 @@ if grep -q '^GUARDS_RC=0' /run1317/guards.out; then
   say "OK   every guard fired, and its positive control passed beside it" ok
 else say "FAIL the guard tester failed; its lines are above" no; fi
 
-echo "=== 2. the log stops lying: Found N is what was found ==="
-grep -E 'Found [0-9]+ wire boundaries' /run1317/partial_dbg.txt | sort -u || true
-# The ensemble says how many it selected and the wire stage says how many it found. They
-# are the same number, and nothing can assert that by agreeing with a constant.
-MISMATCH=0
-while read -r sel; do
-  grep -q "Found $sel wire boundaries" /run1317/partial_dbg.txt || MISMATCH=$((MISMATCH+1))
-done < <(grep -oE 'Selected [0-9]+ averaged wires' /run1317/partial_dbg.txt | awk '{print $2}' | sort -u)
-if [ "$MISMATCH" = "0" ]; then say "OK   every count the ensemble selected is the count the stage reports" ok
-else say "FAIL $MISMATCH selected counts are reported as something else" no; fi
-SHORT=$(grep -oE 'Found [0-9]+ wire boundaries' /run1317/partial_dbg.txt | awk '$2 != 20' | wc -l)
-if [ "$SHORT" != "0" ]; then say "OK   $SHORT of those lines print a number that is not 20" ok
-else say "FAIL every line still prints 20, so nothing was measured" no; fi
-
-echo "=== 3. a partial detection does not calibrate, and the failure names the count ==="
-grep -E '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera' /run1317/partial.txt || true
-REFUSED=$(grep -cE '^\[ERROR\]\[GEOMETRY_CALIBRATION\] - Camera [0-9]+ did not calibrate: the wire stage found [0-9]+ wire boundaries and all [0-9]+ are needed' /run1317/partial.txt || true)
-if [ "$REFUSED" -ge 1 ]; then say "OK   $REFUSED camera(s) refused by name, with the count and the threshold in one sentence" ok
-else say "FAIL no camera was refused on its wire count -- this input is not a partial detection and the rest of this section proves nothing" no; fi
+# === 2 and 3, RETIRED by #1645 (maintainer's decision, 2026-09-28) ===
+# Section 2 asserted that the ensemble's `Selected N` is the stage's `Found N`, and that at
+# least one line printed a number other than 20; section 3 asserted that a camera was
+# refused by name on its wire count. Both are about a partial wire detection, and second 6
+# of mocks/rig-20260918 no longer produces one. MEASURED on fork 76f386b: every camera finds
+# 20 wires there and all three calibrate on the averaged frame, so the run printed
+# `every line still prints 20` and `no camera was refused on its wire count`. A scan of
+# seconds 0, 3, 6, 9, 12 and 15 found only 15 refusing a camera, and that on coherence
+# (R=0.378809 < 0.6), not on the wire count -- which is 3e's subject, below. The decision
+# was to retire rather than plant a synthetic frame: the calibration work (#1445, #1456,
+# #1467, #1631) removed the case from real footage, and a planted frame would guard a
+# scenario the rig no longer reaches. If footage turns up that comes up short on the wires
+# again, the partial-wire case comes back as a new section pointed at it.
+#
+# 3b and 3c still read the partial run, so it is still made. 3b is NOT retired, but with no
+# wire-count refusal in the run it has nothing to count and passes on zero lines; the
+# line below says so rather than letting it read as a measurement.
 
 echo "=== 3b. the number it prints is the number that fell short ==="
 # #1321's rule: a line nothing can falsify is not evidence. A camera refused for finding
 # AS MANY wires as the stage needs did not fail on the wire count.
 BAD=$(grep -oE 'the wire stage found [0-9]+ wire boundaries and all [0-9]+ are needed' /run1317/partial.txt \
   | awk '$5 >= $10 { print }' | wc -l)
+PRINTED=$(grep -cE 'the wire stage found [0-9]+ wire boundaries and all [0-9]+ are needed' /run1317/partial.txt || true)
+echo "wire-count refusals printed in this run: $PRINTED (#1645: none is expected on this footage, and then this check has read nothing)"
 if [ "$BAD" = "0" ]; then say "OK   every wire count printed is below the threshold it is printed against" ok
 else say "FAIL $BAD refusals print a count that is not below its own threshold" no; fi
 
@@ -254,48 +259,14 @@ else
   fi
 fi
 
-echo "=== 3d. a board on which nothing calibrated says so ==="
-# #1335: this required all three cameras to come up short at once, which is what second 6
-# of this fixture did when #1317 was carried and does not do on this tree: camera 3 finds
-# its twenty wires and the board comes up on one camera. The header above says why that is
-# not a surprise -- how many cameras fall short depends on the second the calibration
-# lands on, and the second it lands on depends on the host's clock -- so asserting the
-# board-level failure on a three-camera board was asserting a coincidence.
-#
-# It is measured instead on a board where it cannot vary: the clip this run has just
-# refused on the wire count, given to a board that has nothing else. Which clip that is
-# is read out of the run above, never pinned, and if the run refused none there is
-# nothing to measure and this section says so rather than passing.
-SHORT=$(grep -oE 'Camera [0-9]+ did not calibrate: the wire stage found' /run1317/partial.txt \
-  | head -1 | awk '{print $2}')
-if [ -z "${SHORT:-}" ]; then
-  say "FAIL no camera was refused on its wire count above, so there is no board to measure this on" no
-else
-  echo "--- the clip camera $SHORT was refused on, alone on its own board ---"
-  /app/build/opendartboard --cams /run1317/partial_$SHORT.avi \
-    --width 1280 --height 720 > /run1317/alone.out 2> /run1317/alone.err &
-  ALONE=$!
-  sleep 25
-  kill -TERM $ALONE 2>/dev/null
-  wait $ALONE 2>/dev/null
-  echo "ALONE_RC=$?"
-  sed 's/\x1b\[[0-9;]*m//g' /run1317/alone.out > /run1317/alone.txt
-  grep -E 'CAMERAS: [0-9]+ of 1|did not calibrate' /run1317/alone.txt | head -2 || true
-  # The positive control: this board really did refuse its only camera, on the wires.
-  if grep -qE 'CAMERAS: 0 of 1' /run1317/alone.txt &&
-     grep -qE 'Camera 1 did not calibrate: the wire stage found [0-9]+ wire boundaries' /run1317/alone.txt; then
-    say "OK   the only camera on this board was refused on its wire count" ok
-  else say "FAIL this board did not refuse its only camera on the wire count, so the rest of 3d proves nothing" no; fi
-  if grep -q 'Initial calibration completed successfully' /run1317/alone.txt; then
-    say "FAIL no camera saw the board and it still calibrated" no
-  else say "OK   no 'Initial calibration completed successfully'" ok; fi
-  if grep -qE 'BOARD FAULTED: camera [0-9]+ did not calibrate: the wire stage found' /run1317/alone.txt; then
-    say "OK   the vigil says which camera and that it was the wires" ok
-  else
-    grep -E 'BOARD FAULTED' /run1317/alone.txt | head -2 || true
-    say "FAIL BOARD FAULTED does not name the wire count" no
-  fi
-fi
+# === 3d, RETIRED by #1645 (maintainer's decision, 2026-09-28) ===
+# 3d gave the clip a camera was refused on AT THE WIRE COUNT a board of its own, and asserted
+# the board said it had nothing (`CAMERAS: 0 of 1`, BOARD FAULTED naming the wires). The
+# clip is read out of section 3's refusals, and since second 6 of rig-20260918 refuses no
+# camera on its wire count (MEASURED on fork 76f386b: all three find 20 wires and
+# calibrate) there has been no clip to give it -- it printed `no camera was refused on its
+# wire count above, so there is no board to measure this on`. Retired with 2 and 3, for
+# the reason given there.
 
 echo "=== 3e. a camera refused on its averaged frame is looked at again, and the census says what the looks found ==="
 # #1475, the maintainer's decision of 2026-09-20: assert the second pass, not a refusal
