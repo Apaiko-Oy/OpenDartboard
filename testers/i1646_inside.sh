@@ -3,16 +3,23 @@
 # (visits 1-3: 780 detector cycles, video frames 90-869), OD_WINDOW_CENSUS=1 so each
 # window prints every camera's board figure:
 #
-#   default   the tree's settle: motion quiet is settled
-#   hold      OD_SETTLE_EXPOSURE=hold
+#   pinned    OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off: motion quiet is settled
+#             (the default before #1662)
+#   hold      OD_TAKEOUT_REREPORT=off: #1646's hold alone (the hold is the default since
+#             #1662; #1648's rule, the other half of that default, is pinned off)
+#
+# These are the same two configurations as before #1662 (the tree's settle, then
+# OD_SETTLE_EXPOSURE=hold), reached through the pins.
 #
 # A detector cycle n is video frame n+89 on this window: the opening calibration
 # consumes frames 0-89 (OD_TRACE's capture_ms is 3000 on the first cycle).
 #
 # ASSERTED, each a measured fact of #1646's comment:
-#   default  window 2 (the visit-1 takeout) reads camera 3's board >= 50000 px changed:
+#   pinned   the run says both pins are set, and the hold run says only
+#            OD_TAKEOUT_REREPORT=off is;
+#   pinned   window 2 (the visit-1 takeout) reads camera 3's board >= 50000 px changed:
 #            the exposure, not a dart (a dart is ~1000-3000 px on camera 3);
-#   default  window 3 (v2.1's arrival) reconciles CLEAN: the 12 is swallowed;
+#   pinned   window 3 (v2.1's arrival) reconciles CLEAN: the 12 is swallowed;
 #   hold     camera 3 is held >= 20 cycles after the visit-1 takeout;
 #   hold     window 2 reads camera 3's board under 5000 px;
 #   hold     some window reconciles CLEAN on all three cameras (the visit-2 takeout);
@@ -39,10 +46,10 @@ replay() { # $1 name, rest env
     [ $rc -eq 0 ] || [ $rc -eq 124 ] || { tail -5 "$RUN/$out.txt"; echo "FAIL the $out replay did not finish"; exit 1; }
 }
 
-replay default
-replay hold OD_SETTLE_EXPOSURE=hold
+replay pinned OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off
+replay hold OD_TAKEOUT_REREPORT=off
 
-for n in default hold; do
+for n in pinned hold; do
     echo "=== $n"
     grep -E 'WINDOW CENSUS|I1555PUBLISH|SCORE: END|I1646 EXPOSURE' "$RUN/$n.txt" |
         sed -e 's/^\[[A-Z]*\]\[[A-Z_]*\] - //' | cut -c1-260
@@ -68,13 +75,17 @@ def check(ok, what):
     print(("OK   " if ok else "FAIL ") + what)
     bad += 0 if ok else 1
 
-d, h = load("default"), load("hold")
+d, h = load("pinned"), load("hold")
 dc, hc = census(d), census(h)
+check(any("OD_SETTLE_EXPOSURE=off is set" in l for l in d) and any("OD_TAKEOUT_REREPORT=off is set" in l for l in d),
+      "pinned: the run says both pins are set")
+check(not any("OD_SETTLE_EXPOSURE=off is set" in l for l in h) and any("OD_TAKEOUT_REREPORT=off is set" in l for l in h),
+      "hold: the run says only OD_TAKEOUT_REREPORT=off is set")
 check(2 in dc and dc[2][3].get(3, 0) >= 50000,
-      "default: window 2 (visit-1 takeout) reads camera 3's board at %s px -- the exposure"
+      "pinned: window 2 (visit-1 takeout) reads camera 3's board at %s px -- the exposure"
       % (dc.get(2, (0, 0, 0, {}))[3].get(3)))
 check(3 in dc and dc[3][0] == "CLEAN",
-      "default: window 3 (v2.1's arrival) reconciles %s -- the 12 is swallowed" % (dc.get(3, ("?",))[0]))
+      "pinned: window 3 (v2.1's arrival) reconciles %s -- the 12 is swallowed" % (dc.get(3, ("?",))[0]))
 held = [int(x) for x in re.findall(r"EXPOSURE RELEASE .*? held=(\d+)", "\n".join(h))]
 cam3 = [l for l in h if "EXPOSURE HOLD" in l and " cam=3 " in l]
 check(len(cam3) >= 1 and max(held or [0]) >= 20,

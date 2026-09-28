@@ -18,12 +18,18 @@ T22=/app/testers/i1499_truth_rig20260922.md
 A22=/app/testers/i1511_annotations/rig-20260922.csv
 [ -x $BIN ] || { echo "FAIL no $BIN"; exit 1; }
 
+# #1662: the exposure hold and #1648's takeout re-report are the default, and this
+# measurement predates them, so every replay here pins both off (OD_SETTLE_EXPOSURE=off
+# OD_TAKEOUT_REREPORT=off): the configurations are the ones measured, byte for byte in
+# what the binary is told. What the two switches do is 1646-exposure's, 1648-takeout's
+# and 1555-bakeoff's to measure.
+MOTION_PINS="OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
 replay() { # $1 name, $2.. env
     local out="$1"; shift
     cd "$RUN" || exit 1
     rm -rf "$RUN/cache" "$RUN/debug_frames"
     local d=/app/mocks/rig-20260922
-    env OD_MAX_CYCLES=0 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 "$@" \
+    env OD_MAX_CYCLES=0 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_LOOK_BUDGET=1605 OD_SEEK_ALIGN=1618 $MOTION_PINS "$@" \
         timeout 900 $BIN --cams "$d/cam_1.mp4,$d/cam_2.mp4,$d/cam_3.mp4" --width 1280 --height 720 \
         > "$RUN/$out.out" 2>&1
     local rc=$?

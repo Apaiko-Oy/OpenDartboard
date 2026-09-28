@@ -57,10 +57,16 @@ if [ -n "$NEWEST" ]; then
 fi
 
 R22=/app/mocks/rig-20260922
+# #1662: the exposure hold and #1648's takeout re-report are the default, and this
+# measurement predates them, so every replay here pins both off (OD_SETTLE_EXPOSURE=off
+# OD_TAKEOUT_REREPORT=off): the configurations are the ones measured, byte for byte in
+# what the binary is told. What the two switches do is 1646-exposure's, 1648-takeout's
+# and 1555-bakeoff's to measure.
+MOTION_PINS="OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
 replay() { # $1 out name, $2.. env
   local out="$1"; shift
   rm -rf $RUN/cache $RUN/debug_frames
-  ( cd $RUN && env OD_MAX_CYCLES=0 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 "$@" timeout 900 $BIN \
+  ( cd $RUN && env OD_MAX_CYCLES=0 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 $MOTION_PINS "$@" timeout 900 $BIN \
       --cams "$R22/cam_1.mp4,$R22/cam_2.mp4,$R22/cam_3.mp4" --width 1280 --height 720 \
       > $RUN/$out.out 2>&1 )
   local rc=$?
@@ -135,5 +141,5 @@ echo "$D3" | grep -qE 'published=T1 exact'; note $? "both pins: v8.1 publishes T
 
 echo
 if [ "$FAIL" -gt 0 ]; then echo "RESULT: $FAIL failure(s)"; exit 1; fi
-echo "RESULT: a spike while an event settles no longer drops the event; rig-20260922's visit-7 takeout gets its window and v8.1 publishes T1 under the default (#1605's budget and #1618's alignment on)"
+echo "RESULT: a spike while an event settles no longer drops the event; rig-20260922's visit-7 takeout gets its window and v8.1 publishes T1 under the default (#1605's budget and #1618's alignment on), with #1662's motion switches pinned off"
 exit 0
