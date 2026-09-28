@@ -341,8 +341,12 @@ tester 1441-region        "bash '$T/i1441_run.sh'"
 # CEILING rather than a quiet figure. It had been killed at ~1133-1200 s. The budget is
 # twice the measured ceiling. (The row is red on its own section C, #1658 -- no frame
 # proposes more than twenty any more -- which is a finding, not a budget.)
+# #1658 (2026-09-28): the census (B) and its vacuity check (C) are retired, because the
+# footage no longer reaches the case, and the census program is no longer built. What is
+# left is the pure check, A. MEASURED 2026-09-28 on the 4-core box, to completion, rc=0:
+# wall 57 s at load 5.7-8.0 (#1662's replays alongside). Twice that is 114 s, well inside
+# the default 1200, so the `slow 3100` #1632 gave it is gone with the cost it was for.
 tester 1442-count         "bash '$T/i1442_run.sh'"
-slow 3100
 
 # #1423: which ring the calibration stage measured -- the doubles ring or the treble
 # ring -- read from the image rather than from a constant fitted to a rig. Its statistic
