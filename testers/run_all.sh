@@ -341,8 +341,12 @@ tester 1441-region        "bash '$T/i1441_run.sh'"
 # CEILING rather than a quiet figure. It had been killed at ~1133-1200 s. The budget is
 # twice the measured ceiling. (The row is red on its own section C, #1658 -- no frame
 # proposes more than twenty any more -- which is a finding, not a budget.)
+# #1658 (2026-09-28): the census (B) and its vacuity check (C) are retired, because the
+# footage no longer reaches the case, and the census program is no longer built. What is
+# left is the pure check, A. MEASURED 2026-09-28 on the 4-core box, to completion, rc=0:
+# wall 57 s at load 5.7-8.0 (#1662's replays alongside). Twice that is 114 s, well inside
+# the default 1200, so the `slow 3100` #1632 gave it is gone with the cost it was for.
 tester 1442-count         "bash '$T/i1442_run.sh'"
-slow 3100
 
 # #1423: which ring the calibration stage measured -- the doubles ring or the treble
 # ring -- read from the image rather than from a constant fitted to a rig. Its statistic
@@ -381,8 +385,14 @@ tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
 # still red, on phase A, C's rig-20260918 arm and D4: all three rest on rig-20260918/cam_3's
 # averaged frame being refused, and it no longer is (it reads 20 wires, as #1645 found for
 # the same clip). That is a finding and not a budget: #1661.
+# #1661 (2026-09-28): phase A, the refusal half of C's rig-20260918 arm, and D4 are
+# retired, because the footage no longer refuses that camera; B is the cost and it is
+# kept. MEASURED 2026-09-28 on the 4-core box, to completion, rc=0: wall 2269 s at load
+# 5.8-12.3 (median 10.5; #1662's replays alongside), so again a CEILING, and a louder one
+# than #1632's -- A and D4 were a few minutes of it. Twice it is 4538, so the budget is
+# 4600.
 tester 1445-looks         "bash '$T/i1445_run.sh'"
-slow 4400
+slow 4600
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"

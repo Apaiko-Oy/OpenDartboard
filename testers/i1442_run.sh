@@ -5,13 +5,15 @@
 #   testers/run_all.sh 1442      build the tree and run this
 #   testers/i1442_run.sh         run it against whatever is in this tree's src/
 #
-# Like #1441's beside it, this compiles #1437's wire census against this tree's
-# calibration stage and measures through it, plus a pure check of the count and the two
-# guards it decides. So it does not read build/opendartboard and does not start a
+# Like #1441's beside it, this compiled #1437's wire census against this tree's
+# calibration stage and measured through it, plus a pure check of the count and the two
+# guards it decides. #1658 (2026-09-28) retired the census half, because no frame of
+# either fixture proposes more than twenty any more; the pure check is what is left. It
+# does not read build/opendartboard and does not start a
 # detector: nothing here needs bounding by a pid, because nothing here is the board that
 # never exits (#895).
 #
-# The four claims and why each one is there are at the top of phases1442/1442-count.sh.
+# What is asserted, and what was retired and why, is at the top of phases1442/1442-count.sh.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 PHASE="${1:-$OD_TREE_ROOT/testers/phases1442/1442-count.sh}"
