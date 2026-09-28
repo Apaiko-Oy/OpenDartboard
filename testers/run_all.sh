@@ -600,9 +600,8 @@ tester 1456-bestlook      "bash '$T/i1456_run.sh'"
 # OD_LONE_WIRE=clear. The pure half: one compile, three runs, the mutation proof inside.
 tester 1628-wire          "bash '$T/i1628_check.sh'"
 # #1628's fixture half: rig-20260922 dev with both #1605/#1618 switches on, replayed
-# default and OD_LONE_WIRE=clear, #1662's motion switches pinned off in both. NOT YET MEASURED: two whole-clip replays, estimated
-# ~300-400 s from one such replay's cost inside #1555's bakeoff; the 1500 is a guess
-# with headroom, to be replaced by the first measured number.
+# default and OD_LONE_WIRE=clear, #1662's motion switches pinned off in both. Two
+# whole-clip replays. MEASURED 2026-09-28 on the 4-core box at load ~6 (#1662): 478 s.
 tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
@@ -611,7 +610,7 @@ tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # OD_SETTLE_SPIKE=discard restores the old line. Three whole-clip rig-20260922 dev replays:
 # pinned, repaired (the default), and both #1631 pins (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off),
 # each with #1662's motion switches pinned off (OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off).
-# NOT YET MEASURED: three whole-clip replays, about 13 min at load ~10 by #1627's single replays (264 s each); slow 1500 is 1618-thirdcam's allowance.
+# Three whole-clip replays. MEASURED 2026-09-28 on the 4-core box at load ~5-6 (#1662): 685 s, inside the 1500 given (1618-thirdcam's allowance).
 tester 1627-takeout       "bash '$T/i1627_run.sh'"
 slow 1500
 # #1646: on rig-20260922's opening, camera 3's automatic exposure is still walking back
