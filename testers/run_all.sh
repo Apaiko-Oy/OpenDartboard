@@ -516,6 +516,14 @@ tester 1498-anchor-read   "bash '$T/i1498_run.sh'"
 # a WARN naming OD_CAMERA_WEDGES as the remedy, measured with #1498's numberless-annulus
 # control on the rig. A pure check of every verdict first, then four calibration-only starts.
 tester 1501-board-named   "bash '$T/i1501_run.sh'"
+# #1487: a dart whose wedge nobody measured is said to be one -- once per run, in words, at
+# default level (#1346's asserted 20 stands; this is the sentence that goes with it). The
+# pure notice on this tree and under OD_ASSERTED_WEDGE=unsaid (the falsifier: the board
+# before #1487), then three whole-clip runs of mocks/rig-20260918 -- as recorded (every
+# wedge measured: the control, never marked), with OD_NUMBER_ANCHOR=off (every dart
+# asserted: said ONCE), and that again under the falsifier (said never, same SCORE lines)
+# -- then two planted headers, the latch and the mark, each shown red.
+tester 1487-asserted-said "bash '$T/i1487_run.sh'"
 # #1474: whether the board SENDS how many of its cameras a dart is scored from. #1343
 # shipped the server half -- Turnaus stores the census and the marking page draws it -- and
 # no board ever posted it, so the feature was live and inert and every board read as

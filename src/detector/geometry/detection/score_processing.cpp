@@ -15,6 +15,9 @@ namespace score_processing
 {
 
     static bool initialized = false;
+    // #1487: whether this run has said, in words, that it published an asserted wedge.
+    // Once per run -- the board -- and never per dart (#1457).
+    static bool asserted_wedge_said = false;
     static unique_ptr<streamer> point_on_screen_streamer;
 
     // Helper: Check if point is inside ellipse (pure math)
@@ -1198,6 +1201,8 @@ namespace score_processing
                 result.ring = point_scores[best_camera].ring;
                 result.segment = point_scores[best_camera].segment;
                 result.board = point_scores[best_camera].board;
+                // #1487: and whether that camera's wedge was asserted, as a field.
+                result.wedge_asserted = point_scores[best_camera].wedge_asserted;
                 // #1489: three states where this line printed two. "wedge measured" and
                 // "wedge by default" are byte-for-byte what they were -- #1484's census
                 // reads them -- and a BULL or an OUTER now says the thing it always was:
@@ -1221,6 +1226,34 @@ namespace score_processing
                 if (debug_mode)
                 {
                     log_warning("State changed but no valid scores found!");
+                }
+            }
+
+            // #1487: the first dart of this run whose wedge nobody measured is said so in
+            // words, once. After the branch, so the geometric path and the no-winner MISS
+            // pass through it too and are refused by the field rather than by position.
+            {
+                vector<orientation_processing::OrientationData> orientations;
+                for (const DartboardCalibration &c : calibrations)
+                {
+                    orientations.push_back(c.orientation);
+                }
+                const AssertedWedgeNotice notice = noticeAnAssertedWedge(
+                    result.wedge_asserted, asserted_wedge_said,
+                    orientation_processing::camerasWhoseWedgeCanBeRead(orientations),
+                    (int)calibrations.size(), result.score, result.confidence,
+                    result.camera_index, assertedWedgeGoesUnsaid());
+                if (notice.say)
+                {
+                    asserted_wedge_said = true;
+                    if (notice.warn)
+                    {
+                        log_warning(notice.sentence);
+                    }
+                    else
+                    {
+                        log_info(notice.sentence);
+                    }
                 }
             }
 
