@@ -1,7 +1,8 @@
 #!/bin/bash
 # #1650's harness: rig-20260918 dev, visit 6. The 2 (v6.3) splashes for ONE cycle on
 # camera 3 (0.0136 of its board at f1569), and case COOLDOWN drops a spike on the cycle its
-# clock runs out. #1646's hold moves the 7's event six cycles later, which at a whole-clip
+# clock runs out. #1646's hold (the default since #1662; OD_SETTLE_EXPOSURE=off is the
+# pin) moves the 7's event six cycles later, which at a whole-clip
 # replay's cycle rate puts the cooldown's last cycle on that splash. OD_COOLDOWN_EXPIRY=spike
 # (opt-in) starts the event on that cycle instead.
 #

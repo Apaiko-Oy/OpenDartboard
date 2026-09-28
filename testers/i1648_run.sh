@@ -1,10 +1,11 @@
 #!/bin/bash
-# #1648's harness: rig-20260922's opening window, visits 1-3, under #1646's
-# OD_SETTLE_EXPOSURE=hold. On that correctly exposed picture the visit-1 takeout cannot
+# #1648's harness: rig-20260922's opening window, visits 1-3, under #1646's exposure hold
+# (the default since #1662). On that correctly exposed picture the visit-1 takeout cannot
 # reconcile CLEAN, because the calibration reference still holds the parked 8, so cameras
-# 2 and 3 fall by less than a dart. OD_TAKEOUT_REREPORT=departure (opt-in) lets a camera
-# whose only new tip re-reports an earlier dart of the visit, and whose cumulative figure
-# fell, vote CLEAN. This measures the hold alone and the hold with the rule.
+# 2 and 3 fall by less than a dart. The takeout re-report rule (the default since #1662;
+# OD_TAKEOUT_REREPORT=off is the pin) lets a camera whose only new tip re-reports an
+# earlier dart of the visit, and whose cumulative figure fell, vote CLEAN. This measures
+# the hold alone (the rule pinned off) and the hold with the rule (the default).
 #
 #   testers/run_all.sh 1648-takeout    build the tree and run this
 #   testers/i1648_run.sh               run it against this checkout's build/

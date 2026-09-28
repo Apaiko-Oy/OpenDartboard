@@ -3,9 +3,15 @@
 # (1620 cycles: through visit 6 and its takeout), OD_TRACE and OD_WINDOW_CENSUS=1, all on
 # OD_MOTION_CLOCK=capture with OD_COOLDOWN_MS=900:
 #
-#   default   the tree's settle and cooldown
-#   hold      OD_SETTLE_EXPOSURE=hold (#1646)
-#   fix       OD_SETTLE_EXPOSURE=hold OD_COOLDOWN_EXPIRY=spike
+#   pinned    OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off: the settle and cooldown
+#             before #1662
+#   hold      OD_TAKEOUT_REREPORT=off: #1646's hold (the default since #1662) with
+#             #1648's rule pinned off
+#   fix       OD_TAKEOUT_REREPORT=off OD_COOLDOWN_EXPIRY=spike
+#
+# #1662 made the hold and #1648's rule the default, so these are the same three
+# configurations as before it (the tree's settle, OD_SETTLE_EXPOSURE=hold, and that plus
+# OD_COOLDOWN_EXPIRY=spike), reached through the pins.
 #
 # Why the clock and the cooldown are pinned: the motion machine's timers run on wall time
 # by default, so where the 1000 ms cooldown ends, counted in cycles, depends on the box's
@@ -17,7 +23,8 @@
 #
 # ASSERTED, each a measured fact of #1650's comment:
 #   all three  the 2's splash is cycle 1480: camera 3 over the spike threshold, one cycle;
-#   default    the 7's event ends at 1447, the splash starts an event, S7 then S2 publish;
+#   pinned     the run says both pins are set;
+#   pinned     the 7's event ends at 1447, the splash starts an event, S7 then S2 publish;
 #   hold       the 7's event ends at 1453, the splash cycle is the cooldown's last
 #              (COOLDOWN -> IDLE on it), no event starts there, and visit 6 publishes S7
 #              then END with no S2;
@@ -42,11 +49,11 @@ replay() { # $1 name, rest env
     [ $rc -eq 0 ] || [ $rc -eq 124 ] || { tail -5 "$RUN/$out.txt"; echo "FAIL the $out replay did not finish"; exit 1; }
 }
 
-replay default
-replay hold OD_SETTLE_EXPOSURE=hold
-replay fix OD_SETTLE_EXPOSURE=hold OD_COOLDOWN_EXPIRY=spike
+replay pinned OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off
+replay hold OD_TAKEOUT_REREPORT=off
+replay fix OD_TAKEOUT_REREPORT=off OD_COOLDOWN_EXPIRY=spike
 
-for n in default hold fix; do
+for n in pinned hold fix; do
     echo "=== $n"
     grep -E 'WINDOW CENSUS: #2[0-3] |I1555PUBLISH window=2[0-3] |SCORE: END|I1646 EXPOSURE (HOLD|RELEASE) cycle=14|I1650' "$RUN/$n.txt" |
         sed -e 's/^\[[A-Z]*\]\[[A-Z_]*\] - //' | cut -c1-200 | tail -12
@@ -83,7 +90,10 @@ def check(ok, what):
     print(("OK   " if ok else "FAIL ") + what)
     bad += 0 if ok else 1
 
-for n, end, pubs in (("default", 1447, ["S7", "S2", "|"]),
+pinned = text("pinned")
+check(any("OD_SETTLE_EXPOSURE=off is set" in l for l in pinned) and any("OD_TAKEOUT_REREPORT=off is set" in l for l in pinned),
+      "pinned: the run says both pins are set")
+for n, end, pubs in (("pinned", 1447, ["S7", "S2", "|"]),
                      ("hold", 1453, ["S7", "|"]),
                      ("fix", 1453, ["S7", "S2", "|"])):
     t, lines = trace(n), text(n)

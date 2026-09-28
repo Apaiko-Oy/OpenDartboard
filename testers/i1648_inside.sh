@@ -3,10 +3,16 @@
 # (visits 1-3: 900 detector cycles, video frames 90-989; cycle n is video frame n+89),
 # OD_WINDOW_CENSUS=1:
 #
-#   hold     OD_SETTLE_EXPOSURE=hold                                 (#1646's switch alone)
-#   rule     OD_SETTLE_EXPOSURE=hold OD_TAKEOUT_REREPORT=departure   (#1648's rule on top)
+#   hold     OD_TAKEOUT_REREPORT=off   (#1646's hold alone: the rule pinned off)
+#   rule     nothing passed            (#1648's rule on top: the default since #1662)
+#
+# #1662 made both the default, so these are the same two configurations as before #1662
+# (OD_SETTLE_EXPOSURE=hold, then that plus OD_TAKEOUT_REREPORT=departure), reached by the
+# pin for the first and by the default for the second.
 #
 # ASSERTED:
+#   hold  the pinned run says OD_TAKEOUT_REREPORT=off is set, and the default run says
+#         no pin is set;
 #   hold  window 2 (the visit-1 takeout) does NOT reconcile CLEAN, and the rule's line
 #         never prints: what the switch is for, measured without it;
 #   rule  the rule fires on camera 2 in window 2, and window 2 reconciles CLEAN;
@@ -31,8 +37,8 @@ replay() { # $1 name, rest env
     [ $rc -eq 0 ] || [ $rc -eq 124 ] || { tail -5 "$RUN/$out.txt"; echo "FAIL the $out replay did not finish"; exit 1; }
 }
 
-replay hold OD_SETTLE_EXPOSURE=hold
-replay rule OD_SETTLE_EXPOSURE=hold OD_TAKEOUT_REREPORT=departure
+replay hold OD_TAKEOUT_REREPORT=off
+replay rule
 
 for n in hold rule; do
     echo "=== $n"
@@ -69,8 +75,11 @@ def check(ok, what):
 
 h, r = load("hold"), load("rule")
 hc, rc = census(h), census(r)
+check(any("OD_TAKEOUT_REREPORT=off is set" in l for l in h), "hold: the pinned run says OD_TAKEOUT_REREPORT=off is set")
+check(not any(re.search(r"OD_(SETTLE_EXPOSURE|TAKEOUT_REREPORT)=off is set", l) for l in r),
+      "rule: the default run says no pin is set")
 check(hc.get(2) not in (None, "CLEAN"), "hold: window 2 (visit-1 takeout) reconciles %s, not CLEAN" % hc.get(2))
-check(not any("I1648 REREPORT" in l for l in h), "hold: the rule's line never prints without its switch")
+check(not any("I1648 REREPORT" in l for l in h), "hold: the rule's line never prints under its pin")
 fired = [l for l in r if "I1648 REREPORT DEPARTURE: camera 2" in l]
 check(len(fired) >= 1, "rule: fires on camera 2 (%d line(s))" % len(fired))
 check(rc.get(2) == "CLEAN", "rule: window 2 reconciles %s" % rc.get(2))

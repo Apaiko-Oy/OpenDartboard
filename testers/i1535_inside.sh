@@ -111,9 +111,16 @@ probe_run() { # $1 out-prefix, $2.. env pin. The prefix is shifted away BEFORE e
   fi
   return $rc
 }
-probe_run probe-tree OD_TIP_IDENTITY=
+# #1662: the exposure hold and the takeout re-report are the defaults since #1662, and under
+# the hold rig-20260918 visit 4's third event -- a thrown MISS off the board, which the
+# census counts correct when nothing is published -- is no longer raised at all, in either
+# arm (measured 2026-09-28: red twice on the #1662 tree, green on 846a576 without it). This
+# tester needs that event as its needle, so both probes pin the pre-#1662 motion, the way
+# #1662 pinned the 1618/1627/1628 replays. The rule under test (#1535) is unchanged.
+MOTION_PINS="OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
+probe_run probe-tree $MOTION_PINS OD_TIP_IDENTITY=
 RC1=$?
-probe_run probe-pinned OD_TIP_IDENTITY=off
+probe_run probe-pinned $MOTION_PINS OD_TIP_IDENTITY=off
 RC2=$?
 [ $RC1 -eq 0 ] && [ $RC2 -eq 0 ] || {
   tail -n 10 $OUT/probe-tree.err $OUT/probe-pinned.err

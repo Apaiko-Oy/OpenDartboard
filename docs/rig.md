@@ -123,8 +123,8 @@ diameter, not the scoring diameter.
   2026-09-24), footage ends mid-visit 8. Its `GROUND-TRUTH.md` carries the details.
   On the opening window (`OD_SEEK_VIDEO=off`) the calibration picture holds v1.1's 8.
   Until the first reconciled CLEAN, that picture is the clean reference, so the visit-1
-  takeout falls by less than a dart on cameras 2 and 3 (#1648). The opt-in
-  `OD_TAKEOUT_REREPORT=departure` lets a camera whose only new tip is a #1535
+  takeout falls by less than a dart on cameras 2 and 3 (#1648). The takeout re-report
+  rule (default since turnaus#1662, below) lets a camera whose only new tip is a #1535
   re-report, and whose cumulative figure fell, vote CLEAN.
 - `mocks/cam_*.mp4` — upstream footage, **never evidence** (#1478); see
   `mocks/DO-NOT-USE-cam_1-cam_2-cam_3.md`.
@@ -146,3 +146,30 @@ defaults to `wall`, so a board on live cameras runs its timers on wall time what
 tester does. (`frame_period_ms`, the `--fps` default of 15, is a different number: it
 converts frame counts only under `OD_MOTION_CLOCK=cycle` and `OD_MOTION_FIX=spikewin`,
 neither of which the bakeoff sets, and the capture clock never reads it.)
+
+**Motion defaults since turnaus#1662.** Two measured motion switches are on unless
+pinned off; both pins log a warning when set.
+
+- **The exposure hold (#1646).** A settled event waits until every camera's board grey
+  level is still (span under 1 grey level over 10 cycles, at most 90 cycles of waiting),
+  so a takeout's window is not read while a camera's automatic exposure walks back.
+  `OD_SETTLE_EXPOSURE=off` pins the old settle, where quiet motion is settled whatever
+  the exposure does (`motion_processing.cpp`, `exposureGateOff`).
+- **The takeout re-report (#1648).** A camera whose only new tip re-reports an earlier
+  dart of the visit, and whose cumulative board figure fell, votes CLEAN.
+  `OD_TAKEOUT_REREPORT=off` pins the old line, where such a camera abstains and the
+  board still advances (`dart_processing.cpp`, `takeoutReReportIsDeparture`).
+
+The old opt-in words `hold` and `departure` are still accepted and mean the default.
+Any value other than `off` also means the default, so a typo keeps it. On the
+capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), the default reads 82/86
+(95.3%). With both pins it reads 79/86 (91.9%), the default before #1662. The gain is
+rig-20260922's opening: v2.1's 12, v3.1's 20 and v5.2's 19 are gained there, and its two
+phantoms are gone. The other three windows publish the same darts either way.
+
+`OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
+(`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
+recorded, not measured on the capture clock. On the wall clock, when detector cycles
+run at ~37 ms (a whole-clip replay at load 4-6), the hold moves rig-20260918 dev's
+cooldown expiry onto v6.3's one-cycle splash, and the 2 is dropped (#1650,
+`cooldownExpirySpikes`). At 33.3 ms a cycle, the rig's 30 fps, it is not.

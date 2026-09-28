@@ -3,9 +3,10 @@
 # exposure is still walking back when a takeout's motion event settles, so the takeout's
 # window reads a third of camera 3's board as changed and cannot reconcile; the next
 # arrival's window then reads the exposure recovering as a takeout and bakes the arriving
-# dart (v2.1's 12, v3.1's 20) into the clean reference. OD_SETTLE_EXPOSURE=hold makes the
-# event wait for every camera's board level to stop moving; it is opt-in (see
-# motion_processing.cpp for why), so this measures the default AND the hold.
+# dart (v2.1's 12, v3.1's 20) into the clean reference. The exposure hold makes the event
+# wait for every camera's board level to stop moving; it is the default since #1662
+# (OD_SETTLE_EXPOSURE=off is the pin), so this measures the pinned settle AND the hold,
+# both with #1648's rule pinned off (OD_TAKEOUT_REREPORT=off) to keep the hold alone.
 #
 #   testers/run_all.sh 1646-exposure   build the tree and run this
 #   testers/i1646_run.sh               run it against this checkout's build/

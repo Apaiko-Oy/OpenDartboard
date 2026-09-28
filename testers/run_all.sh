@@ -592,7 +592,9 @@ tester 1605-looks         "bash '$T/i1605_run.sh'"
 # votes, a throw is called by camera 1 and again by cameras 2 and 3 eleven frames later
 # (echo windows). The alignment after calibration (the default since #1631; OD_SEEK_ALIGN=off
 # is the pin) reads above 15/23, and against both pins loses exactly v7.2 (#1628; v8.1 was
-# repaired by #1627). Three whole-clip replays and one calibration-only run.
+# repaired by #1627). Three whole-clip replays and one calibration-only run, each with
+# #1662's motion switches pinned off (OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off), the
+# configuration this was measured in.
 # MEASURED 2026-09-25 on the 4-core box at load ~5: 552 s (9m12s with the build), inside the 1500 given.
 tester 1618-thirdcam      "bash '$T/i1618_run.sh'"
 slow 1500
@@ -616,26 +618,27 @@ tester 1456-bestlook      "bash '$T/i1456_run.sh'"
 # OD_LONE_WIRE=clear. The pure half: one compile, three runs, the mutation proof inside.
 tester 1628-wire          "bash '$T/i1628_check.sh'"
 # #1628's fixture half: rig-20260922 dev with both #1605/#1618 switches on, replayed
-# default and OD_LONE_WIRE=clear. NOT YET MEASURED: two whole-clip replays, estimated
-# ~300-400 s from one such replay's cost inside #1555's bakeoff; the 1500 is a guess
-# with headroom, to be replaced by the first measured number.
+# default and OD_LONE_WIRE=clear, #1662's motion switches pinned off in both. Two
+# whole-clip replays. MEASURED 2026-09-28 on the 4-core box at load ~6 (#1662): 478 s.
 tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
 # its T1 into the clean reference. A spike while an event settles now keeps the event;
 # OD_SETTLE_SPIKE=discard restores the old line. Three whole-clip rig-20260922 dev replays:
-# pinned, repaired (the default), and both #1631 pins (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off).
-# NOT YET MEASURED: three whole-clip replays, about 13 min at load ~10 by #1627's single replays (264 s each); slow 1500 is 1618-thirdcam's allowance.
+# pinned, repaired (the default), and both #1631 pins (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off),
+# each with #1662's motion switches pinned off (OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off).
+# Three whole-clip replays. MEASURED 2026-09-28 on the 4-core box at load ~5-6 (#1662): 685 s, inside the 1500 given (1618-thirdcam's allowance).
 tester 1627-takeout       "bash '$T/i1627_run.sh'"
 slow 1500
 # #1646: on rig-20260922's opening, camera 3's automatic exposure is still walking back
 # when a takeout's motion event settles, so the takeout's window reads a third of its
 # board as changed and publishes a phantom, and the next arrival's window reads the
 # exposure recovering as the takeout and bakes that dart (v2.1's 12, v3.1's 20) into the
-# clean reference. OD_SETTLE_EXPOSURE=hold (opt-in) makes the event wait for every
-# camera's board level to settle. Two narrowed replays of the opening window, visits 1-3
-# only (780 cycles), default and hold: measured 265 s for the pair at load ~3
+# clean reference. The exposure hold (the default since #1662; OD_SETTLE_EXPOSURE=off is
+# the pin) makes the event wait for every camera's board level to settle. Two narrowed
+# replays of the opening window, visits 1-3 only (780 cycles), both pinned and the hold
+# alone (#1648's rule pinned off), the same two configurations as before #1662: measured 265 s for the pair at load ~3
 # (2026-09-27); slow 900 is headroom for a loaded box.
 tester 1646-exposure      "bash '$T/i1646_run.sh'"
 slow 900
@@ -643,9 +646,10 @@ slow 900
 tester 1648-departure     "bash '$T/unit_check.sh' 1648"
 # #1648: under the hold, visit 1's takeout on rig-20260922's opening cannot reconcile,
 # because the calibration reference holds the parked 8 and cameras 2 and 3 fall by less
-# than a dart. OD_TAKEOUT_REREPORT=departure (opt-in) lets a camera whose only new tip is
-# a #1535 re-report, and whose cumulative figure fell, vote CLEAN. Two narrowed replays
-# (900 cycles), hold alone and hold with the rule: measured 213 s for the pair at load
+# than a dart. The takeout re-report rule (the default since #1662; OD_TAKEOUT_REREPORT=off
+# is the pin) lets a camera whose only new tip is a #1535 re-report, and whose cumulative
+# figure fell, vote CLEAN. Two narrowed replays (900 cycles), hold alone (the rule pinned)
+# and hold with the rule (the default): measured 213 s for the pair at load
 # ~4.5 (2026-09-27); slow 900 is headroom for a loaded box.
 tester 1648-takeout       "bash '$T/i1648_run.sh'"
 slow 900
@@ -654,7 +658,8 @@ slow 900
 # at a whole-clip cycle rate lines the cooldown's last cycle up with the 2's splash.
 # OD_COOLDOWN_EXPIRY=spike (opt-in) starts the event there. Three narrowed replays (1620
 # cycles) on OD_MOTION_CLOCK=capture OD_COOLDOWN_MS=900, so the alignment does not depend
-# on load: default, hold, hold + the switch. Measured 391 s for the row at load 6-9
+# on load: both #1662 pins, hold (#1648's rule pinned off), hold + the switch -- the same
+# three configurations as before #1662, when the hold was opt-in. Measured 391 s for the row at load 6-9
 # (2026-09-27); slow 1200 is headroom for a loaded box.
 tester 1650-cooldown      "bash '$T/i1650_run.sh'"
 slow 1200
