@@ -1,3 +1,4 @@
+# unrun-tester: the container half of testers/i1654_run.sh, which is kept unrun and says why.
 set -u
 # #1654, inside the container: the wire comb on every look of every camera, fixture and
 # window. Builds testers/i1654_comb_census.cpp against this tree's calibration sources

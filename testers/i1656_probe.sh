@@ -1,4 +1,5 @@
 #!/bin/bash
+# unrun-tester: #1656's debug probe: it writes one look's sub-pixel bull fit as images for a person to look at. It asserts nothing.
 # #1656: look at one bull. Builds testers/i1656_bull_probe.cpp against this tree and runs
 # it on one clip, window and look, keeping the calibration's debug frames.
 #

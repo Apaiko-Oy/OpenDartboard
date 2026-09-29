@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# unrun-tester: reads the fixtures' MP4 frame-timing tables to state their frame rate (#1655). It is a fact about the footage, run by hand when footage changes; it asserts nothing.
 """#1655: the frame rate the rig's fixtures were recorded at, read off the MP4 container.
 
 The image has no ffprobe (and no python cv2), so this reads the boxes itself: the video

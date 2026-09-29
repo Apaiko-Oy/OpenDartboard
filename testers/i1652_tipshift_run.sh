@@ -1,4 +1,5 @@
 #!/bin/bash
+# unrun-tester: #1652's measurement of how far the published tip moves on the board with OD_MASK_UNSHIFT, off against on; four whole-clip replays, run by hand, asserting nothing.
 # #1652's measurement: the published tip's move on the board, per camera, when the
 # fresh-diff chain is made translation-free. testers/i1652_tipshift_inside.sh holds what
 # is run and reported (four whole-clip replays on OD_MOTION_CLOCK=capture).

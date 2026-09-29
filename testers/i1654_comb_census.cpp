@@ -1,3 +1,4 @@
+// unrun-tester: compiled and run by testers/i1654_run.sh (#1654's per-look comb census), which is kept unrun and says why.
 // #1654: how far the wire comb's theta20 moves from one look of the SAME camera to the next.
 //
 // #1653 found the same unmoved camera's theta20 differing by up to 0.65 degrees between

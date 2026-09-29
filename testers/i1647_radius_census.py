@@ -1,3 +1,4 @@
+# unrun-tester: an instrument a person runs over a 1555 bakeoff's logs (#1647). It prints each solved dart's radius beside the annotated crossing and asserts nothing.
 """#1647: where does the solved entry's radius come from -- the per-row, per-camera table.
 
     python3 i1647_radius_census.py --log <run.txt> --annotations <fixture.csv> \

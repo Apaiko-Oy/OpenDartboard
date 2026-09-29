@@ -1,4 +1,5 @@
 #!/bin/bash
+# unrun-tester: #1496's measurement half. It asserts nothing and says above why it is deliberately not in run_all.sh; a census that only prints would report on the box rather than the tree.
 # #1496, the MEASUREMENT half. It asserts nothing and fixes nothing: it prints the
 # clip-wire census per camera on both rig fixtures and on the shipped mocks, and writes
 # the annotated frames a reader is meant to look at.

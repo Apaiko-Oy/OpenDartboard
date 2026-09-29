@@ -1,3 +1,4 @@
+// unrun-tester: compiled and run by testers/i1496_run.sh, #1496's measurement half, which is itself kept unrun and says why.
 // #1496: WHY does the clip-wire finder return one on the maintainer's rig?
 //
 //   i1496_clip_census <outdir> <clip1> [<clip2> ...]

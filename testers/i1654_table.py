@@ -1,3 +1,4 @@
+# unrun-tester: reads testers/i1654_run.sh's output into the per-camera table and regression (#1654, #1656). An instrument run by hand; it asserts nothing.
 """#1654: summarise testers/i1654_comb_census.cpp's I1654 lines per camera and window.
 
     python3 i1654_table.py <census.txt> [...] [--rows] [--sub]

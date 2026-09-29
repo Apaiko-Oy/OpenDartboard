@@ -1,3 +1,4 @@
+// unrun-tester: compiled and run by testers/i1656_probe.sh, which is kept unrun and says why.
 // #1656: one look of one clip, calibrated with debug images on, so the bull stage's own
 // pictures (the red/green mask it chose from, and the candidate it chose) can be looked at.
 //

@@ -1,4 +1,5 @@
 #!/bin/bash
+# unrun-tester: #1654's per-look comb census: a calibration-only instrument over every look of every camera, run by hand and read with testers/i1654_table.py. It asserts nothing.
 # #1654's census: the wire comb's theta20 and 12/9 wire on the averaged frame and on each
 # of the looks a calibration takes, per camera, fixture and window.
 #

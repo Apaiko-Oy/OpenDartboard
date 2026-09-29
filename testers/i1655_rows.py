@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# unrun-tester: compares two bakeoff run directories row by row (#1655). A tool a person or agent runs to compare runs, not a check of the tree.
 """#1655: are two 1555-bakeoff runs the same, dart by dart?
 
     python3 testers/i1655_rows.py <run dir A> <run dir B> [--label-a X --label-b Y]

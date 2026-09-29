@@ -1,3 +1,4 @@
+# unrun-tester: an instrument (#1653): per-camera fitted radii and wire angles against the annotated crossings, read from a bakeoff's logs. Run by hand; it asserts nothing.
 """#1653: where does each camera's board model put the rings and the wires -- per camera,
 against the hand annotations, under named variants of the model's radial scale.
 

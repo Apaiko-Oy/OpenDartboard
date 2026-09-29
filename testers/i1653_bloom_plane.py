@@ -1,3 +1,4 @@
+# unrun-tester: an instrument (#1653): it simulates planeOf's plane under a pixel-constant bloom and carries logged models through the bloom-free plane. Run by hand; it asserts nothing.
 """#1653: the board plane is built from a BLOOMED conic, and bloom is constant in pixels.
 
     python3 i1653_bloom_plane.py --sim

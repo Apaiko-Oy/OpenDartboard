@@ -1,3 +1,4 @@
+// unrun-tester: compiled and run by testers/i1660_check.sh, which needs a live systemd and is kept unrun for testers/i1383_units.sh's reason.
 // #1660: where the detector would keep its credential, asked of src/utils/od_paths.hpp
 // alone -- no OpenCV, no nlohmann, no network -- so the answer can be read under any
 // environment a harness can build: `env -i`, a unit's, a mutated header's.

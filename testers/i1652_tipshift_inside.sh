@@ -1,4 +1,5 @@
 #!/bin/bash
+# unrun-tester: the container half of testers/i1652_tipshift_run.sh, which is kept unrun and says why.
 # #1652, inside the container: how far the published tip -- the one the string vote
 # scores and the entry solve corroborates with -- moves on the board when the fresh-diff
 # chain is made translation-free (OD_MASK_UNSHIFT=on), per camera.
