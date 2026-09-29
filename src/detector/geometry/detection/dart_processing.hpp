@@ -594,6 +594,46 @@ namespace dart_processing
         return tip_is_rereport && previous_pixels >= 0 && current_pixels < previous_pixels;
     }
 
+    /**
+     * #1678: a camera whose fresh change stayed UNDER the floor in the scoring area but
+     * whose figure is nonetheless a dart standing in the board -- a corroborating witness
+     * for another camera's advance, never an advance of its own.
+     *
+     * Why it is needed. The floor is counted inside the scoring area (#1354's deciding
+     * share; Region::mask ends at the double's outer wire) while the tip is searched in
+     * the physical board (#1364's tip_mask). A dart in the double ring, seen side-on,
+     * puts its tip inside the scoring area and its shaft and flight OUTSIDE it, so the
+     * deciding share clips all but the tip. Measured on mocks/rig-20260929 window #21
+     * (visit 6's D5, capture clock, opening window, OD_LONE_CENSUS=1): camera 1's fresh
+     * change is 179 px in the scoring area against a 215 px floor but 1,366 px in the
+     * physical board, and that figure fits a valid axis (extent 110 px) with its tip at
+     * (377,264) -- the very tip camera 1 reports for D5 one window later. Camera 3:
+     * 61 px against 183, 671 px physical, a valid axis, tip at (869,159). Camera 2 alone
+     * cleared the floor (12,692 px), so the vote refused the dart and the next window
+     * published D5 and S1 as one dart.
+     *
+     * Every clause is load-bearing against the one negative control the three fixtures
+     * hold, mocks/rig-20260918's visit 4.3, a MISS with the same vote shape (one camera
+     * up, none CLEAN, window #15): camera 1 cleared the floor with 12,419 px while
+     * cameras 2 and 3 have 274 and 723 px in the physical board, both fitting valid short
+     * axes -- and 0 px in the scoring area, so neither's tip is in it. A dart that scores
+     * has its tip in the scoring area from every camera's view; what that miss left in
+     * the physical ring does not. So:
+     *   - the physical-board figure clears the SAME floor the deciding share uses;
+     *   - it fits a valid shaft axis (the gated fit, #1511) and yields a tip;
+     *   - that tip lies inside the scoring area;
+     *   - and it is not a #1535 re-report of a tip this camera already gave this visit.
+     * The vote then counts it toward the quorum only beside at least one camera that
+     * cleared the floor itself, and only when no voter reads CLEAN (the caller's half).
+     * Pure and inline for the reason readsAsReversion is.
+     */
+    inline bool subFloorCameraCorroborates(int fresh_physical_pixels, int floor_pixels, bool axis_valid,
+                                           bool tip_found, bool tip_in_scoring_area, bool tip_is_rereport)
+    {
+        return fresh_physical_pixels >= floor_pixels && floor_pixels > 0 && axis_valid && tip_found &&
+               tip_in_scoring_area && !tip_is_rereport;
+    }
+
     // #1648's switch, the default since #1662: readsAsReReportedDeparture is on unless
     // OD_TAKEOUT_REREPORT=off, the pin that leaves the #1535 re-report an abstention that
     // still votes to advance (the default before #1662). "departure", the old opt-in, means
@@ -625,6 +665,20 @@ namespace dart_processing
         // board share, which is what an advance is decided on where a board is fitted.
         // -1 where it was not computed (a CLEAN board, or no fitted board).
         int fresh_board_pixels = -1;
+        // #1678: the same fresh change counted inside the PHYSICAL board (Region::tip_mask,
+        // the mask the tip is searched in) -- what a rim dart leaves once its shaft and
+        // flight are no longer clipped at the double wire. -1 where not computed.
+        int fresh_physical_pixels = -1;
+        // #1678: for a camera whose fresh change stayed UNDER the floor, the tip and axis
+        // its sub-floor figure would have yielded -- observed only (OD_LONE_CENSUS=1 or
+        // OD_LONE_CAMERA=on), never published: `axis` above keeps its refusal.
+        bool sub_floor_observed = false;
+        bool sub_floor_tip_found = false;
+        Point2f sub_floor_tip = Point2f(-1, -1);
+        shaft_axis::AxisObservation sub_floor_axis;
+        // #1678: subFloorCameraCorroborates' verdict on the above, computed wherever the
+        // observation is; the vote reads it only under OD_LONE_CAMERA=on.
+        bool sub_floor_corroborates = false;
         Point2f tip_position = Point2f(-1, -1);    // Position of dart tip if found
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame

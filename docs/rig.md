@@ -181,6 +181,65 @@ capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), the default reads 82/
 rig-20260922's opening: v2.1's 12, v3.1's 20 and v5.2's 19 are gained there, and its two
 phantoms are gone. The other three windows publish the same darts either way.
 
+**The entry threshold (#1677), opt-in.** A quiet board starts a motion event when one
+camera's board changes by more than `spike_threshold`, 0.011 of that board, frame to
+frame. rig-20260929 throws three darts whose splashes stay under it: v5.3 peaks at
+0.0108, v11.1 at 0.0106 and v12's D14 at 0.0074. No event opens, and the next window
+is the takeout's, which reconciles CLEAN, so each of those darts is lost.
+`OD_SPIKE_THRESHOLD=<ratio>` lowers only that entry, in IDLE and in the two cooldown arms.
+A running event keeps 0.011. At 0.006, the capture-clock bakeoff reads rig-20260929 at
+18..25/36 per window, up from 16..23, with 0 undetected. r18+r22 stays at 82/86 with 0
+phantoms, and every r18 and r22 run publishes the same sequence. r18 gains one empty
+window per run, which the vote refuses. It is not a default: #1353 measured rig-20260918's
+noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates them on
+amplitude alone.
+
+**The lone camera (#1678), opt-in.** The state vote's fresh-change floor, 0.10% of a
+camera's board, is counted in the scoring area, while the tip is searched in the physical
+board. A double-ring dart seen side-on has its tip inside the scoring area and its shaft
+and flight outside it, so the floor sees only the tip. On rig-20260929, v6.2's D5 cleared
+the floor only on camera 2. Camera 1 had 179 px in the scoring area against its 215 px
+floor, but 1,366 px in the physical board, with a valid axis and the tip it reports for D5
+one window later. The vote refused the dart, and the next window published D5 and S1 as
+one dart. `OD_LONE_CAMERA=on` lets such a sub-floor camera corroborate another camera's
+advance, when no voter reads CLEAN, if all of these hold:
+- its physical-board figure clears the same floor;
+- that figure fits a valid axis and yields a tip;
+- the tip is in the scoring area;
+- the tip is not a re-report.
+
+A corroborating camera's tip and axis go to the scorer. The negative control is
+rig-20260918's v4.3, a MISS with the same vote shape. Cameras 2 and 3 have 274 and 723 px
+in the physical board with valid axes but 0 px in the scoring area, so it stays refused.
+`OD_LONE_CENSUS=1` prints the per-camera figures (`I1678LONE`).
+
+On the capture-clock bakeoff the rule fires once per rig-20260929 run and nowhere on
+r18 or r22. Every r18 and r22 run publishes the same sequence, and r18+r22 stays at 82/86
+with 0 phantoms. rig-20260929 reads 18..24/36 per window, up from 16..23. v6.2 publishes
+as its own dart (S5, flagged with D5 as the alternative), and v6.3's S1 is correct. The
+pool reads 118..130/158, up from 114..128. It is not a default: it rests on one dart and
+one negative control, and the control is separated by the tip-in-scoring-area clause
+alone.
+
+**Both together, on the forced Blade 6 (#1680).** This is main 2c33747 merged with both
+switches' branch, on the capture-clock bakeoff. With both switches off, the bakeoff
+reproduces main row for row: 123..139/158 pooled, 82/86 on r18+r22, and rig-20260929 at
+20..28/36 (dev) and 21..29/36 (opening). With `OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`,
+the pool reads **137..149/158**. r18+r22 stays at 82/86 with 0 phantoms, and rig-20260929
+reads **27..33/36** (dev) and **28..34/36** (opening), with 0 undetected. Visits 5, 6 and
+11 publish all three darts, and every recovered dart is exact: v5.3 S3, v6.2 D5, v6.3 S1,
+v11.1 S3 and v12.2 D14. On the Blade 6, v6.2 publishes D5 on the vote path, because the
+geometry refuses it as NEAR-PARALLEL. Before #1676 it published S5. What remains of the
+range is visits 7 and 12, whose misses publish nothing. The visit-order join cannot place
+a dart a miss leaves out, so those visits stay short.
+
+The lone-camera rule fires once per rig-20260929 run and never on r18 or r22. The lower
+threshold opens one extra window on each rig-20260918 run and none on rig-20260922 or
+rig-20260929. In that window all three cameras read CLEAN between visits, and the window
+re-bases the clean reference. So r18's v6.2 is still S7, but it is published by a
+different path: geometry on the opening window, the vote (NEAR-PARALLEL) on dev and pin.
+Every r22 run publishes the same sequence as with both switches off.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
