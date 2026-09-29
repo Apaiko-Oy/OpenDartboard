@@ -370,6 +370,42 @@ namespace dart_processing
         return v;
     }
 
+    // #1678: the lone-camera census. OD_LONE_CENSUS=1 prints one I1678LONE line per
+    // camera for every window at least one camera voted to advance, scored or refused,
+    // with the fresh change counted in the scoring area AND in the physical board, and
+    // the tip and axis a sub-floor camera's figure would have yielded. It decides
+    // nothing; an ordinary run prints nothing.
+    static bool loneCensusOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_LONE_CENSUS");
+            return e != nullptr && std::string(e) == "1";
+        }();
+        return v;
+    }
+
+    static bool loneRuleOn(); // #1678, defined below the census
+    static bool loneObservationOn() { return loneCensusOn() || loneRuleOn(); }
+
+    // #1678: the lone-camera rule's switch, OD_LONE_CAMERA=on. Anything else, unset
+    // included, leaves the vote as it was. See loneCameraCarries in dart_processing.hpp.
+    static bool loneRuleOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_LONE_CAMERA");
+            const bool on = e != nullptr && std::string(e) == "on";
+            if (on)
+            {
+                log_warning("OD_LONE_CAMERA=on is set: a lone camera's advance carries the board when "
+                            "no voter reads CLEAN and its fresh figure is a dart (#1678)");
+            }
+            return on;
+        }();
+        return v;
+    }
+
     // ---- #1511: the shaft-axis observation's three switches ---------------------------
     //
     // The observation itself is ALWAYS computed and carried on CameraDetectionResult --
@@ -1362,6 +1398,7 @@ namespace dart_processing
                     Mat tip_image;
                     bitwise_and(single_thresh, region.tip_mask, tip_image);
                     single_thresh = tip_image;
+                    result.camera_results[i].fresh_physical_pixels = countNonZero(tip_image);
                 }
                 else
                 {
@@ -1504,6 +1541,33 @@ namespace dart_processing
                     result.camera_results[i].axis.refusal =
                         std::string("no fresh figure: this camera's fresh change is ") + share +
                         ", so nothing new arrived to fit";
+
+                    // #1678: what this sub-floor figure WOULD have yielded -- observed,
+                    // never published: `axis` keeps its refusal and the vote its candidate.
+                    if (loneObservationOn() && decides_on_board && !single_thresh.empty() &&
+                        countNonZero(single_thresh) > 0)
+                    {
+                        vector<Mat> scratch_tips;
+                        vector<vector<Point>> pieces;
+                        double gap = 0;
+                        auto tc = detectTipAndCenter(single_thresh, false, static_cast<int>(i), scratch_tips,
+                                                     &gap, &pieces);
+                        shaft_axis::AxisParams axis_params;
+                        axis_params.gated = !axisGateIsOff();
+                        axis_params.subtract_shadow = !axisShadowIsOff();
+                        axis_params.rescue_composite = axisRescueIsOn();
+                        const Mat &axis_reference = !working_backgrounds[i].empty()
+                                                        ? working_backgrounds[i]
+                                                        : background_gray;
+                        CameraDetectionResult &r = result.camera_results[i];
+                        r.sub_floor_observed = true;
+                        r.sub_floor_axis = shaft_axis::observeShaftAxis(
+                            shaft_axis::pixelsOfPieces(pieces, single_thresh.size()),
+                            averaged_frame, axis_reference, axis_params);
+                        r.sub_floor_axis.camera = (int)i;
+                        r.sub_floor_tip_found = norm(tc.first) > 0;
+                        r.sub_floor_tip = tc.first;
+                    }
                 }
             }
             else // Threshold for no dart
@@ -1905,6 +1969,33 @@ namespace dart_processing
                     line += " NOBOARD";
             }
             log_info(line);
+        }
+
+        // #1678: the lone-camera census, one line per camera for every window any camera
+        // voted to advance.
+        if (loneCensusOn() && moves_up >= 1)
+        {
+            for (size_t i = 0; i < result.camera_results.size(); i++)
+            {
+                const CameraDetectionResult &r = result.camera_results[i];
+                const bool sub = r.sub_floor_observed;
+                const shaft_axis::AxisObservation &ax = sub ? r.sub_floor_axis : r.axis;
+                const bool tip = sub ? r.sub_floor_tip_found : r.tip_found;
+                const Point2f tp = sub ? r.sub_floor_tip : r.tip_position;
+                char buf[512];
+                snprintf(buf, sizeof(buf),
+                         "I1678LONE window=%ld opened=%ld closed=%ld %s->%s up=%d clean=%d cam=%d state=%s "
+                         "board=%d/%d fresh=%d freshPhys=%d subFloor=%d tip=%d tipAt=(%.0f,%.0f) "
+                         "axis=%d extent=%.0f width=%.1f rms=%.2f px=%d frac=%.3f",
+                         (long)window_serial, (long)window_opened_at, (long)cycle_ordinal,
+                         getDartBoardStateName(result.previous_state).c_str(),
+                         getDartBoardStateName(final_state).c_str(), moves_up, goes_clean, (int)i + 1,
+                         getDartBoardStateName(r.detected_state).c_str(), r.board_changed_pixels,
+                         r.board_pixels, r.fresh_board_pixels, r.fresh_physical_pixels, sub ? 1 : 0,
+                         tip ? 1 : 0, tp.x, tp.y, ax.valid ? 1 : 0, ax.extentPx, ax.medianWidthPx,
+                         ax.centrelineRmsPx, ax.supportPixels, ax.trimmedFraction);
+                log_info(string(buf) + " refusal=" + (ax.valid ? string("-") : ax.refusal));
+            }
         }
 
         // #1350: a window whose vote changed nothing used to leave one empty INFO line

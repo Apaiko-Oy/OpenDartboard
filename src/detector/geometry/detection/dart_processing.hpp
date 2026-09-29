@@ -625,6 +625,17 @@ namespace dart_processing
         // board share, which is what an advance is decided on where a board is fitted.
         // -1 where it was not computed (a CLEAN board, or no fitted board).
         int fresh_board_pixels = -1;
+        // #1678: the same fresh change counted inside the PHYSICAL board (Region::tip_mask,
+        // the mask the tip is searched in) -- what a rim dart leaves once its shaft and
+        // flight are no longer clipped at the double wire. -1 where not computed.
+        int fresh_physical_pixels = -1;
+        // #1678: for a camera whose fresh change stayed UNDER the floor, the tip and axis
+        // its sub-floor figure would have yielded -- observed only (OD_LONE_CENSUS=1 or
+        // OD_LONE_CAMERA=on), never published: `axis` above keeps its refusal.
+        bool sub_floor_observed = false;
+        bool sub_floor_tip_found = false;
+        Point2f sub_floor_tip = Point2f(-1, -1);
+        shaft_axis::AxisObservation sub_floor_axis;
         Point2f tip_position = Point2f(-1, -1);    // Position of dart tip if found
         Point2f center_position = Point2f(-1, -1); // Center of biggest dart shape
         bool tip_found = false;                    // Was tip found in this frame
