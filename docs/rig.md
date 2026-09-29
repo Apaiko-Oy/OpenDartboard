@@ -214,14 +214,18 @@ It is not a camera in three ways:
 **Measured 2026-09-29 on rig-20260929, `--cpus=2`, host load 3.6-12.5.** Cycles took a
 median of 22-50 ms.
 - **Main (ac184ca + this):** 29 of 33 landed darts published in each of 3 runs, the same
-  four the capture clock loses (v5.3, v6.3, v11.1, v12.2).
+  four the capture clock loses on main's census (one each in visits 5, 6 and 11, and
+  visit 12's D14).
 - **#1680's switches** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`): 33 of 33 in each
   of 3 runs.
 
 So at these cycle times, real time loses nothing the capture clock keeps.
 
-The losses come when a cycle gets slow. At `--cpus=0.5` (median 285 ms a cycle, a
-narrowed run through visit 6), 10 of 18 landed darts published.
+The losses come when a cycle gets slow. Two narrowed runs on main:
+- `--cpus=1`, host load 7.6-18, 1000 cycles covering the whole clip: median 200 ms a
+  cycle, 17 of 33 landed darts published and 4 right.
+- `--cpus=0.5`, 700 cycles through visit 6: median 285 ms a cycle, 10 of 18 landed darts
+  published.
 
 The windows are counted in **cycles**, not milliseconds:
 - motion settle, `stability_frames=15`;
@@ -230,7 +234,8 @@ The windows are counted in **cycles**, not milliseconds:
 
 The cooldown is counted in wall milliseconds (1000). So one dart's event lasts about
 22 cycles: 0.7 s at 33 ms a cycle, and 6 s at 285 ms. On this fixture darts land 1.8-2.1 s
-apart. Once a cycle takes more than roughly 85 ms, the next dart lands inside the
+apart. Once a cycle takes more than roughly 85 ms (an estimate from those figures, not
+measured as a threshold), the next dart lands inside the
 previous dart's event and window. The two darts become one window: one publication, often
 with a wrong score, and one dart lost. The `Processing: N ms` on a `SCORE:` line is that
 per-cycle time, and a live log can be read against it.
