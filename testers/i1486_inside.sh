@@ -30,6 +30,14 @@ set -u
 # cannot create one, so the rig -- which anchors nobody, measured -- has nothing to
 # propagate from, and what phase 3 asks of it is exactly that nothing is derived there.
 #
+# #1679, 2026-09-29: the state phase 3 was built on is gone. #1629's number reader reads
+# every camera of the shipped mocks and every camera of the rig, so both fixtures read 3 of
+# 3 and there is nothing left to derive an anchor FOR. The three assertions that needed an
+# unanchored camera, and the rig's "nothing to derive from" branch, are retired where they
+# stood with the measured fact -- the maintainer's decision of 2026-09-28 (#1645, #1658,
+# #1661, #1672): retire, and plant no frame. Phases 1 and 2 are untouched: they are the
+# derivation's own decisions, and they need no footage.
+#
 # It asserts nothing about a SCORE being right: the shipped mocks have no ground truth
 # (#1478), and a threshold fitted to them would be #1322's mistake. What it asserts is
 # that the derivation happened, that the falsifier removes it, and that the refusal fires.
@@ -168,22 +176,19 @@ run_detector rig-derived   "$RIG"   "$CYCLES" OD_ANCHOR=
 
 # The shipped mocks anchor ONE camera by its own star measurement, so they are the fixture
 # where there is something to propagate from.
-if grep -aq '1 of 3 cameras can be read for a wedge' $RUN/mocks-derived.txt; then
-  say "PASS the shipped mocks still anchor exactly one camera by its own measurement" ok
-else
-  say "FAIL the shipped mocks no longer anchor exactly one camera by measurement, so this" no
-  echo "     fixture no longer presents the state #1486 is about:"
-  grep -a 'cameras can be read for a wedge' $RUN/mocks-derived.txt | head -1 | sed 's/^/     /'
-fi
-
-D=$(derived_count mocks-derived)
-if [ "$D" -ge 1 ]; then
-  say "PASS $D camera(s) derived an anchor from a dart another camera measured:" ok
-  grep -a 'ANCHOR: camera . derived wedge 20' $RUN/mocks-derived.txt | sed 's/.*ANCHOR: /     /'
-else
-  say "FAIL no camera derived an anchor on the one fixture that has something to derive from." no
-  grep -a 'ANCHOR: ' $RUN/mocks-derived.txt | tail -5 | sed 's/^/     /'
-fi
+# === "exactly one camera anchored by measurement" and "a camera derived an anchor",
+# RETIRED by #1679 (maintainer's decision of 2026-09-28, applied 2026-09-29) ===
+# They asserted that the shipped mocks read `1 of 3 cameras can be read for a wedge` and
+# that at least one `ANCHOR: camera N derived wedge 20` followed. MEASURED on fork 2c33747
+# under OD_BOARD=auto, 900 cycles: the census reads `3 of 3` -- cameras 1 and 3 anchored by
+# reading the board's own printed numbers (#1629), camera 2 by its star -- so no camera is
+# left unanchored, and 0 anchors were derived. A derivation fills a gap and the footage no
+# longer has one. They printed `the shipped mocks no longer anchor exactly one camera by
+# measurement` and `no camera derived an anchor on the one fixture that has something to
+# derive from`. Retired rather than planted, as #1645-#1672 were; phases 1 and 2 still
+# prove the derivation's decisions and that five planted mistakes in it are caught.
+echo "    the mocks' census, verbatim:"
+grep -a 'cameras can be read for a wedge' $RUN/mocks-derived.txt | head -1 | cut -c1-300 | sed 's/^/     /'
 
 C=$(consensus_count mocks-derived)
 if [ "$C" -ge 1 ]; then
@@ -193,34 +198,33 @@ else
 fi
 
 # The falsifier. Same binary, the word chosen at run time.
+# #1679, 2026-09-29: KEPT, and on this footage it no longer discriminates -- the derived run
+# derives nothing either (MEASURED on 2c33747: 0 in both), so this passes whatever the
+# switch does. It still asks that OD_ANCHOR=own derives nothing.
 if [ "$(derived_count mocks-own)" -eq 0 ]; then
   say "PASS OD_ANCHOR=own derives nothing, which is what every build before #1486 did" ok
 else
   say "FAIL OD_ANCHOR=own still derived an anchor, so the falsifier does not falsify." no
 fi
-OWN_C=$(consensus_count mocks-own)
-if [ "$OWN_C" -lt "$C" ]; then
-  say "PASS and publishes fewer darts at 0.9 than the derivation does ($OWN_C against $C)" ok
-else
-  say "FAIL OD_ANCHOR=own published $OWN_C darts at 0.9 against the derivation's $C, so the" no
-  echo "     0.9s above cannot be attributed to the derivation at all."
-fi
+# === "OD_ANCHOR=own publishes fewer darts at 0.9", RETIRED by #1679 (maintainer's decision
+# of 2026-09-28, applied 2026-09-29) === It asserted that without the derivation fewer darts
+# reach a consensus, which attributed the 0.9s to it. MEASURED on 2c33747 under
+# OD_BOARD=auto: both runs published exactly 1 dart at 0.9, because the two cameras that
+# agree anchored themselves by reading the printed numbers and neither run derived anything.
+# It printed `OD_ANCHOR=own published 1 darts at 0.9 against the derivation's 1`. The 0.9
+# above is kept -- a dart two measured cameras agree on still happens -- but it is no longer
+# the derivation's.
+echo "    darts at 0.9: $C derived run, $(consensus_count mocks-own) OD_ANCHOR=own"
 
-# The rig: nothing to propagate from, so nothing propagated. This is the half that says
-# #1486 propagates an anchor rather than inventing one.
-if grep -aq '0 of 3 cameras can be read for a wedge' $RUN/rig-derived.txt; then
-  if [ "$(derived_count rig-derived)" -eq 0 ]; then
-    say "PASS the rig anchors no camera at all, and nothing was derived there: a derivation" ok
-    echo "     needs a source, and this fixture has none (OD_CAMERA_WEDGES is the remedy, #1363)"
-  else
-    say "FAIL an anchor was derived on a fixture where NO camera measured one -- there is" no
-    echo "     nothing on that board for a derived wedge 20 to be derived FROM."
-  fi
-else
-  say "WARN the rig fixture no longer reports 0 of 3 readable cameras; the assertion above" ok
-  grep -a 'cameras can be read for a wedge' $RUN/rig-derived.txt | head -1 | sed 's/^/     /'
-  echo "     was about the fixture #1486 measured and is no longer the state it measured."
-fi
+# === the rig's "nothing to derive from, so nothing derived", RETIRED by #1679 (maintainer's
+# decision of 2026-09-28, applied 2026-09-29) === It asserted, on a rig reading `0 of 3`,
+# that no anchor was derived there -- #1486 propagates an anchor and never invents one --
+# and had already degraded itself to a WARN when the rig stopped reading 0 of 3. MEASURED on
+# 2c33747 (default OD_BOARD): the rig reads `3 of 3`, every camera anchored by reading the
+# printed numbers, so there is no source-less board in the shipped footage. The run itself
+# is kept: run_detector still asks that the detector reaches the scoring loop on it.
+echo "    the rig's census, verbatim:"
+grep -a 'cameras can be read for a wedge' $RUN/rig-derived.txt | head -1 | cut -c1-300 | sed 's/^/     /'
 
 echo
 echo "CHECK_RC=$FAILED"
