@@ -403,10 +403,10 @@ namespace geometry_calibration
         // make that claim true by amputation. ADR-0079 section 2 is exactly the guarantee
         // this needs, and STEP 1.5 has just enforced it on the same mask.
         //
-        // This stage STATES the identity; it does not spend it. #1378's ROI margin,
-        // #1407's colour cutoff and #1416's `max_radius_change` are each a constant of
-        // their own issue, and every one of them still holds the worst case it held
-        // before this line existed. What has changed is that they no longer have to.
+        // This stage STATES the identity; it does not spend it. #1378's ROI margin and
+        // #1416's `max_radius_change` are each a constant of their own issue, and both
+        // still hold the worst case they held before this line existed. #1407's colour
+        // cutoff is the first to spend it, at STEP 2.5.
         const ring_identity::Sighting ring =
             ring_identity::identify(fullFrameColours, Point2f((float)board.center.x, (float)board.center.y),
                                     board.radius);
@@ -439,6 +439,12 @@ namespace geometry_calibration
         // and the room, and it decides those against the largest region it can see. On a
         // full frame that largest region competes with whatever else in the room is red.
         // The second pass costs one bilateral filter per camera, once, at calibration.
+        //
+        // #1407: and it is the first pass that can size its outer cutoff against the
+        // BOARD, because STEP 1.6 has now said which ring `board.radius` is. The product
+        // is the board's radius; `boardRadiusOfSpan()` decides what an Unknown gets, in
+        // one place. The first pass could not have this: the identity is read from it.
+        colorParams.statedBoardRadius = board.radius * ring.boardRadiusOfSpan();
         Mat redGreenFrame = color_processing::processColors(roiFrame, cameraIdx, debugMode, colorParams);
 
 

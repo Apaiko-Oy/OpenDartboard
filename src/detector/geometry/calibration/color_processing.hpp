@@ -113,8 +113,75 @@ namespace color_processing
          * This constant is still 0.6 of the frame and this issue did not move it. #1407 is
          * where it is moved, on this measurement, and its author's refusal to ship a
          * number stands until then.
+         *
+         * #1407 MOVED IT, and it is now `outerCutoffOfBoardRadius` below. This fraction of
+         * the frame is kept for exactly two uses: `OD_COLOUR_WINDOWS=frame` and
+         * `OD_COLOUR_CUTOFF=frame` put it back on the same binary, and STEP 1's full-frame
+         * pass -- which runs before any ring has been named -- still draws it, for the
+         * reason `statedBoardRadius` gives.
          */
         double maxDistanceFromCenter = 0.6; // Maximum distance from center as ratio of image width
+
+        /**
+         * #1407: THE OUTER CUTOFF, IN BOARD RADII. 225.5 / 170 = 1.326: the board's RIM.
+         *
+         * WHAT THE WINDOW ASKS. It is the last condition on one clause of the keep -- a
+         * blob of real size, joined to a neighbour, is kept unless it is too far out --
+         * and SECTION 7.2 names its question: is this a number, or the room? It is not
+         * the question "is this coloured board", which the other clauses and the text
+         * filters answer for what lies inside the board. So its stop is where the
+         * dartboard ENDS and the room begins, and a dartboard ends at its rim:
+         * `roi_processing::ROIParams` quotes 225.5 mm, and the doubles' outer wire is
+         * `perspective_processing::DartboardSpec::outerDoubleRadius` 170 mm. Everything
+         * centred inside 225.5 mm is on the board -- the doubles, the number ring, the
+         * wire ends -- and nothing centred outside it can be. 225.5/170 = 1.326 R.
+         *
+         * WHY NOT 1.0 R, which #1394 wrote above as the stop. 1.0 R is where dartboard
+         * COLOUR ends, and it is the right stop for a window whose failure is admitting
+         * something coloured that is not a ring. It is the wrong one here for a reason in
+         * the millimetres: the doubles ring IS coloured and its fragments' centroids sit
+         * at (162+170)/2 / 170 = 0.976 R, 2.4% inside a stop at 1.0 R -- and the rig is
+         * exactly the board whose doubles are twenty separate arcs. The centre this
+         * distance is measured from is the boundary polygon's centroid, not the bull
+         * (#1323 measured 21 to 68 px between them), and the board radius comes from a
+         * smallest enclosing circle through dilated pixels (#1320). A stop 2.4% outside
+         * the thing it must keep is a stop that drops board on measurement error. The
+         * annulus from 1.0 R to the rim holds nothing coloured and nothing that is room,
+         * so a stop anywhere in it separates the same two populations; the rim is the
+         * one point in it that the board itself defines.
+         *
+         * WHY THIS IS NOT THE 1.326 #1407 REFUSED. #1407 refused 1.326 SPANS: the rim ratio
+         * multiplied by a length that was the doubles ring on one fixture and the treble
+         * ring on the other, which lands the stop at the rim on the mocks and at 0.834 R
+         * on the rig -- inside the doubles. Here it multiplies `statedBoardRadius`, which
+         * is the span times `ring_identity::Sighting::boardRadiusOfSpan()` (#1423): 1.0
+         * on a span STEP 1.6 read as the doubles ring, 1.589 on one it read as the
+         * trebles. So the stop is 1.326 R on both, which is 1.326 spans on the mocks and
+         * 2.107 spans on the rig -- the same 225.5/107 `ROIParams::roiRadiusOfBoardRadius`
+         * reaches for, because both are the rim. An Unknown ring gets 1.589, decided in
+         * `boardRadiusOfSpan()` and not here: a rim drawn 1.589x too wide on a doubles
+         * span admits room, and STEP 1.6 has already WARNed that camera.
+         *
+         * The numbers this was chosen against are the geometry's and not the fixtures',
+         * and the fixtures are what it is then held to: `i1407_run.sh` prints the pixels
+         * per camera before and after and what the cutoff alone keeps and drops.
+         */
+        double outerCutoffOfBoardRadius = 1.326; // board rim 225.5 mm / outerDoubleRadius 170 mm
+
+        /**
+         * #1407: the board radius in pixels, as STEP 1.6 licenses it -- `measureBoard`'s span
+         * times `ring_identity::Sighting::boardRadiusOfSpan()` -- or 0 where no ring has
+         * been named. It is an input rather than something this stage measures, because
+         * this stage cannot: its own `boardSpan` is the length whose ring is in doubt.
+         *
+         * 0 is STEP 1's full-frame pass, and it is 0 because it has to be rather than
+         * because nobody got to it. The ring identity is READ FROM that pass's output
+         * mask -- the outermost colour over 720 rays -- so a cutoff drawn from the
+         * identity would be a cutoff drawn from its own result. On that pass the outer
+         * cutoff stays the frame's, exactly as it was, and the identity is read off the
+         * same mask it was measured on in #1423.
+         */
+        double statedBoardRadius = 0.0;
 
         // Text detection and filtering
         double textAspectRatioMin = 0.4; // Minimum aspect ratio for text detection

@@ -50,6 +50,22 @@ namespace color_processing
             return v;
         }
 
+        /**
+         * #1407's falsification, the same shape: OD_COLOUR_CUTOFF=frame puts back the outer
+         * cutoff alone as 0.6 of the frame's width, on the binary that draws it at the
+         * board's rim, so the one window this issue moved can be measured without the
+         * other three moving with it. OD_COLOUR_WINDOWS=frame now puts back all four.
+         */
+        bool cutoffDrawnOnTheFrame()
+        {
+            static bool v = []
+            {
+                const char *e = std::getenv("OD_COLOUR_CUTOFF");
+                return e && std::string(e) == "frame";
+            }();
+            return v;
+        }
+
         /** Two decimals, for a log line that has to carry a ratio. */
         string decimals(double v, int places)
         {
@@ -511,20 +527,26 @@ namespace color_processing
         // `boardCenter` is the centroid of. It is the span and not the board, and which
         // ring it lands on is known rather than assumed -- `roi_processing::ROIParams`
         // measured it on both fixtures and it is the doubles ring on one and the treble
-        // ring on the other. THREE of the four windows move; the outer cutoff is left on
-        // the frame because that ambiguity breaks it in both directions at once, and
-        // `ColorParams::maxDistanceFromCenter` carries the measurement that says so.
+        // ring on the other. THREE of the four windows are drawn against it.
+        //
+        // #1407: the fourth, the outer cutoff, is not, because that ambiguity breaks it in
+        // both directions at once (`ColorParams::maxDistanceFromCenter` carries #1394's
+        // numbers). It is drawn against `statedBoardRadius` instead -- the board radius
+        // STEP 1.6 named the ring for -- at the board's rim, and on the frame wherever no
+        // ring has been named: STEP 1's full-frame pass, a board this stage could not
+        // measure a middle for, and the two switches that put the frame back.
         //
         // Where no board could be measured, the windows are the frame's, exactly as they
         // were before this issue -- the same fallback, and the same sentence in the log,
         // that #1323 established for the centre they are drawn around.
         double bullsEyeWindow = 0.0, centralityWindow = 0.0, farWindow = 0.0, connectivityWindow = 0.0;
         bool windowsOnBoard = boardMeasured && boardSpan > 0.0f && !windowsDrawnOnTheFrame();
-        // The outer cutoff is on the frame under BOTH rules and always has been: it is the
-        // one window of the four whose board-radii stop cannot be converted into this
-        // stage's only length without breaking one fixture or the other, and
-        // `ColorParams::maxDistanceFromCenter` carries both sets of numbers.
+        const bool cutoffOnBoard = windowsOnBoard && params.statedBoardRadius > 0.0 && !cutoffDrawnOnTheFrame();
         farWindow = enhancedMask.cols * params.maxDistanceFromCenter / 2;
+        if (cutoffOnBoard)
+        {
+            farWindow = params.statedBoardRadius * params.outerCutoffOfBoardRadius;
+        }
         if (windowsOnBoard)
         {
             const double boardRadius = boardSpan * params.boardRadiusOfBoardSpan;
@@ -561,6 +583,26 @@ namespace color_processing
                       log_string((int)lround(enhancedMask.cols * params.maxDistanceFromCenter / 2)) + " and " +
                       log_string((int)lround(enhancedMask.cols * params.connectivityThreshold)) +
                       " px on every camera, every rig and every mounting");
+
+            // #1407: the cutoff's own line, because its length is not the span above.
+            string cutoffRule = "the FRAME's width, no ring having been named for this pass";
+            if (cutoffOnBoard)
+            {
+                cutoffRule = "a board radius of " + to_string((int)lround(params.statedBoardRadius)) +
+                             " px, which is " + decimals(params.statedBoardRadius / boardSpan, 3) +
+                             " of this pass's own span, at the rim: " +
+                             decimals(params.outerCutoffOfBoardRadius, 3) + " R";
+            }
+            else if (params.statedBoardRadius > 0.0)
+            {
+                cutoffRule = "the FRAME's width, by switch or for want of a board middle, where the rim would be " +
+                             to_string((int)lround(params.statedBoardRadius * params.outerCutoffOfBoardRadius)) +
+                             " px";
+            }
+            log_debug("Camera " + log_string(camera_idx + 1) + " outer cutoff " +
+                      log_string((int)lround(farWindow)) + " px off " + log_string_src(cutoffRule) +
+                      "; the frame rule is " +
+                      log_string((int)lround(enhancedMask.cols * params.maxDistanceFromCenter / 2)) + " px");
         }
 
         {
@@ -714,11 +756,18 @@ namespace color_processing
                             {
                                 spans = decimals(distToCenter / boardSpan, 2);
                             }
+                            // #1407: and in board radii where a ring has been named,
+                            // which is the unit the outer cutoff is now drawn in.
+                            string radii = "";
+                            if (params.statedBoardRadius > 0.0)
+                            {
+                                radii = " = " + decimals(distToCenter / params.statedBoardRadius, 2) + " R";
+                            }
                             decided[k].push_back(verdict + " " + to_string(area) + " px at (" +
                                                  to_string((int)lround(componentCenter.x)) + "," +
                                                  to_string((int)lround(componentCenter.y)) + "), " +
                                                  to_string((int)lround(distToCenter)) + " px out = " +
-                                                 spans + " spans");
+                                                 spans + " spans" + radii);
                         }
                     }
                 }
