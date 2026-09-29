@@ -205,21 +205,25 @@ tester 1512-entry         "bash '$T/i1512_run.sh'"
 # check prints, stated before the run. Not a unit_check.sh row because the measurement is
 # that TRIPLE on one binary (i1518_check.sh's and i1552_check.sh's reason).
 tester 1555-publish       "bash '$T/i1555_check.sh'"
-# #1555's fixture half: both paths over both ground-truthed fixtures in BOTH calibration
+# #1555's fixture half: both paths over every ground-truthed fixture in BOTH calibration
 # windows (#1551 -- the registry build's 3 s seek and OD_SEEK_VIDEO=off's opening, never
 # pooled blind and never against od-baselines/5bc3b0a's third window), scored against the
 # truth tables with ring, wedge, phantom and silence split apart and segmentation counted
 # apart again (#1552). What is asserted is that each census is an instrument, that the pin
 # restores the vote, and that every published score is the column its own path= names;
 # accuracy is REPORTED, because a harness that failed on it would be deciding the issue by
-# its own threshold. Five whole-clip replays, i1511's shape and cost.
+# its own threshold. Seven whole-clip replays, i1511's shape and cost: since #1674 the
+# five over rig-20260918 and rig-20260922 plus rig-20260929 (180 s, NOT annotated, so
+# censused by visit order) in both windows. The ACCURACY line pools all three fixtures;
+# POOLED-r18+r22 is the pre-#1674 pool, kept comparable.
 #
-# MEASURED, #1341's rule: 690 s wall on a quiet 4-core box (2026-09-25, the wired run,
-# five replays end to end), which is 58% of the 1200 s default. No `slow` line, because
-# 1200 has never been exceeded by this row and #1341's budget is twice the limit that
-# really failed rather than twice the cost measured here -- the number is written down so
-# whoever first meets a `no answer in 1200s` knows it started at 690 and can say so.
+# MEASURED, #1341's rule: 690 s wall on a quiet 4-core box for the five replays
+# (2026-09-25); 1170 s for the seven (2026-09-29, run_all 1555-bakeoff on #1674's branch,
+# host 70% busy, load 5.5 at the end), which is 97.5% of the 1200 s default -- so the
+# `slow` line is twice the measured cost, #1341's rule, rather than a default it would
+# meet on the first busier box.
 tester 1555-bakeoff       "bash '$T/i1555_run.sh'"
+slow 2400
 # #1556: a score whose uncertainty crosses a wire says so. The crossing is measured ACROSS
 # the boundary that could flip the call -- a ring wire radially, a sector wire tangentially
 # -- rather than against the longest axis of the error ellipse whichever way it points, and

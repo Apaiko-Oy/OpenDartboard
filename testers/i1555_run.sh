@@ -1,12 +1,12 @@
 #!/bin/bash
-# #1555's harness: both scoring paths over both ground-truthed fixtures in both
+# #1555's harness: both scoring paths over every ground-truthed fixture in both
 # calibration windows, side by side against the truth tables, and the pin exercised on
 # the same binary so the losing path stays measurable.
 #
 #   testers/run_all.sh 1555        build the tree and run this (and the pure check)
 #   testers/i1555_run.sh           run it against this checkout
 #
-# testers/i1555_inside.sh holds what is measured. Five whole-clip detector replays,
+# testers/i1555_inside.sh holds what is measured. Seven whole-clip detector replays,
 # i1511's cost apiece:
 #
 #   1. rig-20260918, the registry build's own 3 s calibration seek (#1551: `dev`)
@@ -14,6 +14,11 @@
 #   3. rig-20260922, dev            -- the window that admits two cameras
 #   4. rig-20260922, opening        -- the window that admits three (#1551)
 #   5. rig-20260918, dev, OD_SCORE_PATH=vote -- the pin, on the same binary
+#   6. rig-20260929, dev            -- (#1674) the first fixture no constant was fitted to,
+#   7. rig-20260929, opening           NOT annotated, so joined by visit order
+#
+# The pooled ACCURACY line is over all three fixtures (the 96% target from #1674 on);
+# POOLED-r18+r22 is the same pool without rig-20260929, comparable with earlier runs.
 #
 # The two windows are NEVER pooled blind and never compared against
 # od-baselines/5bc3b0a, which is a third window again (a release build's).

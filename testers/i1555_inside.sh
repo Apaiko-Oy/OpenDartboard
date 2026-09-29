@@ -1,7 +1,7 @@
 #!/bin/bash
 # #1555, inside the container: the side-by-side census that decides which path publishes.
 #
-# Five whole-clip detector replays (i1511's shape and cost apiece), then one pooled
+# Seven whole-clip detector replays (i1511's shape and cost apiece), then the pooled
 # tally. Every run is made with OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 so both paths answer
 # on the same dart in the same process -- which is the only way the comparison is not a
 # comparison of two runs.
@@ -11,6 +11,16 @@
 #   3. rig-20260922, dev window      the window that admits two of three cameras
 #   4. rig-20260922, opening window  the window that admits three
 #   5. rig-20260918, dev, PINNED     OD_SCORE_PATH=vote -- the losing path, reachable
+#   6. rig-20260929, dev window      (#1674) the first fixture no constant was fitted to
+#   7. rig-20260929, opening window
+#
+# RIG-20260929 IS NOT ANNOTATED (#1674). There is no testers/i1511_annotations CSV for it,
+# so its census runs with --not-annotated: joined by visit order, a short visit placing
+# nothing (i1555_census.py's ordinal_join), and every figure that needs the spatial
+# matcher -- phantoms, #1536's plant -- saying `not annotated` rather than a number. Its
+# ACCURACY is a RANGE wherever a visit published fewer darts than were thrown. It is
+# pooled twice: with the other two fixtures (pooled.txt, the 96% target from #1674 on)
+# and the other two alone (pooled-r18-r22.txt, comparable with every run before #1674).
 #
 # WHY BOTH WINDOWS AND NEVER POOLED BLIND (#1551). A registry (dev) build calibrates at a
 # 3 s seek into the clip; OD_SEEK_VIDEO=off holds the same binary at the clip's opening.
@@ -40,9 +50,10 @@ T18=/app/mocks/rig-20260918/GROUND-TRUTH.md
 T22=/app/testers/i1499_truth_rig20260922.md
 A18=/app/testers/i1511_annotations/rig-20260918.csv
 A22=/app/testers/i1511_annotations/rig-20260922.csv
+T29=/app/mocks/rig-20260929/GROUND-TRUTH.md   # and no A29: not annotated (#1674)
 
 if [ ! -x $BIN ]; then echo "FAIL no $BIN"; exit 1; fi
-for f in $T18 $T22 $A18 $A22; do
+for f in $T18 $T22 $A18 $A22 $T29; do
     if [ ! -s $f ]; then echo "FAIL $f is missing"; exit 1; fi
 done
 
@@ -89,6 +100,15 @@ census22() { # $1 log basename, $2 window word
     return ${PIPESTATUS[0]}
 }
 
+census29() { # $1 log basename, $2 window word
+    local out="$1" window="$2"
+    shift 2
+    python3 /app/testers/i1555_census.py --log "$RUN/$out.txt" --truth $T29 \
+        --not-annotated --fixture rig-20260929 --window "$window" \
+        --min-matched 4 "$@" | tee "$RUN/census-$out.txt"
+    return ${PIPESTATUS[0]}
+}
+
 # #1655: which clock the motion timers run on, as asked. Every census reads the clock the
 # binary announced back off its own log, and the assertions below require the two agree.
 CLOCK_ASKED="${OD_MOTION_CLOCK:-wall}"
@@ -114,17 +134,34 @@ echo "=== 5. the pin: rig-20260918, dev window, OD_SCORE_PATH=vote =============
 run_detector rig-20260918 r18-pin OD_SCORE_PATH=vote
 census18 r18-pin dev || { echo "FAIL the pinned census could not be read"; exit 1; }
 
+echo "=== 6. rig-20260929, dev window (not annotated, #1674) ========================"
+run_detector rig-20260929 r29-dev
+census29 r29-dev dev || { echo "FAIL the rig-29 dev census could not be read"; exit 1; }
+
+echo "=== 7. rig-20260929, opening window (OD_SEEK_VIDEO=off, not annotated) ========"
+run_detector rig-20260929 r29-open OD_SEEK_VIDEO=off
+census29 r29-open opening || { echo "FAIL the rig-29 opening census could not be read"; exit 1; }
+
+MEASURED="r18-dev r18-open r22-dev r22-open r29-dev r29-open"
+
 echo "=== the pooled tally, per fixture and per window, never blind across them ====="
 python3 /app/testers/i1555_census.py --pool \
     "$RUN/census-r18-dev.txt" "$RUN/census-r18-open.txt" \
-    "$RUN/census-r22-dev.txt" "$RUN/census-r22-open.txt" | tee "$RUN/pooled.txt"
+    "$RUN/census-r22-dev.txt" "$RUN/census-r22-open.txt" \
+    "$RUN/census-r29-dev.txt" "$RUN/census-r29-open.txt" | tee "$RUN/pooled.txt"
 if [ ${PIPESTATUS[0]} -ne 0 ]; then echo "FAIL nothing to pool"; exit 1; fi
+# #1674: and without rig-20260929, so the figure every run before it printed stays
+# comparable. Labelled, so the two pools are never read for each other.
+python3 /app/testers/i1555_census.py --pool-label POOLED-r18+r22 --pool \
+    "$RUN/census-r18-dev.txt" "$RUN/census-r18-open.txt" \
+    "$RUN/census-r22-dev.txt" "$RUN/census-r22-open.txt" > "$RUN/pooled-r18-r22.txt"
+if [ $? -ne 0 ]; then echo "FAIL nothing to pool without rig-20260929"; exit 1; fi
 
 echo "=== assertions ================================================================"
 
 # #1655: every run measured on the clock it was asked for. A variable that did not reach
 # the binary would otherwise leave a wall-clock figure labelled as the intended one.
-for name in r18-dev r18-open r22-dev r22-open r18-pin; do
+for name in $MEASURED r18-pin; do
     GOT=$(grep '^I1555 ACCURACY-TALLY ' "$RUN/census-$name.txt" | head -1 | sed -n 's/.* clock=\([^ ]*\).*/\1/p')
     [ "$GOT" = "$CLOCK_ASKED" ] || { echo "FAIL $name ran on clock=$GOT where $CLOCK_ASKED was asked"; exit 1; }
 done
@@ -181,7 +218,7 @@ echo "OK   every published score is the column its own path= names"
 # changed the publish rule without changing the census, which is the regression this
 # tester exists for. Read off the run itself -- whether any dart published by the
 # geometry -- so the harness needs to know nothing about the constant in the header.
-for name in r18-dev r18-open r22-dev r22-open; do
+for name in $MEASURED; do
     C="$RUN/census-$name.txt"
     [ -s "$C" ] || { echo "FAIL $C is missing"; exit 1; }
     T=$(grep '^I1555 TALLY ' "$C" | head -1)
@@ -203,24 +240,25 @@ echo "OK   the published column is exactly one of the two paths on every fixture
 # denominator exactly -- a dart counted twice or dropped would move the one figure the
 # accuracy effort is judged by without any column above noticing. This is about the
 # instrument adding up, not about the figure: the figure itself is still not asserted.
-for name in r18-dev r18-open r22-dev r22-open; do
+# (#1674: a not-annotated census has a sixth bucket, wrong_unplaced, and it partitions too.)
+for name in $MEASURED; do
     A=$(grep '^I1555 ACCURACY-TALLY ' "$RUN/census-$name.txt" | head -1)
     [ -n "$A" ] || { echo "FAIL census-$name has no ACCURACY-TALLY line"; exit 1; }
     python3 - "$name" "$A" <<'PY' || { echo "FAIL the $name ACCURACY line does not add up"; exit 1; }
 import sys
 name, line = sys.argv[1], sys.argv[2]
 f = dict(t.split("=", 1) for t in line.split() if "=" in t)
-parts = sum(int(f[k]) for k in ("correct", "wrong_score", "undetected",
-                                "offboard_scored", "ambiguous"))
+parts = sum(int(f.get(k, 0)) for k in ("correct", "wrong_score", "undetected",
+                                       "offboard_scored", "ambiguous", "wrong_unplaced"))
 print("accuracy %s: arrivals=%s buckets=%d" % (name, f["arrivals"], parts))
 sys.exit(0 if parts == int(f["arrivals"]) > 0 else 1)
 PY
 done
 echo "OK   every ACCURACY line partitions its arrivals exactly"
-grep -h '^I1555 ACCURACY ' "$RUN/census-r18-dev.txt" "$RUN/census-r18-open.txt" \
-    "$RUN/census-r22-dev.txt" "$RUN/census-r22-open.txt" "$RUN/pooled.txt"
+for name in $MEASURED; do grep -h '^I1555 ACCURACY ' "$RUN/census-$name.txt"; done
+grep -h '^I1555 ACCURACY ' "$RUN/pooled.txt" "$RUN/pooled-r18-r22.txt"
 
-# #1536: the detector's own miss-rate off these same four logs -- landed-and-not-detected
+# #1536: the detector's own miss-rate off these same six logs -- landed-and-not-detected
 # beside missed-and-not-detected, every arrival's cameras -- and the plant that proves the
 # figure is a count of darts (OD_CENSUS_PLANT drops one named publication before
 # matching; undetected must move by exactly one and name it). No replay: census re-runs.
