@@ -33,8 +33,11 @@ run() { # $1 name, $2 cams, $3 optional VAR=value for this run only
 }
 
 # "168 182 178 " -- the bull's-eye window each camera chose, in camera order.
+# #1407: the outer cutoff now differs between the two passes, so it is taken out of the
+# line before the de-duplication for every window but itself.
 win() { # $1 run, $2 which window
-  grep -hoE "Camera [0-9] colour windows off [^;]*" /run1394/$1.txt | sort -u \
+  grep -hoE "Camera [0-9] colour windows off [^;]*" /run1394/$1.txt \
+    | if [ "$2" = "outer cutoff" ]; then cat; else sed -E 's/outer cutoff [0-9]+ px, //'; fi | sort -u \
     | grep -oE "$2 [0-9]+ px" | grep -oE '[0-9]+' | tr '\n' ' '; }
 # The span each camera measured, which is the length every window is a fraction of.
 spans() { grep -hoE 'Camera [0-9] colour windows off a board spanning [0-9]+' /run1394/$1.txt \
@@ -91,10 +94,13 @@ else say "FAIL centrality read mocks '$(win mocks centrality)' and rig '$(win ri
 if [ "$(win mocks connectivity)" = "140 152 149 " ] && [ "$(win rig connectivity)" = "152 94 94 " ]; then
   say "OK   connectivity: mocks 140/152/149 px, rig 152/94/94 px -- 0.306 board radii" ok
 else say "FAIL connectivity read mocks '$(win mocks connectivity)' and rig '$(win rig connectivity)'" no; fi
-# The one window that did NOT move, and it is asserted rather than left unsaid.
-if [ "$(win mocks "outer cutoff")" = "384 384 384 " ] && [ "$(win rig "outer cutoff")" = "384 384 384 " ]; then
-  say "OK   the outer cutoff is 384 px on all six under BOTH rules; ColorParams says why" ok
-else say "FAIL the outer cutoff moved: mocks '$(win mocks "outer cutoff")', rig '$(win rig "outer cutoff")'" no; fi
+# The one window #1394 did NOT move. #1407 moved it on STEP 2.5's pass, to the board's rim
+# in board radii, and `1407-cutoff` holds those numbers; here only the frame rule is held:
+# STEP 1's pass keeps 384 px, and OD_COLOUR_WINDOWS=frame puts 384 back on both passes.
+if [ "$(win mocks "outer cutoff")" = "384 386 384 417 384 410 " ] && [ "$(win rig "outer cutoff")" = "384 420 384 412 384 416 " ] \
+   && [ "$(win mocksframe "outer cutoff")" = "384 384 384 " ] && [ "$(win rigframe "outer cutoff")" = "384 384 384 " ]; then
+  say "OK   the outer cutoff: 384 px on STEP 1's pass, the rim on STEP 2.5's, 384 again under the frame rule" ok
+else say "FAIL the outer cutoff read mocks '$(win mocks "outer cutoff")', rig '$(win rig "outer cutoff")'" no; fi
 # #1340's rule: a switch that only ever refuses passes any test asking it to refuse.
 if [ "$(win mocksframe "bull's-eye")" = "128 128 128 " ] && [ "$(win rigframe centrality)" = "320 320 320 " ] \
    && [ "$(win mocks "bull's-eye")" != "$(win mocksframe "bull's-eye")" ] \
