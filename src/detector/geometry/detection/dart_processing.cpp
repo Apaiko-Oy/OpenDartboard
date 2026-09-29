@@ -1875,7 +1875,25 @@ namespace dart_processing
                 {
                     standing_figures[i] = Mat::zeros(window_frames[i].size(), CV_8UC1);
                 }
-                drawContours(standing_figures[i], axis_pieces[i], -1, Scalar(255), FILLED);
+                // The figure as its window measured it, grown by half its own median
+                // column width on every side -- one dart-width in all. The widening is
+                // the older dart's own figure, not a fixture number, and it is what the
+                // struck dart needs: rig-20260929 v10.3's fresh diff (frames 4450 against
+                // 4505, cam 1) holds the WHOLE older dart outlined, both barrel edges,
+                // because the landing knocked or set it swinging, so its pixels sit a few
+                // px beside the figure its own window fitted and the exact figure leaves
+                // them in (measured: the unwidened retry kept width 58, 17 and 33 px).
+                Mat piece = Mat::zeros(window_frames[i].size(), CV_8UC1);
+                drawContours(piece, axis_pieces[i], -1, Scalar(255), FILLED);
+                const double own_width = i < result.camera_results.size()
+                                             ? result.camera_results[i].axis.medianWidthPx
+                                             : 0.0;
+                const int grow = (int)std::lround(own_width / 2.0);
+                if (grow > 0)
+                {
+                    dilate(piece, piece, getStructuringElement(MORPH_ELLIPSE, Size(2 * grow + 1, 2 * grow + 1)));
+                }
+                standing_figures[i] |= piece;
             }
         }
 
