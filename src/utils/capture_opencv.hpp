@@ -1,6 +1,7 @@
 #pragma once
 
 #include "capture.hpp"
+#include "capture_realtime.hpp"
 #include "logging.hpp"
 #include "od_clock.hpp"
 #include "od_fix.hpp"
@@ -14,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <memory>
 
 namespace camera
 {
@@ -169,6 +171,9 @@ namespace camera
             // knows how many there are. A video file never enters it.
             std::vector<OpenedCamera> opened_devices;
 
+            // #1683: a reopen stops the old feeds' threads before their captures go.
+            rt_feeds_.clear();
+            rt_last_return_ns_ = 0;
             captures_.clear();
             clocks_.clear();
             anchors_.clear();
@@ -413,6 +418,8 @@ namespace camera
             // number of cameras is exactly the thing that is not in scope.
             sayFinding(busFinding(opened_devices));
 
+            startRealtimeFeeds();
+
             return !captures_.empty();
         }
 
@@ -432,6 +439,15 @@ namespace camera
         // build, or OD_SEEK_VIDEO=off) has seeked_to_ 0 on every camera and reads nothing.
         void alignSeekedFiles() override
         {
+            // #1683: the replay's own count of the reads calibration took, so a census can
+            // turn a scoring cycle back into a read (and so into the frame it was shown).
+            log_info("I1683 SCORING STARTS after " + std::to_string(reads_) + " capture read(s)" +
+                     (rtOn() ? " (real-time replay)" : ""));
+            // #1683: under the real-time replay every file is already on one wall clock,
+            // so a file seeked to an earlier frame has its frames published at once and
+            // the newest-frame rule has caught it up; there is nothing to read forward.
+            if (rtOn())
+                return;
             int furthest = 0;
             for (size_t i = 0; i < seeked_to_.size(); i++)
             {
@@ -524,6 +540,13 @@ namespace camera
             static bool od_unblinding_said = false;
             static long od_short_cycles = 0;
             od_cycle++;
+            reads_ = od_cycle;
+            // #1683: the loop's time since the previous read returned -- one cycle's
+            // processing, which is what decides how many frames a live camera skips.
+            const int64_t od_enter_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                            std::chrono::steady_clock::now().time_since_epoch())
+                                            .count();
+            std::string rt_frames, rt_skips;
             const bool od_inject = (od_drop_every > 0 && (od_cycle % od_drop_every) == 0);
             bool od_blind = (od_blind_after > 0 && od_cycle >= od_blind_after);
             if (od_blind && od_cycle == od_blind_after)
@@ -559,7 +582,21 @@ namespace camera
                 frames[i].clock = clocks_[i];
 
                 cv::Mat image;
-                bool success = captures_[i].read(image);
+                bool success = false;
+                double rt_pos_ms = -1.0;
+                if (rtOn(i))
+                {
+                    RealtimeFeed::Taken taken = rt_feeds_[i]->take();
+                    success = taken.ok;
+                    image = taken.image;
+                    rt_pos_ms = taken.pos_ms;
+                    rt_frames += (i ? "," : "") + std::to_string(taken.frame);
+                    rt_skips += (i ? "," : "") + std::to_string(taken.skipped);
+                }
+                else
+                {
+                    success = captures_[i].read(image);
+                }
 
                 const bool od_named = std::find(od_drop_cam.begin(), od_drop_cam.end(),
                                                 static_cast<int>(i)) != od_drop_cam.end();
@@ -578,7 +615,7 @@ namespace camera
 
                 // The acquisition instant, taken from the backend, immediately after the
                 // frame is in hand. This is the camera's own clock, not the loop's.
-                double pos_ms = captures_[i].get(cv::CAP_PROP_POS_MSEC);
+                double pos_ms = rtOn(i) ? rt_pos_ms : captures_[i].get(cv::CAP_PROP_POS_MSEC);
                 int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                                      std::chrono::steady_clock::now().time_since_epoch())
                                      .count();
@@ -656,7 +693,7 @@ namespace camera
                     // its end. A real end never recovers; a decode hiccup does.
                     const bool injected = (od_inject && od_named) || od_blind;
                     if (!injected && i < is_file_.size() && is_file_[i] && delivered_[i] &&
-                        captures_[i].isOpened())
+                        (rtOn(i) ? rt_feeds_[i]->ended() : captures_[i].isOpened()))
                     {
                         if (!ended_[i] && ++failures_[i] >= kEndOfFootageFailures)
                         {
@@ -735,8 +772,30 @@ namespace camera
 
             reportCycle(frames);
 
+            // #1683: one line per read under the real-time replay -- which frame each file
+            // handed over, how many it skipped, how long the read waited for a frame and how
+            // long the loop took since the previous read returned. The frames are what the
+            // census maps a window to; the two times are the load, measured.
+            if (rtOn())
+            {
+                const int64_t out_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                           std::chrono::steady_clock::now().time_since_epoch())
+                                           .count();
+                const double proc_ms = rt_last_return_ns_ ? (od_enter_ns - rt_last_return_ns_) / 1e6 : -1.0;
+                const double wait_ms = (out_ns - od_enter_ns) / 1e6;
+                rt_last_return_ns_ = out_ns;
+                char tail[96];
+                snprintf(tail, sizeof(tail), " proc_ms=%.1f wait_ms=%.1f", proc_ms, wait_ms);
+                log_info("I1683RT read=" + std::to_string(od_cycle) + " frame=[" + rt_frames +
+                         "] skip=[" + rt_skips + "]" + tail);
+            }
+
 #ifdef DEBUG_VIA_VIDEO_INPUT
-            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000.0 / 60)));
+            // #1683: the real-time replay is paced by the footage's own presentation
+            // times, as a camera is; this sleep stands in for that pacing and a live
+            // (release) board has none, so under the replay it is not slept.
+            if (!rtOn())
+                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(1000.0 / 60)));
 #endif
 
             return frames;
@@ -799,6 +858,53 @@ namespace camera
         }
 
     private:
+        // #1683: true when this slot (or, without an argument, any slot) is a file played
+        // in real time.
+        bool rtOn(size_t i) const { return i < rt_feeds_.size() && rt_feeds_[i]; }
+        bool rtOn() const
+        {
+            for (const auto &f : rt_feeds_)
+                if (f)
+                    return true;
+            return false;
+        }
+
+        // #1683: under OD_REALTIME_REPLAY=on, every file source is handed to a feed that
+        // plays it at its presentation times on one shared wall clock (capture_realtime.hpp).
+        // The instant the feeds start is presentation time P0, the furthest any file was
+        // seeked to, so the files are aligned by time: one seeked less far has its earlier
+        // frames published at once and superseded, as #1618's alignment reads them forward.
+        // Only when EVERY source is a file: a mixed rig is not a replay.
+        void startRealtimeFeeds()
+        {
+            rt_feeds_.clear();
+            if (!realtimeReplayOn() || captures_.empty())
+                return;
+            for (size_t i = 0; i < captures_.size(); i++)
+            {
+                if (!is_file_[i])
+                {
+                    log_warning("OD_REALTIME_REPLAY=on ignored: source " + std::to_string(i + 1) +
+                                " is a device, and only an all-file source is replayed in real time (#1683)");
+                    return;
+                }
+            }
+            double p0_ms = 0.0;
+            for (size_t i = 0; i < captures_.size(); i++)
+            {
+                const double fps = captures_[i].get(cv::CAP_PROP_FPS);
+                if (fps > 0)
+                    p0_ms = std::max(p0_ms, seeked_to_[i] * 1000.0 / fps);
+            }
+            const auto origin = std::chrono::steady_clock::now();
+            for (size_t i = 0; i < captures_.size(); i++)
+                rt_feeds_.emplace_back(new RealtimeFeed(captures_[i], origin, p0_ms));
+            log_warning("REAL-TIME REPLAY (OD_REALTIME_REPLAY=on, #1683): " + std::to_string(captures_.size()) +
+                        " file(s) are played at their presentation times from P0=" + std::to_string((long)p0_ms) +
+                        " ms on the wall clock; a read takes each file's NEWEST frame and a slow cycle "
+                        "skips frames as a live camera does. Motion clock: " + std::string(od_clock::mode_name()));
+        }
+
         // Instrumentation, off unless OD_CAPSEAM names a reporting interval. It prints what
         // the seam now knows and the program did not: per camera the backend's acquisition
         // instant, and separately when each read() returned.
@@ -885,6 +991,10 @@ namespace camera
         std::vector<bool> ended_;      // this file has reached its end and said so once
         std::vector<int> seeked_to_;   // #1618: the frame the dev seek put each file at
         double nominal_fps_ = 0.0;
+        // #1683: the real-time replay's feeds, one per file, empty when it is off.
+        std::vector<std::unique_ptr<RealtimeFeed>> rt_feeds_;
+        int64_t rt_last_return_ns_ = 0;
+        long reads_ = 0;
     };
 
     inline std::unique_ptr<CaptureSource> makeCaptureSource()
