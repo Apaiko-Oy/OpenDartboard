@@ -244,6 +244,23 @@ namespace entry_intersection
         // rig-20260918's solved entries, so honest agreement fits inside 15 with
         // room and the census prints every distance for re-measurement.
         double tipAgreeMm = 15.0;
+
+        // #1681: THE REDUNDANCY A LINE NEEDS BEFORE THE OTHER CAMERAS CAN BE SAID TO
+        // CHECK IT. A used line's redundancy number (Baarda's internal reliability) is
+        //   r_k = 1 - n_k' C n_k / sigma_k^2  =  sigma_k^2 / (sigma_k^2 + sigmaPred_k^2)
+        // with C the final solve's covariance and sigmaPred_k how precisely the OTHER
+        // lines place the dart across line k: the share of a displacement of line k that
+        // reaches the residuals at all. Below 0.1 means sigmaPred_k > 3 sigma_k -- the
+        // other cameras place the dart across this line at least three times less
+        // precisely than the line claims itself, the same 3 as consistencySigmas and the
+        // chi-square's 9 -- and it is the textbook "poorly controlled observation" bound
+        // of geodetic network reliability, not a number chosen on a dart. A two-line
+        // solve has r = 0 for both lines by construction. MEASURED BEFORE IT WAS KEPT
+        // (issue comment on #1681, main's logs): 40 of 109 solves on the three fixtures
+        // carry an uncontrolled line (28 two-line solves, 12 three-line ones), and
+        // rig-20260929 window 22 -- two cameras crossing at 9.8 deg, the third on the
+        // other new dart -- reads r = 0.01, the lowest on disk.
+        double minRedundancy = 0.1;
     };
 
     /**
@@ -324,6 +341,9 @@ namespace entry_intersection
         double pxPerMm = 0.0;         // this camera's scale at the bull (fit's own figure)
         double residualMm = 0.0;      // n.X + c at the solved point, signed
         double residualPx = 0.0;      // image-space distance, reprojected solve to image line
+        // #1681: this line's redundancy number in the final solve (Params::minRedundancy
+        // says what it is); -1 where the line was not used.
+        double redundancy = -1.0;
 
         // The observed image line, kept for overlays and reprojection residuals.
         cv::Point2f imagePoint;
@@ -429,6 +449,18 @@ namespace entry_intersection
         int tipCorroborations = 0;          // of those, within Params::tipAgreeMm
         double nearestTipMm = -1.0;
 
+        // #1681: WHETHER THE LINES CHECK EACH OTHER, AND WHERE THEY DO NOT, WHETHER A TIP
+        // DOES. `uncontrolled` is some used line below Params::minRedundancy (always so
+        // on a two-line solve); `controlRefused` is that AND no placed tip within
+        // Params::tipAgreeMm -- a position nothing but one unchecked line vouches for in
+        // some direction. The solve does not act on it: the outcome is unchanged, and
+        // score_processing refuses the publish only under OD_SOLVE_CONTROL=on.
+        double minRedundancy = -1.0;
+        int leastControlledCamera = -1;     // 1-based, as the census lines print cameras
+        bool uncontrolled = false;
+        bool controlRefused = false;
+        std::string controlStory;
+
         // ---- #1556: THE CROSSING, MEASURED ACROSS THE BOUNDARY AND NAMED --------------
         //
         // Until this issue the wire question was `boundaryMm <= sigmaMajorMm`: the
@@ -515,6 +547,23 @@ namespace entry_intersection
         {
             const char *e = std::getenv("OD_ENTRY_SIGMA");
             return e != nullptr && std::string(e) == "zero";
+        }();
+        return v;
+    }
+
+    /**
+     * #1681's switch, in the od_fix shape: `OD_SOLVE_CONTROL=on` refuses to PUBLISH a
+     * solve whose lines do not check each other somewhere (a used line's redundancy
+     * number under Params::minRedundancy) and which no placed tip corroborates, so the
+     * vote publishes it, labelled DEGRADED like every refusal. Unset, the verdict is
+     * computed and printed (I1681CONTROL, under the census pin) and acts on nothing.
+     */
+    inline bool solveControlIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_SOLVE_CONTROL");
+            return e != nullptr && std::string(e) == "on";
         }();
         return v;
     }
@@ -1162,6 +1211,49 @@ namespace entry_intersection
             }
         }
 
+        // #1681: the redundancy number of every used line, from the final solve's own
+        // covariance and sigmas (Params::minRedundancy states the test and its bound).
+        // A line whose displacement the other cameras cannot see -- a line on another
+        // dart, a shadow, a flight -- moves the position without ever raising a residual,
+        // which is how rig-20260929 window 22 published a MISS 31 mm off the board with a
+        // chi-square of 3.3 against 9. Where the lines cannot check themselves, #1512's
+        // corroboration is what can: the tip stays evidence, never a constraint, and is
+        // asked for exactly there.
+        for (Constraint *con : usable)
+        {
+            if (con->excluded)
+            {
+                continue;
+            }
+            const double s2 = std::max(1e-12, con->sigmaPerpMm * con->sigmaPerpMm);
+            const double h = (con->nx * con->nx * cov(0, 0) + 2.0 * con->nx * con->ny * cov(0, 1) +
+                              con->ny * con->ny * cov(1, 1)) / s2;
+            con->redundancy = std::min(1.0, std::max(0.0, 1.0 - h));
+            if (out.minRedundancy < 0.0 || con->redundancy < out.minRedundancy)
+            {
+                out.minRedundancy = con->redundancy;
+                out.leastControlledCamera = con->camera + 1;
+            }
+        }
+        out.uncontrolled = out.minRedundancy >= 0.0 && out.minRedundancy < params.minRedundancy;
+        out.controlRefused = out.uncontrolled && out.tipCorroborations == 0;
+        if (out.uncontrolled)
+        {
+            out.controlStory =
+                "cam " + std::to_string(out.leastControlledCamera) + "'s line has redundancy " +
+                detail::fmt("%.2f", out.minRedundancy) + " (under " +
+                detail::fmt("%.2f", params.minRedundancy) +
+                ": the other cameras cannot see it displaced) and " +
+                (out.controlRefused
+                     ? "no placed tip lies within " + detail::fmt("%.0f", params.tipAgreeMm) +
+                           " mm of the entry (" +
+                           (out.tipWitnesses == 0
+                                ? std::string("no camera placed one")
+                                : "nearest " + detail::fmt("%.1f", out.nearestTipMm) + " mm") +
+                           "), so nothing corroborates the position"
+                     : std::to_string(out.tipCorroborations) + " placed tip(s) corroborate it");
+        }
+
         // Scored ONCE, through scoreFromModel on the reference camera -- and read
         // through every placeable camera beside it, because two anchors disagreeing
         // about one point is a rig fact a reader must see.
@@ -1413,6 +1505,31 @@ namespace entry_intersection
                  crudeWireTestIsPinned() ? "crude" : "across");
         return std::string(head) +
                (sol.alternativeRefusal.empty() ? "-" : sol.alternativeRefusal);
+    }
+
+    /**
+     * #1681: the control verdict, one per solve, beside the #1512 lines under the same
+     * census pin. `r=` is each offered camera's redundancy number in camera order ("-"
+     * where the line was not used); `refused=` is the verdict and `applied=` whether
+     * OD_SOLVE_CONTROL=on let it move the publish.
+     */
+    inline std::string censusControlLine(const EntrySolution &sol, long window)
+    {
+        std::string rs;
+        for (const Constraint &con : sol.constraints)
+        {
+            rs += (rs.empty() ? "" : "/") +
+                  (con.redundancy >= 0.0 ? detail::fmt("%.3f", con.redundancy) : std::string("-"));
+        }
+        char head[320];
+        snprintf(head, sizeof(head),
+                 "I1681CONTROL window=%ld solved=%d usable=%d r=%s min=%.3f cam=%d "
+                 "tips=%d/%d nearestTip=%.1f uncontrolled=%d refused=%d applied=%d story=",
+                 window, sol.solved ? 1 : 0, sol.usableConstraints, rs.empty() ? "-" : rs.c_str(),
+                 sol.minRedundancy, sol.leastControlledCamera, sol.tipCorroborations,
+                 sol.tipWitnesses, sol.nearestTipMm, sol.uncontrolled ? 1 : 0,
+                 sol.controlRefused ? 1 : 0, (sol.controlRefused && solveControlIsOn()) ? 1 : 0);
+        return std::string(head) + (sol.controlStory.empty() ? "-" : sol.controlStory);
     }
 
     /** One line per offered camera; exclusion words last. */
