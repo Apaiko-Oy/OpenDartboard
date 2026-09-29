@@ -1368,9 +1368,10 @@ namespace shaft_axis
      * So the retry is the figure MINUS the figures of the darts the vote has called
      * since the board was last clean, in this camera, fitted again with every gate
      * unchanged. What survives is what did not exist in any earlier window of the
-     * visit -- the new dart where it does not overlap an older one. No number is
-     * introduced: the standing mask is the older figures exactly as they were fitted.
-     * It is tried only on a SHAPE refusal ("not straight", "not a shaft") whose support
+     * visit -- the new dart where it does not overlap an older one. No fixture number
+     * is introduced: the standing mask is each older figure as its window fitted it,
+     * grown by half that figure's own median width (dart_processing.cpp says why: a
+     * struck dart moves or swings, and the exact figure left its edges in). It is tried only on a SHAPE refusal ("not straight", "not a shaft") whose support
      * overlaps the standing figures, so an axis that passes today is never touched, and
      * the retry must pass every gate on its own or the original refusal stands.
      * OD_AXIS_STACK=on adopts it (dart_processing.cpp); off, it is measured and printed
