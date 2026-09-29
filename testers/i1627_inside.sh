@@ -41,6 +41,9 @@
 # goes red four times -- the spike line reads action=discarded, the window after it
 # reverts instead of publishing T1, v8.1's census line reads UNDETECTED, and v8.1 is not
 # gained -- so the row fails naming v8.1's dropped takeout.
+# MEASURED 2026-09-29: exactly that. A and C ok; B's measured spike reads cycle=2563
+# action=discarded first=END reversions=2 second=S4, and v8.1 reads "thrown=T1 published=-
+# UNDETECTED", lost none gained none; RESULT: 4 failure(s), rc=1, 617 s.
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
