@@ -35,6 +35,13 @@
 # MEASURED: cycle 2563, camera 3 0.042649, average 0.014249; takeout window CLEAN; v8.1 T1
 # exact; 20/23.
 #
+# MUTATION PROOF: `OD_SETTLE_SPIKE=discard testers/run_all.sh 1627-takeout` forces the pin
+# on every replay, r22-on included (i1627_run.sh forwards that one variable and nothing
+# else). PREDICTION, stated before the first forced run (2026-09-29): A and C stay ok; B
+# goes red four times -- the spike line reads action=discarded, the window after it
+# reverts instead of publishing T1, v8.1's census line reads UNDETECTED, and v8.1 is not
+# gained -- so the row fails naming v8.1's dropped takeout.
+#
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
 
@@ -63,10 +70,18 @@ R22=/app/mocks/rig-20260922
 # what the binary is told. What the two switches do is 1646-exposure's, 1648-takeout's
 # and 1555-bakeoff's to measure.
 MOTION_PINS="OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
+# The mutation: a non-empty OD_SETTLE_SPIKE from the host is written LAST into every
+# replay's environment, so it wins over what a replay passes; an empty one is unset, so
+# the binary is told nothing it would not be told without this hook.
+FORCED_SPIKE="${OD_SETTLE_SPIKE:-}"
+unset OD_SETTLE_SPIKE
+if [ -n "$FORCED_SPIKE" ]; then
+  echo "MUTATION: OD_SETTLE_SPIKE=$FORCED_SPIKE forced on every replay; this run is expected to FAIL"
+fi
 replay() { # $1 out name, $2.. env
   local out="$1"; shift
   rm -rf $RUN/cache $RUN/debug_frames
-  ( cd $RUN && env OD_MAX_CYCLES=0 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 $MOTION_PINS "$@" timeout 900 $BIN \
+  ( cd $RUN && env OD_MAX_CYCLES=0 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 $MOTION_PINS "$@" ${FORCED_SPIKE:+OD_SETTLE_SPIKE=$FORCED_SPIKE} timeout 900 $BIN \
       --cams "$R22/cam_1.mp4,$R22/cam_2.mp4,$R22/cam_3.mp4" --width 1280 --height 720 \
       > $RUN/$out.out 2>&1 )
   local rc=$?
