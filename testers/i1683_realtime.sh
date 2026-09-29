@@ -17,7 +17,8 @@
 #                           cycle skips frames (utils/capture_realtime.hpp)
 #   OD_MOTION_CLOCK=wall    the motion timers on wall time, the live board's default
 #   OD_SEEK_VIDEO=off       the clip's opening window, a live start on a clean board
-# The container gets --cpus=2, as the bakeoff's does. The load before and after, and the
+# The container gets --cpus=2, as the bakeoff's does (OD_DOCKER_CPUS names another share,
+# to stand in for a slower board). The load before and after, and the
 # per-cycle processing time the replay measured, are printed with the result, because a
 # real-time run's result belongs to them.
 set -u
@@ -30,8 +31,8 @@ mkdir -p "$OUT"
 ENVS=(-e HOME=/root -e OD_REALTIME_REPLAY=on -e OD_MOTION_CLOCK=wall -e OD_SEEK_VIDEO=off
       -e OD_MAX_CYCLES=0 -e OD_GEO_SCORE=on -e OD_SHAFT_CENSUS=1)
 for kv in "$@"; do ENVS+=(-e "$kv"); done
-echo "I1683 RUN tree=$(git -C "$TREE" rev-parse --short HEAD) extra=[$*] start=$(date -Is) load_before=$(cut -d' ' -f1-3 /proc/loadavg)" | tee "$OUT/run.txt"
-docker run --rm --cpus=2 --network none "${ENVS[@]}" \
+echo "I1683 RUN tree=$(git -C "$TREE" rev-parse --short HEAD) extra=[$*] cpus=${OD_DOCKER_CPUS:-2} start=$(date -Is) load_before=$(cut -d' ' -f1-3 /proc/loadavg)" | tee "$OUT/run.txt"
+docker run --rm --cpus=${OD_DOCKER_CPUS:-2} --network none "${ENVS[@]}" \
   -v "$TREE":/app -v "$OUT":/run -w /run od-amd64:bullseye \
   timeout 900 /app/$BUILD/opendartboard --cams $FIX/cam_1.mp4,$FIX/cam_2.mp4,$FIX/cam_3.mp4 \
   --width 1280 --height 720 > "$OUT/out.raw" 2>&1
