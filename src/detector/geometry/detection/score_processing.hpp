@@ -512,6 +512,102 @@ namespace score_processing
     }
 
     /**
+     * #1675: OFF-BOARD-VETO -- a solved MISS that every placed piece of evidence argues
+     * with, handed back to the vote. OPT-IN (`OD_OFFBOARD_VETO=on`); the default is
+     * decidePublishedPath's verdict, unchanged.
+     *
+     * The case, measured on rig-20260929 v6.2 (a thrown D5), both calibration windows:
+     * the three shaft axes intersect at r 201.6-202.7 mm, 31 mm outside the double
+     * ring, and the solve is SOLVED at 0.9 (6.3 sigma clear of the ring wire), so
+     * geometry-first publishes MISS. Camera 1 and camera 2 both read D5 off their tips
+     * (vote D5 at 0.9, two agreeing), and not one placed tip is within 15 mm of the
+     * solve (tips=0/3, nearest 46.8 mm). Camera 2's line misses the solve by 11.4 mm
+     * (31.7 px), and the solve rests on cameras 1 and 3.
+     *
+     * The rule's reason is the word MISS. That score claims the dart is not on the
+     * board at all, which is a claim about where the dart landed, not a call at a
+     * wire's margin. When two cameras independently place the tip on the same scoring
+     * segment and no tip at all is near the solved point, the solve contradicts every
+     * piece of evidence it could be checked against. Three conditions, all required:
+     *
+     *   1. the geometric score is MISS (the entry is outside the outer double wire);
+     *   2. the vote is a consensus, two or more cameras agreeing, on a string that is
+     *      not MISS;
+     *   3. no placed tip corroborates the solve (tipCorroborations == 0).
+     *
+     * By construction it can only turn a geometric MISS into an on-board score. It
+     * cannot touch a dart the solve places ON the board, so it cannot touch #1657's
+     * wire-margin trade. It is fitted to one dart. What speaks for it is that its
+     * trigger is narrow: of every I1555PUBLISH row on disk with geo=MISS, this dart is
+     * the only one whose vote was a consensus, and the others are lone 0.7 votes.
+     */
+    inline bool offBoardVetoIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_OFFBOARD_VETO");
+            return e != nullptr && std::string(e) == "on";
+        }();
+        return v;
+    }
+
+    struct OffBoardVeto
+    {
+        bool applies = false; // the three conditions hold (said whether or not it is on)
+        bool vetoed = false;  // ... and the switch is on, so the vote publishes
+        std::string account;  // the I1675VETO line; empty where the conditions fail
+    };
+
+    inline OffBoardVeto checkOffBoardVeto(bool vetoOn, bool geometryPublishes,
+                                          const std::string &geoScore, double solvedRadiusMm,
+                                          const std::string &voteScore, int voteAgreeing,
+                                          int tipWitnesses, int tipCorroborations,
+                                          double nearestTipMm, long window)
+    {
+        OffBoardVeto out;
+        if (!geometryPublishes || geoScore != "MISS" || voteAgreeing < 2 ||
+            voteScore.empty() || voteScore == "MISS" || tipCorroborations != 0)
+        {
+            return out;
+        }
+        out.applies = true;
+        out.vetoed = vetoOn;
+        char buf[512];
+        std::snprintf(buf, sizeof(buf),
+                      "I1675VETO window=%ld on=%d vetoed=%d geo=MISS r=%.1f vote=%s agreeing=%d "
+                      "tips=%d/%d nearestTip=%.1f -- the solve is off the board, %d cameras "
+                      "agree on %s, and no placed tip is near the solve; %s",
+                      window, vetoOn ? 1 : 0, out.vetoed ? 1 : 0, solvedRadiusMm,
+                      voteScore.c_str(), voteAgreeing, tipCorroborations, tipWitnesses,
+                      nearestTipMm, voteAgreeing, voteScore.c_str(),
+                      vetoOn ? "the vote publishes"
+                             : "the solve stands (OD_OFFBOARD_VETO=on hands it to the vote)");
+        out.account = buf;
+        return out;
+    }
+
+    /**
+     * #1675: the decision after a veto. The vote publishes, labelled as the vote with the
+     * veto named, never as a triangulated position. It counts as degraded because what
+     * publishes is the cameras' reading, not the solve.
+     */
+    inline PublishDecision vetoedDecision(const PublishDecision &in, const std::string &voteScore,
+                                          double solvedRadiusMm)
+    {
+        PublishDecision out = in;
+        out.path = ScorePath::Vote;
+        char r[32];
+        std::snprintf(r, sizeof(r), "%.1f", solvedRadiusMm);
+        out.fallback_reason = std::string("OFF-BOARD-VETO: the solve reads MISS at r ") + r +
+                              " mm, two or more cameras agree on " + voteScore +
+                              " and no placed tip corroborates the solve";
+        out.account = "PATH: VETOED -- " + out.fallback_reason +
+                      ", so the string vote publishes this dart; it is the cameras' reading "
+                      "and not a triangulated position";
+        return out;
+    }
+
+    /**
      * #1555: what a GEOMETRIC publish's confidence means, said here because the three
      * numbers mean something and #1489 is why.
      *

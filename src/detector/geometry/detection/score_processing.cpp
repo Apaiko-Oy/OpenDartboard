@@ -1062,10 +1062,40 @@ namespace score_processing
             const bool geometry_answered = geometry_publishes && solution.solved &&
                                            solution.score.valid &&
                                            solution.scoredThroughCamera >= 0;
-            const PublishDecision decision =
+            PublishDecision decision =
                 decidePublishedPath(geometry_publishes, geometry_answered,
                                     entry_intersection::outcomeWord(solution.outcome),
                                     solution.story);
+            // #1675: OFF-BOARD-VETO, opt-in. A solved MISS that two agreeing cameras
+            // and every placed tip argue with goes back to the vote. The I1675VETO line
+            // prints wherever the three conditions hold, switch on or off, so a default
+            // run still says where the rule would have fired.
+            {
+                const string vote_word = choice.camera >= 0 ? point_scores[choice.camera].score
+                                                            : string("MISS");
+                long veto_window = -1;
+                for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+                {
+                    if (r.axis.windowOrdinal >= 0)
+                    {
+                        veto_window = r.axis.windowOrdinal;
+                    }
+                }
+                const OffBoardVeto veto = checkOffBoardVeto(
+                    offBoardVetoIsOn(), decision.path == ScorePath::Geometry,
+                    geometry_answered ? solution.score.score : string(), solution.radiusMm,
+                    vote_word, choice.camera >= 0 ? choice.agreeing : 0,
+                    solution.tipWitnesses, solution.tipCorroborations, solution.nearestTipMm,
+                    veto_window);
+                if (veto.applies)
+                {
+                    log_info(veto.account);
+                }
+                if (veto.vetoed)
+                {
+                    decision = vetoedDecision(decision, vote_word, solution.radiusMm);
+                }
+            }
             // Printed on every dart, never conditionally: a reader of any log must be
             // able to say which path named this score without knowing which build they
             // are reading. That is the whole property this issue creates, and #1451 is
