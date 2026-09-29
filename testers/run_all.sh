@@ -629,6 +629,9 @@ tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # pinned, repaired (the default), and both #1631 pins (OD_LOOK_BUDGET=12 OD_SEEK_ALIGN=off),
 # each with #1662's motion switches pinned off (OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off).
 # Three whole-clip replays. MEASURED 2026-09-28 on the 4-core box at load ~5-6 (#1662): 685 s, inside the 1500 given (1618-thirdcam's allowance).
+# MEASURED again 2026-09-29 (#1627, fork main ef06bac): PASS 741 s at load ~5-10. Mutation proof:
+# OD_SETTLE_SPIKE=discard testers/run_all.sh 1627-takeout (the tester forwards that one variable)
+# is red in 617 s with B's four checks failing and v8.1 UNDETECTED; see i1627_inside.sh.
 tester 1627-takeout       "bash '$T/i1627_run.sh'"
 slow 1500
 # #1646: on rig-20260922's opening, camera 3's automatic exposure is still walking back

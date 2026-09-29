@@ -6,6 +6,10 @@
 #
 #   testers/run_all.sh 1627-takeout   build the tree and run this
 #   testers/i1627_run.sh              run it against this checkout's src/ and build/
+#   OD_SETTLE_SPIKE=discard testers/run_all.sh 1627-takeout
+#                                     the mutation proof: the pin forced on every replay,
+#                                     the repaired one included, so the row must go red
+#                                     (i1627_inside.sh says what it predicts)
 #
 # testers/i1627_inside.sh holds what is measured and asserted: whole-clip rig-20260922
 # dev replays (i1555's shape and cost apiece).
@@ -26,7 +30,9 @@ mkdir -p "$RUN"
 tr -d '\r' < "$OD_TREE_ROOT/testers/i1627_inside.sh" > "$RUN/inside.sh"
 
 T0=$(date +%s)
-od_run "1627" --cpus=2 --network none -e HOME=/root \
+# The one host switch forwarded: OD_SETTLE_SPIKE, for the mutation proof. Each replay's
+# environment is otherwise written out in inside.sh, so nothing else on the host reaches it.
+od_run "1627" --cpus=2 --network none -e HOME=/root -e OD_SETTLE_SPIKE="${OD_SETTLE_SPIKE:-}" \
   -v "$OD_TREE_ROOT":/app -v "$RUN":/run1627 -w /run1627 \
   "$OD_IMAGE" bash /run1627/inside.sh 2>&1 | tee "$RUN/out.txt"
 RC=${PIPESTATUS[0]}
