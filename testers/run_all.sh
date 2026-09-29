@@ -311,6 +311,11 @@ tester 1340-floor         "bash '$T/i1340_run.sh'"
 tester 1392-annulus       "bash '$T/i1392_run.sh'"
 tester 1393-carve         "bash '$T/i1393_run.sh'"
 tester 1394-windows       "bash '$T/i1394_run.sh'"
+# #1407: the fourth window, the outer cutoff, drawn at the board's rim in board radii
+# against the length #1423's ring identity licenses. #1394's instrument on both fixtures and
+# on one binary, OD_COLOUR_CUTOFF=frame as the falsifier. MEASURED 2026-09-29 on the 4-core
+# box at load 6-8: 162 s, rc=0.
+tester 1407-cutoff        "bash '$T/i1407_run.sh'"
 # #1437: a fixture answers for every clip it holds. It runs the detector once per fixture,
 # once more against a fixture with a clip that sees no dartboard, then ten times over held
 # frames, and finally calibrates ninety single frames directly. MEASURED 2026-09-20 on the
