@@ -611,6 +611,13 @@ tester 1456-lookchoice    "bash '$T/unit_check.sh' 1456"
 # OD_LOOK_BUDGET=12 (since #1631 the default is the 31-look budget). No whole-clip replay. OD_I1456_REPS=5 runs the decision's 5-per-arm
 # experiment instead of the registered 2/1/1.
 tester 1456-bestlook      "bash '$T/i1456_run.sh'"
+# #1458: every camera that fits a perspective says its reprojection error at INFO --
+# mean and worst over its correspondences, and how many there were -- and on the shipped
+# mocks, where the first-pass fit is deterministic, the figure is asserted no worse than
+# the recorded baseline with no tolerance. Both rig fixtures are run and their figures
+# recorded, asserted on nothing yet (the decision of 2026-09-23, point 4). Four
+# calibration-only runs; no whole-clip replay.
+tester 1458-fit           "bash '$T/i1458_run.sh'"
 # #1628: a lone vote reading within its sigma of a wedge wire (rig-20260922 dev v7.2, S3
 # thrown, camera 1 S19 0.26 mm past the 3/19 wire). The check SAYS how close the lone
 # reading was; the reselection to a camera clear of every wire was measured 1:1 over both
