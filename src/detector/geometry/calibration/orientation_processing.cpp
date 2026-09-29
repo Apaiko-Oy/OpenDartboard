@@ -357,6 +357,12 @@ namespace orientation_processing
             // #1363: the star measurement is a trustworthy anchor; the TOP/BOTTOM
             // branches below compute an index too and deliberately do NOT set this --
             // #797 measured them one wedge loose, and #1346 recorded the caution.
+            //
+            // #1676: THIS IS THE CLIP-WIRE ANCHOR, and on the default board it does not
+            // survive: processOrientation's setTheStarAside undoes it immediately after
+            // this function returns (a Winmau Blade 6 has no wire number ring, so four clips
+            // on it are the finder being wrong), and the number reader anchors instead.
+            // Only under OD_BOARD=auto does this branch decide the camera's 20.
             result.anchored = true;
         }
         else

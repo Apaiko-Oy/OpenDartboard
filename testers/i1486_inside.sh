@@ -159,8 +159,11 @@ run_detector() {
 derived_count() { grep -ac 'ANCHOR: camera . derived wedge 20' $RUN/$1.txt; }
 consensus_count() { grep -ac 'Consensus score: ' $RUN/$1.txt; }
 
-run_detector mocks-derived "$MOCKS" "$CYCLES" OD_ANCHOR=
-run_detector mocks-own     "$MOCKS" "$CYCLES" OD_ANCHOR=own
+# #1676: the mocks under OD_BOARD=auto. They are an upstream Unicorn whose cam_2 anchors by
+# its four clip wires, which is the one self-anchored camera this tester derives from; the
+# default (the board forced to a Winmau Blade 6) sets that star aside by design.
+run_detector mocks-derived "$MOCKS" "$CYCLES" OD_BOARD=auto OD_ANCHOR=
+run_detector mocks-own     "$MOCKS" "$CYCLES" OD_BOARD=auto OD_ANCHOR=own
 run_detector rig-derived   "$RIG"   "$CYCLES" OD_ANCHOR=
 
 # The shipped mocks anchor ONE camera by its own star measurement, so they are the fixture

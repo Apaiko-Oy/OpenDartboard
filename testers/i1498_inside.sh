@@ -56,7 +56,10 @@ MOCKS="$SRC/mocks"
 echo
 echo "=== 1. the number ring, both fixtures =========================================="
 probe rig "$RIG"
-probe mocks "$MOCKS"
+# #1676: the mocks are an upstream Unicorn with a real wire number ring, and section 5 compares
+# the reader with the clip wires' own anchor, which the default (forced Winmau Blade 6) sets
+# aside. So the mocks are read under the pin that restores the measured board.
+probe mocks "$MOCKS" OD_BOARD=auto
 grep -h '^I1498CAM \|^I1498WHY ' /run1498/rig.rows.txt /run1498/mocks.rows.txt 2>/dev/null
 
 echo
@@ -66,7 +69,7 @@ echo "  ring (107 mm) and the doubles (162.5 mm) -- and changes nothing else. It
 echo "  only thing that can tell 'the numbers were read' from 'twenty cells of anything"
 echo "  score a rotation'."
 probe null-rig "$RIG" OD_NUMBER_ANCHOR=inner
-probe null-mocks "$MOCKS" OD_NUMBER_ANCHOR=inner
+probe null-mocks "$MOCKS" OD_BOARD=auto OD_NUMBER_ANCHOR=inner
 grep -h '^I1498CAM ' /run1498/null-rig.rows.txt /run1498/null-mocks.rows.txt 2>/dev/null
 
 echo
