@@ -1567,6 +1567,18 @@ namespace dart_processing
                         r.sub_floor_axis.camera = (int)i;
                         r.sub_floor_tip_found = norm(tc.first) > 0;
                         r.sub_floor_tip = tc.first;
+                        const int floor_pixels =
+                            (int)((double)board_pixels * params.board_change_percent_threshold / 100.0);
+                        const Point tip_px((int)std::lround(tc.first.x), (int)std::lround(tc.first.y));
+                        const bool tip_in_scoring =
+                            r.sub_floor_tip_found && tip_px.x >= 0 && tip_px.y >= 0 &&
+                            tip_px.x < region.mask.cols && tip_px.y < region.mask.rows &&
+                            region.mask.at<uchar>(tip_px) != 0;
+                        const bool rereport = r.sub_floor_tip_found && i < reported_tips.size() &&
+                                              isAReReportOfAnEarlierTip(tc.first, gap, reported_tips[i]);
+                        r.sub_floor_corroborates = subFloorCameraCorroborates(
+                            r.fresh_physical_pixels, floor_pixels, r.sub_floor_axis.valid,
+                            r.sub_floor_tip_found, tip_in_scoring, rereport);
                     }
                 }
             }
@@ -1707,6 +1719,36 @@ namespace dart_processing
             voting.absolute_quorum = true;
         }
         const int quorum = stateVoteQuorum(voters, voting);
+
+        // #1678: under OD_LONE_CAMERA=on, a sub-floor camera whose figure is a dart standing
+        // in the scoring area (subFloorCameraCorroborates) corroborates an advance at least
+        // one camera made on its own, when no voter reads CLEAN.
+        if (loneRuleOn() && moves_up >= 1 && moves_up < quorum && goes_clean == 0)
+        {
+            int corroborating = 0;
+            string who;
+            for (size_t i = 0; i < result.camera_results.size(); i++)
+            {
+                const CameraDetectionResult &r = result.camera_results[i];
+                if (!r.frame_available || r.abstained_no_board || !r.sub_floor_corroborates)
+                    continue;
+                if (r.detected_state != best_previous_state)
+                    continue; // a stay vote only: an up vote is already counted, CLEAN excluded above
+                corroborating++;
+                who += (who.empty() ? "" : ", ") + to_string(i + 1) + " (" +
+                       to_string(r.fresh_board_pixels) + " px in the scoring area, " +
+                       to_string(r.fresh_physical_pixels) + " in the physical board, tip at (" +
+                       to_string((int)r.sub_floor_tip.x) + "," + to_string((int)r.sub_floor_tip.y) + "))";
+            }
+            if (corroborating > 0 && moves_up + corroborating >= quorum)
+            {
+                log_info("LONE CAMERA: " + to_string(moves_up) + " camera(s) cleared the floor and camera(s) " +
+                         who + " stayed under it in the scoring area with a dart's figure whose tip is in "
+                         "it -- a rim dart clipped by the scoring-area mask -- so they corroborate the "
+                         "advance and the quorum of " + to_string(quorum) + " is met (#1678)");
+                moves_up += corroborating;
+            }
+        }
 
         // Pick the winner
         DartBoardState final_state;
@@ -1985,13 +2027,13 @@ namespace dart_processing
                 char buf[512];
                 snprintf(buf, sizeof(buf),
                          "I1678LONE window=%ld opened=%ld closed=%ld %s->%s up=%d clean=%d cam=%d state=%s "
-                         "board=%d/%d fresh=%d freshPhys=%d subFloor=%d tip=%d tipAt=(%.0f,%.0f) "
+                         "board=%d/%d fresh=%d freshPhys=%d subFloor=%d corro=%d tip=%d tipAt=(%.0f,%.0f) "
                          "axis=%d extent=%.0f width=%.1f rms=%.2f px=%d frac=%.3f",
                          (long)window_serial, (long)window_opened_at, (long)cycle_ordinal,
                          getDartBoardStateName(result.previous_state).c_str(),
                          getDartBoardStateName(final_state).c_str(), moves_up, goes_clean, (int)i + 1,
                          getDartBoardStateName(r.detected_state).c_str(), r.board_changed_pixels,
-                         r.board_pixels, r.fresh_board_pixels, r.fresh_physical_pixels, sub ? 1 : 0,
+                         r.board_pixels, r.fresh_board_pixels, r.fresh_physical_pixels, sub ? 1 : 0, r.sub_floor_corroborates ? 1 : 0,
                          tip ? 1 : 0, tp.x, tp.y, ax.valid ? 1 : 0, ax.extentPx, ax.medianWidthPx,
                          ax.centrelineRmsPx, ax.supportPixels, ax.trimmedFraction);
                 log_info(string(buf) + " refusal=" + (ax.valid ? string("-") : ax.refusal));
