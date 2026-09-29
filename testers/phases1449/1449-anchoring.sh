@@ -39,6 +39,16 @@ set -u
 #           two: 3 of 3. Named, not warned, and the configured anchor says so in its own
 #           words rather than in the star camera's.
 #
+# #1679, 2026-09-29: the board NONE was built to be no longer exists. #1629's number reader
+# reads the printed numbers on cam_1 and cam_3 as well as cam_2, so on this binary NONE and
+# SOME both read 3 of 3 and nothing is warned. The assertions that needed an unreadable
+# camera (in sections 2, 3 and 4) are retired where they stood, each with the measured
+# fact -- the maintainer's decision of 2026-09-28 (#1645, #1658, #1661, #1672): retire an
+# assertion whose subject the footage no longer produces, and plant no frame. BEFORE is
+# untouched and whole: the branch point has no number reader, so on it the board still is
+# the one this issue was filed about. The phases above are kept as the history of why the
+# board was built this way; what each now asks is in its section.
+#
 # Every detector started here can end in #895's fault vigil, which never returns, so each
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
@@ -47,6 +57,11 @@ BIN=/app/build/opendartboard
 # Unicorn with a real wire number ring, and this tester is about the star camera anchoring
 # itself by its clip wires -- which the default (the board forced to a Winmau Blade 6, which
 # has no wire ring) sets aside by design. OD_BOARD=auto is #1498/#1501's behaviour.
+# #1679, 2026-09-29: the pin still earns its place. Under the default, MEASURED on 2c33747,
+# camera 2 of the mocks is anchored by the printed numbers with its clip wires set aside, so
+# section 3's "camera 2: anchored by its own star-pattern measurement" would lose its
+# subject; and the default revives none of what #1679 retired -- the unanchored board and
+# the mocks both read 3 of 3 there too.
 export OD_BOARD=auto
 MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 # Three slots, not one of them a star camera. The repetition is the point, not an oversight.
@@ -231,60 +246,69 @@ else say "FAIL the census turned a legal board into a refused one; that is the o
 if readied none; then
   say "OK   still beats READY, so the rig OD_CAMERA_WEDGES was written for still works" ok
 else say "FAIL a board that was READY before this change is not READY after it" no; fi
-if [ "$(grep -ca 'BOARD: wedge by default' /run1449/none.txt || true)" -gt 0 ]; then
-  say "OK   still scores -- scoring behaviour is #1346's and is untouched" ok
-else say "FAIL it stopped publishing darts" no; fi
-if grep -qa 'ORIENTATION: 0 of 3 cameras can be read for a wedge' /run1449/none.txt; then
-  say "OK   and it says so AT START: 0 of 3" ok
-else say "FAIL the census does not name zero on a board where no camera can be read" no; fi
-if grep -qa 'No camera on this board can be read for a wedge, so every dart will publish as an asserted 20' /run1449/none.txt; then
-  say "OK   at WARN, naming the consequence rather than the arithmetic (#1338's shape)" ok
-else say "FAIL zero readable cameras is not a warning" no; fi
-# #1389: each camera and its reason, never just a count -- and in the WARN itself, because
-# an operator filtering to WARN and ERROR must see the whole sentence or none of it.
-WARNLINE=$(grep -a 'No camera on this board can be read' /run1449/none.txt | head -1)
-NAMED=$(echo "$WARNLINE" | grep -oE 'camera [0-9]+: ' | wc -l)
-if [ "$NAMED" = "3" ]; then
-  say "OK   all three cameras named in the warning itself, each with its own reason (#1389)" ok
-else say "FAIL the warning names $NAMED cameras of 3; a count alone has told nobody anything" no; fi
-if echo "$WARNLINE" | grep -q 'OD_CAMERA_WEDGES'; then
-  say "OK   and it names the remedy, which is what start is the right moment for" ok
-else say "FAIL the warning says what is wrong and not what to do about it" no; fi
-echo "    the line, verbatim:"
-echo "$WARNLINE" | sed 's/^/      /'
+# === 2's "still scores by default", "0 of 3", the WARN, "names 3 cameras" and "names the
+# remedy", RETIRED by #1679 (maintainer's decision of 2026-09-28, applied 2026-09-29) ===
+# They asserted that this board -- cam_1, cam_3, cam_1 -- still published darts as the
+# asserted 20, that the census said `0 of 3`, and that a WARN `No camera on this board can
+# be read for a wedge` named all three cameras and the remedy OD_CAMERA_WEDGES. MEASURED on
+# fork 2c33747 under OD_BOARD=auto: #1629's number reader anchors every slot of it (camera
+# 1 and 3 `read the board's own numbers ... wedge 12`, camera 2 `... wedge 7`), the census
+# reads `3 of 3 cameras can be read for a wedge`, no WARN is printed, and the one dart it
+# published in the window was READ (`wedge measured`), none by default. So there is no
+# unreadable board in the shipped footage for any of the five to be about; they printed
+# `it stopped publishing darts`, `the census does not name zero ...`, `zero readable
+# cameras is not a warning`, `the warning names 0 cameras of 3` and `the warning says what
+# is wrong and not what to do about it`. Retired rather than planted, as #1645-#1672 were.
+#
+# What is kept is what still has a subject: the census must not turn this board into a
+# refused one (admitted 3 of 3, READY, above), and section 5 still asks that the census and
+# the darts agree on it.
+echo "    the census line, verbatim:"
+grep -a 'ORIENTATION: [0-9]* of [0-9]* cameras can be read' /run1449/none.txt | head -1 | sed 's/^/      /'
 
 echo
 echo "=== 3. SOME: the ordinary board is named and is NOT warned ==="
 grep -aE 'ORIENTATION:|No camera on this board' /run1449/some.txt | head -3 || true
-if grep -qa 'ORIENTATION: 1 of 3 cameras can be read for a wedge' /run1449/some.txt; then
-  say "OK   the shipped mocks read 1 of 3 -- the star camera, and only it" ok
-else say "FAIL the ordinary board's census is not 1 of 3" no; fi
+# === 3's "1 of 3", RETIRED by #1679 (maintainer's decision of 2026-09-28, applied
+# 2026-09-29) === It asserted that the shipped mocks read `1 of 3` -- the star camera and
+# only it. MEASURED on fork 2c33747 under OD_BOARD=auto: they read `3 of 3`, cameras 1 and
+# 3 anchored by reading the board's own printed numbers (#1629) and camera 2 by its star
+# with the numbers agreeing. The ordinary board is now a fully readable one.
 if grep -qa 'No camera on this board can be read' /run1449/some.txt; then
   say "FAIL a board with a readable camera was warned as though it were broken" no
 else say "OK   not warned: some is the ordinary case, and only NONE is the alarming one" ok; fi
 if grep -qa 'camera 2: anchored by its own star-pattern measurement' /run1449/some.txt; then
   say "OK   the readable camera is named as measured, in its own words" ok
 else say "FAIL the star camera is not named as anchored by measurement" no; fi
-UNREAD=$(grep -a 'ORIENTATION: 1 of 3' /run1449/some.txt | head -1 | grep -oE 'camera [0-9]+: ' | wc -l)
-if [ "$UNREAD" = "3" ]; then
-  say "OK   and the two that cannot be read are named too, with their own reasons" ok
-else say "FAIL the census names $UNREAD cameras of 3" no; fi
-echo "    the line, verbatim:"
-grep -a 'ORIENTATION: 1 of 3' /run1449/some.txt | head -1 | sed 's/^/      /'
+# === 3's "the two that cannot be read are named", RETIRED by #1679 (2026-09-29) ===
+# It counted the cameras named in the `1 of 3` line, to prove the two unreadable ones were
+# named with their reasons. MEASURED on 2c33747: there is no `1 of 3` line and no unreadable
+# camera on this board, so it printed `the census names 0 cameras of 3`. The `3 of 3` line
+# does name all three, each with its reason, verbatim below.
+echo "    the census line, verbatim:"
+grep -a 'ORIENTATION: [0-9]* of [0-9]* cameras can be read' /run1449/some.txt | head -1 | sed 's/^/      /'
 
 echo
 echo "=== 4. ALL: an operator-stated anchor is named as stated, and is not warned ==="
 grep -aE 'ORIENTATION:|anchored by configuration|No camera on this board' /run1449/all.txt | head -5 || true
+# #1679, 2026-09-29: KEPT, and it no longer discriminates. SOME reads 3 of 3 without
+# OD_CAMERA_WEDGES (MEASURED on 2c33747), so this passes whether or not the configuration
+# moved anything; it still asks that a board with wedges stated reads whole.
 if grep -qa 'ORIENTATION: 3 of 3 cameras can be read for a wedge' /run1449/all.txt; then
   say "OK   with the other two stated, the whole board is readable" ok
 else say "FAIL OD_CAMERA_WEDGES did not move the census" no; fi
 if grep -qa 'No camera on this board can be read' /run1449/all.txt; then
   say "FAIL a fully anchored board was warned" no
 else say "OK   not warned" ok; fi
-if grep -qa 'camera 1: anchored by configuration, wedge 12' /run1449/all.txt \
-   && grep -qa 'camera 3: anchored by configuration, wedge 7' /run1449/all.txt; then
-  say "OK   a stated anchor says it is stated, and which wedge was stated (#1363)" ok
-else say "FAIL a configured anchor is reported in the star camera's words" no; fi
+# === 4's "a stated anchor says it is stated", RETIRED by #1679 (maintainer's decision of
+# 2026-09-28, applied 2026-09-29) === It asserted `camera 1: anchored by configuration,
+# wedge 12` and `camera 3: anchored by configuration, wedge 7`. MEASURED on 2c33747 under
+# OD_BOARD=auto: both cameras are already anchored by reading the printed numbers, so the
+# board logs `camera 1 is already anchored by its own measurement; the configured wedge 12
+# is not applied` (and the same for camera 3 and wedge 7), and the census names them in the
+# number reader's words. No camera of the shipped footage is left for a configured anchor
+# to apply to, so there is nothing to name as stated. It printed `a configured anchor is
+# reported in the star camera's words`.
 echo "    the line, verbatim:"
 grep -a 'ORIENTATION: 3 of 3' /run1449/all.txt | head -1 | sed 's/^/      /'
 

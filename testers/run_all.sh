@@ -415,6 +415,13 @@ tester 1372-cached        "bash '$T/i1372_run.sh'"
 # box, to completion, rc=0: wall 180.2 s at host_busy_pct=41.2, so it takes no `slow` --
 # it sits well inside the default 1200, and the number is here rather than in nobody's
 # head, which is how 1317-asan's 1200 got to be wrong.
+# #1679 (2026-09-29): #1629's number reader reads cam_1 and cam_3 too, so the unanchored
+# board reads 3 of 3 and the shipped mocks are no longer 1 of 3. NONE's "0 of 3", its WARN
+# and what the WARN names, SOME's "1 of 3" and its unread cameras, and ALL's "anchored by
+# configuration" are retired; BEFORE, admission, READY, "not warned" and the census-darts
+# agreement are kept. MEASURED 2026-09-29 on the 4-core box, to completion, rc=0: wall
+# 366.2 s at host_busy_pct=85.2, load 10.7 at start and 6.7 at end (#1677's replays
+# alongside) -- a ceiling, still well inside the default 1200.
 tester 1449-anchoring     "bash '$T/i1449_run.sh'"
 # #1451: whether the board says AT START how many of its cameras a dart can be SCORED
 # from. #1449 one field over and worse -- a camera refused by `scorePoint` contributes
@@ -777,6 +784,12 @@ tester 1336-probe-admission "bash '$T/unit_check.sh' 1336"
 # assertions red, believes-one-dart 1, ignores-the-residual 2, loses-the-sign 3 and
 # drops-the-fraction 9. Each flips its own half and none of them is caught by everything,
 # which is what says the assertions are load-bearing rather than decorative.
+# #1679 (2026-09-29): #1629's number reader anchors every camera of both fixtures, so there
+# is nothing left to derive. "exactly one camera anchored", "a camera derived an anchor",
+# "OD_ANCHOR=own publishes fewer 0.9s" and the rig's source-less branch are retired; phases
+# 1 and 2 (same five plant counts) and the 0.9 and falsifier checks are kept. MEASURED
+# 2026-09-29 on the 4-core box, to completion, rc=0: wall 366.2 s at host_busy_pct=89.7,
+# load 5.8 at start and 10.6 at end (#1677's replays alongside) -- a ceiling, inside 1200.
 tester 1486-anchor        "bash '$T/i1486_run.sh'"
 # #1389: the census half runs INSIDE $OD_IMAGE since #1607, for the same reason as
 # 1437-fixture's: it was a host python3, and the box that runs the suite has none.
