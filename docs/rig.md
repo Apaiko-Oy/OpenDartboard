@@ -180,7 +180,8 @@ neither of which the bakeoff sets, and the capture clock never reads it.)
 pinned off; both pins log a warning when set.
 
 - **The exposure hold (#1646).** A settled event waits until every camera's board grey
-  level is still (span under 1 grey level over 10 cycles, at most 90 cycles of waiting),
+  level is still (span under 1 grey level over 333 ms, at most 3000 ms of waiting; 10 and
+  90 cycles before #1685),
   so a takeout's window is not read while a camera's automatic exposure walks back.
   `OD_SETTLE_EXPOSURE=off` pins the old settle, where quiet motion is settled whatever
   the exposure does (`motion_processing.cpp`, `exposureGateOff`).
@@ -261,3 +262,82 @@ recorded, not measured on the capture clock. On the wall clock, when detector cy
 run at ~37 ms (a whole-clip replay at load 4-6), the hold moves rig-20260918 dev's
 cooldown expiry onto v6.3's one-cycle splash, and the 2 is dropped (#1650,
 `cooldownExpirySpikes`). At 33.3 ms a cycle, the rig's 30 fps, it is not.
+
+## Real-time replay (turnaus#1683)
+
+A file source hands over the next frame whenever the loop asks, so the bakeoff never
+drops a frame, whatever each cycle costs. A camera runs at 30 fps whatever the loop does,
+and a read gets the newest frame (OpenCV's Media Foundation reader keeps one sample). A
+loop slower than 33.3 ms skips frames on the rig, and never on a file.
+
+`OD_REALTIME_REPLAY=on` (`src/utils/capture_realtime.hpp`) plays each file as a camera.
+One thread per file decodes frames and publishes each one at its presentation time on
+the wall clock. `read()` takes the newest published frame, and blocks only when it has
+already taken that frame. The clock starts at the first scoring read. Calibration reads
+one frame per read as the bakeoff does, so both calibrate on the same pictures, and
+the player throws once the board is ready, as live. Every read logs `I1683RT` with the
+frame each file gave, the frames it skipped, `proc_ms` (loop time since the previous
+read) and `wait_ms`. The `DEBUG_VIA_VIDEO_INPUT` sleep is not slept under it.
+`testers/i1683_realtime.sh` runs `mocks/rig-20260929` this way, with timers on wall time
+and the opening window. `testers/i1683_visits.py` tables the darts against the truth.
+
+It is not a camera in three ways:
+- the exposure and noise are the recording's;
+- a V4L2 device on Linux queues four buffers and hands over the oldest, not the newest;
+- h264 decoding uses the same cores as the loop.
+
+**Measured 2026-09-29 on rig-20260929, `--cpus=2`, host load 3.6-12.5.** Cycles took a
+median of 22-50 ms.
+- **Main (ac184ca + this):** 29 of 33 landed darts published in each of 3 runs, the same
+  four the capture clock loses on main's census (one each in visits 5, 6 and 11, and
+  visit 12's D14).
+- **#1680's switches** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`): 33 of 33 in each
+  of 3 runs.
+
+So at these cycle times, real time loses nothing the capture clock keeps.
+
+The losses come when a cycle gets slow. Two narrowed runs on main:
+- `--cpus=1`, host load 7.6-18, 1000 cycles covering the whole clip: median 200 ms a
+  cycle, 17 of 33 landed darts published and 4 right.
+- `--cpus=0.5`, 700 cycles through visit 6: median 285 ms a cycle, 10 of 18 landed darts
+  published.
+
+The windows are counted in **cycles**, not milliseconds:
+- motion settle, `stability_frames=15`;
+- the exposure hold's stillness, `exposure_frames=10`;
+- the dart window, `stability_frames=6`.
+
+The cooldown is counted in wall milliseconds (1000). So one dart's event lasts about
+22 cycles: 0.7 s at 33 ms a cycle, and 6 s at 285 ms. On this fixture darts land 1.8-2.1 s
+apart. Once a cycle takes more than roughly 85 ms (an estimate from those figures, not
+measured as a threshold), the next dart lands inside the
+previous dart's event and window. The two darts become one window: one publication, often
+with a wrong score, and one dart lost. The `Processing: N ms` on a `SCORE:` line is that
+per-cycle time, and a live log can be read against it.
+
+## Detection windows in milliseconds (turnaus#1685)
+
+Since #1685 the windows are lengths of the motion clock (`od_clock::now_ms()`), not
+counts of cycles, so a window lasts the same time whatever a cycle costs. Each default is
+the old count times the rig's 33.3 ms:
+
+| window | was | now | why this length |
+|---|---|---|---|
+| motion settle (`motion_processing` `stability_ms`) | 15 cycles | 500 ms | half a second of quiet board, what the settle always asked for on the rig |
+| exposure stillness (`exposure_ms`) | 10 cycles | 333 ms | the stretch #1646 measured an exposure walk against |
+| exposure hold cap (`exposure_hold_ms`) | 90 cycles | 3000 ms | the "3 s at 30 fps" the hold was written as |
+| dart window (`dart_processing` `stability_ms`) | 6 cycles | 200 ms | the settled board averaged over a fifth of a second |
+
+- **How a cycle is counted.** A cycle's span is its `now_ms()` minus the previous cycle's.
+  A window is reached on the cycle where what is still missing is less than half of that
+  cycle's span (`od_clock::window_reached`: `2*elapsed + span >= 2*window`). So a window
+  ends on the cycle nearest its length.
+- **Why the capture clock is unchanged.** On the capture clock, N cycles span N x 33.3 ms,
+  ±1 ms from the footage's integer positions. N-1 cycles fall 16 ms short. So each window
+  is exactly its old count there, by construction.
+- **A cycle longer than a window** makes that window one cycle: a window always holds the
+  cycle it opened on. The exposure history always keeps at least two levels, because a
+  span of one level is 0.
+- **On a 200 ms cycle,** the settle is 2-3 cycles and the dart window 1 cycle, so the dart
+  window averages one frame rather than six.
+- **The pin.** `OD_WINDOW_UNIT=cycles` pins the counts. `testers/i1555_run.sh` forwards it.

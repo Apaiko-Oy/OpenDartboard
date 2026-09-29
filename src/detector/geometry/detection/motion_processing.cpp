@@ -219,6 +219,40 @@ namespace motion_processing
     static int exposure_held = 0;      // cycles this event has waited on exposure
     static bool exposure_logged = false;
 
+    // #1685: each level's cycle span beside it, the milliseconds this event has waited on
+    // exposure, and the spans of the newest cycles (newest last), so that every window
+    // below is a length of the motion clock rather than a count of cycles.
+    static vector<vector<long long>> level_spans;
+    static long long exposure_held_ms = 0;
+    static vector<long long> recent_spans;
+    static long long cycle_span = 0;   // this cycle's span, set once per processMotion
+
+    // #1685: the milliseconds the newest `cycles` cycles took, this one included.
+    static long long spanOfNewest(int cycles)
+    {
+        long long total = 0;
+        for (int k = 0; k < cycles && k < (int)recent_spans.size(); k++)
+            total += recent_spans[recent_spans.size() - 1 - k];
+        return total;
+    }
+
+    static long long sum(const vector<long long> &v)
+    {
+        long long total = 0;
+        for (long long x : v)
+            total += x;
+        return total;
+    }
+
+    // #1685: has a camera's level history reached the stillness window? Two levels at
+    // least in either unit, because a span of one level is always 0.
+    static bool historyFull(const vector<double> &h, const vector<long long> &spans, const MotionParams &params)
+    {
+        if (!od_clock::windows_in_ms())
+            return (int)h.size() >= params.exposure_frames;
+        return h.size() >= 2 && od_clock::window_reached(sum(spans), cycle_span, params.exposure_ms);
+    }
+
     // The largest max-min span of board level over the history, and the camera it is on
     // (0-based), or a span of 0 when no camera has a full history.
     static double exposureSpan(const MotionParams &params, int &camera)
@@ -228,7 +262,7 @@ namespace motion_processing
         for (size_t i = 0; i < level_history.size(); i++)
         {
             const vector<double> &h = level_history[i];
-            if ((int)h.size() < params.exposure_frames)
+            if (!historyFull(h, level_spans[i], params))
                 continue;
             const auto mm = minmax_element(h.begin(), h.end());
             const double span = *mm.second - *mm.first;
@@ -462,6 +496,17 @@ namespace motion_processing
         long long now = od_clock::now_ms();
         DartEventState state_in = current_state;
 
+        // #1685: this cycle's span on the motion clock, the unit every window is counted
+        // in. The first cycle has no previous one and is taken as one frame period.
+        {
+            static long long last_now = -1;
+            cycle_span = last_now < 0 ? (long long)(od_clock::frame_period_ms() + 0.5) : max(0LL, now - last_now);
+            last_now = now;
+            recent_spans.push_back(cycle_span);
+            if (recent_spans.size() > 4096)
+                recent_spans.erase(recent_spans.begin(), recent_spans.begin() + 2048);
+        }
+
         // Calculate overall motion intensity (average across all cameras)
         double total_intensity = 0.0;
         int cameras_with_motion = 0;
@@ -508,18 +553,28 @@ namespace motion_processing
         if (level_history.size() != motion_data.size())
         {
             level_history.assign(motion_data.size(), vector<double>());
+            level_spans.assign(motion_data.size(), vector<long long>());
         }
         for (size_t i = 0; i < motion_data.size(); i++)
         {
             vector<double> &h = level_history[i];
+            vector<long long> &hs = level_spans[i];
             if (!motion_data[i].measured || motion_data[i].board_level < 0.0)
             {
                 h.clear();
+                hs.clear();
                 continue;
             }
             h.push_back(motion_data[i].board_level);
-            if ((int)h.size() > params.exposure_frames)
+            hs.push_back(cycle_span);
+            // #1685: drop the oldest level while what is left still fills the window.
+            while (od_clock::windows_in_ms()
+                       ? h.size() > 2 && od_clock::window_reached(sum(hs) - hs.front(), cycle_span, params.exposure_ms)
+                       : (int)h.size() > params.exposure_frames)
+            {
                 h.erase(h.begin());
+                hs.erase(hs.begin());
+            }
         }
 
         // Calculate detection duration if we're in an active state
@@ -582,6 +637,7 @@ namespace motion_processing
                 current_state = DartEventState::STABILIZING;
                 stable_frame_count = 1;
                 exposure_held = 0; // #1646: this event has not waited on exposure yet
+                exposure_held_ms = 0;
                 exposure_logged = false;
             }
             // Timeout if event takes too long or insufficient participation
@@ -645,9 +701,14 @@ namespace motion_processing
                 {
                     int camera = -1;
                     const double span = exposureSpan(params, camera);
-                    if (span >= params.exposure_span && exposure_held < params.exposure_hold_cycles)
+                    // #1685: the hold's cap, in the windows' unit.
+                    const bool hold_left = od_clock::windows_in_ms()
+                                               ? !od_clock::window_reached(exposure_held_ms, cycle_span, params.exposure_hold_ms)
+                                               : exposure_held < params.exposure_hold_cycles;
+                    if (span >= params.exposure_span && hold_left)
                     {
                         exposure_held++;
+                        exposure_held_ms += cycle_span;
                         if (!exposure_logged)
                         {
                             exposure_logged = true;
@@ -663,14 +724,19 @@ namespace motion_processing
                     {
                         exposure_logged = false; // said once per release
                         log_info("I1646 EXPOSURE RELEASE cycle=" + to_string(od_clock::cycles().load()) +
-                                 " held=" + to_string(exposure_held) + " span=" + to_string(span) +
-                                 (exposure_held >= params.exposure_hold_cycles
+                                 " held=" + to_string(exposure_held) + " held_ms=" + to_string(exposure_held_ms) +
+                                 " span=" + to_string(span) +
+                                 (!hold_left
                                       ? " -- the hold ran out, and the event finishes on a moving picture"
                                       : " -- every camera's board level is still, and the event finishes"));
                     }
                 }
 
-                if (stable_frame_count >= params.stability_frames)
+                // #1685: the settle is `stability_ms` of the motion clock -- the time the
+                // newest `stable_frame_count` cycles took -- unless OD_WINDOW_UNIT=cycles.
+                if (od_clock::windows_in_ms()
+                        ? od_clock::window_reached(spanOfNewest(stable_frame_count), cycle_span, params.stability_ms)
+                        : stable_frame_count >= params.stability_frames)
                 {
                     // Motion event finished!
                     current_state = DartEventState::END;

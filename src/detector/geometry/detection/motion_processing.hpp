@@ -143,6 +143,11 @@ namespace motion_processing
         int min_cameras_for_event = 1;     // Cameras whose own board must spike TOGETHER in one window
         int spike_window_frames = 10;      // Frames to wait for other cameras to join spike
         int stability_frames = 15;         // Consecutive low-motion frames needed for stability
+        // #1685: the same settle in milliseconds of the motion clock, and what is counted
+        // unless OD_WINDOW_UNIT=cycles: 15 cycles x 33.3 ms, the rig's 30 fps. Half a
+        // second of quiet board is what the settle has always asked for on the rig; as a
+        // count it asked for 3 s on a board whose cycle takes 200 ms (od_clock::window_reached).
+        int stability_ms = 500;
         int max_event_duration_ms = 10000; // Maximum time for dart event (safety timeout)
         // #1358: this is a floor on how long a QUIET board waits, not a deaf period. A
         // spike above `spike_threshold` inside it starts its own event immediately --
@@ -167,6 +172,13 @@ namespace motion_processing
         int exposure_frames = 10;       // Cycles the board level is compared across
         double exposure_span = 1.0;     // Grey levels: the largest max-min that still counts as still
         int exposure_hold_cycles = 90;  // Longest an otherwise settled event waits (3 s at 30 fps)
+        // #1685: the two above in milliseconds of the motion clock, counted unless
+        // OD_WINDOW_UNIT=cycles. 10 cycles x 33.3 ms: the stretch #1646 measured an
+        // exposure walk against (a third of a second of the level holding still). The
+        // history always keeps at least two levels, because a span needs two, however long
+        // one cycle is. 90 cycles x 33.3 ms: the 3 s the hold was written as.
+        int exposure_ms = 333;
+        int exposure_hold_ms = 3000;
     };
 
     // Event states for dart detection
