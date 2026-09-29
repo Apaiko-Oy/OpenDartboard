@@ -167,6 +167,19 @@ capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), the default reads 82/
 rig-20260922's opening: v2.1's 12, v3.1's 20 and v5.2's 19 are gained there, and its two
 phantoms are gone. The other three windows publish the same darts either way.
 
+**The entry threshold (#1677), opt-in.** A quiet board starts a motion event when one
+camera's board changes by more than `spike_threshold`, 0.011 of that board, frame to
+frame. rig-20260929 throws three darts whose splashes stay under it: v5.3 peaks at
+0.0108, v11.1 at 0.0106 and v12's D14 at 0.0074. No event opens, and the next window
+is the takeout's, which reconciles CLEAN, so each of those darts is lost.
+`OD_SPIKE_THRESHOLD=<ratio>` lowers only that entry, in IDLE and in the two cooldown arms.
+A running event keeps 0.011. At 0.006, the capture-clock bakeoff reads rig-20260929 at
+18..25/36 per window, up from 16..23, with 0 undetected. r18+r22 stays at 82/86 with 0
+phantoms, and every r18 and r22 run publishes the same sequence. r18 gains one empty
+window per run, which the vote refuses. It is not a default: #1353 measured rig-20260918's
+noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates them on
+amplitude alone.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
