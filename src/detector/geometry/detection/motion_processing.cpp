@@ -74,6 +74,45 @@ namespace motion_processing
     {
         return settleTrigger() ? 0.08 : params.spike_threshold;
     }
+    /**
+     * #1677: the figure one camera's board must exceed for a QUIET board to start an
+     * event -- IDLE's entry, and the two cooldown arms that are IDLE's entry early. Off
+     * unless asked for: `OD_SPIKE_THRESHOLD=<ratio>` (a fraction of the board, 0 < r <
+     * spike_threshold) lowers the entry and nothing else. The settle test's re-open
+     * (#1627) and SPIKE_DETECTED's camera count keep `spike_threshold`, so an event that
+     * has started runs exactly as it did.
+     *
+     * Why a switch: mocks/rig-20260929 (capture clock, OD_TRACE, open window) loses three
+     * darts to this gate and to nothing else. Their splashes peak at 0.0108 (v5.3, f2564,
+     * cam 3), 0.0106 (v11.1, f4739, cam 1) and 0.0074 (v12's D14, f5185, cam 1), under
+     * 0.011, so no event opens and the next window is the takeout's, which reconciles
+     * CLEAN. On that clip every IDLE burst over 0.004 of a board is a dart or a takeout,
+     * and those three are the only ones that opened nothing. #1353's census put the
+     * noise ceiling of mocks/rig-20260918 at 0.0088, which is above the weakest of the
+     * three, so this is measured over all three fixtures before it may be a default.
+     * Ignored under #1358's and #1339's falsification switches, as the cooldown arm is.
+     */
+    static double entryThreshold(const MotionParams &params)
+    {
+        static const double v = []
+        {
+            const char *e = std::getenv("OD_SPIKE_THRESHOLD");
+            const double r = e ? std::atof(e) : 0.0;
+            return r > 0.0 ? r : -1.0;
+        }();
+        static bool said = false;
+        if (v <= 0.0 || v >= params.spike_threshold || settleTrigger() || measuredAgainstTheFrame())
+            return spikeThreshold(params);
+        if (!said)
+        {
+            said = true;
+            log_warning("OD_SPIKE_THRESHOLD=" + to_string(v) + " is set: a quiet board starts an event on " +
+                        to_string(v) + " of one camera's board where the default is " +
+                        to_string(params.spike_threshold) + " (#1677)");
+        }
+        return v;
+    }
+
     static int minCamerasForEvent(const MotionParams &params)
     {
         return settleTrigger() ? 2 : params.min_cameras_for_event;
@@ -496,7 +535,7 @@ namespace motion_processing
         {
             // Look for motion spike that could indicate dart hit. #1353: on any ONE
             // measured camera's board, not on the average -- see peak_intensity above.
-            if (peak_intensity > spikeThreshold(params))
+            if (peak_intensity > entryThreshold(params))
             {
                 current_state = DartEventState::SPIKE_DETECTED;
                 event_start_time = now;
@@ -507,7 +546,7 @@ namespace motion_processing
                 // Mark cameras that are spiking
                 for (size_t i = 0; i < motion_data.size(); i++)
                 {
-                    if (motion_data[i].motion_ratio > spikeThreshold(params))
+                    if (motion_data[i].motion_ratio > entryThreshold(params))
                     {
                         cameras_spiked[i] = true;
                     }
@@ -732,7 +771,7 @@ namespace motion_processing
                 // #1650: see cooldownExpirySpikes. The spike on the cooldown's last cycle
                 // starts its event here, exactly as the arm below would have one cycle
                 // earlier and IDLE would one cycle later.
-                if (cooldownExpirySpikes() && peak_intensity > spikeThreshold(params) &&
+                if (cooldownExpirySpikes() && peak_intensity > entryThreshold(params) &&
                     !settleTrigger() && !measuredAgainstTheFrame())
                 {
                     current_state = DartEventState::SPIKE_DETECTED;
@@ -743,7 +782,7 @@ namespace motion_processing
                     std::string ratios;
                     for (size_t i = 0; i < motion_data.size(); i++)
                     {
-                        if (motion_data[i].motion_ratio > spikeThreshold(params))
+                        if (motion_data[i].motion_ratio > entryThreshold(params))
                             cameras_spiked[i] = true;
                         ratios += string(i ? " " : "") + "cam" + to_string(i + 1) + "=" +
                                   (motion_data[i].measured ? to_string(motion_data[i].motion_ratio) : string("-"));
@@ -777,7 +816,7 @@ namespace motion_processing
             // board in the figure -- the thrower fills it, which is what #1339 measured.
             // A falsification switch must vary one thing, so that run keeps the whole of
             // the machine it was written to falsify.
-            else if (peak_intensity > spikeThreshold(params) && !settleTrigger() && !measuredAgainstTheFrame())
+            else if (peak_intensity > entryThreshold(params) && !settleTrigger() && !measuredAgainstTheFrame())
             {
                 current_state = DartEventState::SPIKE_DETECTED;
                 event_start_time = now;
@@ -786,7 +825,7 @@ namespace motion_processing
                 stable_frame_count = 0;
                 for (size_t i = 0; i < motion_data.size(); i++)
                 {
-                    if (motion_data[i].motion_ratio > spikeThreshold(params))
+                    if (motion_data[i].motion_ratio > entryThreshold(params))
                     {
                         cameras_spiked[i] = true;
                     }
