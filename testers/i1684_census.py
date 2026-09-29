@@ -186,6 +186,18 @@ def main():
                          "v%d.%d" % key if key else "-", ei + 1,
                          "-" if ann_near is None else "%.1f" % ann_near,
                          "-" if fit_near is None else "%.1f" % fit_near))
+    # the retry's own census (OD_SHAFT_CENSUS=1 runs of a binary with #1684's retry):
+    # fired = retries made, passed = retries that passed every gate, adopted = used.
+    for raw in open(args.log, "r", errors="replace"):
+        line = axis_census.ANSI.sub("", raw)
+        if "I1684STACK " not in line:
+            continue
+        body = line.split("I1684STACK ", 1)[1].rstrip()
+        f = dict(tok.partition("=")[::2] for tok in body.split(" refusal=", 1)[0].split())
+        t["stack_fired"] = t.get("stack_fired", 0) + 1
+        t["stack_passed"] = t.get("stack_passed", 0) + (1 if f.get("retryValid") == "1" else 0)
+        t["stack_adopted"] = t.get("stack_adopted", 0) + (1 if f.get("adopted") == "1" else 0)
+        print("I1684 STACK %s %s" % (tag, body))
     print("I1684 TALLY fixture=%s window=%s %s" % (
         args.fixture, args.window, " ".join("%s=%d" % kv for kv in t.items())))
     return 0 if t["events"] else 2
