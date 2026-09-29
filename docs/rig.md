@@ -187,3 +187,13 @@ recorded, not measured on the capture clock. On the wall clock, when detector cy
 run at ~37 ms (a whole-clip replay at load 4-6), the hold moves rig-20260918 dev's
 cooldown expiry onto v6.3's one-cycle splash, and the 2 is dropped (#1650,
 `cooldownExpirySpikes`). At 33.3 ms a cycle, the rig's 30 fps, it is not.
+
+**`OD_OFFBOARD_VETO=on` (#1675), opt-in.** This rule hands a solved geometric `MISS` back
+to the vote when two or more cameras agree on a scoring segment and no placed tip is
+within 15 mm of the solve (`checkOffBoardVeto` in `score_processing.hpp`). It can only turn
+a geometric MISS into an on-board score. It was fitted to one dart: rig-20260929 v6.2, a
+thrown D5 whose window also held v6.3. Camera 3's axis fitted the other dart, so the solve
+crossed two darts' lines at r ≈ 202 mm. The `I1675VETO` line prints wherever the three
+conditions hold, whether the switch is on or off. With the switch on, rig-20260929
+publishes D5 for that window in both calibration windows. rig-20260918 and rig-20260922
+publish the same darts as without it, because the rule never fires on them.
