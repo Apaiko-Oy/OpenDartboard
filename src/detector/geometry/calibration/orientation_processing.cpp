@@ -2,6 +2,7 @@
 #include "logging.hpp"
 #include <opencv2/opencv.hpp>
 #include <iostream>
+#include <cstdlib>
 
 #include "orientation_processing.hpp"
 #include "perspective_processing.hpp"
@@ -356,6 +357,12 @@ namespace orientation_processing
             // #1363: the star measurement is a trustworthy anchor; the TOP/BOTTOM
             // branches below compute an index too and deliberately do NOT set this --
             // #797 measured them one wedge loose, and #1346 recorded the caution.
+            //
+            // #1676: THIS IS THE CLIP-WIRE ANCHOR, and on the default board it does not
+            // survive: processOrientation's setTheStarAside undoes it immediately after
+            // this function returns (a Winmau Blade 6 has no wire number ring, so four clips
+            // on it are the finder being wrong), and the number reader anchors instead.
+            // Only under OD_BOARD=auto does this branch decide the camera's 20.
             result.anchored = true;
         }
         else
@@ -421,6 +428,55 @@ namespace orientation_processing
         return result;
     }
 
+    // #1676: OD_BOARD, read once. Unset, "winmau6" or "blade6" is the default (forced);
+    // "auto" is the pin; anything else is said at start by the detector and means the default.
+    static const std::string &boardSetting()
+    {
+        static const std::string v = []
+        {
+            const char *e = std::getenv("OD_BOARD");
+            return std::string(e ? e : "");
+        }();
+        return v;
+    }
+
+    bool boardIsForcedBlade6()
+    {
+        return boardSetting() != "auto";
+    }
+
+    std::string unknownBoardSetting()
+    {
+        const std::string &v = boardSetting();
+        return (v.empty() || v == "auto" || v == "winmau6" || v == "blade6") ? std::string() : v;
+    }
+
+    /**
+     * #1676: the board is taken to be a Winmau Blade 6 (the default), so a star measurement
+     * does not anchor. The Blade 6 has no wire number ring, so four clip wires on it are the
+     * finder being wrong -- rig-20260929 camera 2 read four and put the 20 at wire 9, five
+     * wires from where its own printed numbers (and rig-20260922's seal, same board, same
+     * camera) put it. The camera is returned to the state of a camera that found no star:
+     * unanchored, position unknown. The reader below then anchors it if it reads; if it
+     * does not, it falls back as every unread camera does (#1486's derivation, or
+     * OD_CAMERA_WEDGES). Returns the wire the clip wires named, for the log, or -1.
+     */
+    static int setTheStarAside(OrientationData &result)
+    {
+        if (!result.isStarCamera || !boardIsForcedBlade6())
+        {
+            return -1;
+        }
+        const int clipWedge20 = result.wedge20WireIndex;
+        result.isStarCamera = false;
+        result.starSetAside = true;
+        result.anchored = false;
+        result.cameraPosition = CameraPosition::UNKNOWN;
+        result.wedgeNumber = -1;
+        result.wedge20WireIndex = -1;
+        return clipWedge20;
+    }
+
     /**
      * #1498: read the printed number ring, and decide what to do with what it said.
      *
@@ -446,7 +502,7 @@ namespace orientation_processing
      * itself at default level with the separation it measured and the cut it missed.
      */
     static void readTheBoardsOwnNumbers(const Mat &frame, const DartboardCalibration &calib,
-                                        OrientationData &result)
+                                        OrientationData &result, int setAsideWedge20 = -1)
     {
         const vector<Point2f> endpoints(calib.wires.wireEndpoints.begin(),
                                         calib.wires.wireEndpoints.end());
@@ -459,8 +515,23 @@ namespace orientation_processing
         result.numberSeparation = (float)reading.separation;
 
         const string who = "camera " + to_string(calib.camera_index + 1);
+        // #1676: said on every outcome below, because the set-aside star is a fact about the
+        // finder on this camera whatever the reader went on to do.
+        const string setAside =
+            result.starSetAside
+                ? string("; its clip-wire finder reported the four clip wires of a wire number "
+                         "ring and put the 20 at wire ") + to_string(setAsideWedge20) +
+                      ", which is SET ASIDE because the board is taken as a Winmau Blade 6 "
+                      "(no wire number ring; OD_BOARD=auto restores the clip-wire anchor)"
+                : string();
         if (!reading.attempted)
         {
+            if (result.starSetAside)
+            {
+                log_warning("ORIENTATION: " + who + " " + reading.why + setAside +
+                            ", so it stays UNANCHORED -- state the anchor with OD_CAMERA_WEDGES");
+                return;
+            }
             log_info("ORIENTATION: " + who + " " + reading.why);
             return;
         }
@@ -468,7 +539,7 @@ namespace orientation_processing
         const bool clipsAnchored = wedgeCanBeRead(result);
         if (!reading.read)
         {
-            log_warning("ORIENTATION: " + who + " " + reading.why +
+            log_warning("ORIENTATION: " + who + " " + reading.why + setAside +
                         (clipsAnchored
                              ? "; it stays anchored by its clip wires"
                              : "; it stays UNANCHORED, so its wedge is asserted -- state the "
@@ -502,9 +573,52 @@ namespace orientation_processing
                                                    reading.wedge20WireIndex,
                                                    (int)endpoints.size());
         result.anchored = true;
-        log_info("ORIENTATION: " + who + " " + reading.why +
-                 ", so it is anchored by the board itself: wedge " +
-                 to_string(result.wedgeNumber) + " at its image south");
+        const string anchoredBy = "ORIENTATION: " + who + " " + reading.why +
+                                  ", so it is anchored by the board itself: wedge " +
+                                  to_string(result.wedgeNumber) + " at its image south";
+        if (result.starSetAside)
+        {
+            // A WARNING, because the finder was wrong about this board -- or the board is
+            // not a Blade 6, which is what OD_BOARD=auto is for.
+            log_warning(anchoredBy + setAside +
+                        (setAsideWedge20 == reading.wedge20WireIndex
+                             ? " (the two named the same wire)"
+                             : " (the two named DIFFERENT wires; the reading is applied)"));
+            return;
+        }
+        log_info(anchoredBy);
+    }
+
+    void forceTheBoardOnACachedCalibration(DartboardCalibration &calibration, int camera)
+    {
+        OrientationData &orientation = calibration.orientation;
+        if (!orientation.isStarCamera || !boardIsForcedBlade6())
+        {
+            // No star in the cache (or the pin is set): nothing to set aside. A cache
+            // written by this binary already holds the forced board's answer.
+            return;
+        }
+        const int clipWedge20 = setTheStarAside(orientation);
+        orientation.numbersDisagreeWithClips = false;
+        const string who = "camera " + to_string(camera + 1);
+        const string setAside = " (cached): its clip wires put the 20 at wire " + to_string(clipWedge20) +
+                                " and are SET ASIDE because the board is taken as a Winmau Blade 6 "
+                                "(OD_BOARD=auto restores them)";
+        if (orientation.numbersRead && orientation.numberWedge20WireIndex >= 0 &&
+            orientation.southWireIndex >= 0)
+        {
+            orientation.wedge20WireIndex = orientation.numberWedge20WireIndex;
+            orientation.cameraPosition = CameraPosition::READ;
+            orientation.wedgeNumber = southWedgeFromWedge20(orientation.southWireIndex,
+                                                            orientation.numberWedge20WireIndex,
+                                                            (int)calibration.wires.wireEndpoints.size());
+            orientation.anchored = true;
+        }
+        log_warning("ORIENTATION: " + who + setAside +
+                    (orientation.anchored ? "; its cached reading of the printed numbers anchors it at wire " +
+                                                to_string(orientation.wedge20WireIndex)
+                                          : "; no reading of its printed numbers is cached, so it stays "
+                                            "UNANCHORED -- delete cache/ or state OD_CAMERA_WEDGES"));
     }
 
     OrientationData processOrientation(
@@ -551,7 +665,12 @@ namespace orientation_processing
         // printed on the surround and there are no clips to find, so only this one does,
         // and before this step such a board could not be anchored by any measurement at
         // all -- `ORIENTATION: 0 of 3`, every dart published as #1346's asserted 20.
-        readTheBoardsOwnNumbers(frame, calib, result);
+        //
+        // #1676: and before it, on the board this detector is forced to (a Winmau Blade 6,
+        // the default), a star measurement is set aside rather than anchoring, so the
+        // reader decides. OD_BOARD=auto skips this and keeps #1498's arrangement.
+        const int setAsideWedge20 = setTheStarAside(result);
+        readTheBoardsOwnNumbers(frame, calib, result, setAsideWedge20);
 
         // STEP 4: Comprehensive debug visualization
         if (enableDebug)

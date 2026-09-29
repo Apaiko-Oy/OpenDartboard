@@ -32,6 +32,14 @@
  * light cannot read, and nothing here can say which -- and that is the WARNING, naming
  * OD_CAMERA_WEDGES (#1363) and #1486's spread of one stated anchor to the others.
  *
+ * #1676: FORCED, BY DEFAULT. The maintainer's decision on rig-20260929 ("force winmau6 for
+ * now"): the board is TAKEN to be the Blade 6 rather than recognised by its shape, because
+ * the shape test above trusts the clip-wire finder, and on that footage the finder reported
+ * a wire number ring on camera 2 of a board that has none. So orientation_processing sets a
+ * star measurement aside (`starSetAside`) and the reading anchors; here the verdict is
+ * `Forced`, and a camera whose finder still reported four clips is named as a WARNING about
+ * the finder. OD_BOARD=auto is the pin that restores the measured verdicts below.
+ *
  * ANNOUNCE-ONLY. This reads OrientationData and writes nothing: which wire anchors the 20
  * is decided in orientation_processing and applyConfiguredAnchors exactly as before, so no
  * score can move because of this file. Pure and inline so a tester holds it (#1338's shape).
@@ -46,7 +54,8 @@ namespace board_recognition
         NotAsked,        // OD_NUMBER_ANCHOR=off: nothing measured the board, and that is said
         SupportedShape,  // numbers read, no wire number ring: the Blade 6's shape
         AnotherBoard,    // numbers read AND a wire number ring: not a Blade 6, best-effort
-        NotRecognised    // no camera read the numbers: another board, or this light
+        NotRecognised,   // no camera read the numbers: another board, or this light
+        Forced           // #1676: taken as the Blade 6 (the default); OD_BOARD=auto measures instead
     };
 
     struct Recognition
@@ -58,6 +67,7 @@ namespace board_recognition
         int wireRing = 0;       // cameras that found the four clips of a wire number ring
         int configured = 0;     // cameras anchored by OD_CAMERA_WEDGES
         int readable = 0;       // cameras whose wedge the scorer will read, by any anchor
+        int setAside = 0;       // #1676: cameras whose four clip wires were set aside (forced board)
         std::string sentence;   // the whole announcement, prefix included
     };
 
@@ -88,11 +98,12 @@ namespace board_recognition
      * are parameters so a tester can hold this without the reader's environment.
      */
     inline Recognition recognise(const std::vector<orientation_processing::OrientationData> &orientations,
-                                 bool readerAsked, double cut)
+                                 bool readerAsked, double cut, bool forced = false)
     {
         Recognition r;
         r.cameras = (int)orientations.size();
         std::string wireCameras;
+        std::string asideCameras;
         for (size_t i = 0; i < orientations.size(); i++)
         {
             const orientation_processing::OrientationData &o = orientations[i];
@@ -104,6 +115,11 @@ namespace board_recognition
             {
                 r.wireRing++;
                 wireCameras += (wireCameras.empty() ? "camera " : ", camera ") + std::to_string(i + 1);
+            }
+            if (o.starSetAside)
+            {
+                r.setAside++;
+                asideCameras += (asideCameras.empty() ? "camera " : ", camera ") + std::to_string(i + 1);
             }
             if (o.cameraPosition == orientation_processing::CameraPosition::CONFIGURED &&
                 orientation_processing::wedgeCanBeRead(o))
@@ -121,12 +137,59 @@ namespace board_recognition
         char cutText[16];
         snprintf(cutText, sizeof(cutText), "%.2f", cut);
 
+        // #1676: the finder's false wire ring, said whichever verdict follows.
+        const std::string finderWarning =
+            r.setAside == 0
+                ? std::string()
+                : ". WARNING about the clip-wire finder: " + asideCameras + " reported the four "
+                  "clip wires of a wire number ring, which a " + board + " does not have, so "
+                  "they were set aside and did not anchor (OD_BOARD=auto uses them)";
+
         if (!readerAsked)
         {
             r.verdict = Verdict::NotAsked;
+            if (forced)
+            {
+                r.warn = r.setAside > 0;
+                r.sentence = "BOARD RECOGNITION: not attempted -- the number reader is off "
+                             "(OD_NUMBER_ANCHOR=off); the board is taken as the " + board +
+                             ", the one supported board (forced; OD_BOARD=auto measures it)" +
+                             finderWarning;
+                return r;
+            }
             r.sentence = "BOARD RECOGNITION: not attempted -- the number reader is off "
                          "(OD_NUMBER_ANCHOR=off), so nothing checked this board against the " +
                          board + ", the one supported board";
+            return r;
+        }
+
+        if (forced)
+        {
+            r.verdict = Verdict::Forced;
+            r.warn = r.setAside > 0;
+            r.sentence = "BOARD RECOGNITION: this board is taken as the " + board +
+                         ", the one supported board (forced by default since #1676; OD_BOARD=auto "
+                         "measures it instead) -- its printed numbers were read on " +
+                         std::to_string(r.numbersRead) + ofAll + " (separation " +
+                         separations(orientations) + ", cut " + cutText + ")" + finderWarning;
+            if (r.numbersRead == 0)
+            {
+                if (r.configured > 0)
+                {
+                    r.sentence += ". No camera read the numbers; OD_CAMERA_WEDGES states the "
+                                  "anchor on " + std::to_string(r.configured) + ofAll +
+                                  ", and the others are derived from darts every camera sees (#1486)";
+                }
+                else
+                {
+                    r.warn = true;
+                    r.sentence += ". No camera read the numbers, so nothing measured here says "
+                                  "where the 20 is. REMEDY: set OD_CAMERA_WEDGES to the wedge "
+                                  "number at each camera's image south, read off the setup view "
+                                  "once (\"9,0,3\" states cameras 1 and 3); one camera is enough, "
+                                  "because the others are derived from darts every camera sees (#1486)";
+                }
+            }
             return r;
         }
 

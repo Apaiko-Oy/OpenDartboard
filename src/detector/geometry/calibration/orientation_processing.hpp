@@ -77,7 +77,26 @@ namespace orientation_processing
         int numberWedge20WireIndex = -1;   // where they put the 20
         float numberSeparation = 0.0f;     // deviations clear of chance
         bool numbersDisagreeWithClips = false; // both instruments answered, differently
+        // #1676: the clip-wire finder reported the four clips of a wire number ring (the
+        // star measurement succeeded) and it was SET ASIDE, because the board is taken to
+        // be a Winmau Blade 6, which has no wire number ring -- so on that board the
+        // finder is wrong by construction (rig-20260929 camera 2: 20 at wire 9, the
+        // numbers read wire 14). `isStarCamera` is then false, which is what was APPLIED.
+        // A bool beside the one above sits in that bool's padding, so sizeof
+        // (DartboardCalibration) does not move and no cache is refused over it (#1330).
+        bool starSetAside = false;
     };
+
+    /**
+     * #1676: the maintainer's decision, "force winmau6 for now". BY DEFAULT the board is
+     * taken to be a Winmau Blade 6: a star measurement (four clip wires) is set aside rather
+     * than anchoring, and a camera whose printed numbers read is anchored by the reading.
+     * OD_BOARD=auto is the pin that restores the measured board (#1498/#1501's behaviour,
+     * the default before #1676) -- the switch shape of #1631 and #1662. Read once.
+     */
+    bool boardIsForcedBlade6();
+    /** The raw OD_BOARD value when it is set to something this build does not know, else "". */
+    std::string unknownBoardSetting();
 
     // ---- #1496: INSTRUMENTATION ONLY. Nothing in a deployment reads any of this. -----
     //
@@ -549,6 +568,11 @@ namespace orientation_processing
                 how += " (and its clip wires named a DIFFERENT wedge -- see the ORIENTATION "
                        "warning at calibration)";
             }
+            if (orientation.starSetAside)
+            {
+                how += " (its clip wires were set aside, the board being taken as a Winmau "
+                       "Blade 6 -- see the ORIENTATION warning at calibration)";
+            }
             return how + ", wedge " + to_string(orientation.wedgeNumber) +
                    " at its image south, so its wedge is read";
         }
@@ -570,6 +594,15 @@ namespace orientation_processing
         if (orientation.southWireIndex < 0)
         {
             return "found no south wire to index a wedge from, so its wedge is asserted";
+        }
+        if (orientation.starSetAside)
+        {
+            // #1676: the star it found was set aside (a Winmau Blade 6 has no wire number
+            // ring), and nothing else anchored it.
+            return "found the four clip wires of a wire number ring, which were set aside "
+                   "because the board is taken as a Winmau Blade 6 (OD_BOARD=auto uses them), "
+                   "and could not read the board's own printed numbers, so its wedge is "
+                   "asserted; state it with OD_CAMERA_WEDGES";
         }
         return "found neither the star pattern nor the four clips the heuristic needs, and "
                "could not read the board's own printed numbers either, so its wedge is "
@@ -593,6 +626,15 @@ namespace orientation_processing
         }
         return out;
     }
+
+    /**
+     * #1676: the forced board applied to a calibration that came from cache/, written by a
+     * binary that anchored a star camera by its clip wires. The star is set aside exactly as
+     * on a fresh calibration, and the reading the cache holds beside it (#1498's
+     * `numberWedge20WireIndex`) anchors the camera; with no reading cached the camera is
+     * unanchored and says so. No-op under OD_BOARD=auto or on a camera with no star.
+     */
+    void forceTheBoardOnACachedCalibration(DartboardCalibration &calibration, int camera);
 
     // Main processing function
     OrientationData processOrientation(

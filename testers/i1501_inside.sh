@@ -23,6 +23,13 @@
 #        the same, with OD_CAMERA_WEDGES stating one camera
 #            -> still "NOT recognised", but at INFO, saying the remedy is in effect.
 #
+#   #1676: the board is FORCED to the Blade 6 by default, so the measured verdicts above are
+#   #1501's and are asked under the pin OD_BOARD=auto. Section 3 asks the default:
+#        rig-20260918 -> "taken as the Winmau Blade 6", forced, at INFO (no star to set aside).
+#        the shipped mocks -> the same words as a WARN, naming the camera whose four clip
+#            wires were set aside -- on a Unicorn that is the wrong board, and the WARN plus
+#            OD_BOARD=auto is the way out.
+#
 # Announce-only is not asserted here; it is proved by the 1555 bake-off being unchanged.
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
@@ -77,19 +84,19 @@ once_at() { # $1 name, $2 level word, $3 fixed text: exactly one line, at that l
 
 echo
 echo "---- 2a. rig-20260918, a Winmau Blade 6 ----"
-calibrate_once "$SRC/mocks/rig-20260918" rig; note $? "the rig start ended cleanly"
+calibrate_once "$SRC/mocks/rig-20260918" rig OD_BOARD=auto; note $? "the rig start ended cleanly"
 once_at rig INFO "this board has the Winmau Blade 6's shape"
 note $? "rig: said once, at INFO: the supported board's shape"
 
 echo
 echo "---- 2b. the shipped mocks, the upstream Unicorn ----"
-calibrate_once "$SRC/mocks" mocks; note $? "the mocks start ended cleanly"
+calibrate_once "$SRC/mocks" mocks OD_BOARD=auto; note $? "the mocks start ended cleanly"
 once_at mocks INFO "this is NOT the Winmau Blade 6"
 note $? "mocks: said once, at INFO: another board, best-effort"
 
 echo
 echo "---- 2c. rig-20260918 read on the numberless annulus (OD_NUMBER_ANCHOR=inner) ----"
-calibrate_once "$SRC/mocks/rig-20260918" inner OD_NUMBER_ANCHOR=inner; note $? "the control start ended cleanly"
+calibrate_once "$SRC/mocks/rig-20260918" inner OD_BOARD=auto OD_NUMBER_ANCHOR=inner; note $? "the control start ended cleanly"
 once_at inner WARN "this board is NOT recognised"
 note $? "control: said once, as a WARN: not recognised"
 grep -q "REMEDY: set OD_CAMERA_WEDGES" "$RUN/inner.said"
@@ -97,12 +104,26 @@ note $? "control: the same sentence names OD_CAMERA_WEDGES as the remedy"
 
 echo
 echo "---- 2d. the same, with OD_CAMERA_WEDGES stating camera 1 ----"
-calibrate_once "$SRC/mocks/rig-20260918" stated OD_NUMBER_ANCHOR=inner OD_CAMERA_WEDGES=3,0,0
+calibrate_once "$SRC/mocks/rig-20260918" stated OD_BOARD=auto OD_NUMBER_ANCHOR=inner OD_CAMERA_WEDGES=3,0,0
 note $? "the stated start ended cleanly"
 once_at stated INFO "this board is NOT recognised"
 note $? "stated: still not recognised, but at INFO"
 grep -q "OD_CAMERA_WEDGES states the anchor on 1 of 3 cameras" "$RUN/stated.said"
 note $? "stated: it says the remedy is in effect"
+
+echo
+echo "---- 3a. #1676: rig-20260918 on the default, forced to the Blade 6 ----"
+calibrate_once "$SRC/mocks/rig-20260918" forced; note $? "the forced rig start ended cleanly"
+once_at forced INFO "this board is taken as the Winmau Blade 6"
+note $? "forced rig: said once, at INFO: taken as the Blade 6"
+
+echo
+echo "---- 3b. #1676: the shipped mocks on the default ----"
+calibrate_once "$SRC/mocks" forcedmocks; note $? "the forced mocks start ended cleanly"
+once_at forcedmocks WARN "this board is taken as the Winmau Blade 6"
+note $? "forced mocks: said once, as a WARN: taken as the Blade 6"
+grep -q "reported the four clip wires of a wire number ring" "$RUN/forcedmocks.said"
+note $? "forced mocks: the same sentence names the clip wires it set aside"
 
 echo
 echo "I1501 failures=$FAIL"

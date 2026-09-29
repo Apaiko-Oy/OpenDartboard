@@ -43,6 +43,11 @@ set -u
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
 BIN=/app/build/opendartboard
+# #1676: pinned to the MEASURED board. Every slot here is the shipped mocks, an upstream
+# Unicorn with a real wire number ring, and this tester is about the star camera anchoring
+# itself by its clip wires -- which the default (the board forced to a Winmau Blade 6, which
+# has no wire ring) sets aside by design. OD_BOARD=auto is #1498/#1501's behaviour.
+export OD_BOARD=auto
 MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 # Three slots, not one of them a star camera. The repetition is the point, not an oversight.
 UNANCHORED=/app/mocks/cam_1.mp4,/app/mocks/cam_3.mp4,/app/mocks/cam_1.mp4

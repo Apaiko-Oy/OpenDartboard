@@ -94,6 +94,41 @@ int main()
               "OD_NUMBER_ANCHOR=off: not attempted, never 'not recognised'");
     }
 
+    // #1676: forced to the Blade 6 (the default). The verdict is Forced, whatever the shape.
+    {
+        OrientationData aside = camera(true, 4.19f, false, CameraPosition::READ, true);
+        aside.starSetAside = true;
+        const auto r = board_recognition::recognise(
+            {camera(true, 4.28f, false, CameraPosition::READ, true), aside, camera(true, 3.70f, false, CameraPosition::READ, true)},
+            true, 2.75, true);
+        std::printf("  %s\n", r.sentence.c_str());
+        check(r.verdict == Verdict::Forced && r.setAside == 1 && r.wireRing == 0,
+              "forced: a set-aside star is counted as set aside, not as a wire ring");
+        check(r.warn && has(r.sentence, "taken as the Winmau Blade 6") && has(r.sentence, "(forced") &&
+                  has(r.sentence, "camera 2 reported the four clip wires") && has(r.sentence, "OD_BOARD=auto"),
+              "forced with a set-aside star: a WARNING about the finder that names the camera and the pin");
+    }
+    {
+        const auto r = board_recognition::recognise(
+            {camera(true, 4.28f, false, CameraPosition::READ, true), camera(true, 4.53f, false, CameraPosition::READ, true), camera(false, 1.2f)},
+            true, 2.75, true);
+        check(r.verdict == Verdict::Forced && !r.warn && !has(r.sentence, "clip-wire finder"),
+              "forced, no star anywhere: said at INFO, with no finder warning");
+    }
+    {
+        const auto r = board_recognition::recognise({camera(false, 1.9f), camera(false, 1.8f), camera(false, 0.0f)}, true, 2.75, true);
+        check(r.verdict == Verdict::Forced && r.warn && has(r.sentence, "REMEDY: set OD_CAMERA_WEDGES"),
+              "forced, nothing read and nothing configured: a WARNING naming the remedy");
+    }
+    {
+        OrientationData aside = camera(false, 0.0f);
+        aside.starSetAside = true;
+        const auto r = board_recognition::recognise({aside, camera(false, 0.0f), camera(false, 0.0f)}, false, 2.75, true);
+        check(r.verdict == Verdict::NotAsked && r.warn && has(r.sentence, "OD_NUMBER_ANCHOR=off") &&
+                  has(r.sentence, "camera 1 reported the four clip wires"),
+              "forced, reader off: not attempted, and the set-aside star is still a WARNING");
+    }
+
     // Every sentence carries one greppable prefix.
     std::printf("I1501CHECK failures=%d\n", failures);
     return failures == 0 ? 0 : 1;
