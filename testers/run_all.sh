@@ -187,6 +187,9 @@ tester 1554-shadow        "bash '$T/i1554_run.sh'"
 # swapped correspondences, a 6% ring scaling, agreeing score strings that must move
 # nothing. Costs one compile plus wire_model.cpp.
 tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
+# #1678: when a camera under the scoring-area floor may corroborate another camera's
+# advance (OD_LONE_CAMERA=on acts on it).
+tester 1678-lonecheck     "bash '$T/unit_check.sh' 1678"
 # #1681: each line's redundancy number in the entry solve, and the tip it asks for
 # where the lines cannot check each other (OD_SOLVE_CONTROL=on acts on it).
 tester 1681-control       "bash '$T/unit_check.sh' 1681"
