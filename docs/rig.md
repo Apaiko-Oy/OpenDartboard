@@ -221,6 +221,25 @@ pool reads 118..130/158, up from 114..128. It is not a default: it rests on one 
 one negative control, and the control is separated by the tip-in-scoring-area clause
 alone.
 
+**Both together, on the forced Blade 6 (#1680).** This is main 2c33747 merged with both
+switches' branch, on the capture-clock bakeoff. With both switches off, the bakeoff
+reproduces main row for row: 123..139/158 pooled, 82/86 on r18+r22, and rig-20260929 at
+20..28/36 (dev) and 21..29/36 (opening). With `OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`,
+the pool reads **137..149/158**. r18+r22 stays at 82/86 with 0 phantoms, and rig-20260929
+reads **27..33/36** (dev) and **28..34/36** (opening), with 0 undetected. Visits 5, 6 and
+11 publish all three darts, and every recovered dart is exact: v5.3 S3, v6.2 D5, v6.3 S1,
+v11.1 S3 and v12.2 D14. On the Blade 6, v6.2 publishes D5 on the vote path, because the
+geometry refuses it as NEAR-PARALLEL. Before #1676 it published S5. What remains of the
+range is visits 7 and 12, whose misses publish nothing. The visit-order join cannot place
+a dart a miss leaves out, so those visits stay short.
+
+The lone-camera rule fires once per rig-20260929 run and never on r18 or r22. The lower
+threshold opens one extra window on each rig-20260918 run and none on rig-20260922 or
+rig-20260929. In that window all three cameras read CLEAN between visits, and the window
+re-bases the clean reference. So r18's v6.2 is still S7, but it is published by a
+different path: geometry on the opening window, the vote (NEAR-PARALLEL) on dev and pin.
+Every r22 run publishes the same sequence as with both switches off.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
