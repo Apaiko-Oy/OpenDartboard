@@ -535,8 +535,9 @@ tester 1487-asserted-said "bash '$T/i1487_run.sh'"
 # unknown. Four detector runs on one binary: a board whose cameras never open (the census
 # must be ABSENT, never three noughts), the same binary under OD_BEAT_CAMERAS=0 (the
 # pre-#1474 body, which is both the falsifier and the fleet mid-upgrade), the shipped mocks
-# (scoring equals fitted) and mocks/rig-20260918 (fewer scoring than fitted, because #1442
-# refuses cameras 1 and 3). Every assertion reads the BODY that arrived at the stub, which
+# (scoring equals fitted) and mocks/rig-20260918 (which was fewer scoring than fitted,
+# because #1442 refused cameras 1 and 3; #1672, 2026-09-29, retired that control because
+# the rig no longer refuses a camera, so "scoring equals fitted" now has none). Every assertion reads the BODY that arrived at the stub, which
 # models App\Autoscoring\CameraReport to the comparison -- a 422 there would cost the club
 # the board's condition as well as its count.
 # MEASURED 2026-09-20 on the 4-core box: see the recorded line in the pull request.

@@ -2,6 +2,13 @@ set -u
 # #1474: whether a board really SENDS how many of its cameras a dart is scored from, and
 # whether the body it sends is one Turnaus accepts.
 #
+# #1672, 2026-09-29: phase REFUSED is no longer a positive control. mocks/rig-20260918 with
+# OD_CALIBRATION_LOOKS=once refuses no camera any more -- the board calibrates 3 of 3 -- so
+# the four assertions that needed a refused camera (in sections 4 and 5) are retired where
+# they stood, each with the measured reason. The phase is still run, and everything it can
+# still answer is still asked of it. The history below is kept because it is why the
+# fixture and the switch were chosen.
+#
 # THE STATE THIS IS ABOUT. #1343 shipped the platform half on 2026-09-20: Turnaus accepts,
 # stores and publishes a per-board camera census and the marking page draws it. No board
 # sent it -- `postBeat` posted `{"condition":"<word>"}` and nothing else -- so the feature
@@ -35,6 +42,8 @@ set -u
 #            fitted. This is the positive control the acceptance criterion names, and
 #            without it WHOLE would pass on a board that reported "all of them" whatever
 #            was in front of it.
+#            #1672, 2026-09-29: RETIRED as a control -- that board no longer refuses a
+#            camera (see section 4). It still runs, as a second board stating a census.
 
 # WHAT THIS TESTER DOES NOT MEASURE, AND IT IS A MEASUREMENT RATHER THAN A GAP. `dark` is
 # the third number and every phase here leaves it at NOUGHT, so a detector that never
@@ -72,6 +81,14 @@ set -u
 # WHOLE and REFUSED are each other's control in both directions: a tester holding only
 # WHOLE would pass on a detector that hardcoded fitted==scoring, and one holding only
 # REFUSED would pass on a detector that always under-counted.
+#
+# #1672, 2026-09-29: this tester now holds only WHOLE, so what the paragraph above warns of
+# is true of it. Section 3's "scoring equals fitted" has NO control left: it passes on a
+# detector that hardcoded scoring=fitted, and nothing here would say so. That is recorded
+# rather than repaired -- the maintainer's decision (#1645, #1658, #1661) was to retire an
+# assertion whose subject the footage no longer produces, not to plant one. If shipped
+# footage turns up that a board really refuses a camera on, REFUSED's control comes back
+# pointed at it.
 #
 # Every detector started here can end in #895's fault vigil, which never returns, so each
 # is backgrounded and ended by its own recorded pid. Never by pattern.
@@ -124,9 +141,10 @@ if ! strings $BIN | grep -q 'OD_BEAT_CAMERAS'; then
   echo "     the SAME code as the phases it is supposed to be the control for."
   exit 1
 fi
-# The fixture the positive control is built from. It is the only shipped footage holding a
-# camera the wire stage refuses, so its absence is not a board that counts differently --
-# it is a tester with no positive control, which is a tester about nothing.
+# The fixture phase REFUSED is built from. It USED to be the only shipped footage holding a
+# camera the wire stage refuses; #1672 (2026-09-29) measured that it no longer holds one,
+# and the control it gave is retired (section 4). The phase still runs on it, so its
+# absence is still a phase with no board, and still stops the run here.
 if [ ! -s /app/mocks/rig-20260918/cam_3.mp4 ] || [ ! -s /app/mocks/rig-20260918/cam_1.mp4 ]; then
   echo "FAIL mocks/rig-20260918/cam_1.mp4 or cam_3.mp4 is missing -- they are the refused"
   echo "     cameras phase REFUSED is built from, and without them there is no board with"
@@ -312,21 +330,25 @@ else
 fi
 
 echo
-echo "=== 4. REFUSED: a board with a refused camera reports FEWER scoring than fitted ==="
-# The acceptance criterion's other half. #1442 refuses a camera proposing more than twenty
-# wire boundaries; cameras 1 and 3 of this fixture propose 21 and 22. Those cameras are
-# FITTED and they are not SCORING, and the census has to say so rather than counting them.
+echo "=== 4. REFUSED: the board run on mocks/rig-20260918 with the further looks off ==="
 grep -aE 'did not calibrate: the wire stage found|SCORING:|BOARD FAULTED' /run1474/refused.txt | head -4 || true
 echo "    last stated beat: $(stated refused)"
-if grep -qa 'wire boundaries where a board has 20' /run1474/refused.txt; then
-  say "OK   a camera really was refused at calibration on this fixture (#1442)" ok
-else say "FAIL no camera was refused here, so this phase is not a positive control at all" no; fi
-# And it STAYED refused. Without this the phase silently stops being a positive control
-# the day #1467 lands and cam_3's wire stage finds twenty on its averaged frame -- the
-# assertion below would then be measuring a healthy board and reporting the defect.
-if grep -qa 'OD_CALIBRATION_LOOKS=once is set' /run1474/refused.txt; then
-  say "OK   and #1445's further looks really were off, so it stayed refused for the run" ok
-else say "FAIL the refused camera was looked at again, so this board may have recovered" no; fi
+# === 4's refusal, its "stayed refused" and its "FEWER scoring", RETIRED by #1672
+# (maintainer's decision of 2026-09-28, applied 2026-09-29) ===
+# They asserted that a camera of this fixture was refused at calibration (#1442's `wire
+# boundaries where a board has 20`), that #1445's further looks were off so it stayed
+# refused (`OD_CALIBRATION_LOOKS=once is set`, which the board prints only about a refused
+# camera), and that the census then read scoring < fitted. MEASURED on fork 45e23af and on
+# 7e6fbd2: no camera of rig-20260918 is refused on its averaged frame any more, the board
+# reports 3 of 3, and the three printed `no camera was refused here`, `the refused camera
+# was looked at again` and `the board reported 3 of 3: a refused camera was counted as
+# scoring`. It is the fixture fact #1661 found: cam_3's averaged frame is no longer refused
+# since the calibration work (#1445, #1456, #1467, #1631). The decision was to retire
+# rather than plant a synthetic frame: a planted frame would guard a scenario the rig no
+# longer reaches.
+#
+# What is kept is what still has a subject: this is a board, it beats, and its census has
+# to be stated and keep its denominator whatever the board can see.
 if [ -z "$(stated refused)" ]; then
   say "FAIL the degraded board stated no census -- which is the state somebody most needs it in" no
 else
@@ -334,21 +356,19 @@ else
   if [ "$(fitted refused)" = "3" ]; then
     say "OK   fitted is still 3: a refused camera is one the board HAS" ok
   else say "FAIL fitted is '$(fitted refused)'; a refused camera must not leave the denominator" no; fi
-  if [ -n "$(scoring refused)" ] && [ "$(scoring refused)" -lt "$(fitted refused)" ]; then
-    say "OK   scoring ($(scoring refused)) is FEWER than fitted ($(fitted refused)) -- the refused cameras are not counted" ok
-  else say "FAIL the board reported $(scoring refused) of $(fitted refused): a refused camera was counted as scoring" no; fi
 fi
 
 echo
-echo "=== 5. and the two boards do not read the same, which is the whole point ==="
-# #1343's own rule, inherited: an assertion that a degraded board publishes a count would
-# pass on a detector that published the same count for every board. So the two must differ,
-# measured against each other rather than against a literal.
+echo "=== 5. the two boards side by side (the comparison is RETIRED) ==="
 echo "    whole:   fitted=$(fitted whole) scoring=$(scoring whole) dark=$(dark whole)"
 echo "    refused: fitted=$(fitted refused) scoring=$(scoring refused) dark=$(dark refused)"
-if [ -n "$(scoring whole)" ] && [ -n "$(scoring refused)" ] && [ "$(scoring whole)" != "$(scoring refused)" ]; then
-  say "OK   a whole board and a degraded one report different numbers of scoring cameras" ok
-else say "FAIL both boards reported the same count, so the number says nothing about the board" no; fi
+# === 5, RETIRED by #1672 (maintainer's decision of 2026-09-28, applied 2026-09-29) ===
+# 5 asserted that the whole board and the degraded one report different numbers of scoring
+# cameras -- #1343's rule that a count published the same for every board says nothing.
+# There is no degraded board any more: MEASURED on fork 45e23af and on 7e6fbd2, the
+# rig-20260918 board reports 3 of 3 like the shipped mocks, and 5 printed `both boards
+# reported the same count`. Retired with section 4's three, for the reason given there. With
+# it goes the last control on section 3's "scoring equals fitted"; the header says so.
 
 echo
 echo "=== 6. the arithmetic Turnaus asks of the triple holds on every stated beat ==="
