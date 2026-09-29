@@ -463,6 +463,9 @@ namespace shaft_axis
         // returned axis is the dominant component's, cut to its corridor. The plain
         // fit's figures are kept beside it so a reader can see what was refused first.
         bool rescueTried = false;
+        // #1684: the standing-figure retry's census line, empty where no retry was made
+        // (see withoutStandingFigures); the caller prints it beside I1511AXIS.
+        std::string stackCensus;
         bool rescued = false;
         double rescuePlainRmsPx = 0.0;   // the plain fit's centreline rms, the refused one
         double rescuePlainAngleDeg = 0.0;
@@ -1348,6 +1351,77 @@ namespace shaft_axis
                        : "NO AXIS: " + axis.refusal;
         cv::putText(canvas, caption.substr(0, 110), cv::Point(10, 22), cv::FONT_HERSHEY_SIMPLEX, 0.5,
                     axis.valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255), 1);
+    }
+
+    /**
+     * #1684: THE STANDING-FIGURE SUBTRACTION. A dart that lands beside one already in
+     * the bed changes the older dart too: its flight covers the older flight or knocks
+     * it round, and the older barrel can shift when struck. That change is measured
+     * against the reference #1495 re-based after the older dart, so it IS fresh, and
+     * the single-linkage figure holds it together with the new dart. The straightness
+     * gate then correctly reads two objects (rig-20260929 v10.3: all three cameras,
+     * widths 60/31/34 px, rms 4.6-5.4, frames 4455 against 4505). But every pixel of
+     * that disturbance lies where the older dart already stood, and the detector has
+     * already measured that place: it is the figure the older dart's own window
+     * fitted.
+     *
+     * So the retry is the figure MINUS the figures of the darts the vote has called
+     * since the board was last clean, in this camera, fitted again with every gate
+     * unchanged. What survives is what did not exist in any earlier window of the
+     * visit -- the new dart where it does not overlap an older one. No number is
+     * introduced: the standing mask is the older figures exactly as they were fitted.
+     * It is tried only on a SHAPE refusal ("not straight", "not a shaft") whose support
+     * overlaps the standing figures, so an axis that passes today is never touched, and
+     * the retry must pass every gate on its own or the original refusal stands.
+     * OD_AXIS_STACK=on adopts it (dart_processing.cpp); off, it is measured and printed
+     * (I1684STACK) and discarded.
+     */
+    inline bool isShapeRefusal(const AxisObservation &axis)
+    {
+        return !axis.valid && (axis.refusal.rfind("not straight", 0) == 0 ||
+                               axis.refusal.rfind("not a shaft", 0) == 0);
+    }
+
+    /** The support without the pixels a standing figure already holds; `overlap` gets
+     *  how many were removed. An empty or mismatched mask removes nothing. */
+    inline std::vector<cv::Point> withoutStandingFigures(const std::vector<cv::Point> &support,
+                                                         const cv::Mat &standing, int *overlap = nullptr)
+    {
+        int removed = 0;
+        if (standing.empty() || standing.type() != CV_8UC1)
+        {
+            if (overlap != nullptr) *overlap = 0;
+            return support;
+        }
+        std::vector<cv::Point> kept;
+        kept.reserve(support.size());
+        for (const cv::Point &p : support)
+        {
+            if (p.x >= 0 && p.y >= 0 && p.x < standing.cols && p.y < standing.rows &&
+                standing.at<uchar>(p) != 0)
+            {
+                removed++;
+                continue;
+            }
+            kept.push_back(p);
+        }
+        if (overlap != nullptr) *overlap = removed;
+        return kept;
+    }
+
+    /** #1684's census line, beside I1511AXIS wherever the retry was made. */
+    inline std::string stackLine(long window, int camera, bool adopted, int supportPx, int overlapPx,
+                                 const AxisObservation &plain, const AxisObservation &retry)
+    {
+        char head[400];
+        snprintf(head, sizeof(head),
+                 "I1684STACK window=%ld cam=%d adopted=%d support=%d overlap=%d plainWidth=%.1f "
+                 "plainRms=%.2f retryValid=%d angle=%.2f extent=%.1f width=%.1f rms=%.2f "
+                 "sigma=%.3f px=%d refusal=",
+                 window, camera + 1, adopted ? 1 : 0, supportPx, overlapPx, plain.medianWidthPx,
+                 plain.centrelineRmsPx, retry.valid ? 1 : 0, retry.angleDeg, retry.extentPx,
+                 retry.medianWidthPx, retry.centrelineRmsPx, retry.sigmaDeg, retry.supportPixels);
+        return std::string(head) + (retry.valid ? "-" : retry.refusal);
     }
 
     /** The census line i1511's harness parses: one line, every figure, refusal last so

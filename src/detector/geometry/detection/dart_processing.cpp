@@ -161,6 +161,13 @@ namespace dart_processing
     // Working backgrounds - one per camera
     static vector<Mat> working_backgrounds;
 
+    // #1684: per camera, the union of the linked figures of every dart the vote has
+    // called since the board was last CLEAN -- where the darts of this visit already
+    // stand, as each one's own window measured it. Kept whatever OD_AXIS_STACK says
+    // (the retry is measured either way); read only by the axis retry, never by the
+    // tip or the vote. Cleared with the working backgrounds.
+    static vector<Mat> standing_figures;
+
     // #1518: what CLEAN currently looks like, one grayscale frame per camera. Empty
     // until the first reconciled CLEAN adopts a window's settled frames; until then the
     // calibration background is the reference, exactly as it always was. #1349's
@@ -482,6 +489,19 @@ namespace dart_processing
     //                       paid for by one it newly gets wrong (rig-22 opening v5.3,
     //                       an exact S7 published as S19 across the 7/19 wire). A default
     //                       that regresses an exact dart is not one this issue may ship.
+    // #1684: OD_AXIS_STACK=on adopts the standing-figure retry of a shape-refused axis
+    // (shaft_axis.hpp, withoutStandingFigures). Unset, the retry is measured and printed
+    // as I1684STACK under OD_SHAFT_CENSUS=1 and every published byte is the old one.
+    static bool axisStackIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_AXIS_STACK");
+            return e != nullptr && std::string(e) == "on";
+        }();
+        return v;
+    }
+
     static bool axisRescueIsOn()
     {
         static const bool v = []
@@ -1460,9 +1480,35 @@ namespace dart_processing
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
+                        const std::vector<Point> support =
+                            shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size());
                         shaft_axis::AxisObservation observed = shaft_axis::observeShaftAxis(
-                            shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size()),
-                            averaged_frame, axis_reference, axis_params);
+                            support, averaged_frame, axis_reference, axis_params);
+                        // #1684: a shape refusal whose figure overlaps the darts already
+                        // standing in this visit is fitted again without them
+                        // (shaft_axis.hpp, withoutStandingFigures). Measured whatever the
+                        // switch says; adopted only under OD_AXIS_STACK=on, and only when
+                        // the retry passes every gate itself.
+                        if (shaft_axis::isShapeRefusal(observed) && i < standing_figures.size() &&
+                            !standing_figures[i].empty() && standing_figures[i].size() == single_thresh.size())
+                        {
+                            int overlap = 0;
+                            const std::vector<Point> stripped =
+                                shaft_axis::withoutStandingFigures(support, standing_figures[i], &overlap);
+                            if (overlap > 0)
+                            {
+                                shaft_axis::AxisObservation retry = shaft_axis::observeShaftAxis(
+                                    stripped, averaged_frame, axis_reference, axis_params);
+                                const bool adopt = axisStackIsOn() && retry.valid;
+                                const std::string line = shaft_axis::stackLine(
+                                    window_serial, (int)i, adopt, (int)support.size(), overlap, observed, retry);
+                                if (adopt)
+                                {
+                                    observed = std::move(retry);
+                                }
+                                observed.stackCensus = line;
+                            }
+                        }
                         observed.camera = (int)i;
                         observed.windowOrdinal = window_serial;
                         observed.windowOpenedCycle = window_opened_at;
@@ -1811,6 +1857,28 @@ namespace dart_processing
         // A camera that brought no frame to this window has no average to move to, and is
         // left alone: it abstained, and the frame it last saw is still the best reference
         // it has.
+        // #1684: the dart the vote just called now stands in the bed; its figure, per
+        // camera, joins the standing mask the next window's axis retry subtracts.
+        if (final_state > best_previous_state)
+        {
+            if (standing_figures.size() != axis_pieces.size())
+            {
+                standing_figures.assign(axis_pieces.size(), Mat());
+            }
+            for (size_t i = 0; i < axis_pieces.size(); i++)
+            {
+                if (axis_pieces[i].empty() || i >= window_frames.size() || window_frames[i].empty())
+                {
+                    continue;
+                }
+                if (standing_figures[i].empty() || standing_figures[i].size() != window_frames[i].size())
+                {
+                    standing_figures[i] = Mat::zeros(window_frames[i].size(), CV_8UC1);
+                }
+                drawContours(standing_figures[i], axis_pieces[i], -1, Scalar(255), FILLED);
+            }
+        }
+
         if (!advanceResetIsPerCamera() && final_state > best_previous_state)
         {
             for (size_t i = 0; i < working_backgrounds.size() && i < window_frames.size(); i++)
@@ -1917,6 +1985,10 @@ namespace dart_processing
                     {
                         log_info(shaft_axis::rescueLine(r.axis));
                     }
+                    if (!r.axis.stackCensus.empty())
+                    {
+                        log_info(r.axis.stackCensus);
+                    }
                 }
                 if (!shaftProbeDir().empty() && i < window_frames.size() && !window_frames[i].empty())
                 {
@@ -1947,6 +2019,10 @@ namespace dart_processing
             for (size_t i = 0; i < working_backgrounds.size(); i++)
             {
                 working_backgrounds[i] = Mat();
+            }
+            for (size_t i = 0; i < standing_figures.size(); i++)
+            {
+                standing_figures[i] = Mat();
             }
 
             // #1535: the visit is over, so its reported tips are nobody's earlier dart
