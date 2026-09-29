@@ -223,6 +223,36 @@ namespace perspective_processing
 
         log_debug("PnP calibration successful");
 
+        // #1458: how well the pose fits the correspondences it was solved from, said at
+        // default level on every success. Until this it was computed only under
+        // enableDebug and reached nothing but the putText below, so a geometry change could
+        // not be graded from any transcript. The decision of 2026-09-23, point by point:
+        // the MEAN is the trend and the WORST is the one wire the mean hides (not RMS: the
+        // mean logged is the very number the debug JPEG draws, to_string and all, so the
+        // two cannot disagree); ONE INFO line per camera; and the correspondence count on
+        // the same line, because it is the mean's denominator and a flattering error over
+        // few points is the classic bad fit. The figure goes nowhere else -- not the cache,
+        // not the beat, not the API. projectPoints only reads rvec and tvec, so saying the
+        // number moves nothing that was fitted.
+        //
+        // #1457's rule for a line reached only by a look that passed, the board-model
+        // line's: it is INFO on every passing look rather than narration, because which
+        // look this board seals is not known here.
+        vector<Point2f> reprojected;
+        projectPoints(objectPoints, rvec, tvec, cameraMatrix, Mat(), reprojected);
+        double totalError = 0.0;
+        double worstError = 0.0;
+        for (size_t i = 0; i < imagePoints.size(); i++)
+        {
+            const double error = norm(reprojected[i] - imagePoints[i]);
+            totalError += error;
+            worstError = max(worstError, error);
+        }
+        const double avgError = totalError / imagePoints.size();
+        log_info("Camera " + log_string(calib.camera_index + 1) + " reprojection: " + log_string(avgError) +
+                 " px mean, " + log_string(worstError) + " px worst, over " +
+                 log_string(imagePoints.size()) + " points");
+
         // Step 5: Rectify the board
         Mat rectified = rectifyBoard(rawImage, rvec, tvec, cameraMatrix, spec);
 
@@ -234,17 +264,10 @@ namespace perspective_processing
             // Save rectified image
             imwrite("debug_frames/perspective_processing/rectified_" + to_string(calib.camera_index) + ".jpg", rectified);
 
-            // RECOMPUTE reprojection for debug (since variables are out of scope)
-            vector<Point2f> reprojectedDebug;
-            projectPoints(objectPoints, rvec, tvec, cameraMatrix, Mat(), reprojectedDebug);
-
-            double totalErrorDebug = 0.0;
-            for (size_t i = 0; i < imagePoints.size(); i++)
-            {
-                double error = norm(reprojectedDebug[i] - imagePoints[i]);
-                totalErrorDebug += error;
-            }
-            double avgErrorDebug = totalErrorDebug / imagePoints.size();
+            // #1458: the picture draws the reprojection the INFO line above already
+            // measured, so the number on the JPEG and the number in the log are one value.
+            const vector<Point2f> &reprojectedDebug = reprojected;
+            const double avgErrorDebug = avgError;
 
             // Create DETAILED debug visualization showing intersections AND reprojection errors
             Mat debugImg = rawImage.clone();
