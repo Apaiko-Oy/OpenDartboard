@@ -767,6 +767,8 @@ namespace score_processing
             // that line's parser matches its whole head contiguously, so a field inserted
             // before `story=` silently stops every #1512 census reading anything.
             log_info(entry_intersection::censusFlagLine(sol, window));
+            // #1681: whether the lines check each other, and a tip where they do not.
+            log_info(entry_intersection::censusControlLine(sol, window));
             for (const entry_intersection::Constraint &con : sol.constraints)
             {
                 log_info(entry_intersection::censusCameraLine(con, window));
@@ -1059,13 +1061,23 @@ namespace score_processing
             // `scoreFromModel` needs a built plane and a positive millimetre scale, and
             // the reference camera is the lowest-index constraint that survived the
             // solve. Anything short of all three is a refusal like any other.
+            //
+            // #1681: and, under OD_SOLVE_CONTROL=on, only when its lines check each other
+            // or a placed tip corroborates it (entry_intersection::Params::minRedundancy).
+            // A refused solve is a refusal like any other, under its own word, so the
+            // census's counterfactuals see it as one and the account says why.
+            const bool control_refused = entry_intersection::solveControlIsOn() && solution.solved &&
+                                         solution.controlRefused;
             const bool geometry_answered = geometry_publishes && solution.solved &&
                                            solution.score.valid &&
-                                           solution.scoredThroughCamera >= 0;
+                                           solution.scoredThroughCamera >= 0 &&
+                                           !control_refused;
+            const string outcome_word = control_refused
+                                            ? string("UNCONTROLLED")
+                                            : string(entry_intersection::outcomeWord(solution.outcome));
             const PublishDecision decision =
-                decidePublishedPath(geometry_publishes, geometry_answered,
-                                    entry_intersection::outcomeWord(solution.outcome),
-                                    solution.story);
+                decidePublishedPath(geometry_publishes, geometry_answered, outcome_word,
+                                    control_refused ? solution.controlStory : solution.story);
             // Printed on every dart, never conditionally: a reader of any log must be
             // able to say which path named this score without knowing which build they
             // are reading. That is the whole property this issue creates, and #1451 is
@@ -1074,7 +1086,7 @@ namespace score_processing
             result.from_geometry = decision.path == ScorePath::Geometry;
             result.degraded = !decision.fallback_reason.empty();
             result.geometry_outcome = decision.geometry_asked
-                                          ? string(entry_intersection::outcomeWord(solution.outcome))
+                                          ? outcome_word
                                           : string();
 
             // #1556: the crossing, decided in one place for every called dart and BEFORE

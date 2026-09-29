@@ -108,6 +108,21 @@ camera transmits. A format read there can never refuse a camera (#1336).
   instead of look 3. Look 3's clip wires and printed numbers disagreed by five
   wedges; look 4's agree. Because the camera is looked at to the end of the window,
   scoring at the opening starts about 45 frames later.
+- **Two cameras whose lines cross shallowly on the board leave the third camera
+  unchecked (turnaus#1681).** On rig-20260929, cameras 1 and 2 can cross at about 10°
+  on the board. Together they place the dart only across their shared direction, so
+  camera 3's line alone decides where along it the dart is, and no residual can show
+  it is wrong. In window 22 camera 3's line was on another new dart (S1), and the solve
+  published MISS 31 mm off the board with a chi-square of 3.3 against 9. The solve
+  now states each line's **redundancy number** (`I1681CONTROL`, under
+  `OD_GEO_SCORE=on`). It is the share of that line's displacement the other cameras
+  can see. Below 0.1 the line is uncontrolled, and every two-line solve is
+  uncontrolled by construction. `OD_SOLVE_CONTROL=on` (opt-in) sends a solve with an
+  uncontrolled line **and** no placed tip within 15 mm to the vote, labelled
+  DEGRADED. Measured 2026-09-29 (1555-bakeoff): 40 of 109 solves are uncontrolled, and
+  the refusal fires only on rig-20260929 window 22 in both windows (MISS → D5).
+  r18+r22 is unchanged at 82/86. One changed dart is not yet evidence that the refusal
+  is right in general.
 
 ## Board
 

@@ -187,6 +187,9 @@ tester 1554-shadow        "bash '$T/i1554_run.sh'"
 # swapped correspondences, a 6% ring scaling, agreeing score strings that must move
 # nothing. Costs one compile plus wire_model.cpp.
 tester 1512-intersect     "bash '$T/unit_check.sh' 1512"
+# #1681: each line's redundancy number in the entry solve, and the tip it asks for
+# where the lines cannot check each other (OD_SOLVE_CONTROL=on acts on it).
+tester 1681-control       "bash '$T/unit_check.sh' 1681"
 # #1512's fixture half: the geometric census on both rigs against the ground-truth
 # tables and i1511's annotations, side by side with what was published and with the
 # string vote's own reading, plus the control proving OD_GEO_SCORE defaults off with
