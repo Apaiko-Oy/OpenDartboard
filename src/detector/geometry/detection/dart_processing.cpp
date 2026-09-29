@@ -1747,6 +1747,25 @@ namespace dart_processing
                          "it -- a rim dart clipped by the scoring-area mask -- so they corroborate the "
                          "advance and the quorum of " + to_string(quorum) + " is met (#1678)");
                 moves_up += corroborating;
+                // A corroborating camera has been ruled a witness to THIS dart, so the tip
+                // and axis its figure yielded are its evidence for scoring it, as a camera
+                // that cleared the floor offers its own; otherwise the dart publishes from
+                // the lone camera's reading.
+                for (size_t i = 0; i < result.camera_results.size(); i++)
+                {
+                    CameraDetectionResult &r = result.camera_results[i];
+                    if (!r.frame_available || r.abstained_no_board || !r.sub_floor_corroborates ||
+                        r.detected_state != best_previous_state)
+                        continue;
+                    shaft_axis::AxisObservation promoted = r.sub_floor_axis;
+                    promoted.camera = (int)i;
+                    promoted.windowOrdinal = r.axis.windowOrdinal;
+                    promoted.windowOpenedCycle = r.axis.windowOpenedCycle;
+                    promoted.windowClosedCycle = r.axis.windowClosedCycle;
+                    r.axis = std::move(promoted);
+                    r.tip_position = r.sub_floor_tip;
+                    r.tip_found = true;
+                }
             }
         }
 
