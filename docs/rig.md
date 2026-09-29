@@ -180,6 +180,33 @@ window per run, which the vote refuses. It is not a default: #1353 measured rig-
 noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates them on
 amplitude alone.
 
+**The lone camera (#1678), opt-in.** The state vote's fresh-change floor, 0.10% of a
+camera's board, is counted in the scoring area, while the tip is searched in the physical
+board. A double-ring dart seen side-on has its tip inside the scoring area and its shaft
+and flight outside it, so the floor sees only the tip. On rig-20260929, v6.2's D5 cleared
+the floor only on camera 2. Camera 1 had 179 px in the scoring area against its 215 px
+floor, but 1,366 px in the physical board, with a valid axis and the tip it reports for D5
+one window later. The vote refused the dart, and the next window published D5 and S1 as
+one dart. `OD_LONE_CAMERA=on` lets such a sub-floor camera corroborate another camera's
+advance, when no voter reads CLEAN, if all of these hold:
+- its physical-board figure clears the same floor;
+- that figure fits a valid axis and yields a tip;
+- the tip is in the scoring area;
+- the tip is not a re-report.
+
+A corroborating camera's tip and axis go to the scorer. The negative control is
+rig-20260918's v4.3, a MISS with the same vote shape. Cameras 2 and 3 have 274 and 723 px
+in the physical board with valid axes but 0 px in the scoring area, so it stays refused.
+`OD_LONE_CENSUS=1` prints the per-camera figures (`I1678LONE`).
+
+On the capture-clock bakeoff the rule fires once per rig-20260929 run and nowhere on
+r18 or r22. Every r18 and r22 run publishes the same sequence, and r18+r22 stays at 82/86
+with 0 phantoms. rig-20260929 reads 18..24/36 per window, up from 16..23. v6.2 publishes
+as its own dart (S5, flagged with D5 as the alternative), and v6.3's S1 is correct. The
+pool reads 118..130/158, up from 114..128. It is not a default: it rests on one dart and
+one negative control, and the control is separated by the tip-in-scoring-area clause
+alone.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
