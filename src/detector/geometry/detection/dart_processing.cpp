@@ -1,4 +1,5 @@
 #include "dart_processing.hpp"
+#include "utils/cycle_cost.hpp"
 #include <iostream>
 #include <cstdlib>
 #include <limits>
@@ -1089,7 +1090,9 @@ namespace dart_processing
 
         if (collecting_frames)
         {
+            cycle_cost::windowPart() = 1;
             // Add current frames to accumulation (spreads the cost across frames)
+            cycle_cost::Scope accum_timer(cycle_cost::D_ACCUM);
             for (size_t i = 0; i < current_frames.size(); i++)
             {
                 if (!current_frames[i].empty() && !accumulated_frames[i].empty())
@@ -1122,6 +1125,8 @@ namespace dart_processing
 
         // initialise variables
         result.camera_results.resize(current_frames.size());
+        cycle_cost::windowPart() = 2;
+        cycle_cost::Scope close_timer(cycle_cost::D_CLOSE);
 
         // #1511: this window's identity, stamped on every camera's axis observation up
         // front -- an abstention must say WHICH window it abstained from, or the
@@ -1210,6 +1215,7 @@ namespace dart_processing
                 cvtColor(background_frames[i], background_gray, COLOR_BGR2GRAY);
             }
 
+            cycle_cost::Scope cumul_timer(cycle_cost::D_CUMUL);
             Mat averaged_frame;
             accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_accumulated[i]);
             window_frames[i] = averaged_frame;
@@ -1235,6 +1241,7 @@ namespace dart_processing
             // Count total changed pixels instead of contour analysis
             int total_changed_pixels = countNonZero(thresh);
             int total_pixels = thresh.rows * thresh.cols;
+            cumul_timer.stop();
             float change_ratio = ((double)total_changed_pixels / (double)total_pixels) * 100.0f; // Percentage of changed pixels
 
             // Debug output per camera
@@ -1372,6 +1379,7 @@ namespace dart_processing
             {
                 if (!working_backgrounds[i].empty())
                 {
+                    cycle_cost::Scope fresh_timer(cycle_cost::D_FRESH);
                     Mat diff_working;
                     absdiff(averaged_frame, working_backgrounds[i], diff_working);
                     medianBlur(diff_working, diff_working, params.blur_kernel_size);                    // Smooth out noise in grayscale diff
@@ -1450,6 +1458,7 @@ namespace dart_processing
                     }
 
                     // Use smart tip detection
+                    cycle_cost::Scope axis_timer(cycle_cost::D_AXIS);
                     double gap_to_figure = 0;
                     auto tip_and_center = detectTipAndCenter(single_thresh, debug_mode, static_cast<int>(i), dart_tips,
                                                              &gap_to_figure, &axis_pieces[i]);
@@ -1483,6 +1492,7 @@ namespace dart_processing
                         observed.windowClosedCycle = cycle_ordinal;
                         result.camera_results[i].axis = std::move(observed);
                     }
+                    axis_timer.stop();
                     Point2f tip_pos = tip_and_center.first;
                     Point2f center_pos = tip_and_center.second;
 

@@ -4,6 +4,7 @@
 #include "utils/streamer.hpp"
 #include "utils/od_clock.hpp"
 #include "utils/od_fix.hpp"
+#include "utils/cycle_cost.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -400,24 +401,37 @@ namespace motion_processing
 
             // Convert to grayscale
             Mat prev_gray, curr_gray;
-            cvtColor(previous_frames[i], prev_gray, COLOR_BGR2GRAY);
-            cvtColor(current_frames[i], curr_gray, COLOR_BGR2GRAY);
+            {
+                cycle_cost::Scope t(cycle_cost::M_GRAY);
+                cvtColor(previous_frames[i], prev_gray, COLOR_BGR2GRAY);
+                cvtColor(current_frames[i], curr_gray, COLOR_BGR2GRAY);
+            }
 
             // clean up frames so there no noise
-            GaussianBlur(prev_gray, prev_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
-            GaussianBlur(curr_gray, curr_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+            {
+                cycle_cost::Scope t(cycle_cost::M_BLUR);
+                GaussianBlur(prev_gray, prev_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+                GaussianBlur(curr_gray, curr_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+            }
 
             // Calculate absolute difference
             Mat diff;
-            absdiff(prev_gray, curr_gray, diff);
-
-            // Apply threshold
             Mat thresh;
-            threshold(diff, thresh, params.binary_threshold, 255, THRESH_BINARY);
+            {
+                cycle_cost::Scope t(cycle_cost::M_DIFF);
+                absdiff(prev_gray, curr_gray, diff);
+
+                // Apply threshold
+                threshold(diff, thresh, params.binary_threshold, 255, THRESH_BINARY);
+            }
 
             // Apply morphological operations to reduce noise
-            Mat kernel = getStructuringElement(params.morph_type, Size(params.morph_kernel_size, params.morph_kernel_size));
-            morphologyEx(thresh, thresh, MORPH_CLOSE, kernel);
+            {
+                cycle_cost::Scope t(cycle_cost::M_MORPH);
+                Mat kernel = getStructuringElement(params.morph_type, Size(params.morph_kernel_size, params.morph_kernel_size));
+                morphologyEx(thresh, thresh, MORPH_CLOSE, kernel);
+            }
+            cycle_cost::Scope region_timer(cycle_cost::M_REGION);
 
             // Debug: Save motion detection images
             if (debug_mode)
@@ -470,10 +484,13 @@ namespace motion_processing
         // Update previous frames for next iteration.
         // #798: a camera that did not answer keeps the last frame it really produced,
         // so the next comparison is against a real image rather than against nothing.
-        for (size_t i = 0; i < current_frames.size(); i++)
         {
-            if (!current_frames[i].empty())
-                previous_frames[i] = current_frames[i].clone();
+            cycle_cost::Scope t(cycle_cost::M_CLONE);
+            for (size_t i = 0; i < current_frames.size(); i++)
+            {
+                if (!current_frames[i].empty())
+                    previous_frames[i] = current_frames[i].clone();
+            }
         }
 
         if (debug_mode && motion_streamer)
@@ -493,6 +510,7 @@ namespace motion_processing
 
         // Get motion data from all cameras
         vector<MotionData> motion_data = detectMotion(current_frames, background_frames, boards, debug_mode, params);
+        cycle_cost::Scope state_timer(cycle_cost::M_STATE);
         long long now = od_clock::now_ms();
         DartEventState state_in = current_state;
 
@@ -926,6 +944,7 @@ namespace motion_processing
         }
 
         result.current_state = current_state;
+        cycle_cost::motionState() = (int)current_state;
         return result;
     }
 
