@@ -810,6 +810,15 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             }
         }
 
+        // #1676: a cache written before the board was forced to the Blade 6 can hold a
+        // star camera anchored by its clip wires; set it aside as a fresh start would, and
+        // anchor it by the reading cached beside it. Before the operator's anchors, so
+        // OD_CAMERA_WEDGES still reaches a camera this leaves unanchored.
+        for (size_t i = 0; i < calibrations.size(); i++)
+        {
+            orientation_processing::forceTheBoardOnACachedCalibration(calibrations[i], (int)i);
+        }
+
         // #1363: the operator's anchors apply to a cached calibration exactly as to a
         // fresh one -- the cache holds measurement, the statement lives in configuration.
         applyConfiguredAnchors();
@@ -1211,8 +1220,28 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // reason -- every anchor is final and nothing is scored yet. One supported board
             // (the Winmau Blade 6); an unrecognised one is a WARNING naming OD_CAMERA_WEDGES.
             // Announce-only: it reads `orientations` and decides nothing.
+            //
+            // #1676: forced to the Blade 6 by default; OD_BOARD=auto is the pin that
+            // restores the measured verdict, and says itself so a run under it cannot be
+            // read as the default's (#1631's shape).
+            if (!orientation_processing::boardIsForcedBlade6())
+            {
+                log_warning("OD_BOARD=auto is set: the board is MEASURED rather than taken as the " +
+                            string(board_recognition::kSupportedBoard) +
+                            ", so a camera whose clip-wire finder reports four clips is anchored "
+                            "by them even where its printed numbers disagree -- the default "
+                            "before #1676, kept as a pin");
+            }
+            else if (!orientation_processing::unknownBoardSetting().empty())
+            {
+                log_warning("OD_BOARD=" + orientation_processing::unknownBoardSetting() +
+                            " is not a setting this build knows (\"auto\" is the pin); the "
+                            "board is taken as the " + string(board_recognition::kSupportedBoard) +
+                            ", the default");
+            }
             const board_recognition::Recognition recognition = board_recognition::recognise(
-                orientations, !number_anchor::notAsked(), number_anchor::minimumSeparation());
+                orientations, !number_anchor::notAsked(), number_anchor::minimumSeparation(),
+                orientation_processing::boardIsForcedBlade6());
             if (recognition.warn)
             {
                 log_warning(recognition.sentence);

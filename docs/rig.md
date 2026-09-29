@@ -115,6 +115,20 @@ Winmau Blade 6. Scoring radii are `DartboardSpec`/`BoardProfile`
 (`board_model.hpp`, versioned); the 450 mm the manufacturer lists is the overall
 diameter, not the scoring diameter.
 
+**The detector takes the board to be a Blade 6 (turnaus#1676, the default).** The
+maintainer's decision, "force winmau6 for now", came after `rig-20260929`. On that
+recording, camera 2's clip-wire finder reported four clip wires, which made it a star
+camera, and its clips put the 20 at wire 9. Its printed numbers put the 20 at wire 14,
+which is also where `rig-20260922` seals the same camera. A Blade 6 has no wire number
+ring, so a star measurement on this board is the finder being wrong. Such a star is now
+set aside (`starSetAside`), and the reader anchors the camera. A camera whose numbers do
+not read is unanchored, like any other unread camera: #1486 derives it, or
+`OD_CAMERA_WEDGES` states it. `BOARD RECOGNITION` says the board is "taken as the
+Winmau Blade 6" (forced). When a camera's finder still reported four clips, the line is
+a WARN naming that camera. A cache written before this change is corrected the same way
+at start, from the reading it holds. `OD_BOARD=auto` restores the measured board (#1498,
+#1501), where clip wires anchor and the reader only agrees or disagrees.
+
 ## Fixtures
 
 - `mocks/rig-20260918/` — evidence, with `GROUND-TRUTH.md` (21 throws, 2 misses).
