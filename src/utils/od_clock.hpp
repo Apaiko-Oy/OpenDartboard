@@ -75,6 +75,34 @@ namespace od_clock
             .count();
     }
 
+    // #1685: the detection windows (the motion settle, the exposure stillness history and
+    // hold, the dart window) are lengths of the motion clock below, in milliseconds, so a
+    // window is the same time on a board whose cycle takes 33 ms and on one whose cycle
+    // takes 300. Until #1685 they were counts of cycles, and at 200 ms a cycle one dart's
+    // event outlasted the ~2 s between darts, so two darts became one window (#1683).
+    // OD_WINDOW_UNIT=cycles pins the counts (`windows_in_ms()` false).
+    inline bool windows_in_ms()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_WINDOW_UNIT");
+            return !(e && std::string(e) == "cycles");
+        }();
+        return v;
+    }
+
+    // #1685: is a window of `window_ms` reached, when the cycles in it add up to
+    // `elapsed_ms` and the cycle being judged took `span_ms`? Reached once what is still
+    // missing is less than half that cycle: the window ends on the cycle nearest its
+    // length. At the rig's 33.3 ms a cycle N cycles add up to N x 33.3 ms (+-1 ms of the
+    // footage's integer positions) and N-1 fall 16 ms short, so a window of N x 33.3 ms is
+    // exactly the N cycles it was, on the capture clock by construction. A cycle longer
+    // than the whole window reaches it alone: a window always holds the cycle it opened on.
+    inline bool window_reached(long long elapsed_ms, long long span_ms, long long window_ms)
+    {
+        return 2 * elapsed_ms + span_ms >= 2 * window_ms;
+    }
+
     // The clock the motion state machine is judged on.
     inline long long now_ms()
     {

@@ -133,6 +133,12 @@ namespace dart_processing
 
         // Statbility frames
         int stability_frames = 6; // Frames needed to confirm state change / (3 cameras * 2 frames per camera)
+        // #1685: the window in milliseconds of the motion clock, counted unless
+        // OD_WINDOW_UNIT=cycles: 6 cycles x 33.3 ms. The window averages the settled board
+        // over a fifth of a second; as a count it held the next dart's arrival on a board
+        // whose cycle takes 200 ms or more. On such a board it averages fewer frames, and
+        // one frame when a cycle is longer than the window (od_clock::window_reached).
+        int stability_ms = 200;
 
         // #1350 hoisted the literal the state stage answers against, so the vote's
         // account below can name the number the code really read. #1354: this is the

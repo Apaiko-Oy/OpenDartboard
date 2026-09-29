@@ -5,6 +5,7 @@
 #include "logging.hpp"
 #include "utils.hpp"
 #include "utils/streamer.hpp"
+#include "utils/od_clock.hpp"
 
 using namespace cv;
 using namespace std;
@@ -1036,11 +1037,21 @@ namespace dart_processing
         static long window_serial = 0;
         cycle_ordinal++;
 
+        // #1685: this cycle's span on the motion clock, and the milliseconds the window in
+        // flight has averaged, so the window is `stability_ms` long rather than
+        // `stability_frames` cycles (OD_WINDOW_UNIT=cycles pins the count).
+        static long long last_now = -1;
+        static long long window_ms = 0;
+        const long long now = od_clock::now_ms();
+        const long long cycle_span = last_now < 0 ? (long long)(od_clock::frame_period_ms() + 0.5) : std::max(0LL, now - last_now);
+        last_now = now;
+
         auto openWindow = [&]()
         {
             collecting_frames = true;
             window_opened_at = cycle_ordinal;
             frames_collected = 0;
+            window_ms = 0;
 
             // Initialize accumulated frames to zero.
             // #798: a camera whose slot is marked still gets its accumulator zeroed, sized
@@ -1091,8 +1102,11 @@ namespace dart_processing
                 }
             }
             frames_collected++;
+            window_ms += cycle_span;
 
-            if (frames_collected < params.stability_frames)
+            if (od_clock::windows_in_ms()
+                    ? !od_clock::window_reached(window_ms, cycle_span, params.stability_ms)
+                    : frames_collected < params.stability_frames)
             {
                 return result; // Still collecting, return empty result
             }
