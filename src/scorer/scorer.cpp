@@ -550,6 +550,7 @@ void Scorer::run()
 
         // start a clock to measure FPS
         auto start_time = chrono::steady_clock::now();
+        const double cost_t0 = cycle_cost::on() ? cycle_cost::nowMs() : 0.0; // #1686
 
         // 1. Capture frames
         cycle_cost::Scope read_timer(cycle_cost::READ);
@@ -646,8 +647,7 @@ void Scorer::run()
             // #1686: this cycle's stages, under OD_CYCLE_COST=on only.
             if (cycle_cost::on())
             {
-                const double loop_ms = chrono::duration<double, milli>(chrono::steady_clock::now() - start_time).count();
-                log_info(cycle_cost::takeLine(cycles, loop_ms));
+                log_info(cycle_cost::takeLine(cycles, cycle_cost::nowMs() - cost_t0));
             }
             // 3. Send result if something detected
             if (result)

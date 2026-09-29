@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <time.h>
 
 namespace cycle_cost
 {
@@ -50,15 +51,25 @@ namespace cycle_cost
         return names[s];
     }
 
-    inline bool on()
+    // OD_CYCLE_COST=on reads the wall clock; =cpu reads each thread's own CPU time, so a
+    // stage is not charged for the time another thread (a decoder, or the container's CPU
+    // quota) kept it off the processor.
+    inline int mode()
     {
-        static const bool v = []
+        static const int v = []
         {
             const char *e = std::getenv("OD_CYCLE_COST");
-            return e && std::strcmp(e, "on") == 0;
+            if (!e)
+                return 0;
+            if (std::strcmp(e, "on") == 0)
+                return 1;
+            if (std::strcmp(e, "cpu") == 0)
+                return 2;
+            return 0;
         }();
         return v;
     }
+    inline bool on() { return mode() != 0; }
 
     inline std::array<double, N_STAGES> &acc()
     {
@@ -76,6 +87,12 @@ namespace cycle_cost
 
     inline double nowMs()
     {
+        if (mode() == 2)
+        {
+            struct timespec ts;
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+            return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+        }
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
     }
 
@@ -115,7 +132,7 @@ namespace cycle_cost
         static const char *windows[] = {"-", "collect", "close"};
         const int ms = motionState();
         const int wp = windowPart();
-        std::string s = "I1686COST cycle=" + std::to_string(cycle) +
+        std::string s = "I1686COST clock=" + std::string(mode() == 2 ? "cpu" : "wall") + " cycle=" + std::to_string(cycle) +
                         " state=" + (ms >= 0 && ms < 5 ? states[ms] : "?") +
                         " window=" + (wp >= 0 && wp < 3 ? windows[wp] : "?");
         motionState() = -1;
@@ -131,6 +148,17 @@ namespace cycle_cost
         }
         std::snprintf(buf, sizeof(buf), " decode_bg=%.2f", offloopDecodeUs().exchange(0) / 1000.0);
         s += buf;
+        // The whole process's CPU time since the previous line: every thread, the decoders'
+        // own worker threads included, which the per-thread figures above cannot see.
+        {
+            static double last = -1.0;
+            struct timespec ts;
+            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+            const double now = ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+            std::snprintf(buf, sizeof(buf), " proc_cpu=%.2f", last < 0 ? 0.0 : now - last);
+            s += buf;
+            last = now;
+        }
         return s;
     }
 }
