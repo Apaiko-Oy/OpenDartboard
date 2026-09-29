@@ -418,8 +418,6 @@ namespace camera
             // number of cameras is exactly the thing that is not in scope.
             sayFinding(busFinding(opened_devices));
 
-            startRealtimeFeeds();
-
             return !captures_.empty();
         }
 
@@ -443,11 +441,6 @@ namespace camera
             // turn a scoring cycle back into a read (and so into the frame it was shown).
             log_info("I1683 SCORING STARTS after " + std::to_string(reads_) + " capture read(s)" +
                      (rtOn() ? " (real-time replay)" : ""));
-            // #1683: under the real-time replay every file is already on one wall clock,
-            // so a file seeked to an earlier frame has its frames published at once and
-            // the newest-frame rule has caught it up; there is nothing to read forward.
-            if (rtOn())
-                return;
             int furthest = 0;
             for (size_t i = 0; i < seeked_to_.size(); i++)
             {
@@ -481,6 +474,8 @@ namespace camera
                          "of the recording -- DEBUG_SEEK_VIDEO's staggered seek stays the "
                          "calibration window and stops being the replay (#1618)");
             }
+            // #1683: the scoring loop starts here, and so does the real-time replay.
+            startRealtimeFeeds();
         }
 
         // #1282: true only when there is at least one source, every one of them is a
@@ -871,9 +866,14 @@ namespace camera
 
         // #1683: under OD_REALTIME_REPLAY=on, every file source is handed to a feed that
         // plays it at its presentation times on one shared wall clock (capture_realtime.hpp).
-        // The instant the feeds start is presentation time P0, the furthest any file was
-        // seeked to, so the files are aligned by time: one seeked less far has its earlier
-        // frames published at once and superseded, as #1618's alignment reads them forward.
+        //
+        // It starts when SCORING starts, not at open. Calibration reads the files one
+        // frame per read exactly as the bakeoff does, so the real-time replay calibrates on
+        // the same pictures and is compared with it on detection alone. A live board is
+        // the same shape: the player throws once it is ready, however long calibrating
+        // took (47 s at load 7 in the first diagnostic, which on a free-running file would
+        // have swallowed the first visits). From here, the next frame of the furthest file
+        // is due now, and every later frame at its presentation time after it.
         // Only when EVERY source is a file: a mixed rig is not a replay.
         void startRealtimeFeeds()
         {
@@ -894,7 +894,7 @@ namespace camera
             {
                 const double fps = captures_[i].get(cv::CAP_PROP_FPS);
                 if (fps > 0)
-                    p0_ms = std::max(p0_ms, seeked_to_[i] * 1000.0 / fps);
+                    p0_ms = std::max(p0_ms, captures_[i].get(cv::CAP_PROP_POS_FRAMES) * 1000.0 / fps);
             }
             const auto origin = std::chrono::steady_clock::now();
             for (size_t i = 0; i < captures_.size(); i++)
