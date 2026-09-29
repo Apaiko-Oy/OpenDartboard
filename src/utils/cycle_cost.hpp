@@ -85,14 +85,28 @@ namespace cycle_cost
         return v;
     }
 
+    // Whether =cpu really reads a CPU clock on this platform.
+    inline bool cpuClockReal()
+    {
+#if defined(_WIN32)
+        return false;
+#else
+        return mode() == 2;
+#endif
+    }
+
     inline double nowMs()
     {
+#if !defined(_WIN32)
+        // A thread's own CPU clock is POSIX; the Windows release build (MSVC) has no
+        // clock_gettime, so there =cpu reads the wall clock like =on and the line says so.
         if (mode() == 2)
         {
             struct timespec ts;
             clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
             return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
         }
+#endif
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
     }
 
@@ -132,7 +146,7 @@ namespace cycle_cost
         static const char *windows[] = {"-", "collect", "close"};
         const int ms = motionState();
         const int wp = windowPart();
-        std::string s = "I1686COST clock=" + std::string(mode() == 2 ? "cpu" : "wall") + " cycle=" + std::to_string(cycle) +
+        std::string s = "I1686COST clock=" + std::string(cpuClockReal() ? "cpu" : "wall") + " cycle=" + std::to_string(cycle) +
                         " state=" + (ms >= 0 && ms < 5 ? states[ms] : "?") +
                         " window=" + (wp >= 0 && wp < 3 ? windows[wp] : "?");
         motionState() = -1;
@@ -150,6 +164,7 @@ namespace cycle_cost
         s += buf;
         // The whole process's CPU time since the previous line: every thread, the decoders'
         // own worker threads included, which the per-thread figures above cannot see.
+#if !defined(_WIN32)
         {
             static double last = -1.0;
             struct timespec ts;
@@ -159,6 +174,7 @@ namespace cycle_cost
             s += buf;
             last = now;
         }
+#endif
         return s;
     }
 }
