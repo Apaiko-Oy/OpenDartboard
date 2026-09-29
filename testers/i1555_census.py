@@ -4,7 +4,17 @@ on.
 
     python3 i1555_census.py --log <run.txt> --truth <table.md> --annotations <fixture.csv> \
         --fixture <name> --window <dev|opening> [--no-arrival v.d,v.d] [--tally <file>]
-    python3 i1555_census.py --pool <tally file> [<tally file> ...]
+    python3 i1555_census.py --log <run.txt> --truth <GROUND-TRUTH.md> --not-annotated \
+        --fixture <name> --window <dev|opening>
+    python3 i1555_census.py --pool <tally file> [<tally file> ...] [--pool-label X]
+
+NOT ANNOTATED (#1674). A fixture with no testers/i1511_annotations CSV has nothing the
+spatial matcher can join a detection to, so --not-annotated replaces it with the ORDINAL
+join (ordinal_join below): detected visit i is truth visit i, a visit that published as
+many darts as were thrown pairs them in order, and a SHORT visit places nothing -- every
+order-preserving placement of its publications is evaluated and none is chosen. Every
+line whose figure needs the spatial matcher says `not annotated` by name instead. The
+annotated path is untouched by it.
 
 WHAT IT READS. One detector run made with OD_GEO_SCORE=on AND OD_SHAFT_CENSUS=1. The
 I1511AXIS lines are what #1504's spatial matcher aligns detections to annotated throws
@@ -50,6 +60,7 @@ the numbers, and the exit status is about whether the run could be read at all.
 """
 
 import argparse
+import itertools
 import os
 import re
 import sys
@@ -223,6 +234,12 @@ def med(xs):
     return sorted(xs)[len(xs) // 2] if xs else float("nan")
 
 
+# #1674: what the pooled lines call themselves. `POOLED` unless --pool-label names the
+# subset, so a pool over every fixture and a pool over some of them can be printed side by
+# side and never mistaken for each other.
+POOL_LABEL = "POOLED"
+
+
 def pool(files):
     """Sum the per-run TALLY lines into the pooled figure the decision is taken on."""
     rows = []
@@ -251,7 +268,7 @@ def pool(files):
     n = total["matched"]
     def pct(x):
         return "%.1f%%" % (100.0 * x / n) if n else "n/a"
-    print("I1555 POOLED over %d run(s), %d matched darts: vote %d/%d (%s) | "
+    print("I1555 " + POOL_LABEL + " over %d run(s), %d matched darts: vote %d/%d (%s) | "
           "geometry-first %d/%d (%s) | published %d/%d (%s) | geometry solved %d/%d"
           % (len(rows), n, total["vote_exact"], n, pct(total["vote_exact"]),
              total["first_exact"], n, pct(total["first_exact"]),
@@ -432,9 +449,13 @@ def accuracy(fixture, window, visits, annots, arrivals, assignment, clock="unkno
     return results
 
 
-def counterfactual_rules(fixture, window, visits, annots, arrivals, assignment, clock):
+def counterfactual_rules(fixture, window, visits, annots, arrivals, assignment, clock,
+                         acc=None):
     """#1657: every candidate rule's ACCURACY on this run's own rows, and each matched
-    dart whose verdict differs from rule A's. REPORTED, wired nowhere."""
+    dart whose verdict differs from rule A's. REPORTED, wired nowhere. `acc` is the
+    ACCURACY function the join calls for (#1674: accuracy_ordinal on a fixture that is
+    not annotated), accuracy() otherwise."""
+    acc = acc or accuracy
     rows = []
     mismatch = 0
     for pos, key in sorted(assignment["assigned"].items(), key=lambda kv: kv[1]):
@@ -449,8 +470,8 @@ def counterfactual_rules(fixture, window, visits, annots, arrivals, assignment, 
     print("I1657 RULE-CHECK fixture=%s window=%s rule A reproduces the published string "
           "on %d of %d matched arrivals" % (fixture, window, len(rows) - mismatch, len(rows)))
     for name, fn in RULES:
-        accuracy(fixture, window, visits, annots, arrivals, assignment, clock,
-                 rule=(name, fn))
+        acc(fixture, window, visits, annots, arrivals, assignment, clock,
+            rule=(name, fn))
         for key, thrown, p in rows:
             a, r = norm(_rule_a(p)), norm(fn(p))
             ca, cr = a == thrown, r == thrown
@@ -508,7 +529,7 @@ def pool_rules(files):
 def pool_accuracy(files):
     """The pooled ACCURACY line over the per-run ACCURACY-TALLY lines, and per fixture."""
     keys = ["arrivals", "correct", "wrong_score", "undetected", "offboard_scored",
-            "ambiguous", "phantoms", "scoring_phantoms"]
+            "ambiguous", "phantoms", "scoring_phantoms", "wrong_unplaced"]
     rows = []
     for path in files:
         for raw in open(path, "r", errors="replace"):
@@ -530,14 +551,26 @@ def pool_accuracy(files):
         label = "%s clock=%s" % (label, clock)
         t = dict((k, sum(int(r.get(k, 0)) for r in group)) for k in keys)
         n, c, amb = t["arrivals"], t["correct"], t["ambiguous"]
+        # #1674: wrong-unplaced exists only on a not-annotated fixture (accuracy_ordinal)
+        # and is printed only where a pooled row has one, so a pool without such a
+        # fixture prints the line it always printed.
+        wu = (", wrong-unplaced %d" % t["wrong_unplaced"]) if t["wrong_unplaced"] else ""
+        # A not-annotated row carries no phantoms= field: its phantoms were not measured,
+        # which is not the same as none, and the pooled line says so.
+        unmeasured = sum(1 for r in group if "phantoms" not in r)
+        if unmeasured == len(group):
+            ph = "phantoms not measured (%d not-annotated run(s))" % unmeasured
+        else:
+            ph = "phantoms %d (%d scoring%s)" % (
+                t["phantoms"], t["scoring_phantoms"],
+                ("; not measured on %d not-annotated run(s)" % unmeasured)
+                if unmeasured else "")
         print("I1555 ACCURACY %s over %d run(s): correct %s/%d (%s) | %s | wrong-score "
-              "%d, undetected %d, off-board-scored %d, ambiguous %d | phantoms %d "
-              "(%d scoring)"
+              "%d, undetected %d, off-board-scored %d, ambiguous %d%s | %s"
               % (label, len(group), "%d..%d" % (c, c + amb) if amb else "%d" % c, n,
                  "%.1f%%" % (100.0 * c / n) if n else "n/a", target_line(c, n),
-                 t["wrong_score"], t["undetected"], t["offboard_scored"], amb,
-                 t["phantoms"], t["scoring_phantoms"]))
-    line("POOLED", rows)
+                 t["wrong_score"], t["undetected"], t["offboard_scored"], amb, wu, ph))
+    line(POOL_LABEL, rows)
     for f in sorted(set(r.get("fixture", "?") for r in rows)):
         line("fixture=%s" % f, [r for r in rows if r.get("fixture", "?") == f])
 
@@ -742,7 +775,7 @@ def pool_detection(files):
     def total(group, k):
         return sum(int(r.get(k, 0)) for r in group)
 
-    for label, pick in [("POOLED", lambda r: True)] + [
+    for label, pick in [(POOL_LABEL, lambda r: True)] + [
             ("fixture=%s" % f, (lambda f: lambda r: r.get("fixture") == f)(f))
             for f in sorted(set(r.get("fixture", "?") for r in det))]:
         d = [r for r in det if pick(r)]
@@ -762,7 +795,299 @@ def pool_detection(files):
                  " ".join("%s=%d" % (k, total(c, k)) for k in keys)))
 
 
-def plant(visits, annots, no_arrival, fixture, window):
+# ---- #1674: a fixture with NO annotations, joined by visit order ------------------------
+#
+# The spatial matcher above is the only thing in this census that joins a detection to a
+# throw, and it needs testers/i1511_annotations/<fixture>.csv: without one every cost is
+# undefined and nothing matches. rig-20260929 has none, and hand-measuring 36 throws is
+# not what #1674 is. What the fixture DOES have is a truth table in visit order, and a run
+# whose visits are separated by takeouts the detector saw. So the ORDINAL join:
+#
+#   - detected visit i is truth visit i, and the join REFUSES the run (no figure at all)
+#     where that cannot hold on its face: more detected visits than thrown ones (a split
+#     visit), or a detected visit with more publications than its truth visit has throws
+#     (a merge or a phantom). What it cannot see is a visit that published NOTHING in the
+#     middle of the clip -- read_run drops an empty visit, and every later visit would
+#     slide one truth visit early. The JOIN-VISIT lines print the pairing so a reader can;
+#   - a visit that published as many darts as were thrown pairs them IN ORDER, and those
+#     pairs are the `assigned` darts every column above is taken over;
+#   - a SHORT visit (k publications for n > k throws) places NOTHING. Its publications are
+#     the C(n, k) order-preserving placements inside that visit, every one of them is
+#     judged, and -- #1587's rule -- none is chosen, the one that scores best least of all.
+#     A dart correct under some placements and wrong under others is AMBIGUOUS; one wrong
+#     under all of them, but as a wrong score under one and unpublished under another, is
+#     WRONG-UNPLACED: wrong, and which kind of wrong the join cannot say without the
+#     frame-level evidence an annotation carries.
+#
+# #1504 forbids aligning by detection ORDER where a spatial reference exists, because an
+# undetected throw shifts everything after it. The ordinal join is used only where no
+# spatial reference exists, and it never lets a missing dart shift a pairing: a short
+# visit pairs nothing.
+def read_short_truth(path):
+    """The one-line short form (`5 13 12, t9 t14 t11, ...`) as read_truth's lists, or None.
+
+    A fixture's GROUND-TRUTH.md is read in its own form rather than transcribed into a
+    table under testers/ (as i1499_truth_rig20260922.md was), so there is one copy to
+    correct. 50 is written BULL and 25 OUTER, the vocabulary the detector publishes."""
+    for raw in open(path, "r", errors="replace"):
+        line = raw.strip()
+        if not line:
+            continue
+        visits = []
+        for chunk in line.split(","):
+            throws = []
+            for token in chunk.split():
+                m = axis_census.THROW_RE.match({"50": "BULL", "25": "OUTER"}.get(token, token))
+                if not m:
+                    return None
+                throws.append(m.group(1).upper())
+            if not throws:
+                return None
+            visits.append(throws)
+        return visits
+    return None
+
+
+def ordinal_join(visits, truth):
+    """(join, None) or (None, why). The join has assign_events' keys -- `assigned`, the
+    in-order pairs of every visit that published all its throws; `unmatched`, every
+    publication of a short visit -- and `placements`: (visit1, dart) -> one entry per
+    order-preserving placement of its visit, the (visit0, event_index) it receives there
+    or None."""
+    if len(visits) > len(truth):
+        return None, ("the run detected %d visits where %d were thrown: a visit split in "
+                      "two, which visit order cannot place" % (len(visits), len(truth)))
+    for i, visit in enumerate(visits):
+        if len(visit) > len(truth[i]):
+            return None, ("detected visit %d published %d darts where truth visit %d threw "
+                          "%d: a merged visit or a phantom, which visit order cannot place"
+                          % (i + 1, len(visit), i + 1, len(truth[i])))
+        if any(ev.pub is None for ev in visit):
+            return None, ("detected visit %d holds a dart with no I1555PUBLISH line"
+                          % (i + 1))
+    join = {"assigned": {}, "suspect": [], "undetected": [], "recording_absent": [],
+            "unmatched": [], "placements": {}}
+    for t, throws in enumerate(truth):
+        k = len(visits[t]) if t < len(visits) else 0
+        n = len(throws)
+        combos = list(itertools.combinations(range(n), k))
+        for d in range(n):
+            join["placements"][(t + 1, d + 1)] = [
+                (t, combo.index(d)) if d in combo else None for combo in combos]
+        for ei in range(k):
+            if k == n:
+                join["assigned"][(t, ei)] = (t + 1, ei + 1)
+            else:
+                join["unmatched"].append((t, ei))
+    return join, None
+
+
+def accuracy_ordinal(fixture, window, visits, annots, arrivals, assignment, clock="unknown",
+                     rule=None):
+    """accuracy()'s figure and buckets on the ORDINAL join (`assignment` is ordinal_join's).
+
+    A dart's verdict is judged under every placement of its visit; one verdict under all
+    of them stands, correct under some and wrong under others is AMBIGUOUS (the range),
+    and wrong under all but of different kinds is WRONG-UNPLACED. There is no unclaimed
+    publication, so phantoms are NOT MEASURED here, not zero: the join assumes a visit's
+    publications are its throws."""
+    tag = "fixture=%s window=%s clock=%s join=ordinal" % (fixture, window, clock)
+    head = "I1555 ACCURACY" if rule is None else "I1657 RULE rule=%s ACCURACY" % rule[0]
+
+    def published(pos):
+        p = visits[pos[0]][pos[1]].pub
+        return norm(p["score"] if rule is None else rule[1](p))
+
+    def name(pos):
+        return "v%d#%d %s" % (pos[0] + 1, pos[1] + 1, published(pos))
+
+    def judge(thrown, pub):
+        if pub is None:
+            if thrown == "MISS":
+                return "correct", "nothing published for an off-board throw"
+            return "undetected", "no publication in its visit"
+        if thrown == "MISS":
+            if pub == "MISS":
+                return "correct", "published MISS"
+            return "off-board-scored", "a score published for an off-board throw"
+        if pub == thrown:
+            return "correct", "exact"
+        return "wrong-score", verdict(pub, thrown)
+
+    buckets = ["correct", "wrong-score", "undetected", "off-board-scored", "ambiguous",
+               "wrong-unplaced"]
+    counts = dict((k, 0) for k in buckets)
+    named, results = [], {}
+    for key in arrivals:
+        thrown = norm(list(annots[key].values())[0]["thrown"])
+        dart = "v%d.%d thrown=%s" % (key[0], key[1], thrown)
+        places = sorted(set(assignment["placements"][key]),
+                        key=lambda pos: (-1, -1) if pos is None else pos)
+        outcomes = [(judge(thrown, None if p is None else published(p)), p) for p in places]
+        if len(outcomes) == 1:
+            (bucket, reason), pos = outcomes[0]
+            counts[bucket] += 1
+            results[key] = (bucket, pos)
+            if bucket != "correct":
+                if pos is not None:
+                    named.append("%s published=%s %s (%s; detected v%d#%d)"
+                                 % (dart, published(pos), bucket.upper(), reason,
+                                    pos[0] + 1, pos[1] + 1))
+                else:
+                    named.append("%s published=- %s (%s: truth visit %d published nothing)"
+                                 % (dart, bucket.upper(), reason, key[0]))
+            continue
+        readings = " | ".join("%s -> %s" % ("none" if p is None else name(p), o[0])
+                              for o, p in outcomes)
+        right = set(o[0] == "correct" for o, _ in outcomes)
+        kinds = set(o[0] for o, _ in outcomes)
+        if len(right) == 2:
+            bucket = "ambiguous"
+            named.append("%s published=? AMBIGUOUS (not annotated, so the ordinal join "
+                         "places nothing inside short visit %d; its order-preserving "
+                         "placements read %s)" % (dart, key[0], readings))
+        elif len(kinds) == 1:
+            bucket = kinds.pop()
+            if bucket != "correct":
+                named.append("%s published=? %s (not annotated; the same under every "
+                             "placement in short visit %d: %s)"
+                             % (dart, bucket.upper(), key[0], readings))
+        else:
+            bucket = "wrong-unplaced"
+            named.append("%s published=? WRONG-UNPLACED (not annotated: wrong under every "
+                         "order-preserving placement in short visit %d, but not the same "
+                         "wrong: %s)" % (dart, key[0], readings))
+        counts[bucket] += 1
+        results[key] = (bucket, None)
+    n = len(arrivals)
+    c, amb, wu = counts["correct"], counts["ambiguous"], counts["wrong-unplaced"]
+    print("%s %s correct %s/%d (%s) | %s | wrong-score %d, undetected %d, "
+          "off-board-scored %d, ambiguous %d%s | phantoms not measured (not annotated: the "
+          "ordinal join takes a visit's publications to be its throws)"
+          % (head, tag, "%d..%d" % (c, c + amb) if amb else "%d" % c, n,
+             "%.1f%%" % (100.0 * c / n) if n else "n/a", target_line(c, n),
+             counts["wrong-score"], counts["undetected"], counts["off-board-scored"],
+             amb, (", wrong-unplaced %d" % wu) if wu else ""))
+    if rule is not None:
+        print("I1657 RULE-TALLY rule=%s fixture=%s window=%s clock=%s join=ordinal "
+              "arrivals=%d correct=%d ambiguous=%d" % (rule[0], fixture, window, clock, n,
+                                                       c, amb))
+        return
+    for line in named:
+        print("I1555 ACCURACY-DART " + line)
+    # No `phantoms=` field: pool_accuracy says `not measured` for a row without one.
+    print("I1555 ACCURACY-TALLY fixture=%s window=%s clock=%s join=ordinal arrivals=%d "
+          "correct=%d wrong_score=%d undetected=%d offboard_scored=%d ambiguous=%d "
+          "wrong_unplaced=%d"
+          % (fixture, window, clock, n, c, counts["wrong-score"], counts["undetected"],
+             counts["off-board-scored"], amb, wu))
+    return results
+
+
+def detection_ordinal(fixture, window, clock, visits, annots, arrivals, assignment,
+                      results, evidence):
+    """detection_and_cameras() on the ORDINAL join. Not detected is what EVERY placement
+    agrees on: a dart of a visit that published nothing. A dart of a short visit is
+    unpublished under some placements and published under others, so it is counted
+    `unmatched-ambiguous` -- which dart of the visit went unpublished is exactly what the
+    join cannot say -- and in the camera table it is UNPLACED, with its visit's windows
+    printed beside it and attributed to nothing."""
+    ev_by_win, cams, source = evidence
+    tag = "fixture=%s window=%s clock=%s join=ordinal" % (fixture, window, clock)
+
+    def thrown_of(key):
+        return norm(list(annots[key].values())[0]["thrown"])
+
+    def row(win):
+        per = ev_by_win.get(win, {})
+        return " ".join("cam%d=%s" % (c, per.get(c, "none")) for c in cams)
+
+    def places(key):
+        return set(assignment["placements"][key])
+
+    landed = [k for k in arrivals if thrown_of(k) != "MISS"]
+    missed = [k for k in arrivals if thrown_of(k) == "MISS"]
+    lnd = [k for k in landed if places(k) == {None}]
+    mnd = [k for k in missed if places(k) == {None}]
+    lam = [k for k in landed if len(places(k)) > 1]
+    mam = [k for k in missed if len(places(k)) > 1]
+    print("I1536 DETECTION %s landed-and-not-detected %d/%d | missed-and-not-detected %d/%d"
+          " | unmatched-ambiguous landed %d, missed %d -- two numbers, never summed: an "
+          "unseen landed dart is a lost score, an unseen miss is a silence counted correct"
+          " -- not annotated: `unmatched-ambiguous` is a dart of a short visit, which of "
+          "whose throws went unpublished the ordinal join cannot say"
+          % (tag, len(lnd), len(landed), len(mnd), len(missed), len(lam), len(mam)))
+    for k in lnd:
+        print("I1536 DETECTION-DART v%d.%d thrown=%s LANDED-AND-NOT-DETECTED"
+              % (k[0], k[1], thrown_of(k)))
+    for k in mnd:
+        print("I1536 DETECTION-DART v%d.%d thrown=MISS MISSED-AND-NOT-DETECTED"
+              % (k[0], k[1]))
+    for k in lam + mam:
+        print("I1536 DETECTION-DART v%d.%d thrown=%s UNPLACED (not annotated: short visit "
+              "%d published %d of %d)"
+              % (k[0], k[1], thrown_of(k), k[0], len(visits[k[0] - 1]),
+                 len([a for a in arrivals if a[0] == k[0]])))
+    print("I1536 DETECTION-TALLY %s landed=%d landed_not_detected=%d missed=%d "
+          "missed_not_detected=%d landed_ambiguous=%d missed_ambiguous=%d"
+          % (tag, len(landed), len(lnd), len(missed), len(mnd), len(lam), len(mam)))
+
+    saw = dict((c, 0) for c in cams)
+    constraint = dict((c, 0) for c in cams)
+    seen_by = dict((i, 0) for i in range(len(cams) + 1))
+    constrained_by = dict((i, 0) for i in range(len(cams) + 1))
+    unseen_nothing = unplaced = 0
+    for key in arrivals:
+        bucket, _ = results[key]
+        head = "I1536 CAMERA-DART %s dart=v%d.%d thrown=%s bucket=%s" % (
+            tag, key[0], key[1], thrown_of(key), bucket)
+        opts = places(key)
+        if len(opts) == 1 and None not in opts:
+            pos = opts.pop()
+            win = visits[pos[0]][pos[1]].window
+            per = ev_by_win.get(win, {})
+            n = nc = 0
+            for c in cams:
+                if _saw(per.get(c)):
+                    saw[c] += 1
+                    n += 1
+                if per.get(c) == "C":
+                    constraint[c] += 1
+                    nc += 1
+            seen_by[n] += 1
+            constrained_by[nc] += 1
+            print("%s detected=v%d#%d win=%d %s seen_by=%d/%d constrained_by=%d/%d"
+                  % (head, pos[0] + 1, pos[1] + 1, win, row(win), n, len(cams), nc,
+                     len(cams)))
+            continue
+        if opts == {None}:
+            seen_by[0] += 1
+            constrained_by[0] += 1
+            unseen_nothing += 1
+            print("%s detected=- seen_by=0/%d | truth visit %d published nothing, so no "
+                  "camera reported anything that could be this dart"
+                  % (head, len(cams), key[0]))
+            continue
+        unplaced += 1
+        also = "; ".join("v%d#%d win=%d published %s: %s"
+                         % (p[0] + 1, p[1] + 1, visits[p[0]][p[1]].window,
+                            norm(visits[p[0]][p[1]].pub["score"]),
+                            row(visits[p[0]][p[1]].window))
+                         for p in sorted(p for p in opts if p is not None))
+        print("%s detected=? UNPLACED | not annotated: its visit's windows, attributed to "
+              "no dart: %s" % (head, also))
+    print("I1536 CAMERA-TALLY %s source=%s arrivals=%d %s %s %s %s unseen_nothing_between=%d "
+          "unseen_unattributed_window=0 unseen_unplaced=%d"
+          % (tag, source, len(arrivals),
+             " ".join("cam%d_saw=%d" % (c, saw[c]) for c in cams),
+             " ".join("cam%d_constraint=%d" % (c, constraint[c]) for c in cams),
+             " ".join("seen_by_%d=%d" % (i, seen_by[i]) for i in sorted(seen_by, reverse=True)),
+             " ".join("constrained_by_%d=%d" % (i, constrained_by[i])
+                      for i in sorted(constrained_by, reverse=True)),
+             unseen_nothing, unplaced))
+
+
+def plant(visits, annots, no_arrival, fixture, window, annotated=True):
     """#1536's plant: OD_CENSUS_PLANT=<fixture>:<window>:<visit>.<dart> removes, BEFORE the
     matching, the publication the matcher gives that arrival -- the run as if the
     detector had never published it. The proof it exists for: `undetected` (and
@@ -779,6 +1104,12 @@ def plant(visits, annots, no_arrival, fixture, window):
                        "<fixture>:<window>:<visit>.<dart>" % spec)
     if (f, w) != (fixture, window):
         return None
+    if not annotated:
+        return (False, "I1536 PLANT-FAIL OD_CENSUS_PLANT=%s: %s is not annotated. The plant "
+                       "proves the SPATIAL matcher's count; on the ordinal join a dropped "
+                       "publication turns its whole visit short and re-places every dart "
+                       "in it, so it would move more than one dart by construction"
+                       % (spec, fixture))
     pre = axis_census.assign_events(visits, annots, no_arrival)
     pos = dict((key, p) for p, key in pre["assigned"].items()).get((v, d))
     if pos is None:
@@ -807,13 +1138,23 @@ def main():
                          "registry build's 3 s seek is `dev`, OD_SEEK_VIDEO=off is "
                          "`opening`. They are never pooled with each other blind.")
     ap.add_argument("--no-arrival", default="")
+    ap.add_argument("--not-annotated", action="store_true",
+                    help="#1674: the fixture has no testers/i1511_annotations CSV; join "
+                         "by visit order (ordinal_join) and say `not annotated` wherever a "
+                         "figure needs the spatial matcher")
+    ap.add_argument("--pool-label", default="POOLED",
+                    help="with --pool: what the pooled lines call themselves")
     ap.add_argument("--min-matched", type=int, default=1)
     args = ap.parse_args()
     if args.pool:
+        global POOL_LABEL
+        POOL_LABEL = args.pool_label
         return pool(args.pool)
-    for needed in ("log", "truth", "annotations", "fixture"):
+    for needed in ("log", "truth", "fixture"):
         if not getattr(args, needed):
             ap.error("--%s is required unless --pool is given" % needed)
+    if bool(args.annotations) == args.not_annotated:
+        ap.error("give exactly one of --annotations and --not-annotated")
 
     no_arrival = set()
     for token in args.no_arrival.split(","):
@@ -822,8 +1163,19 @@ def main():
             v, d = token.split(".")
             no_arrival.add((int(v), int(d)))
 
-    truth = axis_census.read_truth(args.truth)
-    annots = axis_census.read_annotations(args.annotations)
+    truth = axis_census.read_truth(args.truth) or read_short_truth(args.truth) or []
+    if args.not_annotated:
+        # The truth stands in for the annotation's `thrown` column and for nothing else:
+        # no line, no tip, so nothing below can take a spatial figure off it.
+        annots = dict(((v + 1, d + 1), {0: {"line": None, "tip": None, "thrown": t,
+                                            "note": "not annotated"}})
+                      for v, visit in enumerate(truth) for d, t in enumerate(visit))
+        if not annots:
+            print("I1555 CENSUS fixture=%s: no throws read from %s" % (args.fixture,
+                                                                      args.truth))
+            return 2
+    else:
+        annots = axis_census.read_annotations(args.annotations)
     visits, _ = axis_census.read_run(args.log)
     publishes, ends = read_publish_blocks(args.log)
     flat = [ev for visit in visits for ev in visit]
@@ -832,7 +1184,8 @@ def main():
     for ev in flat:
         if not hasattr(ev, "pub"):
             ev.pub = None
-    planted = plant(visits, annots, no_arrival, args.fixture, args.window)
+    planted = plant(visits, annots, no_arrival, args.fixture, args.window,
+                    annotated=not args.not_annotated)
     if planted is not None:
         print(planted[1])
         if not planted[0]:
@@ -877,19 +1230,40 @@ def main():
     arrivals = sorted(k for k in annots.keys() if k not in no_arrival)
     annotated_visits = sorted({k[0] for k in annots.keys()})
     covers_all = len(annotated_visits) >= len(truth)
-    print("I1555 REFERENCE annotated_throws=%d of %d thrown, arrivals=%d, covering truth "
-          "visits %s of %d | detected_visits=%d"
-          % (len(annots), truth_throws, len(arrivals),
-             "%d-%d" % (annotated_visits[0], annotated_visits[-1]) if annotated_visits else "none",
-             len(truth), len(visits)))
-    if not covers_all:
+    ordinal = args.not_annotated
+    if ordinal:
+        join, why = ordinal_join(visits, truth)
+        print("I1555 REFERENCE not annotated: there is no testers/i1511_annotations CSV for "
+              "%s, so no detection is joined to a throw spatially and nothing below is a "
+              "spatial figure. Joined by VISIT ORDER instead (ordinal_join): %d thrown, "
+              "arrivals=%d, truth visits %d | detected_visits=%d"
+              % (args.fixture, truth_throws, len(arrivals), len(truth), len(visits)))
+        if join is None:
+            print("I1555 JOIN-REFUSED %s: %s -- no figure is taken off this run" % (tag, why))
+            return 2
+        for t, throws in enumerate(truth):
+            k = len(visits[t]) if t < len(visits) else 0
+            print("I1555 JOIN-VISIT %s truth=v%d thrown=%s detected=%s published=%s %s"
+                  % (tag, t + 1, ",".join(norm(x) for x in throws),
+                     "v%d" % (t + 1) if t < len(visits) else "-",
+                     ",".join(norm(ev.pub["score"]) for ev in visits[t]) if k else "-",
+                     "paired in order" if k == len(throws) else
+                     "SHORT: %d of %d published, %d placements judged, none chosen"
+                     % (k, len(throws), len(join["placements"][(t + 1, 1)]))))
+    else:
+        print("I1555 REFERENCE annotated_throws=%d of %d thrown, arrivals=%d, covering "
+              "truth visits %s of %d | detected_visits=%d"
+              % (len(annots), truth_throws, len(arrivals),
+                 "%d-%d" % (annotated_visits[0], annotated_visits[-1])
+                 if annotated_visits else "none", len(truth), len(visits)))
+    if not covers_all and not ordinal:
         print("I1555 REFERENCE-GAP the annotation stops at truth visit %d while the run "
               "detected %d visits, so the matcher's monotone truth-visit range is free to "
               "slide: an unclaimed detection here is usually an UNANNOTATED throw and the "
               "columns below are about the annotated subset alone"
               % (annotated_visits[-1] if annotated_visits else 0, len(visits)))
 
-    assignment = axis_census.assign_events(visits, annots, no_arrival)
+    assignment = join if ordinal else axis_census.assign_events(visits, annots, no_arrival)
     assigned = assignment["assigned"]
     suspect = set(k for k, _ in assignment["suspect"])
 
@@ -950,7 +1324,7 @@ def main():
     # thrown 16 and a T8 for a thrown T8 -- correct darts, reported as phantoms, on a
     # fixture where only 9 of 24 throws have a line to be judged against.
     unclaimed_rows = 0
-    for (v, ei) in assignment["unmatched"]:
+    for (v, ei) in (assignment["unmatched"] if not ordinal else []):
         ev = visits[v][ei]
         if ev.pub is None:
             continue
@@ -961,16 +1335,31 @@ def main():
               % (v + 1, ei + 1, norm(p["vote"]),
                  norm(p["geo"]) if p["geo"] != "NONE" else p["outcome"],
                  norm(p["score"]), p["path"], 1 if p["degraded"] else 0, p["outcome"]))
+    for (v, ei) in (assignment["unmatched"] if ordinal else []):
+        p = visits[v][ei].pub
+        print("I1555 UNPLACED v%d#%d vote=%s geo=%s published=%s path=%s degraded=%d "
+              "outcome=%s -- not annotated: one of truth visit %d's %d throws, and which "
+              "one the ordinal join does not say"
+              % (v + 1, ei + 1, norm(p["vote"]),
+                 norm(p["geo"]) if p["geo"] != "NONE" else p["outcome"],
+                 norm(p["score"]), p["path"], 1 if p["degraded"] else 0, p["outcome"],
+                 v + 1, len(truth[v])))
     geo_silent_on_phantoms = sum(
         1 for (v, ei) in assignment["unmatched"]
         if visits[v][ei].pub is not None and visits[v][ei].pub["geo"] == "NONE")
-    print("I1555 PHANTOM-HANDLING unclaimed_detections=%d | the geometry refused %d of "
-          "them by name (a dart that is not on the board has no second constraint, "
-          "#1505); the vote published a score for all %d%s"
-          % (unclaimed_rows, geo_silent_on_phantoms, unclaimed_rows,
-             "" if covers_all else
-             " -- but on this fixture the annotation covers only part of the clip, so "
-             "most of these are unannotated throws and not phantoms at all"))
+    if ordinal:
+        print("I1555 PHANTOM-HANDLING not annotated: the ordinal join takes every "
+              "publication of a visit to be one of its throws, so no detection is unclaimed "
+              "and phantoms are not measured on this fixture; %d publication(s) of short "
+              "visits are unplaced, not unclaimed" % len(assignment["unmatched"]))
+    else:
+        print("I1555 PHANTOM-HANDLING unclaimed_detections=%d | the geometry refused %d "
+              "of them by name (a dart that is not on the board has no second constraint, "
+              "#1505); the vote published a score for all %d%s"
+              % (unclaimed_rows, geo_silent_on_phantoms, unclaimed_rows,
+                 "" if covers_all else
+                 " -- but on this fixture the annotation covers only part of the clip, so "
+                 "most of these are unannotated throws and not phantoms at all"))
 
     # ---- coverage and refusals ---------------------------------------------------------
     print("I1555 COVERAGE solver outcomes over matched darts: " +
@@ -981,8 +1370,10 @@ def main():
               "measured nothing (#1490)" % tag)
         return 2
 
-    print("I1555 SCORECARD %s matched=%d of %d annotated arrival(s), %d thrown"
-          % (tag, matched, len(arrivals), truth_throws))
+    print("I1555 SCORECARD %s matched=%d of %d %s, %d thrown"
+          % (tag, matched, len(arrivals),
+             "arrival(s), not annotated: paired by the ordinal join in visits that "
+             "published every throw" if ordinal else "annotated arrival(s)", truth_throws))
     print("I1555 " + tallyline("VOTE", vote_counts, matched))
     print("I1555 " + tallyline("GEOMETRY-ONLY", geo_counts, geo_solved))
     print("I1555 " + tallyline("GEOMETRY-FIRST", first_counts, matched))
@@ -993,13 +1384,14 @@ def main():
           "dart(s), and #1512 left the tip a corroboration rather than a constraint on "
           "purpose" % (uncorroborated, corroborated_counts.get("exact", 0), matched,
                        uncorroborated))
-    results = accuracy(args.fixture, args.window, visits, annots, arrivals, assignment,
-                       motion_clock(args.log))
-    detection_and_cameras(args.fixture, args.window, motion_clock(args.log), visits, annots,
-                          arrivals, assignment, results,
-                          read_camera_evidence(args.log, visits))
+    acc = accuracy_ordinal if ordinal else accuracy
+    results = acc(args.fixture, args.window, visits, annots, arrivals, assignment,
+                  motion_clock(args.log))
+    (detection_ordinal if ordinal else detection_and_cameras)(
+        args.fixture, args.window, motion_clock(args.log), visits, annots, arrivals,
+        assignment, results, read_camera_evidence(args.log, visits))
     counterfactual_rules(args.fixture, args.window, visits, annots, arrivals, assignment,
-                         motion_clock(args.log))
+                         motion_clock(args.log), acc=acc)
     print("I1555 TALLY fixture=%s window=%s matched=%d vote_exact=%d geo_solved=%d "
           "geo_exact=%d first_exact=%d published_exact=%d"
           % (args.fixture, args.window, matched, vote_counts.get("exact", 0), geo_solved,
