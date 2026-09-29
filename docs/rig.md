@@ -187,3 +187,50 @@ recorded, not measured on the capture clock. On the wall clock, when detector cy
 run at ~37 ms (a whole-clip replay at load 4-6), the hold moves rig-20260918 dev's
 cooldown expiry onto v6.3's one-cycle splash, and the 2 is dropped (#1650,
 `cooldownExpirySpikes`). At 33.3 ms a cycle, the rig's 30 fps, it is not.
+
+## Real-time replay (turnaus#1683)
+
+A file source hands over the next frame whenever the loop asks, so the bakeoff never
+drops a frame, whatever each cycle costs. A camera runs at 30 fps whatever the loop does,
+and a read gets the newest frame (OpenCV's Media Foundation reader keeps one sample). A
+loop slower than 33.3 ms skips frames on the rig, and never on a file.
+
+`OD_REALTIME_REPLAY=on` (`src/utils/capture_realtime.hpp`) plays each file as a camera.
+One thread per file decodes frames and publishes each one at its presentation time on
+the wall clock. `read()` takes the newest published frame, and blocks only when it has
+already taken that frame. The clock starts at the first scoring read. Calibration reads
+one frame per read as the bakeoff does, so both calibrate on the same pictures, and
+the player throws once the board is ready, as live. Every read logs `I1683RT` with the
+frame each file gave, the frames it skipped, `proc_ms` (loop time since the previous
+read) and `wait_ms`. The `DEBUG_VIA_VIDEO_INPUT` sleep is not slept under it.
+`testers/i1683_realtime.sh` runs `mocks/rig-20260929` this way, with timers on wall time
+and the opening window. `testers/i1683_visits.py` tables the darts against the truth.
+
+It is not a camera in three ways:
+- the exposure and noise are the recording's;
+- a V4L2 device on Linux queues four buffers and hands over the oldest, not the newest;
+- h264 decoding uses the same cores as the loop.
+
+**Measured 2026-09-29 on rig-20260929, `--cpus=2`, host load 3.6-12.5.** Cycles took a
+median of 22-50 ms.
+- **Main (ac184ca + this):** 29 of 33 landed darts published in each of 3 runs, the same
+  four the capture clock loses (v5.3, v6.3, v11.1, v12.2).
+- **#1680's switches** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`): 33 of 33 in each
+  of 3 runs.
+
+So at these cycle times, real time loses nothing the capture clock keeps.
+
+The losses come when a cycle gets slow. At `--cpus=0.5` (median 285 ms a cycle, a
+narrowed run through visit 6), 10 of 18 landed darts published.
+
+The windows are counted in **cycles**, not milliseconds:
+- motion settle, `stability_frames=15`;
+- the exposure hold's stillness, `exposure_frames=10`;
+- the dart window, `stability_frames=6`.
+
+The cooldown is counted in wall milliseconds (1000). So one dart's event lasts about
+22 cycles: 0.7 s at 33 ms a cycle, and 6 s at 285 ms. On this fixture darts land 1.8-2.1 s
+apart. Once a cycle takes more than roughly 85 ms, the next dart lands inside the
+previous dart's event and window. The two darts become one window: one publication, often
+with a wrong score, and one dart lost. The `Processing: N ms` on a `SCORE:` line is that
+per-cycle time, and a live log can be read against it.
