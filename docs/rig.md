@@ -123,6 +123,22 @@ camera transmits. A format read there can never refuse a camera (#1336).
   the refusal fires only on rig-20260929 window 22 in both windows (MISS → D5).
   r18+r22 is unchanged at 82/86. One changed dart is not yet evidence that the refusal
   is right in general.
+- **A dart landing beside one already in the bed changes the older dart
+  (turnaus#1684).** The reference is re-based after every called dart (#1495), yet the
+  new dart's fresh figure still holds the older one: the landing covers or turns the
+  older flight and knocks or swings its barrel. On rig-20260929 v10.3 (frames 4450
+  against 4505) cam 1's fresh diff outlines the whole older dart. The linked figure
+  then holds two darts and the straightness gate refuses it, correctly. Shape refusals
+  with a same-visit dart within 30 px: 1 of 6 on rig-20260918, 4 of 11 on rig-20260922,
+  8 of 15 on rig-20260929 (dev, `testers/i1684_census.py`). `OD_AXIS_STACK=on` (opt-in)
+  fits a shape-refused figure again without the figures of the darts already called
+  this visit, each grown by half its own width, and adopts the retry only if it passes
+  every gate. Measured 2026-09-30 (1555-bakeoff): it fires 1 / 9 / 10 times per window
+  and is adopted 0 / 1 / 4 times. It does **not** recover v10.3: cam 1 comes back, but
+  cams 2 and 3 see the two darts on top of each other, and no mask subtraction
+  separates them there. #1586's `OD_AXIS_RESCUE` also recovers only cam 1. The one
+  published change is a loss: r29 opening v9.3 T19 becomes S19, because cam 1's
+  recovered axis gives a two-line solve 3.3 mm outside the treble. The switch stays off.
 
 ## Board
 
