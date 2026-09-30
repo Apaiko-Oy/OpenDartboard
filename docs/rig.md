@@ -349,5 +349,9 @@ the old count times the rig's 33.3 ms:
   1535's capture-clock probe found no darts. Testers that call `processDartState` directly
   with `stability_frames = 1` (1348, 1355, 1518, 1552) also set `stability_ms = 0`, so one
   call is one window in either unit. The pin does not make a file replay deterministic:
-  which frame a cycle reads still depends on scheduling, and 1339's rig arm counted 24-27
-  events across runs with the pin.
+  which frame a cycle reads still depends on scheduling. Over three runs with the pin,
+  1339's rig counted 27 events over its board every time and 23 or 24 over the frame.
+- **1339-denominator also pins `OD_SETTLE_EXPOSURE=off`** (the motion before #1662). On its
+  scaled clip the exposure hold cuts the small board's events from 33 to 19-20 and leaves
+  the frame arm at 21-22, which inverts the comparison the tester makes. That is a finding
+  about the hold on a small board, reported in #1688.
