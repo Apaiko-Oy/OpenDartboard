@@ -117,7 +117,12 @@ probe_run() { # $1 out-prefix, $2.. env pin. The prefix is shifted away BEFORE e
 # arm (measured 2026-09-28: red twice on the #1662 tree, green on 846a576 without it). This
 # tester needs that event as its needle, so both probes pin the pre-#1662 motion, the way
 # #1662 pinned the 1618/1627/1628 replays. The rule under test (#1535) is unchanged.
-MOTION_PINS="OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
+# #1685: the detection windows are milliseconds of the motion clock by default. This harness
+# replays files as fast as the box allows on the wall clock, so a millisecond window spans
+# however many cycles the box ran and the two probes saw different visits (measured
+# 2026-09-30). The rule under test here is #1535's, not the windows, so both probes keep the
+# cycle-counted windows they were measured with, as #1662 pinned the motion defaults.
+MOTION_PINS="OD_WINDOW_UNIT=cycles OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
 probe_run probe-tree $MOTION_PINS OD_TIP_IDENTITY=
 RC1=$?
 probe_run probe-pinned $MOTION_PINS OD_TIP_IDENTITY=off
