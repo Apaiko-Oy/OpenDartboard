@@ -350,6 +350,49 @@ fixtures or the live runs. Its case is an arrival the rim count still cannot car
 a second camera does not see even to the rim), and on the scoring pin, where that case
 exists, it is strictly better by one dart.
 
+**A held arrival and the clean reference (#1691), opt-in.** When the vote reconciles CLEAN,
+every camera re-bases its clean reference to the window (#1518), including a camera that
+voted a dart the quorum refused. Live on 2026-09-30 (v0.1.13) five arrivals were held at
+CLEAN that way (visits 9-11's misses, camera 2 or 3 at 5,508-17,658 px, the others 0-11),
+and each camera adopted the miss as clean. `OD_CLEAN_ADOPT=agreed` lets only a camera that
+voted CLEAN adopt: a CLEAN candidate, a reversion (#1518) or #1552's memory. A voter that
+voted a dart keeps its reference, its working background takes the window (so its next
+fresh figure is only what arrives next), and it logs `I1691 CLEAN REFERENCE KEPT`. It adopts
+at the next CLEAN it votes itself. The issue's wording, "above the CLEAN ceiling", is not
+the test: at #1514's takeout every camera is above the ceiling on the old reference and
+votes CLEAN by reversion, and a ceiling test would wedge the board at DART_3 again.
+
+Measured 2026-10-01 on the same binary and bakeoff as #1690 above:
+
+| | default | default, both switches | scoring pin | scoring pin + `OD_CLEAN_ADOPT=agreed` |
+|---|---|---|---|---|
+| rig-20260918 (2 windows) | 38/40, 0 phantoms | 38/40, 0 phantoms | 38/40, 0 phantoms | 38/40, 0 phantoms |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 dev / opening | 26..30 / 27..31 of 36 | 26..30 / 27..31 | 20..28 / 21..29 | 20..28 / 21..29 |
+| pooled | 135..143/158 | 135..143/158 | 123..139/158 | 123..139/158 |
+| `I1691` kept, per r18 / r22 dev / r22 opening / r29 run | 0 | 0 / 0 / 0 / 0 | 0 | 0 / 0 / 1 / 1 |
+
+- **On the default count it never fires**, and no replay publishes differently.
+- **On the scoring pin it fires once per r29 run and once on r22's opening window, and no
+  publication moves.** r29's is v7.1's miss, held at CLEAN (camera 2 12,569 px); v7 then
+  publishes S20 S12 as without it, and the takeout adopts on all three cameras.
+- **#1514 holds.** r22's firing is #1514's own takeout, visit 1's, where the parked dart's
+  hole stays on the reference: cameras 1 and 2 vote CLEAN by reversion and adopt, camera 3
+  (1,084 px, over its 182 px ceiling) votes DART_2 and keeps the calibration reference. The
+  board reconciles CLEAN and publishes END, and at the next takeout camera 3 reverts
+  (3,201 to 1,075 px) and adopts. Every r22 run publishes 7 (dev) and 8 (opening) ENDs, as
+  without it. `testers/run_all.sh 1514-stall` passes under `OD_BOARD_COUNT=scoring
+  OD_CLEAN_ADOPT=agreed` (28 windows, 9 with a CLEAN camera, 7 ENDs); it replays the dev
+  window, where the switch does not fire.
+- **Live on #1689.** Runs 1-3 hold one arrival at CLEAN (run 2 visit 7's miss, camera 2
+  2,412 px, cameras 1 and 3 none). Every camera adopted, and the visit's T5 and 14 then
+  published correctly and the next takeout reconciled normally. On v0.1.13 none of the five
+  adoptions cost a later dart its score either: an adopted miss stays in "clean" only until
+  the next reconciled CLEAN, which is the takeout that removes it, not for the evening.
+
+It stays opt-in. It changes no publication on any fixture or on either count, and no live
+run shows the adoption doing harm; it rests on reasoning, not a measured loss.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
