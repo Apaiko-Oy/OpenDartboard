@@ -341,3 +341,13 @@ the old count times the rig's 33.3 ms:
 - **On a 200 ms cycle,** the settle is 2-3 cycles and the dart window 1 cycle, so the dart
   window averages one frame rather than six.
 - **The pin.** `OD_WINDOW_UNIT=cycles` pins the counts. `testers/i1555_run.sh` forwards it.
+- **Testers that replay files on the wall clock pin it (turnaus#1688).** A file replay runs
+  as fast as the box allows, so on the wall clock a millisecond window spans however many
+  cycles the box ran, and event counts move with load. `1535-rereport`, `1646-exposure` and
+  `1339-denominator` set `OD_WINDOW_UNIT=cycles`. `OD_MOTION_CLOCK=capture` is not the pin:
+  it also moves every other motion-clock length those testers were measured with, and
+  1535's capture-clock probe found no darts. Testers that call `processDartState` directly
+  with `stability_frames = 1` (1348, 1355, 1518, 1552) also set `stability_ms = 0`, so one
+  call is one window in either unit. The pin does not make a file replay deterministic:
+  which frame a cycle reads still depends on scheduling, and 1339's rig arm counted 24-27
+  events across runs with the pin.
