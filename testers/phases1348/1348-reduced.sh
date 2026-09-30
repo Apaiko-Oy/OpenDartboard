@@ -78,8 +78,10 @@ echo "=== 1. the control is untouched ==="
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1348/a.txt; then
   say "OK   the mocks calibrate, all three" ok
 else say "FAIL the mocks did not calibrate" no; fi
-grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt || true
-NOISE=$(grep -caE '^\[(ERROR|WARN)\]' /run1348/a.txt || true)
+# Not counted: the OD_BOARD=auto pin's own announcement ("OD_BOARD=auto is set: ..."),
+# which every pin makes at WARN and which says nothing about the board.
+grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt | grep -v 'OD_BOARD=auto is set: ' || true
+NOISE=$(grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt | grep -vc 'OD_BOARD=auto is set: ' || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok
 else say "FAIL the control prints $NOISE ERROR/WARN lines" no; fi
 

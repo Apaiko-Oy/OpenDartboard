@@ -95,9 +95,12 @@ for e in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bul
   if grep -qF "$e" /run1340/mocks_after.txt; then say "OK   mocks: $e" ok
   else say "FAIL mocks: no line saying $e" no; fi
 done
+# The one WARN not counted is the pin's own announcement on mocks_after ("OD_BOARD=auto is
+# set: ..."): every pin says it is set, at WARN, and it says nothing about the board
+# (i1605_inside.sh excludes its OD_LOOK_BUDGET line the same way).
 for f in mocks_after ten/1; do
-  NOISE=$(grep -cE '^\[(ERROR|WARN)\]' /run1340/$f.txt || true)
-  grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt || true
+  NOISE=$(grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt | grep -vc 'OD_BOARD=auto is set: ' || true)
+  grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt | grep -v 'OD_BOARD=auto is set: ' || true
   if [ "$NOISE" = "0" ]; then say "OK   $f prints no ERROR and no WARN" ok
   else say "FAIL $f prints $NOISE ERROR/WARN lines" no; fi
 done
