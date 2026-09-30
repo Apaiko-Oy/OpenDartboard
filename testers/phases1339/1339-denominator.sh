@@ -26,9 +26,17 @@ for n in 1 2 3; do
   /run1339/scaled $MOCKS/cam_$n.mp4 /run1339/small/cam_$n.avi 0.6 1750 || exit 1
 done
 
+# #1685 made the detection windows milliseconds of the motion clock. These six runs read
+# files on the wall clock as fast as the box allows, so a millisecond window spanned however
+# many cycles the box ran and the event counts in sections 4-6 moved with load: at #1688 two
+# runs of the same tree counted 22 and 19 events on the mocks' frame arm and 26 and 25 on
+# the rig's. #1339 is about the motion ratio's denominator, not the windows' unit, so every
+# run keeps the cycle-counted windows these assertions were measured with
+# (OD_WINDOW_UNIT=cycles, as 1535-rereport pins since ece438d). The same pin on all six, so
+# each board/frame pair still differs in the denominator alone.
 run() { # run <name> <denominator> <cams>
   mkdir -p /run1339/$1 && cd /run1339/$1
-  OD_MAX_CYCLES=$CYCLES OD_TRACE=/run1339/$1.csv OD_MOTION_DENOMINATOR=$2 \
+  OD_WINDOW_UNIT=cycles OD_MAX_CYCLES=$CYCLES OD_TRACE=/run1339/$1.csv OD_MOTION_DENOMINATOR=$2 \
     /app/build/opendartboard --cams "$3" --width 1280 --height 720 > /run1339/$1.out 2>&1
   sed 's/\x1b\[[0-9;]*m//g' /run1339/$1.out > /run1339/$1.txt
   cd /run1339
