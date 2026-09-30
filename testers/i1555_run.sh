@@ -45,7 +45,7 @@ T0=$(date +%s.%N)
 # unchanged. Only the opt-in switches the bakeoff is asked to measure are named here
 # (#1650 added OD_COOLDOWN_EXPIRY, #1649 OD_AXIS_UNSHIFT, #1652 OD_MASK_UNSHIFT and its
 # census pin OD_MASK_SHIFT_CENSUS, #1656 OD_BULL_SUBPIXEL, #1677 OD_SPIKE_THRESHOLD, #1678
-# OD_LONE_CAMERA and its census OD_LONE_CENSUS, #1687 OD_WINDOW_CROP, OD_BOARD_COUNT).
+# OD_LONE_CAMERA and its census OD_LONE_CENSUS, #1687 OD_WINDOW_CROP, #1689 OD_BOARD_COUNT).
 #
 # #1655: OD_MOTION_CLOCK selects the clock the motion timers (cooldown, spike window,
 # safety timeout) run on. This harness replays one frame per cycle as fast as the box

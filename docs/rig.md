@@ -256,6 +256,61 @@ re-bases the clean reference. So r18's v6.2 is still S7, but it is published by 
 different path: geometry on the opening window, the vote (NEAR-PARALLEL) on dev and pin.
 Every r22 run publishes the same sequence as with both switches off.
 
+**Board counts to the rim (#1689), default.** A camera has two board counts: the
+cumulative figure that says the board is occupied, and the fresh figure that says a dart
+arrived. Both were taken inside the double's outer edge. On the cameras that do not see
+it side-on, a dart in the double or on the surround has only its tip there, or nothing.
+Live on 2026-09-30 (v0.1.13, 39 throws), every dart inside the double published and none
+at or beyond it did. D16, D15 and eight misses were each held 1-2 in the STATE VOTE.
+
+Since #1689 both counts are taken inside the physical board (`Region::tip_mask`, the
+double's ellipse scaled by 225.5/170), still as shares of the scoring area, so every
+threshold keeps its units. A camera whose fresh figure clears the 0.10% floor only out to
+the rim votes the arrival but offers the scorer no tip and no axis (refusal `rim only`).
+Before #1689 that camera stayed, with the same refusal in other words ("no fresh figure").
+So the scorer gets the evidence it got before, and the vote gets the arrival.
+
+- `OD_BOARD_COUNT=scoring` is the pin: both counts in the scoring area, as before.
+- `OD_BOARD_COUNT=rim` is kept as a measurement: counted to the rim, and a rim-only
+  figure is offered to the scorer too.
+- Any other value means the default. Both pins log a warning.
+
+Measured 2026-09-30 on the capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), one
+binary for every column:
+
+| | scoring (pin) | rim | default |
+|---|---|---|---|
+| rig-20260918 (2 windows) | 38/40, 0 phantoms | 38/40, 0 phantoms | 38/40, 0 phantoms |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 42/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 dev / opening | 20..28 / 21..29 of 36 | 26..30 / 27..31 | 26..30 / 27..31 |
+| pooled | 123..139/158 | 133..141/158 | **135..143/158** |
+
+- **Gained, in every window and in the pin run.** rig-20260929 v6 publishes S20 D5 S1, all
+  exact, where the scoring count published S20 MISS (D5 refused, then D5 and S1 read as
+  one figure). Its v7.1 miss publishes MISS. rig-20260918's v4.3 miss, #1678's negative
+  control, publishes MISS where it published nothing. A thrown miss that publishes nothing
+  is also counted correct, so r18's tally does not move.
+- **Nothing else moves.** Against the pin, r18 and r22 publish the same sequences apart
+  from v4.3's MISS, and no run shows a phantom. On rig-20260929 no visit publishes more
+  than was thrown.
+- **Why `rim` is not the default.** It loses rig-20260922 v3.2, thrown D20, in both
+  windows. Window 8 (cycles 778-783) is the same window on every column. Camera 1's fresh
+  figure is 0.042% of the board in the scoring area and clears the floor to the rim. Under
+  `rim` its axis (981 px, 1.93 px RMS) and tip reach the scorer. Two axes then solve the
+  entry at r=158.3 mm, 3.7 mm (0.74 sigma) inside the ring wire, and S20 publishes flagged
+  WIRE-UNCERTAIN with D20 as the alternative. With one usable axis there is no entry, and
+  the DEGRADED string vote reads camera 2's D20, which is the default's answer.
+- **Not reached.** rig-20260929 v5, v11 and v12 are unchanged. No event opens for those
+  darts (#1677's entry threshold), so no count can see them.
+
+The live misses cannot be replayed. In the log, the non-side-on cameras counted 0-11 px in
+the scoring area for the five misses thrown at a clean board (visits 9, 10 and 11's first).
+They counted 220-648 px for the misses of visits 8, 11 (third) and 13, and those counts
+are cumulative, earlier darts included. How much of each lay between the double and the rim
+is not in the log. The two fixture misses that now publish had the same shape: 0 px in
+the scoring area and hundreds in the physical board. A miss whose silhouette stays
+outside the rim on two cameras is still held.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
