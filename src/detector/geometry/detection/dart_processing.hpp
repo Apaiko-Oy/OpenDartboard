@@ -658,6 +658,10 @@ namespace dart_processing
         int total_changed_pixels = 0;              // Total changed pixels
         double change_ratio = 0.0;                 // Percentage of changed pixels
         int total_pixels = 0;                      // Total pixels in frame
+        // #1687: the three figures above are over the camera's window area rather than
+        // the frame (dart_processing.cpp, windowCrop). Only a camera with a fitted board
+        // is cropped, and such a camera decides on its board counts, not on these.
+        bool figure_on_area = false;
         // #1345: the same changed pixels counted again inside this camera's own fitted
         // board. They decide nothing -- `change_ratio` above is what the state stage
         // answers with, over the whole frame, as it always was. They are here because
@@ -814,7 +818,7 @@ namespace dart_processing
             }
             snprintf(figure, sizeof(figure), "%.3f", camera_results[i].change_ratio);
             cameras += " said " + getDartBoardStateName(camera_results[i].detected_state) +
-                       " (" + figure + ")";
+                       " (" + figure + (camera_results[i].figure_on_area ? " of its window area" : "") + ")";
             // #1345: and how much of that figure was on the board it is about. Appended
             // after the figure rather than inside it, so the figure reads as it always
             // did; omitted entirely when the board was never fitted, because 0 px on an
