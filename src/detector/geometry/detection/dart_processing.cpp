@@ -134,38 +134,110 @@ namespace dart_processing
         return v;
     }
 
-    // The mask a camera's BOARD COUNTS are taken in -- the cumulative figure the vote
-    // decides on and the fresh figure that says a new dart arrived.
+    // #1689: the mask a camera's BOARD COUNTS are taken in -- the cumulative figure the
+    // vote decides on and the fresh figure that says a new dart arrived -- and the mask
+    // that decides whether the camera's fresh figure is offered to the scorer.
     //
-    //   OD_BOARD_COUNT unset  the scoring area, Region::mask (the double's outer edge)
-    //   OD_BOARD_COUNT=rim    the physical board, Region::tip_mask (out to the rim)
+    //   OD_BOARD_COUNT unset     counted out to the rim (Region::tip_mask); a camera whose
+    //                            fresh figure clears the floor only there VOTES the arrival
+    //                            and offers no tip and no axis ("rim only"). `rim-vote`
+    //                            and any other value mean this too.
+    //   OD_BOARD_COUNT=scoring   the pin: both inside the scoring area (Region::mask), as
+    //                            before #1689
+    //   OD_BOARD_COUNT=rim       a measurement: counted out to the rim, and a rim-only
+    //                            figure IS offered to the scorer (ae965f0's opt-in)
     //
-    // Why rim is asked for: live on 2026-09-30 (v0.1.13, 39 throws) every dart inside the
-    // double ring published and none at or beyond it did -- D16, D15 and eight misses on
-    // the surround, each lost 1-2 in the STATE VOTE: the camera seeing the dart side-on
-    // counted 5,000-27,000 px, the other two a few hundred, because only the tip of a
-    // dart at the ring is inside the double's ellipse and its barrel and flight lie
+    // Why: live on 2026-09-30 (v0.1.13, 39 throws) every dart inside the double ring
+    // published and none at or beyond it did -- D16, D15 and eight misses on the
+    // surround, each held 1-2 in the STATE VOTE: the camera seeing the dart side-on
+    // counted 5,000-27,000 px, the other two a few hundred or none, because only the tip
+    // of a dart at the ring is inside the double's ellipse and its barrel and flight lie
     // outside. The share stays a fraction of the SCORING area (Region::pixels), so every
     // threshold keeps its units and a dart's figure can only grow; the thrower at the
     // frame's edge (#1345) stays outside, because the rim is where #1364's tip search
     // already stops.
-    static bool boardCountAtRim()
+    //
+    // Why the figure is still admitted in the scoring area: on the capture-clock bakeoff
+    // (docs/rig.md) `rim` gains rig-20260929 v6.2 D5, v6.3 S1 and v7.1's MISS and
+    // rig-20260918 v4.3's MISS, and loses rig-20260922 v3.2 D20 in both windows -- camera
+    // 1's figure there is 0.042% of the board in the scoring area, clears the floor at the
+    // rim, and its axis moves the solved entry to r=158.3 mm, S20 across the wire. The
+    // default keeps every one of those gains and v3.2's D20: r18 and r22 publish what the
+    // pin publishes, plus v4.3's MISS, and the pool reads 135..143/158 against 123..139.
+    static int boardCountMode() // 0 scoring area (pin), 1 rim (measurement), 2 the default
     {
-        static const bool v = []
+        static const int v = []
         {
             const char *e = std::getenv("OD_BOARD_COUNT");
-            const bool rim = e && string(e) == "rim";
-            if (rim)
-                log_info("OD_BOARD_COUNT=rim: each camera's board counts are taken out to the board's rim, "
-                         "as fractions of its scoring area");
-            return rim;
+            const string s = e ? e : "";
+            const int m = s == "scoring" ? 0 : s == "rim" ? 1 : 2;
+            if (m == 0)
+                log_warning("OD_BOARD_COUNT=scoring is set: each camera's board counts are taken in the scoring "
+                            "area, as before #1689, so a dart at or beyond the double ring is counted by its tip only");
+            else if (m == 1)
+                log_warning("OD_BOARD_COUNT=rim is set: a camera whose fresh figure clears the floor only out to the "
+                            "rim offers its tip and axis to the scorer (#1689's measurement)");
+            return m;
         }();
         return v;
+    }
+
+    static bool boardCountAtRim()
+    {
+        return boardCountMode() != 0;
     }
 
     static const Mat &countMask(const Region &r)
     {
         return boardCountAtRim() ? r.tip_mask : r.mask;
+    }
+
+    // #1690: what a camera's working background does when the vote HOLDS the board while
+    // a camera saw an arrival (at least one moved up, too few to carry it).
+    //
+    //   OD_HELD_REBASE unset  nothing: the working backgrounds stay at the last called dart
+    //   OD_HELD_REBASE=on     every camera with a frame re-bases its working background to
+    //                         the held window's settled frame, as an advance does (#1495)
+    //
+    // Live on 2026-09-30 visit 13 the miss was held 1-2 and camera 1 kept it in its
+    // working background, so the next dart's fresh figure was the miss and the D7 in one
+    // (397 x 197 px, 31 px RMS about its line) and published S15 DEGRADED.
+    static bool heldVoteRebases()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_HELD_REBASE");
+            const bool on = e && string(e) == "on";
+            if (on)
+                log_info("OD_HELD_REBASE=on: a held vote re-bases every camera's working background (#1690)");
+            return on;
+        }();
+        return v;
+    }
+
+    // #1691: whether a reconciled CLEAN re-bases the clean reference of a camera whose OWN
+    // candidate this window was not CLEAN -- a camera that saw a dart the vote refused.
+    //
+    //   OD_CLEAN_ADOPT unset    every camera with a frame adopts (#1518 as it was)
+    //   OD_CLEAN_ADOPT=agreed   only a camera whose own candidate was CLEAN adopts; a camera
+    //                           that said DART_n keeps its clean reference, and its working
+    //                           background takes the window's frame, so the refused figure
+    //                           stays in its board count but not in its next fresh figure
+    //
+    // Live on 2026-09-30 the misses of visits 9-11 were each held at CLEAN 1-2 and every
+    // camera adopted, the side-on one with 5,508-17,658 px of dart on its board: the dart
+    // became part of "clean" for that camera.
+    static bool cleanAdoptionNeedsAgreement()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_CLEAN_ADOPT");
+            const bool on = e && string(e) == "agreed";
+            if (on)
+                log_info("OD_CLEAN_ADOPT=agreed: a camera that did not itself read CLEAN keeps its clean reference (#1691)");
+            return on;
+        }();
+        return v;
     }
 
     // The diff chain's reach in pixels, generously: medianBlur's radius, one per dilate
@@ -1677,6 +1749,7 @@ namespace dart_processing
                 // that projects past the rim (its flight, from a side-on camera) is
                 // clipped, which biases the hull toward the end that scored.
                 double fresh_share;
+                bool rim_only = false;
                 if (decides_on_board)
                 {
                     Mat fresh_inside;
@@ -1684,6 +1757,15 @@ namespace dart_processing
                     const int fresh_pixels = countNonZero(fresh_inside);
                     result.camera_results[i].fresh_board_pixels = fresh_pixels;
                     fresh_share = 100.0 * (double)fresh_pixels / (double)board_pixels;
+                    // #1689: a figure that clears the floor only out to the rim votes and
+                    // is not offered to the scorer (boardCountMode), so the same figure is
+                    // counted again in the scoring area.
+                    if (boardCountMode() == 2 && fresh_share >= decide_threshold)
+                    {
+                        Mat scoring_inside;
+                        bitwise_and(single_thresh, region.mask, scoring_inside);
+                        rim_only = 100.0 * (double)countNonZero(scoring_inside) / (double)board_pixels < decide_threshold;
+                    }
                     // The tip is searched inside the PHYSICAL board -- wider than the
                     // deciding share's scoring area, see Region::tip_mask -- so a
                     // near-edge dart keeps its shaft and the thrower stays outside.
@@ -1697,7 +1779,23 @@ namespace dart_processing
                     fresh_share = 100.0 * (double)countNonZero(single_thresh) / (double)total_pixels;
                 }
 
-                if (fresh_share >= decide_threshold) // and something new arrived on it
+                if (rim_only)
+                {
+                    // #1689: it votes the arrival and offers the scorer nothing. Before
+                    // #1689 this camera stayed ("no fresh figure") and the arrival was
+                    // held 1-2; its tip and axis were never offered then either.
+                    candidate_state = previous_states[i] == DartBoardState::CLEAN   ? DartBoardState::DART_1
+                                      : previous_states[i] == DartBoardState::DART_1 ? DartBoardState::DART_2
+                                                                                     : DartBoardState::DART_3;
+                    if (advanceResetIsPerCamera())
+                    {
+                        working_backgrounds[i] = averaged_frame.clone();
+                    }
+                    result.camera_results[i].axis.refusal =
+                        "rim only: this camera's fresh change clears the floor out to the rim but not in the "
+                        "scoring area, so it votes the arrival and offers no figure to fit (#1689)";
+                }
+                else if (fresh_share >= decide_threshold) // and something new arrived on it
                 {
                     // CHECK FROM CLEAN AND OR UNKNOW STATES TOO (MAYBE NOT DEFINED YET)
                     if (previous_states[i] == DartBoardState::CLEAN)
@@ -2133,6 +2231,29 @@ namespace dart_processing
             }
         }
 
+        // #1690: the vote HELD the board while a camera saw an arrival. What that camera
+        // saw is on the board now whether or not it was called, so under OD_HELD_REBASE=on
+        // every camera's working background moves to this window, as an advance moves it:
+        // otherwise the refused figure is in the next dart's fresh figure (live visit 13).
+        // Not on a held CLEAN: the CLEAN block below empties them, and #1691 is its case.
+        if (heldVoteRebases() && moves_up >= 1 && final_state == best_previous_state &&
+            final_state != DartBoardState::CLEAN)
+        {
+            string rebased;
+            for (size_t i = 0; i < working_backgrounds.size() && i < window_frames.size(); i++)
+            {
+                if (!window_frames[i].empty())
+                {
+                    working_backgrounds[i] = window_frames[i].clone();
+                    rebased += (rebased.empty() ? "" : ", ") + to_string(i + 1);
+                }
+            }
+            log_info("I1690 HELD REBASE: the vote held " + getDartBoardStateName(final_state) + " with " +
+                     to_string(moves_up) + " camera(s) moving up, so camera(s) " + rebased +
+                     " re-based their working background to this window: the refused arrival is not the "
+                     "next dart's fresh figure (#1690)");
+        }
+
         // #1535: the board gained a dart, so what each camera reported FOR IT is now on
         // the record isAReReportOfAnEarlierTip reads. Recorded from the vote's decision
         // and not inside the per-camera loop, for #1495's reason: a camera is not what
@@ -2286,8 +2407,26 @@ namespace dart_processing
             if (!cleanReferenceIsCalibration())
             {
                 string adopted;
+                string kept;
                 for (size_t i = 0; i < clean_references.size() && i < window_frames.size(); i++)
                 {
+                    // #1691: a camera that itself said a dart arrived keeps its reference;
+                    // its working background takes this window so its next fresh figure
+                    // is only what arrives next.
+                    if (!window_frames[i].empty() && cleanAdoptionNeedsAgreement() &&
+                        i < result.camera_results.size() &&
+                        result.camera_results[i].detected_state != DartBoardState::CLEAN &&
+                        !result.camera_results[i].abstained_no_board)
+                    {
+                        if (i < working_backgrounds.size())
+                        {
+                            working_backgrounds[i] = window_frames[i].clone();
+                        }
+                        kept += (kept.empty() ? "" : ", ") + to_string(i + 1) + " (said " +
+                                getDartBoardStateName(result.camera_results[i].detected_state) + ", " +
+                                to_string(result.camera_results[i].board_changed_pixels) + " px on its board)";
+                        continue;
+                    }
                     if (!window_frames[i].empty())
                     {
                         clean_references[i] = window_frames[i].clone();
@@ -2307,6 +2446,12 @@ namespace dart_processing
                              adopted + " re-based their clean reference to this window's settled "
                              "frames -- the scene as it is now, not the calibration picture, is "
                              "what CLEAN is measured against from here (#1518)");
+                }
+                if (!kept.empty())
+                {
+                    log_info("I1691 CLEAN REFERENCE KEPT: camera(s) " + kept + " did not themselves read CLEAN, "
+                             "so what they saw is not adopted as clean; their working background takes this "
+                             "window instead (#1691)");
                 }
             }
         }
