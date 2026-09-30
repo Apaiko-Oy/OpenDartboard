@@ -34,7 +34,14 @@ mkdir -p "$RUN"
 # The copy the container runs is stripped, whatever checkout it came from.
 tr -d '\r' < "$OD_TREE_ROOT/testers/i1514_inside.sh" > "$RUN/inside.sh"
 
-od_run "1514" --cpus=2 --network none -e HOME=/root \
+# #1691: the switches that change what a reconciled CLEAN adopts reach the detector when
+# set, so the stall check can be run under them (docker run inherits nothing, #1648).
+FWD=()
+for v in OD_CLEAN_ADOPT OD_BOARD_COUNT; do
+  if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1514 FORWARD $v=${!v}"; fi
+done
+
+od_run "1514" --cpus=2 --network none -e HOME=/root "${FWD[@]}" \
   -v "$OD_TREE_ROOT":/app -v "$RUN":/run1514 -w /run1514 \
   "$OD_IMAGE" bash /run1514/inside.sh 2>&1 | tee "$RUN/out.txt"
 RC=${PIPESTATUS[0]}

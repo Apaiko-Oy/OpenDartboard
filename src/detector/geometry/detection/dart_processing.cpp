@@ -215,6 +215,40 @@ namespace dart_processing
         return v;
     }
 
+    // #1691: whether a reconciled CLEAN re-bases the clean reference of a camera whose OWN
+    // vote this window was not CLEAN -- a camera that saw a dart the vote refused.
+    //
+    //   OD_CLEAN_ADOPT unset    every camera with a frame adopts (#1518 as it was)
+    //   OD_CLEAN_ADOPT=agreed   only a camera that voted CLEAN adopts (its candidate, a
+    //                           reversion, or #1552's memory); a camera that voted DART_n
+    //                           keeps its clean reference, and its working background takes
+    //                           the window's frame, so the refused figure stays in its board
+    //                           count but not in its next fresh figure. It adopts at the
+    //                           next CLEAN it votes for itself: with the window as its
+    //                           working background it reads "no fresh figure", i.e. CLEAN.
+    //
+    // The issue asked for "above the CLEAN ceiling" as the test. That is not usable as it
+    // stands: at #1514's takeout on rig-20260922 every camera is above the ceiling on the
+    // old reference (the parked dart's hole) and votes CLEAN by reversion, so a ceiling test
+    // would keep every reference and wedge the board at DART_3 again. The camera's own vote
+    // is the ceiling test with the reversion carved out.
+    //
+    // Live on 2026-09-30 the misses of visits 9-11 were each held at CLEAN 1-2 and every
+    // camera adopted, the side-on one with 5,508-17,658 px of dart on its board: the dart
+    // became part of "clean" for that camera.
+    static bool cleanAdoptionNeedsAgreement()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_CLEAN_ADOPT");
+            const bool on = e && string(e) == "agreed";
+            if (on)
+                log_info("OD_CLEAN_ADOPT=agreed: a camera that did not itself read CLEAN keeps its clean reference (#1691)");
+            return on;
+        }();
+        return v;
+    }
+
     // The diff chain's reach in pixels, generously: medianBlur's radius, one per dilate
     // and erode iteration, and cleanFreshMask's eight morphology passes (four with the
     // k x k kernel, four with the k/2 one, each reaching less than its size), plus 8.
@@ -2052,6 +2086,9 @@ namespace dart_processing
         // because it is what the quorum is measured against. Every `continue` under it is
         // a camera that is not in it.
         int voters = 0;
+        // #1691: which cameras' votes were CLEAN votes (a CLEAN candidate, a reversion, or
+        // #1552's memory), for the adoption below.
+        vector<bool> voted_clean(result.camera_results.size(), false);
 
         // Loop through all cameras once
         for (size_t i = 0; i < result.camera_results.size(); i++)
@@ -2080,6 +2117,7 @@ namespace dart_processing
                              "in one window (#1552)");
                 }
                 goes_clean++;
+                voted_clean[i] = true;
             }
             else if (result.camera_results[i].detected_state > best_previous_state)
             {
@@ -2390,8 +2428,28 @@ namespace dart_processing
             if (!cleanReferenceIsCalibration())
             {
                 string adopted;
+                string kept;
                 for (size_t i = 0; i < clean_references.size() && i < window_frames.size(); i++)
                 {
+                    // #1691: a voter whose vote was not CLEAN keeps its reference; its
+                    // working background takes this window so its next fresh figure is
+                    // only what arrives next. A CLEAN vote by reversion (#1518) or by
+                    // #1552's memory IS a CLEAN vote and adopts: that is #1514's takeout,
+                    // where every camera is still over the ceiling on the old reference.
+                    if (!window_frames[i].empty() && cleanAdoptionNeedsAgreement() &&
+                        i < result.camera_results.size() && i < voted_clean.size() &&
+                        result.camera_results[i].frame_available &&
+                        !result.camera_results[i].abstained_no_board && !voted_clean[i])
+                    {
+                        if (i < working_backgrounds.size())
+                        {
+                            working_backgrounds[i] = window_frames[i].clone();
+                        }
+                        kept += (kept.empty() ? "" : ", ") + to_string(i + 1) + " (voted " +
+                                getDartBoardStateName(result.camera_results[i].detected_state) + ", " +
+                                to_string(result.camera_results[i].board_changed_pixels) + " px on its board)";
+                        continue;
+                    }
                     if (!window_frames[i].empty())
                     {
                         clean_references[i] = window_frames[i].clone();
@@ -2411,6 +2469,12 @@ namespace dart_processing
                              adopted + " re-based their clean reference to this window's settled "
                              "frames -- the scene as it is now, not the calibration picture, is "
                              "what CLEAN is measured against from here (#1518)");
+                }
+                if (!kept.empty())
+                {
+                    log_info("I1691 CLEAN REFERENCE KEPT: camera(s) " + kept + " did not themselves vote CLEAN, "
+                             "so what they saw is not adopted as clean; their working background takes this "
+                             "window instead (#1691)");
                 }
             }
         }
