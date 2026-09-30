@@ -71,7 +71,14 @@ else say "FAIL the rig this issue is about did not calibrate on three cameras" n
 
 echo
 echo "=== 2. the shipped fixture does not regress, and the before/after is one binary ==="
-OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
+# #1688: mocks_after runs under OD_BOARD=auto. Since #1676 the board is taken as a Winmau
+# Blade 6 by default, and the shipped mocks are not one: their camera 2 finds the four clip
+# wires of a wire number ring, so the default says so in two WARN lines (ORIENTATION and
+# BOARD RECOGNITION), by design -- 1498-anchor-read pins the mocks the same way for the same
+# reason. OD_BOARD=auto keeps #1340's floor (only OD_BOARD=frame restores the old one) and
+# measures the board instead of forcing it, so the no-ERROR/no-WARN assertion below is still
+# asked of a board the detector recognises. The ten rig runs are a Blade 6 and stay default.
+OD_BOARD=auto OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
   > /run1340/mocks_after.out 2>&1 || true
 OD_BOARD=frame OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
   > /run1340/mocks_before.out 2>&1 || true
