@@ -34,9 +34,17 @@ done
 # run keeps the cycle-counted windows these assertions were measured with
 # (OD_WINDOW_UNIT=cycles, as 1535-rereport pins since ece438d). The same pin on all six, so
 # each board/frame pair still differs in the denominator alone.
+# #1688: and the exposure hold is pinned off (OD_SETTLE_EXPOSURE=off), the motion as it was
+# before #1662 made the hold a default, as #1662 pinned the 1535/1618/1627/1628 replays.
+# Measured 2026-09-30 on b893830 + the cycles pin, the scaled clip's two small arms: with
+# the hold, 19-20 events over the board against 21-22 over the frame (section 4 red on three
+# runs); with OD_SETTLE_EXPOSURE=off, 33 against 21; with only OD_TAKEOUT_REREPORT=off, 20
+# against 22. So it is the hold, not #1648's rule, that takes a third of the small board's
+# events and none of the frame's. That is a finding about the hold on a small board (#1688
+# reports it); what this file measures is the denominator, with the motion it was written on.
 run() { # run <name> <denominator> <cams>
   mkdir -p /run1339/$1 && cd /run1339/$1
-  OD_WINDOW_UNIT=cycles OD_MAX_CYCLES=$CYCLES OD_TRACE=/run1339/$1.csv OD_MOTION_DENOMINATOR=$2 \
+  OD_WINDOW_UNIT=cycles OD_SETTLE_EXPOSURE=off OD_MAX_CYCLES=$CYCLES OD_TRACE=/run1339/$1.csv OD_MOTION_DENOMINATOR=$2 \
     /app/build/opendartboard --cams "$3" --width 1280 --height 720 > /run1339/$1.out 2>&1
   sed 's/\x1b\[[0-9;]*m//g' /run1339/$1.out > /run1339/$1.txt
   cd /run1339
