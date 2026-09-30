@@ -35,6 +35,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include "cycle_cost.hpp"
 
 namespace camera
 {
@@ -115,7 +116,10 @@ namespace camera
             for (;;)
             {
                 cv::Mat image; // a fresh buffer every frame: the one published is shared
+                const double decode_t0 = cycle_cost::on() ? cycle_cost::nowMs() : 0.0;
                 const bool ok = cap_.read(image) && !image.empty();
+                if (cycle_cost::on())
+                    cycle_cost::offloopDecodeUs() += (long long)((cycle_cost::nowMs() - decode_t0) * 1000.0);
                 const double pos_ms = ok ? cap_.get(cv::CAP_PROP_POS_MSEC) : -1.0;
                 if (!ok)
                 {

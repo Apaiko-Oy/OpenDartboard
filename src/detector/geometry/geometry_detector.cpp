@@ -12,6 +12,7 @@
 #include "detection/score_processing.hpp"
 #include "utils.hpp"
 #include "utils/board_sight.hpp"
+#include "utils/cycle_cost.hpp"
 #include "calibration/geometry_agreement.hpp"
 #include "calibration/board_recognition.hpp"
 #include "calibration/number_anchor.hpp"
@@ -613,7 +614,9 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
     dart_processing::DartStateResult dart_result = dart_processing::processDartState(images, background_frames, board_extents, motion_result.motion_finished, debug_mode);
 
     // Process scoring using the new scoring system
+    cycle_cost::Scope score_timer(cycle_cost::SCORE);
     score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode);
+    score_timer.stop();
 
     // Only return result if scoring system says it's valid (state changed)
     if (score_result.valid)

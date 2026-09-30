@@ -1,6 +1,7 @@
 #include "scorer.hpp"
 #include "logging.hpp"
 #include "utils.hpp"
+#include "utils/cycle_cost.hpp"
 #include "detector/detector_factory.hpp"
 #include "communication/websocket_service.hpp"
 #include "communication/score_queue.hpp"
@@ -549,9 +550,12 @@ void Scorer::run()
 
         // start a clock to measure FPS
         auto start_time = chrono::steady_clock::now();
+        const double cost_t0 = cycle_cost::on() ? cycle_cost::nowMs() : 0.0; // #1686
 
         // 1. Capture frames
+        cycle_cost::Scope read_timer(cycle_cost::READ);
         vector<camera::Frame> frames = capture->read();
+        read_timer.stop();
         last_pos_ms.assign(frames.size(), -1);
         for (size_t c = 0; c < frames.size(); c++)
         {
@@ -637,7 +641,14 @@ void Scorer::run()
             // ERROR rather than going silent, because it is still there to say it.
             board_sight::framesSeen().fetch_add(1, std::memory_order_relaxed);
             // 2. Process frames by the detector
+            cycle_cost::Scope process_timer(cycle_cost::PROCESS);
             DetectorResult result = detector->process(frames);
+            process_timer.stop();
+            // #1686: this cycle's stages, under OD_CYCLE_COST=on only.
+            if (cycle_cost::on())
+            {
+                log_info(cycle_cost::takeLine(cycles, cycle_cost::nowMs() - cost_t0));
+            }
             // 3. Send result if something detected
             if (result)
             {

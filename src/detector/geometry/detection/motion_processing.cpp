@@ -4,6 +4,7 @@
 #include "utils/streamer.hpp"
 #include "utils/od_clock.hpp"
 #include "utils/od_fix.hpp"
+#include "utils/cycle_cost.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -31,8 +32,43 @@ namespace motion_processing
         int pixels = 0;
         Size frame;
         RotatedRect edge;
+        // #1686: the part of the frame the motion diff is computed over -- the mask's
+        // bounding box, padded by more than the blur and the close can reach, so every
+        // pixel inside the mask reads what it would on the whole frame.
+        Rect area;
     };
     static vector<Region> regions;
+
+    // #1686: the motion diff over the board's own area, from the previous frame's blurred
+    // grey kept rather than recomputed. A cycle spent most of its time here -- two BGR->grey
+    // conversions and two 5x5 blurs of every 1280x720 frame, one of each redoing the
+    // previous cycle's, and a clone of every frame -- and every figure this stage produces
+    // is read inside the board's mask. Every pixel inside the mask gets the value the
+    // whole-frame diff gives it (the area is padded past the blur's and the close's reach,
+    // and where it meets the frame's edge it extrapolates as the frame does), so the
+    // figures are the same numbers, and only the work outside the board is gone.
+    //   OD_MOTION_CROP=off    the whole-frame diff, as before #1686
+    //   OD_MOTION_CROP=check  both, the whole-frame one scoring, and an I1686CHECK line for
+    //                         any camera-cycle where the two figures differ
+    static int motionCrop()
+    {
+        static int v = []
+        {
+            const char *e = std::getenv("OD_MOTION_CROP");
+            const string s = e ? e : "";
+            const int m = s == "off" ? 0 : s == "check" ? 2 : 1;
+            if (m != 1)
+                log_info(string("I1686 OD_MOTION_CROP=") + s + (m == 0 ? ": the motion diff runs on the whole frame, as before #1686"
+                                                                        : ": the motion diff runs both ways, and the whole frame's scores"));
+            return m;
+        }();
+        return v;
+    }
+    static vector<Mat> prev_raw;  // a camera's last real frame, while its blurred grey is not kept
+    static vector<Mat> prev_blur; // its blurred grey over prev_area
+    static vector<Rect> prev_area;
+    static long long crop_compared = 0;
+    static long long crop_mismatches = 0;
 
     // #1339's falsification, in the shape od_fix established: one binary, the
     // denominator chosen at run time, so "different build" is never a confound.
@@ -302,6 +338,13 @@ namespace motion_processing
         r.mask = Mat::zeros(frame, CV_8UC1);
         ellipse(r.mask, r.edge, Scalar(255), FILLED);
         r.pixels = countNonZero(r.mask);
+        {
+            // #1686: blur radius plus twice the close's kernel, and a margin.
+            const int pad = params.blur_kernel_size + 2 * params.morph_kernel_size + 8;
+            const Rect bb = boundingRect(r.mask);
+            r.area = Rect(bb.x - pad, bb.y - pad, bb.width + 2 * pad, bb.height + 2 * pad) &
+                     Rect(0, 0, frame.width, frame.height);
+        }
         if (r.pixels <= 0)
         {
             r.known = false;
@@ -369,6 +412,10 @@ namespace motion_processing
             {
                 previous_frames.push_back(frame.clone()); // an unavailable slot stays empty and self-heals
             }
+            // #1686: the cropped diff starts from the same frames.
+            prev_raw = previous_frames;
+            prev_blur.assign(current_frames.size(), Mat());
+            prev_area.assign(current_frames.size(), Rect());
 
             initialized = true;
             log_debug("Motion processing initialized with " + to_string(current_frames.size()) + " cameras");
@@ -392,32 +439,47 @@ namespace motion_processing
         vector<Mat> motion_viz_frames;
         vector<Mat> motion_viz_frames2;
 
+        const int crop = motionCrop();
+
         // Motion detection for each camera
-        for (size_t i = 0; i < current_frames.size() && i < previous_frames.size(); i++)
+        for (size_t i = 0; crop != 1 && i < current_frames.size() && i < previous_frames.size(); i++)
         {
             if (current_frames[i].empty() || previous_frames[i].empty() || background_frames[i].empty())
                 continue;
 
             // Convert to grayscale
             Mat prev_gray, curr_gray;
-            cvtColor(previous_frames[i], prev_gray, COLOR_BGR2GRAY);
-            cvtColor(current_frames[i], curr_gray, COLOR_BGR2GRAY);
+            {
+                cycle_cost::Scope t(cycle_cost::M_GRAY);
+                cvtColor(previous_frames[i], prev_gray, COLOR_BGR2GRAY);
+                cvtColor(current_frames[i], curr_gray, COLOR_BGR2GRAY);
+            }
 
             // clean up frames so there no noise
-            GaussianBlur(prev_gray, prev_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
-            GaussianBlur(curr_gray, curr_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+            {
+                cycle_cost::Scope t(cycle_cost::M_BLUR);
+                GaussianBlur(prev_gray, prev_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+                GaussianBlur(curr_gray, curr_gray, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+            }
 
             // Calculate absolute difference
             Mat diff;
-            absdiff(prev_gray, curr_gray, diff);
-
-            // Apply threshold
             Mat thresh;
-            threshold(diff, thresh, params.binary_threshold, 255, THRESH_BINARY);
+            {
+                cycle_cost::Scope t(cycle_cost::M_DIFF);
+                absdiff(prev_gray, curr_gray, diff);
+
+                // Apply threshold
+                threshold(diff, thresh, params.binary_threshold, 255, THRESH_BINARY);
+            }
 
             // Apply morphological operations to reduce noise
-            Mat kernel = getStructuringElement(params.morph_type, Size(params.morph_kernel_size, params.morph_kernel_size));
-            morphologyEx(thresh, thresh, MORPH_CLOSE, kernel);
+            {
+                cycle_cost::Scope t(cycle_cost::M_MORPH);
+                Mat kernel = getStructuringElement(params.morph_type, Size(params.morph_kernel_size, params.morph_kernel_size));
+                morphologyEx(thresh, thresh, MORPH_CLOSE, kernel);
+            }
+            cycle_cost::Scope region_timer(cycle_cost::M_REGION);
 
             // Debug: Save motion detection images
             if (debug_mode)
@@ -470,10 +532,139 @@ namespace motion_processing
         // Update previous frames for next iteration.
         // #798: a camera that did not answer keeps the last frame it really produced,
         // so the next comparison is against a real image rather than against nothing.
-        for (size_t i = 0; i < current_frames.size(); i++)
+        if (crop != 1)
         {
-            if (!current_frames[i].empty())
-                previous_frames[i] = current_frames[i].clone();
+            cycle_cost::Scope t(cycle_cost::M_CLONE);
+            for (size_t i = 0; i < current_frames.size(); i++)
+            {
+                if (!current_frames[i].empty())
+                    previous_frames[i] = current_frames[i].clone();
+            }
+        }
+
+        // #1686: the same figures over the board's area (see motionCrop).
+        if (crop != 0)
+        {
+            vector<MotionData> cropped(current_frames.size());
+            auto blurredGrey = [&](const Mat &bgr, const Rect &area)
+            {
+                Mat grey;
+                {
+                    cycle_cost::Scope t(cycle_cost::M_GRAY);
+                    cvtColor(bgr(area), grey, COLOR_BGR2GRAY);
+                }
+                cycle_cost::Scope t(cycle_cost::M_BLUR);
+                GaussianBlur(grey, grey, Size(params.blur_kernel_size, params.blur_kernel_size), params.blur_sigma_x, params.blur_sigma_y, BORDER_DEFAULT);
+                return grey;
+            };
+            for (size_t i = 0; i < current_frames.size() && i < prev_raw.size(); i++)
+            {
+                const Mat &cur = current_frames[i];
+                if (cur.empty())
+                    continue; // #798: it keeps the last frame it really produced
+                bool measured = false;
+                const bool have_prev = !prev_raw[i].empty() || !prev_blur[i].empty();
+                if (have_prev && i < background_frames.size() && !background_frames[i].empty())
+                {
+                    Rect area(0, 0, cur.cols, cur.rows);
+                    const Region *region = nullptr;
+                    if (!measuredAgainstTheFrame())
+                    {
+                        region = &regionFor(i, boards, cur.size(), params);
+                        if (region->known && !debug_mode)
+                            area = region->area;
+                    }
+                    if (!region || region->known)
+                    {
+                        Mat prev_grey;
+                        if (!prev_blur[i].empty() && prev_area[i] == area)
+                            prev_grey = prev_blur[i];
+                        else if (!prev_raw[i].empty() && prev_raw[i].size() == cur.size())
+                            prev_grey = blurredGrey(prev_raw[i], area);
+                        if (!prev_grey.empty())
+                        {
+                            Mat curr_grey = blurredGrey(cur, area);
+                            Mat diff, thresh;
+                            {
+                                cycle_cost::Scope t(cycle_cost::M_DIFF);
+                                absdiff(prev_grey, curr_grey, diff);
+                                threshold(diff, thresh, params.binary_threshold, 255, THRESH_BINARY);
+                            }
+                            {
+                                cycle_cost::Scope t(cycle_cost::M_MORPH);
+                                Mat kernel = getStructuringElement(params.morph_type, Size(params.morph_kernel_size, params.morph_kernel_size));
+                                morphologyEx(thresh, thresh, MORPH_CLOSE, kernel);
+                            }
+                            cycle_cost::Scope t(cycle_cost::M_REGION);
+                            if (debug_mode && crop == 1)
+                            {
+                                odfs::ensureDirectory("debug_frames/motion_processing");
+                                imwrite("debug_frames/motion_processing/diff_cam_" + to_string(i) + ".jpg", diff);
+                                imwrite("debug_frames/motion_processing/thresh_cam_" + to_string(i) + ".jpg", thresh);
+                                motion_viz_frames.push_back(diff);
+                                motion_viz_frames2.push_back(thresh);
+                            }
+                            int motion_pixels = 0;
+                            int region_pixels = 0;
+                            if (!region)
+                            {
+                                motion_pixels = countNonZero(thresh);
+                                region_pixels = thresh.rows * thresh.cols;
+                            }
+                            else
+                            {
+                                const Mat mask = region->mask(area);
+                                Mat inside;
+                                bitwise_and(thresh, mask, inside);
+                                motion_pixels = countNonZero(inside);
+                                region_pixels = region->pixels;
+                                cropped[i].board_level = mean(curr_grey, mask)[0];
+                            }
+                            const double motion_ratio = region_pixels > 0 ? (double)motion_pixels / region_pixels : 0.0;
+                            cropped[i].motion_pixels = motion_pixels;
+                            cropped[i].region_pixels = region_pixels;
+                            cropped[i].motion_ratio = motion_ratio;
+                            cropped[i].measured = true;
+                            cropped[i].motion_detected = (motion_ratio > params.threshold_ratio);
+                            prev_blur[i] = curr_grey;
+                            prev_area[i] = area;
+                            prev_raw[i].release();
+                            measured = true;
+                        }
+                    }
+                }
+                if (!measured)
+                {
+                    cycle_cost::Scope t(cycle_cost::M_CLONE);
+                    prev_raw[i] = cur.clone();
+                    prev_blur[i].release();
+                }
+            }
+            if (crop == 1)
+            {
+                motion_data = cropped;
+            }
+            else
+            {
+                for (size_t i = 0; i < motion_data.size(); i++)
+                {
+                    const MotionData &a = motion_data[i];
+                    const MotionData &b = cropped[i];
+                    crop_compared++;
+                    if (a.measured != b.measured || a.motion_pixels != b.motion_pixels ||
+                        a.region_pixels != b.region_pixels || a.board_level != b.board_level)
+                    {
+                        crop_mismatches++;
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "I1686CHECK MISMATCH cycle=%lld cam=%zu whole=(%d,%d,%d,%.6f) cropped=(%d,%d,%d,%.6f)",
+                                 (long long)od_clock::cycles().load(), i + 1, (int)a.measured, a.motion_pixels, a.region_pixels, a.board_level,
+                                 (int)b.measured, b.motion_pixels, b.region_pixels, b.board_level);
+                        log_info(buf);
+                    }
+                }
+                if (crop_compared % 3000 == 0)
+                    log_info("I1686CHECK compared=" + to_string(crop_compared) + " mismatches=" + to_string(crop_mismatches));
+            }
         }
 
         if (debug_mode && motion_streamer)
@@ -493,6 +684,7 @@ namespace motion_processing
 
         // Get motion data from all cameras
         vector<MotionData> motion_data = detectMotion(current_frames, background_frames, boards, debug_mode, params);
+        cycle_cost::Scope state_timer(cycle_cost::M_STATE);
         long long now = od_clock::now_ms();
         DartEventState state_in = current_state;
 
@@ -926,6 +1118,7 @@ namespace motion_processing
         }
 
         result.current_state = current_state;
+        cycle_cost::motionState() = (int)current_state;
         return result;
     }
 
