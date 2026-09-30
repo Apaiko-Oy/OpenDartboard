@@ -450,7 +450,13 @@ jobs:
         run: |
           $launcher = 'build-win-static\opendartboard-launcher.exe'
           if (-not (Test-Path $launcher)) { throw "no $launcher -- the launcher target did not build" }
-          $printed = (& $launcher --version 2>&1 | Out-String)
+          # Measured on v0.1.12 (run 36710579467): with no --turnaus the launcher asks the
+          # production Turnaus, and once its stable channel published 0.1.11 the launcher
+          # fetched 0.1.11 over the 0.1.12 it had just been built beside and started that, so
+          # this step tested production rather than this build. An unreachable address is
+          # the launcher's "cannot be reached" case, which is silent by design, so the
+          # detector started is the one this run built.
+          $printed = (& $launcher --version --turnaus http://127.0.0.1:9 2>&1 | Out-String)
           $code = $LASTEXITCODE
           Write-Host $printed
           Write-Host "launcher exit code: $code"
