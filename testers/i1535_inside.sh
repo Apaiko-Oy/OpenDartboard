@@ -122,7 +122,14 @@ probe_run() { # $1 out-prefix, $2.. env pin. The prefix is shifted away BEFORE e
 # however many cycles the box ran and the two probes saw different visits (measured
 # 2026-09-30). The rule under test here is #1535's, not the windows, so both probes keep the
 # cycle-counted windows they were measured with, as #1662 pinned the motion defaults.
-MOTION_PINS="OD_WINDOW_UNIT=cycles OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off"
+# #1689: and the board counts in the scoring area, where #1535 measured its rule. Counted
+# out to the rim (the default since #1689) the vote also carries visit 7's third dart, a
+# real 20 beside the second: camera 2's tip for it is 2 px from the tip it reported for
+# v7.2 with its fresh figure 130 px away, so the rule rules it a re-report, no camera is
+# left with a tip, and it publishes MISS@0.5 where OD_TIP_IDENTITY=off publishes S20@0.7
+# (measured twice, 2026-09-30/10-01). That is the rule misreading an ADJACENT dart, not
+# this tester's needle; it is recorded in docs/rig.md under #1689.
+MOTION_PINS="OD_WINDOW_UNIT=cycles OD_SETTLE_EXPOSURE=off OD_TAKEOUT_REREPORT=off OD_BOARD_COUNT=scoring"
 probe_run probe-tree $MOTION_PINS OD_TIP_IDENTITY=
 RC1=$?
 probe_run probe-pinned $MOTION_PINS OD_TIP_IDENTITY=off

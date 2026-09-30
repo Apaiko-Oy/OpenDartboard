@@ -311,6 +311,22 @@ is not in the log. The two fixture misses that now publish had the same shape: 0
 the scoring area and hundreds in the physical board. A miss whose silhouette stays
 outside the rim on two cameras is still held.
 
+Two testers pin `OD_BOARD_COUNT=scoring`, because what they measure is another rule under
+the counts it was measured with:
+- `1648-takeout`. Counted to the rim, rig-20260922's visit-1 takeout reconciles CLEAN
+  without #1648's rule: cameras 1 and 3 read CLEAN, 2 of 3. The pinned-off arm would no
+  longer show what the rule is for.
+- `1535-rereport`. Its wall-clock probes then carry rig-20260918 v7.3, a real 20 beside
+  v7.2's 20. Camera 2's tip for it is 2 px from the tip it reported for v7.2, with its
+  fresh figure 130 px away. #1535's rule therefore rules it a re-report, no camera keeps a
+  tip, and it publishes MISS@0.5 where `OD_TIP_IDENTITY=off` publishes S20@0.7. That is
+  #1535's rule misreading an adjacent dart, which #1689 made reachable. It was measured
+  twice, and the capture-clock bakeoff does not reach v7.3.
+
+`1358-window`'s falsification (`OD_DART_WINDOW=settle`) reads 3-4 of 6 windows wholly
+empty where it asserts 5. It reads 3 with the counts pinned to the scoring area too, and
+its window cycles move between runs (a wall-clock replay), so it is not this change.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
