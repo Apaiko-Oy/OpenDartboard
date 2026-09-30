@@ -136,6 +136,13 @@ int main(int argc, char **argv)
 
     DartParams params;
     params.stability_frames = 1; // one call is one window
+    // #1688: and in #1685's unit too. Since #1685 the window is `stability_ms` of the motion
+    // clock unless OD_WINDOW_UNIT=cycles, so the count above alone no longer closes a
+    // window per call: processDartState returned its empty still-collecting result and
+    // this file indexed camera_results[] of it (rc 139). A window of 0 ms is reached by
+    // the cycle it opens on (od_clock::window_reached), so one call is one window again,
+    // on any clock and at any speed, and the default unit is the one measured.
+    params.stability_ms = 0;
 
     // The poisoned bootstrap: the calibration backgrounds hold the parked dart.
     const Mat poisoned = sceneWith({kParkedP});
