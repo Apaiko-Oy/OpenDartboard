@@ -192,6 +192,29 @@ namespace dart_processing
         return boardCountAtRim() ? r.tip_mask : r.mask;
     }
 
+    // #1690: what a camera's working background does when the vote HOLDS the board while
+    // a camera saw an arrival (at least one moved up, too few to carry it).
+    //
+    //   OD_HELD_REBASE unset  nothing: the working backgrounds stay at the last called dart
+    //   OD_HELD_REBASE=on     every camera with a frame re-bases its working background to
+    //                         the held window's settled frame, as an advance does (#1495)
+    //
+    // Live on 2026-09-30 visit 13 the miss was held 1-2 and camera 1 kept it in its
+    // working background, so the next dart's fresh figure was the miss and the D7 in one
+    // (397 x 197 px, 31 px RMS about its line) and published S15 DEGRADED.
+    static bool heldVoteRebases()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_HELD_REBASE");
+            const bool on = e && string(e) == "on";
+            if (on)
+                log_info("OD_HELD_REBASE=on: a held vote re-bases every camera's working background (#1690)");
+            return on;
+        }();
+        return v;
+    }
+
     // The diff chain's reach in pixels, generously: medianBlur's radius, one per dilate
     // and erode iteration, and cleanFreshMask's eight morphology passes (four with the
     // k x k kernel, four with the k/2 one, each reaching less than its size), plus 8.
@@ -2181,6 +2204,37 @@ namespace dart_processing
                     working_backgrounds[i] = window_frames[i].clone();
                 }
             }
+        }
+
+        // #1690: the vote HELD the board while a camera saw an arrival. What that camera
+        // saw is on the board now whether or not it was called, so under OD_HELD_REBASE=on
+        // every camera's working background moves to this window, as an advance moves it:
+        // otherwise the refused figure is in the next dart's fresh figure (live visit 13).
+        // Not on a held CLEAN: the CLEAN block below empties them, and #1691 is its case.
+        //
+        // A non-dart change (a hand, a shadow) that one camera alone saw in the settled
+        // window is absorbed too, and its LEAVING is then that camera's fresh figure in the
+        // next window. That is one camera again, which the quorum holds as it held the
+        // arrival, and the held window re-bases once more, to the scene without it. If a
+        // dart arrives in that next window instead, its figure carries the ghost -- the
+        // harm the switch removes for a refused dart, no worse. Without the switch the
+        // transient costs nothing; with it, a refused dart costs nothing.
+        if (heldVoteRebases() && moves_up >= 1 && final_state == best_previous_state &&
+            final_state != DartBoardState::CLEAN)
+        {
+            string rebased;
+            for (size_t i = 0; i < working_backgrounds.size() && i < window_frames.size(); i++)
+            {
+                if (!window_frames[i].empty())
+                {
+                    working_backgrounds[i] = window_frames[i].clone();
+                    rebased += (rebased.empty() ? "" : ", ") + to_string(i + 1);
+                }
+            }
+            log_info("I1690 HELD REBASE: the vote held " + getDartBoardStateName(final_state) + " with " +
+                     to_string(moves_up) + " camera(s) moving up, so camera(s) " + rebased +
+                     " re-based their working background to this window: the refused arrival is not the "
+                     "next dart's fresh figure (#1690)");
         }
 
         // #1535: the board gained a dart, so what each camera reported FOR IT is now on
