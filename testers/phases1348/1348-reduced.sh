@@ -38,7 +38,13 @@ BIN=/app/build/opendartboard
 MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 
 echo "=== A: the control, three of three ==="
-OD_MAX_CYCLES=20 $BIN --cams $MOCKS --width 1280 --height 720 > /run1348/a.out 2>&1
+# #1688: the control runs under OD_BOARD=auto. Since #1676 the board is taken as a Winmau
+# Blade 6 by default, and the shipped mocks are not one: their camera 2 finds the four clip
+# wires of a wire number ring, and the default says so in two WARN lines by design
+# (1498-anchor-read pins the mocks the same way). OD_BOARD=auto measures the board instead,
+# so the control still asks for no ERROR and no WARN from a board the detector recognises.
+# B and C are about the vote and stay on the default.
+OD_BOARD=auto OD_MAX_CYCLES=20 $BIN --cams $MOCKS --width 1280 --height 720 > /run1348/a.out 2>&1
 echo "A_RC=$?"
 
 echo "=== B: two cameras dropped, so one camera can vote ==="
@@ -72,8 +78,10 @@ echo "=== 1. the control is untouched ==="
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1348/a.txt; then
   say "OK   the mocks calibrate, all three" ok
 else say "FAIL the mocks did not calibrate" no; fi
-grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt || true
-NOISE=$(grep -caE '^\[(ERROR|WARN)\]' /run1348/a.txt || true)
+# Not counted: the OD_BOARD=auto pin's own announcement ("OD_BOARD=auto is set: ..."),
+# which every pin makes at WARN and which says nothing about the board.
+grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt | grep -v 'OD_BOARD=auto is set: ' || true
+NOISE=$(grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt | grep -vc 'OD_BOARD=auto is set: ' || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok
 else say "FAIL the control prints $NOISE ERROR/WARN lines" no; fi
 

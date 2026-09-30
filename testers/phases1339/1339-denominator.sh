@@ -26,9 +26,25 @@ for n in 1 2 3; do
   /run1339/scaled $MOCKS/cam_$n.mp4 /run1339/small/cam_$n.avi 0.6 1750 || exit 1
 done
 
+# #1685 made the detection windows milliseconds of the motion clock. These six runs read
+# files on the wall clock as fast as the box allows, so a millisecond window spanned however
+# many cycles the box ran and the event counts in sections 4-6 moved with load: at #1688 two
+# runs of the same tree counted 22 and 19 events on the mocks' frame arm and 26 and 25 on
+# the rig's. #1339 is about the motion ratio's denominator, not the windows' unit, so every
+# run keeps the cycle-counted windows these assertions were measured with
+# (OD_WINDOW_UNIT=cycles, as 1535-rereport pins since ece438d). The same pin on all six, so
+# each board/frame pair still differs in the denominator alone.
+# #1688: and the exposure hold is pinned off (OD_SETTLE_EXPOSURE=off), the motion as it was
+# before #1662 made the hold a default, as #1662 pinned the 1535/1618/1627/1628 replays.
+# Measured 2026-09-30 on b893830 + the cycles pin, the scaled clip's two small arms: with
+# the hold, 19-20 events over the board against 21-22 over the frame (section 4 red on three
+# runs); with OD_SETTLE_EXPOSURE=off, 33 against 21; with only OD_TAKEOUT_REREPORT=off, 20
+# against 22. So it is the hold, not #1648's rule, that takes a third of the small board's
+# events and none of the frame's. That is a finding about the hold on a small board (#1688
+# reports it); what this file measures is the denominator, with the motion it was written on.
 run() { # run <name> <denominator> <cams>
   mkdir -p /run1339/$1 && cd /run1339/$1
-  OD_MAX_CYCLES=$CYCLES OD_TRACE=/run1339/$1.csv OD_MOTION_DENOMINATOR=$2 \
+  OD_WINDOW_UNIT=cycles OD_SETTLE_EXPOSURE=off OD_MAX_CYCLES=$CYCLES OD_TRACE=/run1339/$1.csv OD_MOTION_DENOMINATOR=$2 \
     /app/build/opendartboard --cams "$3" --width 1280 --height 720 > /run1339/$1.out 2>&1
   sed 's/\x1b\[[0-9;]*m//g' /run1339/$1.out > /run1339/$1.txt
   cd /run1339

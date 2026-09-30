@@ -33,11 +33,21 @@ RUN=/run1646
 D=/app/mocks/rig-20260922
 [ -x $BIN ] || { echo "FAIL no $BIN"; exit 1; }
 
+# #1685 made the detection windows milliseconds of the motion clock (the settle, the
+# exposure stillness history and hold, the dart window). These replays read files on the
+# wall clock as fast as the box allows, so a millisecond window spanned however many cycles
+# the box ran: at #1688 the same tree read window 2's camera-3 board at 128768 px on one run
+# and 47257 on another, and published a different sequence. What is measured here is
+# #1646's hold, not the windows' unit, so both replays keep the cycle-counted windows every
+# number above was measured with (OD_WINDOW_UNIT=cycles, as 1535-rereport pins since
+# ece438d). Not OD_MOTION_CLOCK=capture: that also moves every other motion-clock length
+# these numbers were measured on the wall clock with, and 1535's capture-clock probe found
+# no darts at all.
 replay() { # $1 name, rest env
     local out="$1"; shift
     cd "$RUN" || exit 1
     rm -rf "$RUN/cache" "$RUN/debug_frames"
-    env OD_MAX_CYCLES=780 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_SEEK_VIDEO=off OD_WINDOW_CENSUS=1 "$@" \
+    env OD_WINDOW_UNIT=cycles OD_MAX_CYCLES=780 OD_GEO_SCORE=on OD_SHAFT_CENSUS=1 OD_SEEK_VIDEO=off OD_WINDOW_CENSUS=1 "$@" \
         timeout 600 $BIN --cams "$D/cam_1.mp4,$D/cam_2.mp4,$D/cam_3.mp4" --width 1280 --height 720 \
         > "$RUN/$out.out" 2>&1
     local rc=$?

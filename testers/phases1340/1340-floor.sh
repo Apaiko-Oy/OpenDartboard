@@ -71,7 +71,14 @@ else say "FAIL the rig this issue is about did not calibrate on three cameras" n
 
 echo
 echo "=== 2. the shipped fixture does not regress, and the before/after is one binary ==="
-OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
+# #1688: mocks_after runs under OD_BOARD=auto. Since #1676 the board is taken as a Winmau
+# Blade 6 by default, and the shipped mocks are not one: their camera 2 finds the four clip
+# wires of a wire number ring, so the default says so in two WARN lines (ORIENTATION and
+# BOARD RECOGNITION), by design -- 1498-anchor-read pins the mocks the same way for the same
+# reason. OD_BOARD=auto keeps #1340's floor (only OD_BOARD=frame restores the old one) and
+# measures the board instead of forcing it, so the no-ERROR/no-WARN assertion below is still
+# asked of a board the detector recognises. The ten rig runs are a Blade 6 and stay default.
+OD_BOARD=auto OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
   > /run1340/mocks_after.out 2>&1 || true
 OD_BOARD=frame OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
   > /run1340/mocks_before.out 2>&1 || true
@@ -88,9 +95,12 @@ for e in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bul
   if grep -qF "$e" /run1340/mocks_after.txt; then say "OK   mocks: $e" ok
   else say "FAIL mocks: no line saying $e" no; fi
 done
+# The one WARN not counted is the pin's own announcement on mocks_after ("OD_BOARD=auto is
+# set: ..."): every pin says it is set, at WARN, and it says nothing about the board
+# (i1605_inside.sh excludes its OD_LOOK_BUDGET line the same way).
 for f in mocks_after ten/1; do
-  NOISE=$(grep -cE '^\[(ERROR|WARN)\]' /run1340/$f.txt || true)
-  grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt || true
+  NOISE=$(grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt | grep -vc 'OD_BOARD=auto is set: ' || true)
+  grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt | grep -v 'OD_BOARD=auto is set: ' || true
   if [ "$NOISE" = "0" ]; then say "OK   $f prints no ERROR and no WARN" ok
   else say "FAIL $f prints $NOISE ERROR/WARN lines" no; fi
 done
@@ -178,15 +188,41 @@ b=[int(v) for v in re.findall(r'[0-9]+', '''$BRK_BULL''')[1:]]
 sys.exit(0 if abs(a[0]-b[0])<=2 and abs(a[1]-b[1])<=2 else 1)"; then
   say "OK   painting out 150 degrees of ring moved the bull by at most 2 px" ok
 else say "FAIL the bull found on the broken ring is not the bull the whole one gives" no; fi
-# And the camera is still refused -- by the stage that can see what is wrong with it.
-# This is the half that keeps §4 from being an argument for no floor at all: #1340 does
-# not make a damaged board calibrate, it moves the refusal to a stage that names the
-# damage instead of to a floor that was measuring how much of a board is brightly
-# coloured.
+# What the camera is then given. Until #1467 (2bcb9c3, 2026-09-20) it was refused -- by the
+# wire stage, "found 10 (or 11) wire boundaries and all 20 are needed" -- and this section
+# asserted that refusal. #1688 bisected the red that followed: green on 9d699de, red from
+# 2bcb9c3, and none of #1407, #1676 or #1685 moves it. #1467 fits a twenty-fold model to
+# the wire candidates instead of counting them, so the 210 degrees of ring the paint left
+# place all twenty boundaries (coherence R 0.85 against a minimum of 0.60), and the camera
+# calibrates. That is #1467 working as written, not the floor admitting a board it cannot
+# measure: on b893830 the broken ring seals camera 1 at angle 10.69 and radius 256.85
+# against the unbroken clip's 10.60 and 256.98, bull (671,308) against (671,309).
+#
+# So the half that keeps this section from being an argument for no floor at all is now
+# asked as what it always meant: #1340 does not let a damaged board be scored WRONGLY. A
+# broken ring either is refused by a stage that names the break, or is sealed with the
+# geometry the whole ring gives -- within half a degree of wedge angle (a wedge is 18) and
+# 1% of radius. A board that calibrated to some other geometry is the failure.
+SEAL_RE='GEOMETRY SEALED: camera 1 index=[0-9]+ scoring=1 bull=[0-9]+,[0-9]+ [^|]*angle=[-0-9.]+ radius=[0-9.]+'
 if grep -qE 'Camera 1 did not calibrate: the (wire stage|doubles ring)' /run1340/brk_after.txt; then
   echo "and then: $(grep -oE 'Camera 1 did not calibrate: the (wire stage|doubles ring).{0,110}' /run1340/brk_after.txt | head -1)"
-  say "OK   the broken ring is still refused, by the stage that can see the break" ok
-else say "FAIL a board with 150 degrees of its ring painted out was accepted outright" no; fi
+  say "OK   the broken ring is refused, by the stage that can see the break" ok
+else
+  BSEAL=$(grep -oE "$SEAL_RE" /run1340/brk_after.txt | head -1)
+  WSEAL=$(grep -oE "$SEAL_RE" /run1340/ten/1.txt | head -1)
+  echo "broken: ${BSEAL:-no seal}"
+  echo "whole : ${WSEAL:-no seal}"
+  if [ -n "$BSEAL" ] && [ -n "$WSEAL" ] && python3 - "$BSEAL" "$WSEAL" <<'PY'
+import re, sys
+def f(s):
+    return float(re.search(r'angle=([-0-9.]+)', s).group(1)), float(re.search(r'radius=([0-9.]+)', s).group(1))
+(ba, br), (wa, wr) = f(sys.argv[1]), f(sys.argv[2])
+sys.exit(0 if abs(ba - wa) <= 0.5 and abs(br - wr) <= 0.01 * wr else 1)
+PY
+  then
+    say "OK   the broken ring is sealed with the whole ring's geometry (#1467's model placed the painted-out wires)" ok
+  else say "FAIL a board with 150 degrees of its ring painted out was sealed with a geometry the whole ring does not give" no; fi
+fi
 
 echo
 echo "=== 5. #1320's speck is still refused on size, on this binary =================="
