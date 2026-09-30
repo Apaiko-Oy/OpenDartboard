@@ -37,8 +37,12 @@ replay() { # $1 name, rest env
     [ $rc -eq 0 ] || [ $rc -eq 124 ] || { tail -5 "$RUN/$out.txt"; echo "FAIL the $out replay did not finish"; exit 1; }
 }
 
-replay hold OD_TAKEOUT_REREPORT=off
-replay rule
+# #1689: both with the board counts in the scoring area, where #1648 measured its rule.
+# Since #1689 they are taken out to the rim, and there the visit-1 takeout reconciles
+# CLEAN WITHOUT the rule (hold window 2: cameras 1 and 3 read CLEAN, 2 of 3), so the hold
+# run would no longer show what the switch is for.
+replay hold OD_TAKEOUT_REREPORT=off OD_BOARD_COUNT=scoring
+replay rule OD_BOARD_COUNT=scoring
 
 for n in hold rule; do
     echo "=== $n"
