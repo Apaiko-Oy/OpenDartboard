@@ -83,6 +83,114 @@ namespace dart_processing
         return r;
     }
 
+    // #1687: the dart window works on each camera's WINDOW AREA -- the bounding box of
+    // the physical board (Region::tip_mask's ellipse), padded past the reach of the
+    // diff chain -- rather than on the whole frame, when that camera has a fitted board.
+    //
+    //   OD_WINDOW_CROP unset  the area (below)
+    //   OD_WINDOW_CROP=off    the whole frame, as before #1687
+    //   OD_WINDOW_CROP=check  both; the whole frame decides, and an I1687CHECK line
+    //                         reports every camera-window whose averaged frame inside
+    //                         the area, or whose cumulative or fresh mask inside the
+    //                         tip mask, differs
+    //
+    // Why nothing that decides can move:
+    //  - The accumulation (grey, sum) and the average (divide, round) are per pixel, so
+    //    every pixel inside the area is the whole frame's value. `accumulate` adds the
+    //    8-bit grey into the float sum exactly as convertTo-then-add did: sums of at most
+    //    a few hundred integers <= 255 are exact in a float.
+    //  - The diff chain (absdiff, medianBlur, dilate, erode, threshold, cleanFreshMask)
+    //    reaches at most windowAreaPad() pixels, so a pixel further than that from an
+    //    area edge inside the frame gets the whole frame's value; at the frame's own edge
+    //    the area's edge IS the frame's and extrapolates the same way.
+    //  - Everything the window reads from those masks is inside the tip mask: the board
+    //    counts (Region::mask is inside it), the fresh figure, the tip's image and the
+    //    shaft axis's support pixels. The tip mask's box is at least the pad inside the
+    //    area.
+    //  - The references a window leaves (working_backgrounds, clean_references) are
+    //    frame-sized: the area holds the average, and outside it this cycle's grey. A
+    //    later window reads them inside the same area only, because the boards are built
+    //    once for a running board (geometry_detector.cpp) and so the area never moves.
+    // What does move: `total_changed_pixels` and `change_ratio` of a camera WITH a board
+    // are counted over its area rather than the frame (`figure_on_area`). They decide
+    // nothing there -- a camera with a board decides on its board counts (#1354) -- and
+    // a camera without one is never cropped, so the no-board fallback, where the frame
+    // figure decides, is the whole frame exactly as before.
+    //
+    // --debug and OD_SHAFT_PROBE keep the whole frame, so their images keep their size
+    // and their content outside the board.
+    static int windowCrop()
+    {
+        static const int v = []
+        {
+            const char *e = std::getenv("OD_WINDOW_CROP");
+            const string s = e ? e : "";
+            const int m = s == "off" ? 0 : s == "check" ? 2 : 1;
+            if (m != 1)
+                log_info(string("I1687 OD_WINDOW_CROP=") + s + (m == 0 ? ": the dart window works on the whole frame, as before #1687"
+                                                                        : ": the dart window works both ways, and the whole frame's decide"));
+            return m;
+        }();
+        return v;
+    }
+
+    // The diff chain's reach in pixels, generously: medianBlur's radius, one per dilate
+    // and erode iteration, and cleanFreshMask's eight morphology passes (four with the
+    // k x k kernel, four with the k/2 one, each reaching less than its size), plus 8.
+    static int windowAreaPad(const DartParams &p)
+    {
+        const int k = std::max(p.morph_kernel_size, 1);
+        return std::max(p.blur_kernel_size, 1) / 2 + std::max(p.dilate_iterations, 0) +
+               std::max(p.erode_iterations, 0) + 4 * k + 4 * std::max(k / 2, 1) + 8;
+    }
+
+    // The window area for a camera: the physical board's box (built exactly as
+    // regionFor builds Region::tip_mask) padded by windowAreaPad and clipped to the frame.
+    static Rect windowAreaFor(const motion_processing::BoardExtent &extent, Size frame, const DartParams &p)
+    {
+        const Rect whole(0, 0, frame.width, frame.height);
+        if (!extent.known || frame.width <= 0 || frame.height <= 0)
+            return whole;
+        RotatedRect physical = extent.edge;
+        physical.size.width *= 225.5f / 170.0f;
+        physical.size.height *= 225.5f / 170.0f;
+        const int pad = windowAreaPad(p);
+        Rect box = physical.boundingRect();
+        box.x -= pad;
+        box.y -= pad;
+        box.width += 2 * pad;
+        box.height += 2 * pad;
+        box &= whole;
+        return box.area() > 0 ? box : whole;
+    }
+
+    // The window's diff chain, one definition for the cumulative diff and the fresh one
+    // and for both paths: absdiff, medianBlur, dilate, erode, threshold, cleanFreshMask.
+    static Mat windowDiffMask(const Mat &averaged, const Mat &reference, const DartParams &params, Mat *diff_out)
+    {
+        Mat diff;
+        absdiff(averaged, reference, diff);
+        // GaussianBlur(diff, diff, Size(5, 5), 1.0); // Softer blending of dart edges
+        medianBlur(diff, diff, params.blur_kernel_size);                    // Smooth out noise in grayscale diff
+        dilate(diff, diff, Mat(), Point(-1, -1), params.dilate_iterations); // Strengthen dart signals
+        erode(diff, diff, Mat(), Point(-1, -1), params.erode_iterations);   // Remove small noise
+        Mat thresh;
+        threshold(diff, thresh, params.background_diff_threshold, 255, THRESH_BINARY);
+        // #1652: cleanFreshMask; OD_MASK_UNSHIFT=on makes it translation-free.
+        cleanFreshMask(thresh, params.morph_kernel_size, shaft_axis::maskUnshiftIsOn());
+        if (diff_out)
+            *diff_out = diff;
+        return thresh;
+    }
+
+    // A mask computed over `area`, placed in a frame-sized zero mask.
+    static Mat inFrame(const Mat &part, Size frame, const Rect &area)
+    {
+        Mat full = Mat::zeros(frame, CV_8UC1);
+        part.copyTo(full(area));
+        return full;
+    }
+
     // #1358 measurement instrument, off unless asked for. The refused-window account
     // (#1350/#1345) prints only when the vote changed nothing, so a window that SCORED
     // says nothing about where its evidence was. OD_WINDOW_CENSUS=1 prints one line per
@@ -159,6 +267,13 @@ namespace dart_processing
     static int frames_collected = 0;       // cycles in the window
     static bool window_pending = false;    // #1358: an event settled while a window was averaging
     static vector<int> frames_accumulated; // #798: frames each camera really contributed
+    // #1687: the area each camera's window accumulates (windowCrop), the frame size it
+    // was opened on, and, under OD_WINDOW_CROP=check, the whole-frame sum beside it.
+    static vector<Rect> window_areas;
+    static vector<Size> window_frame_sizes;
+    static vector<Mat> whole_accumulated;
+    static long window_check_compared = 0;
+    static long window_check_mismatches = 0;
 
     // Working backgrounds - one per camera
     static vector<Mat> working_backgrounds;
@@ -995,8 +1110,14 @@ namespace dart_processing
             clean_references.size() != current_frames.size() ||
             previous_board_change.size() != current_frames.size() ||
             reversion_memory.size() != current_frames.size() ||
-            reported_tips.size() != current_frames.size())
+            reported_tips.size() != current_frames.size() ||
+            window_areas.size() != current_frames.size() ||
+            window_frame_sizes.size() != current_frames.size() ||
+            whole_accumulated.size() != current_frames.size())
         {
+            window_areas.resize(current_frames.size());
+            window_frame_sizes.resize(current_frames.size());
+            whole_accumulated.resize(current_frames.size());
             previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
             accumulated_frames.resize(current_frames.size());
             frames_accumulated.resize(current_frames.size(), 0);
@@ -1058,12 +1179,23 @@ namespace dart_processing
             // #798: a camera whose slot is marked still gets its accumulator zeroed, sized
             // from its own background, so it can join the rest of the window.
             frames_accumulated.assign(current_frames.size(), 0);
+            const int crop = windowCrop();
             for (size_t i = 0; i < current_frames.size(); i++)
             {
                 const Mat &reference = !current_frames[i].empty() ? current_frames[i] : (i < background_frames.size() ? background_frames[i] : current_frames[i]);
                 if (!reference.empty())
                 {
-                    accumulated_frames[i] = Mat::zeros(reference.size(), CV_32F);
+                    // #1687: the area this window accumulates (windowCrop).
+                    const Size frame = reference.size();
+                    Rect area(0, 0, frame.width, frame.height);
+                    if (crop != 0 && !debug_mode && shaftProbeDir().empty() && i < boards.size())
+                    {
+                        area = windowAreaFor(boards[i], frame, params);
+                    }
+                    window_areas[i] = area;
+                    window_frame_sizes[i] = frame;
+                    accumulated_frames[i] = Mat::zeros(area.size(), CV_32F);
+                    whole_accumulated[i] = (crop == 2 && area.size() != frame) ? Mat::zeros(frame, CV_32F) : Mat();
                 }
             }
         };
@@ -1097,11 +1229,35 @@ namespace dart_processing
             {
                 if (!current_frames[i].empty() && !accumulated_frames[i].empty())
                 {
-                    Mat current_gray, float_frame;
-                    cvtColor(current_frames[i], current_gray, COLOR_BGR2GRAY);
-                    current_gray.convertTo(float_frame, CV_32F);
-                    accumulated_frames[i] += float_frame; // Accumulate sum
-                    frames_accumulated[i]++;              // #798: per-camera divisor
+                    // #1687: the grey of this camera's window area only, added into the
+                    // float sum in one pass (`accumulate`: no float frame is made).
+                    const Rect &area = window_areas[i];
+                    if (current_frames[i].size() == window_frame_sizes[i] &&
+                        accumulated_frames[i].size() == area.size() &&
+                        (area & Rect(0, 0, current_frames[i].cols, current_frames[i].rows)) == area)
+                    {
+                        Mat current_gray;
+                        cvtColor(current_frames[i](area), current_gray, COLOR_BGR2GRAY);
+                        accumulate(current_gray, accumulated_frames[i]); // Accumulate sum
+                    }
+                    else
+                    {
+                        // A frame of another size than the window opened on: the sum as it
+                        // always was, which refuses the mismatch as it always did.
+                        Mat current_gray, float_frame;
+                        cvtColor(current_frames[i], current_gray, COLOR_BGR2GRAY);
+                        current_gray.convertTo(float_frame, CV_32F);
+                        accumulated_frames[i] += float_frame;
+                    }
+                    if (i < whole_accumulated.size() && !whole_accumulated[i].empty())
+                    {
+                        // OD_WINDOW_CROP=check: the pre-#1687 whole-frame sum, beside it.
+                        Mat current_gray, float_frame;
+                        cvtColor(current_frames[i], current_gray, COLOR_BGR2GRAY);
+                        current_gray.convertTo(float_frame, CV_32F);
+                        whole_accumulated[i] += float_frame;
+                    }
+                    frames_accumulated[i]++; // #798: per-camera divisor
                 }
             }
             frames_collected++;
@@ -1204,9 +1360,14 @@ namespace dart_processing
             // scene change after calibration -- mocks/rig-20260922's parked dart, pulled
             // ~1 s in -- sat in every later window's cumulative diff and CLEAN was
             // arithmetically unreachable (#1514's census, 26 windows wedged at DART_3).
+            // #1687: the frame this window was opened on; the sum may be of its area only.
+            const Size frame_size = window_frame_sizes[i];
+            const Rect area = window_areas[i];
+            const bool cropped = accumulated_frames[i].size() != frame_size;
+            const bool compare = cropped && i < whole_accumulated.size() && !whole_accumulated[i].empty();
             Mat background_gray;
             if (!cleanReferenceIsCalibration() && !clean_references[i].empty() &&
-                clean_references[i].size() == accumulated_frames[i].size())
+                clean_references[i].size() == frame_size)
             {
                 background_gray = clean_references[i];
             }
@@ -1216,31 +1377,55 @@ namespace dart_processing
             }
 
             cycle_cost::Scope cumul_timer(cycle_cost::D_CUMUL);
+            // #1687: the average over the window's area (the whole frame when not cropped).
+            Mat averaged_area;
+            accumulated_frames[i].convertTo(averaged_area, CV_8U, 1.0 / frames_accumulated[i]);
             Mat averaged_frame;
-            accumulated_frames[i].convertTo(averaged_frame, CV_8U, 1.0 / frames_accumulated[i]);
+            Mat diff;
+            Mat thresh;
+            if (!cropped)
+            {
+                averaged_frame = averaged_area;
+                // Calculate difference from background, clean it up and threshold it
+                thresh = windowDiffMask(averaged_frame, background_gray, params, &diff);
+            }
+            else
+            {
+                // The average is frame-sized for the references it leaves and for the
+                // axis fit: the area holds the average and the rest this cycle's grey,
+                // which nothing reads (windowCrop).
+                if (!current_frames[i].empty() && current_frames[i].size() == frame_size)
+                {
+                    cvtColor(current_frames[i], averaged_frame, COLOR_BGR2GRAY);
+                }
+                else
+                {
+                    averaged_frame = background_gray.clone();
+                }
+                averaged_area.copyTo(averaged_frame(area));
+                thresh = inFrame(windowDiffMask(averaged_area, background_gray(area), params, nullptr), frame_size, area);
+            }
+            // OD_WINDOW_CROP=check: the whole-frame figures decide; the area's are compared
+            // with them below, once the board's masks are known.
+            Mat area_thresh;
+            long averaged_mismatch = 0;
+            if (compare)
+            {
+                Mat whole_averaged;
+                whole_accumulated[i].convertTo(whole_averaged, CV_8U, 1.0 / frames_accumulated[i]);
+                averaged_mismatch = countNonZero(whole_averaged(area) != averaged_area);
+                area_thresh = thresh;
+                averaged_frame = whole_averaged;
+                thresh = windowDiffMask(averaged_frame, background_gray, params, &diff);
+            }
             window_frames[i] = averaged_frame;
 
-            // Calculate difference from background
-            Mat diff;
-            absdiff(averaged_frame, background_gray, diff);
-
-            // clean up the difference image
-            // GaussianBlur(diff, diff, Size(5, 5), 1.0); // Softer blending of dart edges
-            medianBlur(diff, diff, params.blur_kernel_size);                    // Smooth out noise in grayscale diff
-            dilate(diff, diff, Mat(), Point(-1, -1), params.dilate_iterations); // Strengthen dart signals
-            erode(diff, diff, Mat(), Point(-1, -1), params.erode_iterations);   // Remove small noise
-
-            // Threshold the difference image
-            Mat thresh;
-            threshold(diff, thresh, params.background_diff_threshold, 255, THRESH_BINARY);
-
-            // Apply morphological operations to clean up the thresholded image.
-            // #1652: cleanFreshMask; OD_MASK_UNSHIFT=on makes it translation-free.
-            cleanFreshMask(thresh, params.morph_kernel_size, shaft_axis::maskUnshiftIsOn());
-
-            // Count total changed pixels instead of contour analysis
+            // Count total changed pixels instead of contour analysis. #1687: over the
+            // window's area where the window was cropped to it (windowCrop): the figure
+            // decides only where no camera has a board, and such a camera is never cropped.
+            const bool figure_on_area = cropped && !compare;
             int total_changed_pixels = countNonZero(thresh);
-            int total_pixels = thresh.rows * thresh.cols;
+            int total_pixels = figure_on_area ? area.area() : thresh.rows * thresh.cols;
             cumul_timer.stop();
             float change_ratio = ((double)total_changed_pixels / (double)total_pixels) * 100.0f; // Percentage of changed pixels
 
@@ -1275,10 +1460,39 @@ namespace dart_processing
                 board_pixels = region.pixels;
             }
 
+            // #1687: under OD_WINDOW_CROP=check, what the area's path gave, against the
+            // whole frame's, where it is read: the average in the area, and the
+            // cumulative mask in the tip mask (the board count's mask lies inside it).
+            // An area that no longer matches the board is reported as a mismatch too.
+            long cumulative_mismatch = 0;
+            long fresh_mismatch = 0;
+            int area_board_changed = board_changed_pixels;
+            bool area_moved = false;
+            if (cropped)
+            {
+                area_moved = !region.known ||
+                             windowAreaFor(i < boards.size() ? boards[i] : motion_processing::BoardExtent(), frame_size, params) != area;
+                if (area_moved)
+                {
+                    log_warning("I1687 WINDOW AREA: camera " + to_string(i + 1) + "'s window averaged its board's area only, "
+                                "and its board is no longer that area -- the figures outside the old area are this cycle's grey");
+                }
+            }
+            if (compare && region.known)
+            {
+                Mat differs = area_thresh != thresh;
+                bitwise_and(differs, region.tip_mask, differs);
+                cumulative_mismatch = countNonZero(differs);
+                Mat area_inside;
+                bitwise_and(area_thresh, region.mask, area_inside);
+                area_board_changed = countNonZero(area_inside);
+            }
+
             // set camera result
             result.camera_results[i].total_changed_pixels = total_changed_pixels;
             result.camera_results[i].change_ratio = change_ratio;
             result.camera_results[i].total_pixels = total_pixels;
+            result.camera_results[i].figure_on_area = figure_on_area;
             result.camera_results[i].board_changed_pixels = board_changed_pixels;
             result.camera_results[i].board_pixels = board_pixels;
 
@@ -1380,13 +1594,28 @@ namespace dart_processing
                 if (!working_backgrounds[i].empty())
                 {
                     cycle_cost::Scope fresh_timer(cycle_cost::D_FRESH);
-                    Mat diff_working;
-                    absdiff(averaged_frame, working_backgrounds[i], diff_working);
-                    medianBlur(diff_working, diff_working, params.blur_kernel_size);                    // Smooth out noise in grayscale diff
-                    dilate(diff_working, diff_working, Mat(), Point(-1, -1), params.dilate_iterations); // Strengthen dart signals
-                    erode(diff_working, diff_working, Mat(), Point(-1, -1), params.erode_iterations);   // Remove small noise
-                    threshold(diff_working, single_thresh, params.background_diff_threshold, 255, THRESH_BINARY);
-                    cleanFreshMask(single_thresh, params.morph_kernel_size, shaft_axis::maskUnshiftIsOn());
+                    // #1687: the fresh diff over the window's area where it was cropped.
+                    const bool fresh_on_area = cropped && working_backgrounds[i].size() == frame_size;
+                    Mat area_fresh;
+                    if (fresh_on_area)
+                    {
+                        area_fresh = inFrame(windowDiffMask(averaged_area, working_backgrounds[i](area), params, nullptr),
+                                             frame_size, area);
+                    }
+                    if (!fresh_on_area || compare)
+                    {
+                        single_thresh = windowDiffMask(averaged_frame, working_backgrounds[i], params, nullptr);
+                    }
+                    else
+                    {
+                        single_thresh = area_fresh;
+                    }
+                    if (compare && region.known && fresh_on_area)
+                    {
+                        Mat differs = area_fresh != single_thresh;
+                        bitwise_and(differs, region.tip_mask, differs);
+                        fresh_mismatch = countNonZero(differs);
+                    }
                 }
                 else
                 {
@@ -1652,6 +1881,23 @@ namespace dart_processing
                 string a = getDartBoardStateName(previous_states[i]);
                 string b = getDartBoardStateName(candidate_state);
                 log_info("STATE GUESS: From: " + a + " -> " + b);
+            }
+
+            // #1687: the check's account of this camera-window.
+            if (compare)
+            {
+                window_check_compared++;
+                if (area_moved || averaged_mismatch != 0 || cumulative_mismatch != 0 || fresh_mismatch != 0 ||
+                    area_board_changed != board_changed_pixels)
+                {
+                    window_check_mismatches++;
+                    log_info("I1687CHECK MISMATCH window=" + to_string(window_serial) + " cam=" + to_string(i + 1) +
+                             " area_moved=" + to_string((int)area_moved) + " averaged=" + to_string(averaged_mismatch) +
+                             " cumulative=" + to_string(cumulative_mismatch) + " fresh=" + to_string(fresh_mismatch) +
+                             " board=" + to_string(board_changed_pixels) + "/" + to_string(area_board_changed));
+                }
+                log_info("I1687CHECK compared=" + to_string(window_check_compared) +
+                         " mismatches=" + to_string(window_check_mismatches));
             }
 
             // store previous state so we can compare to global variable
@@ -2047,7 +2293,7 @@ namespace dart_processing
                 line += " | cam" + to_string(i + 1) + " " + getDartBoardStateName(r.detected_state) +
                         " board=" + to_string(r.board_changed_pixels) + "/" + to_string(r.board_pixels) +
                         " fresh=" + to_string(r.fresh_board_pixels) +
-                        " frame=" + to_string(r.total_changed_pixels);
+                        (r.figure_on_area ? " area=" : " frame=") + to_string(r.total_changed_pixels);
                 if (!r.frame_available)
                     line += " NOFRAME";
                 if (r.abstained_no_board)
