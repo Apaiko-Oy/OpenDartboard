@@ -45,7 +45,7 @@ T0=$(date +%s.%N)
 # unchanged. Only the opt-in switches the bakeoff is asked to measure are named here
 # (#1650 added OD_COOLDOWN_EXPIRY, #1649 OD_AXIS_UNSHIFT, #1652 OD_MASK_UNSHIFT and its
 # census pin OD_MASK_SHIFT_CENSUS, #1656 OD_BULL_SUBPIXEL, #1677 OD_SPIKE_THRESHOLD, #1678
-# OD_LONE_CAMERA and its census OD_LONE_CENSUS, #1687 OD_WINDOW_CROP).
+# OD_LONE_CAMERA and its census OD_LONE_CENSUS, #1687 OD_WINDOW_CROP, OD_BOARD_COUNT).
 #
 # #1655: OD_MOTION_CLOCK selects the clock the motion timers (cooldown, spike window,
 # safety timeout) run on. This harness replays one frame per cycle as fast as the box
@@ -62,7 +62,7 @@ T0=$(date +%s.%N)
 # OD_MOTION_CLOCK=wall pins the pre-#1655 instrument; its figures move with the box's load.
 export OD_MOTION_CLOCK="${OD_MOTION_CLOCK:-capture}"
 FWD=()
-for v in OD_MOTION_CLOCK OD_WINDOW_UNIT OD_WINDOW_CROP OD_SPIKE_THRESHOLD OD_LONE_CAMERA OD_LONE_CENSUS OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS OD_BULL_SUBPIXEL OD_SOLVE_CONTROL; do
+for v in OD_MOTION_CLOCK OD_WINDOW_UNIT OD_WINDOW_CROP OD_BOARD_COUNT OD_SPIKE_THRESHOLD OD_LONE_CAMERA OD_LONE_CENSUS OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS OD_BULL_SUBPIXEL OD_SOLVE_CONTROL; do
   if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1555 FORWARD $v=${!v}"; fi
 done
 

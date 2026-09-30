@@ -134,6 +134,40 @@ namespace dart_processing
         return v;
     }
 
+    // The mask a camera's BOARD COUNTS are taken in -- the cumulative figure the vote
+    // decides on and the fresh figure that says a new dart arrived.
+    //
+    //   OD_BOARD_COUNT unset  the scoring area, Region::mask (the double's outer edge)
+    //   OD_BOARD_COUNT=rim    the physical board, Region::tip_mask (out to the rim)
+    //
+    // Why rim is asked for: live on 2026-09-30 (v0.1.13, 39 throws) every dart inside the
+    // double ring published and none at or beyond it did -- D16, D15 and eight misses on
+    // the surround, each lost 1-2 in the STATE VOTE: the camera seeing the dart side-on
+    // counted 5,000-27,000 px, the other two a few hundred, because only the tip of a
+    // dart at the ring is inside the double's ellipse and its barrel and flight lie
+    // outside. The share stays a fraction of the SCORING area (Region::pixels), so every
+    // threshold keeps its units and a dart's figure can only grow; the thrower at the
+    // frame's edge (#1345) stays outside, because the rim is where #1364's tip search
+    // already stops.
+    static bool boardCountAtRim()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_BOARD_COUNT");
+            const bool rim = e && string(e) == "rim";
+            if (rim)
+                log_info("OD_BOARD_COUNT=rim: each camera's board counts are taken out to the board's rim, "
+                         "as fractions of its scoring area");
+            return rim;
+        }();
+        return v;
+    }
+
+    static const Mat &countMask(const Region &r)
+    {
+        return boardCountAtRim() ? r.tip_mask : r.mask;
+    }
+
     // The diff chain's reach in pixels, generously: medianBlur's radius, one per dilate
     // and erode iteration, and cleanFreshMask's eight morphology passes (four with the
     // k x k kernel, four with the k/2 one, each reaching less than its size), plus 8.
@@ -1462,7 +1496,7 @@ namespace dart_processing
             if (region.known)
             {
                 Mat inside;
-                bitwise_and(thresh, region.mask, inside);
+                bitwise_and(thresh, countMask(region), inside);
                 board_changed_pixels = countNonZero(inside);
                 board_pixels = region.pixels;
             }
@@ -1491,7 +1525,7 @@ namespace dart_processing
                 bitwise_and(differs, region.tip_mask, differs);
                 cumulative_mismatch = countNonZero(differs);
                 Mat area_inside;
-                bitwise_and(area_thresh, region.mask, area_inside);
+                bitwise_and(area_thresh, countMask(region), area_inside);
                 area_board_changed = countNonZero(area_inside);
             }
 
@@ -1646,7 +1680,7 @@ namespace dart_processing
                 if (decides_on_board)
                 {
                     Mat fresh_inside;
-                    bitwise_and(single_thresh, region.mask, fresh_inside);
+                    bitwise_and(single_thresh, countMask(region), fresh_inside);
                     const int fresh_pixels = countNonZero(fresh_inside);
                     result.camera_results[i].fresh_board_pixels = fresh_pixels;
                     fresh_share = 100.0 * (double)fresh_pixels / (double)board_pixels;
