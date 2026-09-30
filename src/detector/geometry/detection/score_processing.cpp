@@ -673,6 +673,64 @@ namespace score_processing
         return v;
     }
 
+    // #1707: what a lone camera's fallback reading publishes when a camera in the window
+    // was rim-only (it voted the arrival and offered no figure). Two cases, each from the
+    // live run on 2026-09-30 (issue-1689, run 2), whose four wrong scores were all this
+    // fallback:
+    //   - `unsupported`: the dart was CARRIED by rim-only votes (fewer cameras than the
+    //     quorum cleared the floor in the scoring area) and no camera offered a usable
+    //     axis. Such a dart is at or beyond the double on the cameras that did not see it
+    //     side-on, and a lone tip INSIDE the double (single, triple, either bull) with no
+    //     line behind it is the dart's barrel or flight over the board -> MISS. Live: the
+    //     misses read S5 (radius 0.47) and S18 (0.658). Left alone: the S20 at 0.871 had a
+    //     usable axis, and the S3 at 0.84 was not carried by the rim.
+    //   - a reading in the DOUBLE publishes, flagged, with the candidate across the nearer
+    //     of its two wires: the single inside (radius < 0.977, the band's middle at
+    //     166/170) or MISS outside. Live: a miss read D3 (0.994), an S2 read D2 (0.954).
+    //     The published score is unchanged; the thrower is offered the other one.
+    // Opt-in: OD_RIM_FALLBACK=on. Unset, the lone camera publishes as it reads.
+    struct RimFallback
+    {
+        bool to_miss = false;
+        bool flag = false;
+        string alternative;
+    };
+
+    static RimFallback rimCarriedFallback(bool applies, bool unsupported, const string &ring, int segment,
+                                          float radius)
+    {
+        RimFallback f;
+        if (!applies)
+            return f;
+        if (unsupported && (ring == "single" || ring == "triple" || ring == "bull" || ring == "outer"))
+        {
+            f.to_miss = true;
+        }
+        else if (ring == "double")
+        {
+            f.flag = true;
+            f.alternative = (radius >= 0.0f && radius < 0.977f && segment > 0) ? "S" + to_string(segment)
+                                                                                : string("MISS");
+        }
+        return f;
+    }
+
+    static bool rimFallbackIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_RIM_FALLBACK");
+            const bool on = e != nullptr && string(e) == "on";
+            if (on)
+            {
+                log_warning("OD_RIM_FALLBACK=on is set: a lone camera's reading beside a rim-only camera publishes "
+                            "MISS when it is unsupported inside the double, and flagged when it is in the double (#1707)");
+            }
+            return on;
+        }();
+        return v;
+    }
+
     // #1652: OD_MASK_SHIFT_CENSUS=1 prints one I1652TIP line per camera per solved-or-
     // refused dart, beside #1647's I1647FIT: the published tip the vote scored, where it
     // sits on that camera's board model, and what the even-kernel chain's (+4, +4) px
@@ -1202,6 +1260,42 @@ namespace score_processing
                 }
 
                 result.score = final_score;
+                // #1707: a lone camera's reading beside a rim-only camera (rimCarriedFallback).
+                bool any_rim_only = false;
+                for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+                {
+                    any_rim_only = any_rim_only || r.rim_only;
+                }
+                // The solver's own count, as its TOO-FEW story prints it ("0 usable
+                // constraint(s)"): no camera offered a line the tip could stand on.
+                int usable_lines = 0;
+                for (const entry_intersection::Constraint &con : solution.constraints)
+                {
+                    usable_lines += con.usable ? 1 : 0;
+                }
+                const bool no_usable_axis = decision.geometry_asked && !solution.solved && usable_lines == 0;
+                const RimFallback rim = rimCarriedFallback(
+                    any_rim_only && choice.agreeing < 2 && rimFallbackIsOn(),
+                    dart_result.rim_carried && no_usable_axis,
+                    point_scores[best_camera].ring, point_scores[best_camera].segment,
+                    point_scores[best_camera].board.has_radius ? point_scores[best_camera].board.radius : -1.0f);
+                if (rim.to_miss)
+                {
+                    log_info("I1707 RIM FALLBACK: camera " + to_string(best_camera) + " alone read " + final_score +
+                             " in the " + point_scores[best_camera].ring + " ring, with no usable axis on any "
+                             "camera, on a dart the rim-only votes carried -- its tip is the dart's barrel or "
+                             "flight over the board, so MISS publishes (#1707)");
+                    result.score = "MISS";
+                }
+                else if (rim.flag)
+                {
+                    log_info("I1707 RIM FALLBACK: camera " + to_string(best_camera) + " alone read " + final_score +
+                             " beside a rim-only camera, with no geometric entry, so it publishes flagged with " +
+                             rim.alternative + " across the nearer wire (#1707)");
+                    result.boundary_flagged = true;
+                    result.alternative_score = rim.alternative;
+                    result.boundary_kind = "ring";
+                }
                 result.pixel_position = dart_result.camera_results[best_camera].tip_position;
                 result.center_position = dart_result.camera_results[best_camera].center_position;
                 result.dartboard_position = dart_result.camera_results[best_camera].tip_position; // TODO: Convert to dartboard coordinates
@@ -1213,6 +1307,13 @@ namespace score_processing
                 result.ring = point_scores[best_camera].ring;
                 result.segment = point_scores[best_camera].segment;
                 result.board = point_scores[best_camera].board;
+                if (rim.to_miss)
+                {
+                    // Absent, as on the MISS published when no camera scored; `board`
+                    // keeps the radius the camera read, so the log can say where.
+                    result.ring.clear();
+                    result.segment = -1;
+                }
                 // #1487: and whether that camera's wedge was asserted, as a field.
                 result.wedge_asserted = point_scores[best_camera].wedge_asserted;
                 // #1489: three states where this line printed two. "wedge measured" and

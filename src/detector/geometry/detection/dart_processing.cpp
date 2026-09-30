@@ -1743,6 +1743,7 @@ namespace dart_processing
                     {
                         working_backgrounds[i] = averaged_frame.clone();
                     }
+                    result.camera_results[i].rim_only = true;
                     result.camera_results[i].axis.refusal =
                         "rim only: this camera's fresh change clears the floor out to the rim but not in the "
                         "scoring area, so it votes the arrival and offers no figure to fit (#1689)";
@@ -2023,6 +2024,8 @@ namespace dart_processing
         // We need to determine the best state based on majority rule
         // And also update the ones that are not in the best state to the best state
         int moves_up = 0;
+        // #1707: the up-voters that cleared the floor in the scoring area, not only to the rim
+        int moves_up_in_scoring = 0;
         int goes_clean = 0;
         int stays_same = 0;
         // #1348: the population the two counts below are counts OF, kept as a number
@@ -2061,6 +2064,10 @@ namespace dart_processing
             else if (result.camera_results[i].detected_state > best_previous_state)
             {
                 moves_up++;
+                if (!result.camera_results[i].rim_only)
+                {
+                    moves_up_in_scoring++; // #1707
+                }
             }
             else
             {
@@ -2108,6 +2115,7 @@ namespace dart_processing
                          "it -- a rim dart clipped by the scoring-area mask -- so they corroborate the "
                          "advance and the quorum of " + to_string(quorum) + " is met (#1678)");
                 moves_up += corroborating;
+                moves_up_in_scoring += corroborating; // their tips are in the scoring area
                 // A corroborating camera has been ruled a witness to THIS dart, so the tip
                 // and axis its figure yielded are its evidence for scoring it, as a camera
                 // that cleared the floor offers its own; otherwise the dart publishes from
@@ -2143,6 +2151,17 @@ namespace dart_processing
         else
         {
             final_state = best_previous_state; // Rule 2: Stay put
+        }
+
+        // #1707: an advance the scoring-area counts alone would have held. The scorer reads
+        // it (score_processing, rimCarriedFallback): the dart is at or beyond the double.
+        result.rim_carried = final_state > best_previous_state && moves_up_in_scoring < quorum;
+        if (result.rim_carried)
+        {
+            log_info("I1707 RIM CARRIED: " + to_string(moves_up) + " camera(s) moved up and " +
+                     to_string(moves_up_in_scoring) + " of them cleared the floor in the scoring area, under the "
+                     "quorum of " + to_string(quorum) + " -- the rim-only votes carried this dart, so it is at or "
+                     "beyond the double ring (#1707)");
         }
 
         // log

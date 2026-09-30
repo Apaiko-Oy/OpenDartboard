@@ -311,6 +311,57 @@ is not in the log. The two fixture misses that now publish had the same shape: 0
 the scoring area and hundreds in the physical board. A miss whose silhouette stays
 outside the rim on two cameras is still held.
 
+**The lone camera beside a rim-only camera (#1707), opt-in.** Live on 2026-09-30 with the
+#1689 build (issue-1689-live, runs 2 and 3, 48 throws), the new publications brought a
+new error. Every wrong published score was the DEGRADED single-camera fallback ("No
+consensus, using single camera score") in a window where a camera was rim-only. Misses
+read S5 (radius 0.47), S18 (0.658), S3 (0.461), D3 (0.994) and D14 (0.981), and an S2 read
+D2 (0.954). In the same runs the fallback was right on S20 (0.871), S3 (0.84), S12, S4,
+S18 and a real D11 (0.996), so refusing the fallback whenever a camera is rim-only would
+lose real darts. `OD_RIM_FALLBACK=on` separates them with two facts the window already
+has:
+
+- **Rim-carried.** The board advanced only because rim-only cameras voted: fewer cameras
+  than the quorum cleared the floor in the scoring area (`DartStateResult::rim_carried`,
+  logged `I1707 RIM CARRIED`). Such a dart is at or beyond the double on the cameras that
+  do not see it side-on.
+- **No usable line.** The solver had no usable axis at all (its TOO-FEW story reads
+  "0 usable constraint(s)").
+
+When both hold and the lone reading lies inside the double (single, treble or either
+bull), its tip is the dart's barrel or flight over the board, and MISS publishes. When the
+lone reading is in the double and any camera was rim-only, the score publishes flagged,
+with the candidate across the nearer wire: the single inside radius 0.977 (the band's
+middle, 166/170), MISS outside. Both are logged `I1707 RIM FALLBACK`.
+
+Against the live logs:
+
+| live reading | truth | rim-carried, no usable line | `OD_RIM_FALLBACK=on` |
+|---|---|---|---|
+| S5 (0.47), run 2 | miss | yes | **MISS** |
+| S18 (0.658), run 2 | miss | yes | **MISS** |
+| S3 (0.461), run 3 | miss | yes | **MISS** |
+| S20 (0.871), run 2 | S20 | no (1 usable line) | S20 |
+| S3 (0.84), run 2 | S3 | no (2 cameras in the scoring area) | S3 |
+| S18 (0.75), run 3 | S18 | no (2 cameras in the scoring area) | S18 |
+| D3 (0.994), run 2 | miss | no (2 cameras in the scoring area) | D3, flagged, alternative MISS |
+| D14 (0.981), run 3 | miss | yes, but in the double | D14, flagged, alternative MISS |
+| D2 (0.954), run 2 | S2 | no (2 cameras in the scoring area) | D2, flagged, alternative S2 |
+| D11 (0.996), run 3 | D11 | no (1 usable line) | D11, flagged, alternative MISS |
+
+These are read from the logs' refusal stories, not replayed. A camera refused "not
+straight" or "not a shaft" is counted as clearing the scoring-area floor, because its
+figure is only fitted after it does.
+
+On the capture-clock bakeoff, `OD_RIM_FALLBACK=on` publishes the same sequence as the
+default in all seven runs: 135..143/158 pooled, 82/86 on r18+r22, 0 phantoms. Rim-carried
+windows are rig-20260918 v4.3 (both windows) and rig-20260929 v6.2 and v7.1 (both
+windows). No reading turns into MISS, because both fixture misses already publish MISS.
+Two readings are flagged, in both windows: rig-20260922 v3.2's D20 (radius 0.979) and
+rig-20260929 v6.2's D5 (0.994), each with MISS as the alternative and each still
+publishing its correct score. The fixtures cannot measure the MISS rule, because they
+hold no miss read deep in the board. It stays opt-in until a live run says it holds.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles

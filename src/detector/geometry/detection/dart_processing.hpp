@@ -712,6 +712,9 @@ namespace dart_processing
         // frame instead is how the rig's camera 1 voted DART_1 on the thrower's shoes,
         // six windows out of six (#1345).
         bool abstained_no_board = false;
+        // #1689: this camera's fresh change cleared the floor only out to the rim, so it
+        // voted the arrival and offered no tip or axis ("rim only").
+        bool rim_only = false;
     };
 
     // Result of dart state detection
@@ -722,6 +725,10 @@ namespace dart_processing
         bool state_changed = false;                            // Did the state change this frame
         int confidence_frames = 0;                             // How many frames we've been confident in this state
         vector<CameraDetectionResult> camera_results;          // Results from each camera
+        // #1707: the board advanced only because rim-only cameras voted: the cameras that
+        // cleared the floor in the scoring area were fewer than the quorum. Such a dart is
+        // at or beyond the double ring on every camera but the ones that carried it.
+        bool rim_carried = false;
     };
 
     // get name of ENUM. Inline here since #1350, so the window account below -- and the
