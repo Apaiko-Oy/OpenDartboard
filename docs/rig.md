@@ -311,6 +311,45 @@ is not in the log. The two fixture misses that now publish had the same shape: 0
 the scoring area and hundreds in the physical board. A miss whose silhouette stays
 outside the rim on two cameras is still held.
 
+**A held arrival and the working background (#1690), opt-in.** When the vote holds a board
+that is not CLEAN while a camera moved up, nothing re-bases, so the refused figure stays in
+that camera's next fresh figure. Live on 2026-09-30 (v0.1.13) visit 13, the miss was held
+1-2 (camera 1 19,263 px, cameras 2 and 3 574 and 648), and camera 1 then read the miss and
+the D7 as one figure (397 x 197 px, 31 px RMS) and published S15. `OD_HELD_REBASE=on`
+re-bases every camera's working background to the held window, as an advance does (#1495),
+and logs `I1690 HELD REBASE`. A hand or shadow that one camera alone saw in the settled
+window is absorbed too; its leaving is then one camera's fresh figure, which the quorum
+holds again, and that held window re-bases back.
+
+Measured 2026-10-01 on the capture-clock bakeoff, one binary for every column (the
+`issue-1691` tree, which carries both switches):
+
+| | default | default, both switches | scoring pin | scoring pin + `OD_HELD_REBASE=on` |
+|---|---|---|---|---|
+| rig-20260918 (2 windows) | 38/40, 0 phantoms | 38/40, 0 phantoms | 38/40, 0 phantoms | 38/40, 0 phantoms |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 dev / opening | 26..30 / 27..31 of 36 | 26..30 / 27..31 | 20..28 / 21..29 | 20..29 / 21..30 |
+| pooled | 135..143/158 | 135..143/158 | 123..139/158 | 123..141/158 |
+| held votes with a camera moving up, per r18 / r22 / r29 run | 0 / 0 / 0 | 0 / 0 / 0 | 1 / 0 / 2 | 1 / 0 / 2 |
+
+- **On the default count it never fires.** No vote on any fixture holds an arrival, and the
+  default with both switches publishes exactly what the default does, in all seven replays.
+- **On the scoring pin it fires once per r18 run and once per r29 run.** r18's is v4.3's
+  miss, held at DART_2; the next window is the takeout, so nothing publishes differently.
+  r29's is v6.2's D5, held at DART_1 (camera 2 22,233 px, cameras 1 and 3 595 and 360). The
+  next window then publishes S1 (geometric, SOLVED, 2 constraints) where the pin published
+  MISS for D5 and S1 together, so v6.3 is exact in both windows. r29's other held vote is
+  at CLEAN (#1691's case), which this switch does not touch.
+- **Live on #1689.** Runs 1-3 of 2026-09-30 (the #1689 build, 48 called throws plus an
+  unannotated run) hold one arrival, at CLEAN (run 2 visit 7's miss). None is this switch's
+  case. On v0.1.13 the same day, five of 39 throws were held at DART_n, one of which (visit
+  13) cost the next dart its score.
+
+It stays opt-in: on the default count, which #1689 made, it has nothing to act on in the
+fixtures or the live runs. Its case is an arrival the rim count still cannot carry (a miss
+a second camera does not see even to the rim), and on the scoring pin, where that case
+exists, it is strictly better by one dart.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
