@@ -1192,6 +1192,13 @@ namespace dart_processing
                     {
                         area = windowAreaFor(boards[i], frame, params);
                     }
+                    if (area != window_areas[i] && area.size() != frame)
+                    {
+                        char buf[200];
+                        snprintf(buf, sizeof(buf), "I1687 WINDOW AREA: camera %zu's dart window works on %dx%d at (%d,%d), %.0f%% of its frame",
+                                 i + 1, area.width, area.height, area.x, area.y, 100.0 * area.area() / (double)(frame.width * frame.height));
+                        log_info(buf);
+                    }
                     window_areas[i] = area;
                     window_frame_sizes[i] = frame;
                     accumulated_frames[i] = Mat::zeros(area.size(), CV_32F);
