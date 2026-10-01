@@ -660,14 +660,14 @@ int main()
         say(list(rank(v)).rfind("S17,S19,S20,", 0) == 0,
             "runners-up by camera count, asserted last (" + list(rank(v)) + ")");
 
-        // A string-vote dart with NO millimetres and an unread angle, wedge measured: T, D,
-        // 25 in the fixed order, then both wedges anticlockwise first.
+        // A string-vote dart with NO millimetres and an unread angle, wedge measured: the
+        // treble, then both wedges anticlockwise first, then the double and the 25.
         Evidence s;
         s.published = "S11";
         s.ring = "single";
         s.segment = 11;
         s.wedge_read = true;
-        say(list(rank(s)) == "T11,D11,OUTER,S8,S14",
+        say(list(rank(s)) == "T11,S8,S14,D11,OUTER",
             "a vote dart with no millimetres still gets its neighbours (" + list(rank(s)) + ")");
 
         // An ASSERTED 20 (#1487): ring neighbours only, ordered by the radius the ruler gave.

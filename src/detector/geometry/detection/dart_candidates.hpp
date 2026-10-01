@@ -26,7 +26,8 @@
 //      arc (radius x sin) for a wedge wire. A neighbour whose distance cannot be
 //      measured (no radius, or no angle) follows every one that can, in a fixed order:
 //      rings before wedges, inner ring before outer, anticlockwise wedge before
-//      clockwise.
+//      clockwise -- except a single with no radius, whose treble comes first, then its
+//      two wedges, then the double and the 25.
 //
 // WHAT EACH KIND OF DART GETS from source 3:
 //   - a geometric publish: all four, ordered by the solved radius and angle;
@@ -191,10 +192,12 @@ namespace dart_candidates
                 else
                 {
                     // A single with no radius: the treble borders both single bands, so it
-                    // comes first; the double, then the 25.
+                    // comes first; then the two wedges (orders 10 and 11 below), because a
+                    // misread wedge is the commoner failure of a lone reading (#1628); the
+                    // double and the 25 last.
                     out.push_back({scoreOf('T', seg), -1.0f, 0});
-                    out.push_back({scoreOf('D', seg), -1.0f, 1});
-                    out.push_back({"OUTER", -1.0f, 2});
+                    out.push_back({scoreOf('D', seg), -1.0f, 12});
+                    out.push_back({"OUTER", -1.0f, 13});
                 }
             }
 
