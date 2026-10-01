@@ -586,6 +586,9 @@ void Scorer::run()
             {
                 log_info("END OF FOOTAGE cam " + to_string(c) + " last pos_ms=" + to_string(last_pos_ms[c]));
             }
+            // #1682: the motion trace (OD_TRACE) was written only on a cycle budget, so a
+            // whole-clip replay -- which ends here -- had none. Written on both ends now.
+            motion_processing::dumpTrace();
             running = false;
             break;
         }
