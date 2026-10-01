@@ -204,6 +204,21 @@ at all**; so is a `MISS`, and a takeout body stays `{}`. The two numbers are als
 the four decimal places Turnaus keeps, and an angle that rounds to `360.0000` is posted as `0`,
 because 360 degrees is 0 degrees. Nothing about what this socket publishes changed.
 
+**The Turnaus body also carries `candidates` on every dart, and the socket does not** (#1721,
+2026-10-01). On 2026-09-25 (#1628) the maintainer held this board's outward contract fixed: a
+vote-path publish carries no millimetre uncertainty and no second candidate (#1556 rule 1).
+On 2026-10-01 the maintainer asked for candidates with every dart, so the marking page's fix
+row always has something to tap; that supersedes the 2026-09-25 decision **for the Turnaus
+post body only**. A body posted to `/api/v1/{autoscorer,casual}/detections` may carry
+`candidates`: at most three sector strings, best first, in Turnaus's spelling (`Bull`, `25`,
+`None`, as `sector` is), never the dart's own place, and absent rather than `[]` when there is
+none. Four would be refused with a 422 and cost the dart, so three is the cap. They are ranked
+from what the scoring already knew - a flagged dart's other candidate first, then the other
+cameras' readings, then the rings and wedges across the nearest wires - and
+`src/detector/geometry/detection/dart_candidates.hpp` says what each kind of dart gets (an
+asserted 20 is offered its rings and never the wedges beside it). This socket's payload is
+exactly what the table above says; `candidates` is not in it.
+
 ### Finding a board on the network
 
 A board whose socket is open on the network - started with `--listen` - **announces itself
