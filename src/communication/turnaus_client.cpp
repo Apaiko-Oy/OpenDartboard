@@ -2,6 +2,7 @@
 #include "../utils/logging.hpp"
 #include "../utils/od_paths.hpp"
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -637,6 +638,48 @@ TurnausClient::DetectionBody TurnausClient::detectionBody(const std::string &ref
         {
             body["alternative"] = alternative;
             out.carries_alternative = true;
+        }
+    }
+
+    // #1721: where else this dart may be, best first, for the fix row on EVERY dart (the
+    // maintainer, 2026-10-01). The geometry ranks them (dart_candidates.hpp) in the
+    // socket's vocabulary; this is where they become the door's. #1720's door takes at
+    // most kMostCandidates and refuses a longer list with a 422 -- which deliver() drops,
+    // losing the DART and not just the list -- so the cap is applied here, AFTER
+    // translation and deduplication, never before: an entry that translates to nothing,
+    // or to a place already offered (OUTER and 25 are one place), or to this dart's own
+    // place, does not use up one of the three. No candidates, no key: such a dart posts
+    // exactly the bytes it posted before this field existed.
+    {
+        auto place = [](std::string word)
+        {
+            if (!word.empty() && word[0] == 's')
+            {
+                word[0] = 'S';
+            }
+            return word;
+        };
+        json ranked = json::array();
+        std::vector<std::string> offered;
+        for (const std::string &candidate : result.candidates)
+        {
+            if ((int)offered.size() >= kMostCandidates)
+            {
+                break;
+            }
+            const std::string word = postableSector(candidate);
+            if (word.empty() || place(word) == place(sector) ||
+                std::find(offered.begin(), offered.end(), place(word)) != offered.end())
+            {
+                continue;
+            }
+            offered.push_back(place(word));
+            ranked.push_back(word);
+        }
+        if (!ranked.empty())
+        {
+            body["candidates"] = ranked;
+            out.candidates_sent = (int)ranked.size();
         }
     }
 

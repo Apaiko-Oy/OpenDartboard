@@ -358,7 +358,19 @@ public:
          * #821's grammar. False for every unflagged dart, which carries no such key.
          */
         bool carries_alternative = false;
+        /**
+         * #1721: how many ranked `candidates` it carries, 0..kMostCandidates. Zero means
+         * no key at all, never an empty array.
+         */
+        int candidates_sent = 0;
     };
+
+    /**
+     * #1721: the most candidates `POST /api/v1/{autoscorer,casual}/detections` admits
+     * (#1720's `App\Autoscoring\PushedCandidates::MOST`). A fourth is a 422 for the whole
+     * dart, so it is never sent.
+     */
+    static constexpr int kMostCandidates = 3;
 
     static DetectionBody detectionBody(const std::string &reference, const DetectorResult &result);
 

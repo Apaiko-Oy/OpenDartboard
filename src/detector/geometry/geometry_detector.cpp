@@ -640,6 +640,8 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.boundary_kind = score_result.boundary_kind;
         result.boundary_mm = score_result.boundary_mm;
         result.uncertainty_mm = score_result.uncertainty_mm;
+        // #1721: the ranked candidates, for the Turnaus body and nothing else.
+        result.candidates = score_result.candidates;
         // The instant the frames behind this score were acquired, from the backend.
         result.timestamp = camera::newestInstantUs(frames);
     }
