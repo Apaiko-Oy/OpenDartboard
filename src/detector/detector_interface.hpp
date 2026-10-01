@@ -47,6 +47,12 @@ struct DetectorResult
     float boundary_mm = -1.0f;
     float uncertainty_mm = -1.0f;
 
+    // #1721: where else this dart may be, best first, in this vocabulary (S20, BULL,
+    // OUTER, MISS), never `score` itself, uncapped. For the Turnaus post body ONLY
+    // (TurnausClient::detectionBody translates it and sends at most three): the socket
+    // does not publish it, so docs/api.md's payload is exactly what it was.
+    vector<string> candidates;
+
     // Metadata for debugging/analysis
     bool motion_detected = false;
     int processing_time_ms = 0;

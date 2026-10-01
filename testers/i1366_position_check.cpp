@@ -30,6 +30,7 @@
 #include <nlohmann/json.hpp>
 
 #include "communication/turnaus_client.hpp"
+#include "detector/geometry/detection/dart_candidates.hpp"
 
 using json = nlohmann::json;
 
@@ -98,6 +99,24 @@ static DoorVerdict theDoor(const std::string &body)
         out.accepted = false;
         out.because = std::string("the body is not JSON: ") + e.what();
         return out;
+    }
+    // #1720's `PushedCandidates::rules()`: 'candidates' => ['sometimes', 'nullable', 'array',
+    // 'max:3']. The entries are never read by a rule (garbage is dropped past the door);
+    // the COUNT is refused, and a fourth costs the whole dart.
+    if (j.contains("candidates") && !j["candidates"].is_null())
+    {
+        if (!j["candidates"].is_array())
+        {
+            out.accepted = false;
+            out.because = "candidates is not an array: " + body;
+            return out;
+        }
+        if (j["candidates"].size() > 3)
+        {
+            out.accepted = false;
+            out.because = "candidates carries more than 3 (max:3): " + body;
+            return out;
+        }
     }
     const bool has_radius = j.contains("board_radius") && !j["board_radius"].is_null();
     const bool has_angle = j.contains("board_angle") && !j["board_angle"].is_null();
@@ -476,6 +495,243 @@ int main()
         say(dropped == 0, "every alternative the seam sends is one #1559's door keeps rather than drops (" +
                               std::to_string(dropped) + " dropped" + (first.empty() ? "" : ", first: " + first) +
                               ")");
+    }
+
+    // ---- #1721: EVERY DART'S RANKED CANDIDATES, in the grammar the door reads ----------
+    //
+    // #1720's door: 'candidates' => ['sometimes', 'nullable', 'array', 'max:3'], each entry
+    // dropped past the door when it is not a string Sector::PATTERN reads, a repeat, or the
+    // dart's own place. A FOURTH is a 422, and deliver() drops a 422, so a list one too long
+    // loses the dart. The seam translates through postableSector exactly as `sector` is.
+    {
+        const std::regex server_pattern("^(?:([SsDT])(20|1[0-9]|[1-9])|25|Bull|None)$");
+        const std::string TODAY =
+            "{\"board_angle\":12.3456,\"board_radius\":0.6123,\"bounced_out\":false,"
+            "\"reference\":\"" + REF + "\",\"sector\":\"T20\"}";
+
+        // No candidates: no key, today's bytes.
+        TurnausClient::DetectionBody none = TurnausClient::detectionBody(REF, placed("T20", 0.6123f, 12.3456f));
+        say(none.json == TODAY && none.candidates_sent == 0,
+            "a dart with no candidates posts exactly today's bytes, no key and no [] (" + none.json + ")");
+
+        // THE NEEDLE: present, in order, and nothing else about the body moved.
+        DetectorResult r = placed("T20", 0.6123f, 12.3456f);
+        r.candidates = {"S20", "T1", "T5"};
+        TurnausClient::DetectionBody b = TurnausClient::detectionBody(REF, r);
+        json j = json::parse(b.json);
+        say(j.contains("candidates") && j["candidates"] == json({"S20", "T1", "T5"}) && b.candidates_sent == 3,
+            "a dart posts its candidates, present and in the order ranked (" + b.json + ")");
+        json without = j;
+        without.erase("candidates");
+        say(without.dump() == TODAY, "take the key out and it is today's bytes");
+
+        // AT MOST THREE: six good ones send the first three, best first.
+        DetectorResult many = placed("S20", 0.5f, 3.0f);
+        many.candidates = {"S1", "S5", "T20", "D20", "S18", "S12"};
+        json mj = bodyOf(many);
+        say(mj["candidates"] == json({"S1", "S5", "T20"}),
+            "six ranked candidates send the best three and never a fourth (" + mj.dump() + ")");
+
+        // TRANSLATED, through the seam `sector` goes through.
+        DetectorResult words = dart("S17");
+        words.candidates = {"BULL", "OUTER", "MISS"};
+        say(bodyOf(words)["candidates"] == json({"Bull", "25", "None"}),
+            "BULL, OUTER and MISS are sent as Bull, 25 and None (" + bodyOf(words).dump() + ")");
+
+        // NEVER THE PUBLISHED SECTOR, compared by place (S20 and s20 are one twenty), and a
+        // dropped entry does not use up one of the three.
+        DetectorResult own = dart("S20");
+        own.candidates = {"S20", "s20", "X5", "S21", "OUTER", "25", "T20", "D20", "S1"};
+        say(bodyOf(own)["candidates"] == json({"25", "T20", "D20"}),
+            "the dart's own place, untranslatable words and a repeat after translation are "
+            "dropped before the cap, not after (" + bodyOf(own).dump() + ")");
+        DetectorResult bull = dart("BULL");
+        bull.candidates = {"Bull", "BULL", "OUTER"};
+        say(bodyOf(bull)["candidates"] == json({"25"}), "a Bull is never offered as the Bull's own fix");
+        DetectorResult miss = dart("MISS");
+        miss.candidates = {"MISS", "None"};
+        say(!bodyOf(miss).contains("candidates"), "a list that is all the dart's own place sends no key");
+
+        // EVERY body the seam builds from any list of these words is one the door admits and
+        // keeps whole: an array of at most 3, each readable, unique, and not the dart's place.
+        const std::vector<std::string> vocabulary = {"S1", "s1", "D20", "T20", "S20", "BULL", "OUTER", "MISS",
+                                                     "25", "Bull", "None", "S0", "S21", "T", "END", "", "s20", "T5"};
+        int bad = 0, sent = 0;
+        std::string first;
+        for (const std::string &published : vocabulary)
+        {
+            for (size_t start = 0; start < vocabulary.size(); start++)
+            {
+                for (size_t len = 0; len <= 8; len++)
+                {
+                    DetectorResult d = dart(published);
+                    for (size_t k = 0; k < len; k++)
+                    {
+                        d.candidates.push_back(vocabulary[(start + k * 5) % vocabulary.size()]);
+                    }
+                    TurnausClient::DetectionBody db = TurnausClient::detectionBody(REF, d);
+                    if (db.json.empty())
+                    {
+                        continue;
+                    }
+                    json dj = json::parse(db.json);
+                    if (!dj.contains("candidates"))
+                    {
+                        continue;
+                    }
+                    sent++;
+                    std::string own_place = dj["sector"].get<std::string>();
+                    if (!own_place.empty() && own_place[0] == 's')
+                    {
+                        own_place[0] = 'S';
+                    }
+                    bool ok = dj["candidates"].is_array() && dj["candidates"].size() >= 1 &&
+                              dj["candidates"].size() <= 3 && theDoor(db.json).accepted &&
+                              (int)dj["candidates"].size() == db.candidates_sent;
+                    std::vector<std::string> seen;
+                    for (const json &c : dj["candidates"])
+                    {
+                        std::string w = c.is_string() ? c.get<std::string>() : "";
+                        if (!w.empty() && w[0] == 's')
+                        {
+                            w[0] = 'S';
+                        }
+                        ok = ok && std::regex_match(w, server_pattern) && w != own_place &&
+                             std::find(seen.begin(), seen.end(), w) == seen.end();
+                        seen.push_back(w);
+                    }
+                    if (!ok)
+                    {
+                        bad++;
+                        if (first.empty())
+                        {
+                            first = db.json;
+                        }
+                    }
+                }
+            }
+        }
+        say(sent > 0 && bad == 0, "every candidates list the seam sends is admitted and kept whole by #1720's door (" +
+                                      std::to_string(sent) + " sent, " + std::to_string(bad) + " bad" +
+                                      (first.empty() ? "" : ", first: " + first) + ")");
+    }
+
+    // ---- #1721: THE RANKING, from what scoring already knew ------------------------------
+    {
+        using dart_candidates::Evidence;
+        using dart_candidates::rank;
+        auto list = [](const std::vector<std::string> &v)
+        {
+            std::string s;
+            for (const std::string &w : v)
+            {
+                s += (s.empty() ? "" : ",") + w;
+            }
+            return s;
+        };
+
+        // A geometric T20 sitting 1 mm inside the treble's outer wire, near the middle of
+        // the wedge: the single across that wire first, then the single inside (8 mm), then
+        // the wedges (~17 mm of arc away).
+        Evidence g;
+        g.published = "T20";
+        g.ring = "triple";
+        g.segment = 20;
+        g.wedge_read = true;
+        g.radius_known = true;
+        g.radius = 106.0f / 170.0f;
+        g.angle_known = true;
+        g.angle = 2.0f;
+        say(list(rank(g)) == "S20,T1,T5", "a geometric T20 by its outer wire: S20, then the nearer wedge (" +
+                                              list(rank(g)) + ")");
+        // The same dart, flagged across a wedge wire, with a camera that read T1: the flag
+        // first, the vote's runner-up next, then the nearest wire.
+        Evidence gf = g;
+        gf.alternative = "T5";
+        gf.others = {{"T20", false}, {"T1", false}, {"T20", false}};
+        say(list(rank(gf)) == "T5,T1,S20", "flag, then runner-up, then nearest wire (" + list(rank(gf)) + ")");
+
+        // Runners-up: most cameras first, an asserted reading after every measured one.
+        Evidence v;
+        v.published = "S3";
+        v.ring = "single";
+        v.segment = 3;
+        v.others = {{"S20", true}, {"S19", false}, {"S17", false}, {"S17", false}, {"S3", false}};
+        say(list(rank(v)).rfind("S17,S19,S20,", 0) == 0,
+            "runners-up by camera count, asserted last (" + list(rank(v)) + ")");
+
+        // A string-vote dart with NO millimetres and an unread angle, wedge measured: T, D,
+        // 25 in the fixed order, then both wedges anticlockwise first.
+        Evidence s;
+        s.published = "S11";
+        s.ring = "single";
+        s.segment = 11;
+        s.wedge_read = true;
+        say(list(rank(s)) == "T11,D11,OUTER,S8,S14",
+            "a vote dart with no millimetres still gets its neighbours (" + list(rank(s)) + ")");
+
+        // An ASSERTED 20 (#1487): ring neighbours only, ordered by the radius the ruler gave.
+        Evidence a;
+        a.published = "S20";
+        a.ring = "single";
+        a.segment = 20;
+        a.wedge_read = false;
+        a.radius_known = true;
+        a.radius = 155.0f / 170.0f;
+        a.angle_known = true;
+        a.angle = 8.5f;
+        say(list(rank(a)) == "D20,T20", "an asserted 20 gets the rings and never the 1 or the 5 (" +
+                                            list(rank(a)) + ")");
+
+        Evidence bl;
+        bl.published = "BULL";
+        bl.ring = "bull";
+        say(list(rank(bl)) == "OUTER", "a BULL gets the 25");
+        Evidence ob;
+        ob.published = "OUTER";
+        ob.ring = "outer";
+        ob.wedge_read = true;
+        ob.radius_known = true;
+        ob.radius = 14.0f / 170.0f;
+        ob.angle_known = true;
+        ob.angle = 90.0f; // the 6
+        say(list(rank(ob)) == "S6,BULL", "a 25 near its outer wire: the single it points into, then the BULL (" +
+                                             list(rank(ob)) + ")");
+        Evidence d;
+        d.published = "D16";
+        d.ring = "double";
+        d.segment = 16;
+        say(list(rank(d)).rfind("S16,MISS", 0) == 0, "a double gets its single and the MISS (" + list(rank(d)) + ")");
+        Evidence m;
+        m.published = "MISS";
+        m.wedge_read = true;
+        m.radius_known = true;
+        m.radius = 172.0f / 170.0f;
+        m.angle_known = true;
+        m.angle = 0.0f;
+        say(list(rank(m)) == "D20", "a measured MISS just past the double gets that double");
+        Evidence nothing;
+        nothing.published = "MISS";
+        say(rank(nothing).empty(), "a MISS with no place and no other camera gets nothing, so sends no key");
+
+        // End to end: the ranking into the body, before (no key) and after.
+        struct Case
+        {
+            const char *name;
+            Evidence e;
+        };
+        for (const Case &c : {Case{"geometric T20", gf}, Case{"vote S11, no mm", s}, Case{"asserted S20", a},
+                              Case{"OUTER", ob}, Case{"D16", d}})
+        {
+            DetectorResult dr = dart(c.e.published);
+            const std::string before = TurnausClient::detectionBody(REF, dr).json;
+            dr.candidates = rank(c.e);
+            const TurnausClient::DetectionBody after = TurnausClient::detectionBody(REF, dr);
+            std::cout << "  BODY " << c.name << "\n    before " << before << "\n    after  " << after.json
+                      << std::endl;
+            say(after.candidates_sent >= 1 && after.candidates_sent <= 3 && theDoor(after.json).accepted,
+                std::string(c.name) + ": the ranked list reaches the body, capped and admitted");
+        }
     }
 
     // ---- EVERY body this seam can produce satisfies the door ---------------------------

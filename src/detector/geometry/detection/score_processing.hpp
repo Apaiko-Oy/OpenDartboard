@@ -150,6 +150,11 @@ namespace score_processing
         // outward contract and says what a vote publish carries; this field feeds the log
         // (`noticeAnAssertedWedge`) and nothing that leaves the board.
         bool wedge_asserted = false;
+        // #1721: where else this dart may be, best first, in this vocabulary and uncapped
+        // (dart_candidates.hpp ranks it; TurnausClient::detectionBody translates and caps
+        // it for the door). Decided AFTER `score` and from it, so it can move nothing that
+        // publishes. Not published on the socket: docs/api.md is unchanged.
+        vector<string> candidates;
     };
 
     /**

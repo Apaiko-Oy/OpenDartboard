@@ -7,6 +7,7 @@
 #include "../calibration/board_model.hpp"
 #include "../calibration/wire_processing.hpp"
 #include "entry_intersection.hpp"
+#include "dart_candidates.hpp"
 
 using namespace cv;
 using namespace std;
@@ -1370,6 +1371,33 @@ namespace score_processing
                 }
             }
 
+            // #1721: where else this dart may be, for the fix row -- ranked AFTER every
+            // line above has decided what publishes, from what they already knew, and
+            // read by nothing here. dart_candidates.hpp holds the ranking and says what
+            // each kind of dart gets.
+            {
+                dart_candidates::Evidence evidence;
+                evidence.published = result.score;
+                evidence.ring = result.ring;
+                evidence.segment = result.segment;
+                evidence.wedge_read = result.from_geometry
+                                          ? result.board.has_angle
+                                          : (choice.camera >= 0 && point_scores[choice.camera].wedge_measured);
+                evidence.radius_known = result.board.has_radius;
+                evidence.radius = result.board.radius;
+                evidence.angle_known = result.board.has_angle;
+                evidence.angle = result.board.angle;
+                evidence.alternative = result.boundary_flagged ? result.alternative_score : string();
+                for (size_t i = 0; i < point_scores.size() && i < may_vote.size(); i++)
+                {
+                    if (may_vote[i])
+                    {
+                        evidence.others.push_back({point_scores[i].score, point_scores[i].wedge_asserted});
+                    }
+                }
+                result.candidates = dart_candidates::rank(evidence);
+            }
+
             // #1555: the machine-readable half of the same fact, for every called dart
             // and from ONE place, so no branch can be the one that forgets to say what
             // published. Behind the census pin, like the I1512 lines it sits beside.
@@ -1405,6 +1433,14 @@ namespace score_processing
                 // landed in the flagged set.
                 log_info(flagCensusLine(window, crossing, result.confidence,
                                         result.from_geometry, result.score));
+                // #1721: what the fix row would be offered, beside what published.
+                string ranked;
+                for (const string &c : result.candidates)
+                {
+                    ranked += (ranked.empty() ? "" : ",") + c;
+                }
+                log_info("I1721CANDIDATES window=" + to_string(window) + " published=" + result.score +
+                         " candidates=" + (ranked.empty() ? string("-") : ranked));
             }
             break;
         }
