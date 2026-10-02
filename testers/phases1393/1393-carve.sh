@@ -1,6 +1,12 @@
 set -u
 # #1393: the 50-point bull carve is a fraction of the BOARD, not a fifteenth of the
-# frame -- measured, on the binary in build/, on both fixtures and on one binary.
+# frame -- measured, on the binary in build/, on the rig and on one binary.
+#
+# #1478: the shipped mocks' column of sections 1 to 4 is gone -- their bulls, carves, red
+# carved and fitted boards. The rig's was measured beside it and is the assertion now
+# (docs/shipped-mock-census.md, A1). Section 5 is NOT re-pointed: it halves the board in
+# frame, and the rig is 1.07x from not calibrating at all (1339-denominator's header), so
+# there is nothing at half size to make from it. It stays on the mocks' camera 1.
 #
 # What this stage decides is not cosmetic. Everything red within `searchRadius` of the
 # bull centre becomes `bullMask`, and `bullMask` is carved out of `fullMask` before the
@@ -18,7 +24,6 @@ set -u
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 CVFLAGS="$(pkg-config --cflags --libs opencv4)"
 
@@ -53,10 +58,9 @@ fitted() { grep -hoE 'degrees: [0-9]+ px' /run1393/$1.txt | grep -oE '[0-9]+' | 
 triples() { grep -hoE '(outer|inner) triple ellipse from.*area: [0-9]+' /run1393/$1.txt \
   | sed 's/ ellipse from largest contour//;s/ ellipse from contour [0-9]//' | sort -u | tr '\n' '|'; }
 
-echo "=== 1. both fixtures calibrate, with the six bull centres and six boards ======="
-run mocks "$MOCKS"
+echo "=== 1. the rig calibrates, with its three bull centres and three boards ========"
 run rig "$RIG"
-for fix in mocks rig; do
+for fix in rig; do
   if grep -q 'Initial calibration completed successfully on 3 of 3' /run1393/$fix.txt; then
     say "OK   $fix calibrates on all three cameras" ok
   else say "FAIL $fix did not calibrate on all three cameras" no; fi
@@ -64,10 +68,6 @@ done
 # #1320's six, asserted by #1323 and #1331 before this slice and unmoved by it. The carve
 # is built AROUND the bull centre, so a centre that moved would mean the stage above had
 # been disturbed rather than this one.
-for e in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bull at (654,293)"; do
-  if grep -qF "$e" /run1393/mocks.txt; then say "OK   mocks: $e" ok
-  else say "FAIL mocks: no line saying $e" no; fi
-done
 for e in "Camera 1 bull at (671,309)" "Camera 2 bull at (626,292)" "Camera 3 bull at (700,298)"; do
   if grep -qF "$e" /run1393/rig.txt; then say "OK   rig: $e" ok
   else say "FAIL rig: no line saying $e" no; fi
@@ -77,23 +77,18 @@ echo
 echo "=== 2. the carve radius per camera, and what it used to be ====================="
 # The before/after #1393 asks for, on ONE binary. OD_BULL_CARVE=frame restores
 # min(cols, rows) / 15 exactly, so neither column is a different build.
-run mocksframe "$MOCKS" OD_BULL_CARVE=frame
 run rigframe "$RIG" OD_BULL_CARVE=frame
-grep -hoE 'Camera [0-9]+ bull carve:.*' /run1393/mocks.txt | sort -u
 grep -hoE 'Camera [0-9]+ bull carve:.*' /run1393/rig.txt | sort -u
-if [ "$(radii mocks)" = "27 29 29 " ]; then
-  say "OK   mocks: 27, 29 and 29 px, 0.0935x boards of 291, 315 and 309 px" ok
-else say "FAIL mocks carves at $(radii mocks), not 27 29 29" no; fi
 if [ "$(radii rig)" = "18 18 18 " ]; then
   say "OK   rig: 18 px on all three, 0.0935x boards of 195, 196 and 197 px" ok
 else say "FAIL rig carves at $(radii rig), not 18 18 18" no; fi
-if [ "$(radii mocksframe)" = "48 48 48 " ] && [ "$(radii rigframe)" = "48 48 48 " ]; then
-  say "OK   under the frame rule all six are 48 px -- the same number on a 291 px board and a 195 px one" ok
-else say "FAIL the frame rule gave $(radii mocksframe) and $(radii rigframe), not six 48s" no; fi
+if [ "$(radii rigframe)" = "48 48 48 " ]; then
+  say "OK   under the frame rule all three are 48 px -- a fifteenth of the frame, whatever the board" ok
+else say "FAIL the frame rule gave $(radii rigframe), not three 48s" no; fi
 # The switch has to be capable of changing the number it is asked about, or phase 3's
 # "nothing moved" is what a switch that does nothing would also say.
-if [ "$(radii mocks)" != "$(radii mocksframe)" ] && [ "$(radii rig)" != "$(radii rigframe)" ]; then
-  say "OK   OD_BULL_CARVE=frame really moves the carve on both fixtures" ok
+if [ "$(radii rig)" != "$(radii rigframe)" ]; then
+  say "OK   OD_BULL_CARVE=frame really moves the carve on the rig" ok
 else say "FAIL OD_BULL_CARVE=frame changed no carve radius; the control below proves nothing" no; fi
 
 echo
@@ -109,11 +104,7 @@ echo "=== 3. WAS THE OVER-CARVE MASKING ANYTHING? the red it really took =======
 # at all. 48 px is 0.165 of the mocks' fitted doubles semi-axis and 0.152 of the rig's --
 # both inside that empty annulus -- so the frame rule was over-carving into a part of the
 # mask that had nothing in it. Phase 5 is where it stops being empty.
-echo "mocks red carved: $(carved mocks) (derived) vs $(carved mocksframe) (frame)"
 echo "rig   red carved: $(carved rig) (derived) vs $(carved rigframe) (frame)"
-if [ "$(carved mocks)" = "364 364 355 " ] && [ "$(carved mocksframe)" = "364 364 355 " ]; then
-  say "OK   mocks: 364, 364 and 355 px of red under BOTH rules -- 48 px reached nothing 27 did not" ok
-else say "FAIL mocks carved $(carved mocks) derived and $(carved mocksframe) framed; #1393 measured 364 364 355 both" no; fi
 # The rig is where it is not quite nothing, and the one camera that differs is worth its
 # own line rather than a tolerance: 81 px of red, 19% more, on camera 3 alone.
 if [ "$(carved rig)" = "430 425 418 " ] && [ "$(carved rigframe)" = "430 425 499 " ]; then
@@ -126,17 +117,13 @@ echo "=== 4. and the ring fit did not move, under either rule ==================
 # carved out of fullMask UPSTREAM of the fit that produces them. Both columns, because
 # the claim is that the fit is the same under the old carve and the new one -- and the
 # 81 px camera 3 lost in phase 3 is inside this number.
-echo "mocks fitted: $(fitted mocks) | framed: $(fitted mocksframe)"
 echo "rig   fitted: $(fitted rig) | framed: $(fitted rigframe)"
-if [ "$(fitted mocks)" = "183859 173006 175444 " ] && [ "$(fitted mocksframe)" = "183859 173006 175444 " ]; then
-  say "OK   mocks: 183859, 173006 and 175444 px under both rules -- 1331-framing 2.5's pins" ok
-else say "FAIL mocks fitted $(fitted mocks) / $(fitted mocksframe), not 1331-framing 2.5's 183859 173006 175444" no; fi
 if [ "$(fitted rig)" = "197117 200385 194335 " ] && [ "$(fitted rigframe)" = "197117 200385 194335 " ]; then
   say "OK   rig: 197117, 200385 and 194335 px under both rules -- 1331-framing 2.5's pins" ok
 else say "FAIL rig fitted $(fitted rig) / $(fitted rigframe), not 1331-framing 2.5's 197117 200385 194335" no; fi
 # The triples are the mask this carve reaches before the doubles, so they are asked
 # separately rather than taken as covered by the fitted board above.
-for fix in mocks rig; do
+for fix in rig; do
   if [ "$(triples $fix)" = "$(triples ${fix}frame)" ] && [ -n "$(triples $fix)" ]; then
     say "OK   $fix: the triples contours are the same under both rules" ok
   else say "FAIL $fix triples $(triples $fix) against $(triples ${fix}frame)" no; fi
