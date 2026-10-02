@@ -400,7 +400,7 @@ namespace geometry_calibration
             log_refusal("Camera " + log_string(cameraIdx + 1) +
                         " did not calibrate: there is no board in this frame to build a region around -- " +
                         board.failure + "." + log_string_src(look));
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+            board_sight::recordCameraFault(cameraIdx, "camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: there is no board in this frame -- " + board.failure);
             return calibration;
         }
@@ -432,7 +432,7 @@ namespace geometry_calibration
             const string why = board_look::refusal(calibration.look);
             log_refusal("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +
                         log_string_src(why) + ".");
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " did not calibrate: it " + why);
+            board_sight::recordCameraFault(cameraIdx, "camera " + to_string(cameraIdx + 1) + " did not calibrate: it " + why);
             return calibration;
         }
 
@@ -628,7 +628,7 @@ namespace geometry_calibration
                         " did not calibrate: the bull could not be found, so there is no centre to "
                         "build the doubles mask around or to trace the rays from -- " +
                         bull.failure + "." + look);
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+            board_sight::recordCameraFault(cameraIdx, "camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: the bull could not be found -- " + bull.failure);
             return calibration; // ellipses.hasValidDoubles stays false, so the board fails
         }
@@ -758,7 +758,7 @@ namespace geometry_calibration
                         " did not calibrate: the doubles ring could not be fitted, so wire "
                         "detection and perspective correction cannot run -- " +
                         reason + "." + log_string_src(look));
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+            board_sight::recordCameraFault(cameraIdx, "camera " + to_string(cameraIdx + 1) +
                                      " did not calibrate: the doubles ring could not be fitted -- " + reason);
         }
         else if (refused != board_look::Refused::None)
@@ -769,7 +769,7 @@ namespace geometry_calibration
             // against the threshold that refused it.
             const string why = board_look::refusal(calibration.look);
             log_refusal("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(why) + ".");
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) + " " + why);
+            board_sight::recordCameraFault(cameraIdx, "camera " + to_string(cameraIdx + 1) + " " + why);
         }
 
         if (refused != board_look::Refused::None)
@@ -852,7 +852,7 @@ namespace geometry_calibration
                     : "the wire stage found " + count + " wire boundaries and all " + needed +
                           " are needed to tell one wedge from the next, so this camera cannot be scored with.";
             log_refusal("Camera " + log_string(cameraIdx + 1) + " did not calibrate: " + log_string_src(why));
-            board_sight::recordFault("camera " + to_string(cameraIdx + 1) +
+            board_sight::recordCameraFault(cameraIdx, "camera " + to_string(cameraIdx + 1) +
                                      (fitRefused
                                           ? " did not calibrate: the wire stage could not place a board "
                                             "plane it trusts (coherence " + to_string(wireData.fit_coherence) + ")"

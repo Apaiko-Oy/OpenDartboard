@@ -38,7 +38,9 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <string>
+#include <vector>
 
 namespace board_sight
 {
@@ -134,6 +136,83 @@ namespace board_sight
         {
             faultDetail() = detail;
         }
+    }
+
+    /**
+     * #1733: what each CAMERA was refused with, by its 0-based index -- the first sentence
+     * per camera, written beside the board's own first-fault-wins slot rather than instead
+     * of it. Never destroyed, for `faultDetail`'s reason.
+     *
+     * It exists for one reader. #1445 looks again at a camera refused on the averaged
+     * frame, and the slot above is first-fault-wins, so the first pass's refusal of that
+     * camera holds it whatever the looks find. Knowing WHICH camera a sentence is about is
+     * what lets `faultAfterLooks` take it back when a look calibrated that camera.
+     */
+    inline std::map<int, std::string> &cameraFaults()
+    {
+        static auto *said = new std::map<int, std::string>(); // owned for the life of the process
+        return *said;
+    }
+
+    /** `recordFault`, said about one camera: the board's slot and that camera's, both first-wins. */
+    inline void recordCameraFault(int camera, const std::string &detail)
+    {
+        cameraFaults().emplace(camera, detail);
+        recordFault(detail);
+    }
+
+    /**
+     * #1733: the fault a board holds once #1445's looks are over. Pure, so the decision can
+     * be read in one place.
+     *
+     *   before     the slot as the first pass left it
+     *   said       `cameraFaults()` as the first pass left it
+     *   rescued    the cameras refused on the averaged frame that a further look sealed
+     *
+     * A sentence about a camera the looks calibrated is not this board's fault: that
+     * camera is sealed and scoring. So it goes, and the slot holds what first-fault-wins
+     * would have held had that camera never been refused -- the first pass records in
+     * camera order, so that is the lowest camera that said anything and was not rescued --
+     * or nothing, which leaves the slot to the gate's own refusal. Every other sentence is
+     * kept as it was: one about a camera refused on every look is the same words as before
+     * #1733, and one about no camera at all is not the looks' to take back.
+     */
+    inline std::string faultAfterLooks(const std::string &before, const std::map<int, std::string> &said,
+                                       const std::vector<int> &rescued)
+    {
+        const auto was_rescued = [&](int camera)
+        {
+            for (int r : rescued)
+            {
+                if (r == camera)
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        bool about_a_rescued_camera = false;
+        for (const auto &entry : said)
+        {
+            if (entry.second == before)
+            {
+                about_a_rescued_camera = was_rescued(entry.first);
+                break;
+            }
+        }
+        if (before.empty() || !about_a_rescued_camera)
+        {
+            return before;
+        }
+        for (const auto &entry : said) // ascending camera index
+        {
+            if (!was_rescued(entry.first))
+            {
+                return entry.second;
+            }
+        }
+        return std::string();
     }
 
     /**
