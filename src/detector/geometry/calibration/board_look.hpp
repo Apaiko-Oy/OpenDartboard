@@ -508,6 +508,31 @@ namespace board_look
     }
 
     /**
+     * #1732: THE FRAMING HALF OF `verdict`, and the one definition of it.
+     *
+     * The three refusals STEP 1.5 of calibrateSingleCamera asks before any ring is traced
+     * -- a flooded frame, OD_LOOK=frame's single test, and a board the frame's own edge
+     * cuts (ADR-0079 §2) -- or `None` for every other verdict. They are the questions about
+     * where the camera is MOUNTED rather than about the picture it took, and two callers
+     * need them: STEP 1.5, which refuses on them, and #1445's further looks, which may not
+     * overturn them (geometry_detector.cpp, `lookAgainAtRefusedCameras`).
+     *
+     * Asked with `ring_pixels` cleared, because that is the evidence STEP 1.5 had: the
+     * field is written later, by the ring stage, and OD_LOOK=frame's `frameFraction` prefers
+     * it as its numerator. Without this a camera refused by the RING stage could read as a
+     * framing refusal after the fact, under that falsifier alone.
+     */
+    inline Refused framingVerdict(const Evidence &e, const Limits &limits = Limits())
+    {
+        Evidence asked = e;
+        asked.ring_pixels = 0;
+        const Refused v = verdict(asked, limits);
+        return (v == Refused::FloodedFrame || v == Refused::TooMuchRedGreen || v == Refused::BoardClipped)
+                   ? v
+                   : Refused::None;
+    }
+
+    /**
      * Why this camera is refused, or an empty string when it is not.
      *
      * #1321's rule, which this obeys: the count is asserted against the threshold that

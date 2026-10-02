@@ -424,10 +424,10 @@ namespace geometry_calibration
         // been traced, because nothing has tried, so the whole verdict would read
         // `RingNotTraced` and refuse every camera in the building -- measured, on both
         // rigs, while writing this.
-        const board_look::Refused framing = board_look::verdict(calibration.look);
-        if (framing == board_look::Refused::FloodedFrame ||
-            framing == board_look::Refused::TooMuchRedGreen || // OD_LOOK=frame's single test
-            framing == board_look::Refused::BoardClipped)
+        //
+        // #1732: the set is `board_look::framingVerdict`, so that #1445's further looks ask
+        // exactly the question this stage refused on and cannot drift from it.
+        if (board_look::framingVerdict(calibration.look) != board_look::Refused::None)
         {
             const string why = board_look::refusal(calibration.look);
             log_refusal("Camera " + log_string(cameraIdx + 1) + " did not calibrate: it " +

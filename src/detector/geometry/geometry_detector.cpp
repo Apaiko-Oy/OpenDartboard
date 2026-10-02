@@ -230,6 +230,22 @@ namespace
         }();
         return v;
     }
+
+    /**
+     * #1732's falsifier: OD_RELOOK=framing gives a camera the averaged frame refused on
+     * FRAMING (board_look::framingVerdict -- a flooded frame, or a board the frame's own
+     * edge cuts) further looks as well, as every build from #1445 (9d699de) to #1732 did.
+     * Anything but that exact word is ignored, so a typo keeps the framing refusal final.
+     */
+    bool framingRefusalsAreLookedAtAgain()
+    {
+        static bool v = []
+        {
+            const char *e = std::getenv("OD_RELOOK");
+            return e && std::string(e) == "framing";
+        }();
+        return v;
+    }
 }
 
 void GeometryDetector::lookAgainAtRefusedCameras()
@@ -289,6 +305,50 @@ void GeometryDetector::lookAgainAtRefusedCameras()
                  " camera(s) were refused on this start's averaged frame and nothing offered "
                  "this detector another look, so the first frame is the only evidence there is");
         return;
+    }
+
+    // #1732: A FURTHER LOOK MAY NOT OVERTURN A FRAMING REFUSAL.
+    //
+    // #1445 was written for a refusal one picture can cause and another can cure: rig-
+    // 20260918/cam_3's averaged frame read twenty-one wires where single frames read
+    // twenty, and #1605's dart standing through rig-20260922/cam_1's bull. Both are the
+    // WIRE or RING stage, asked of a board that is wholly in shot. A framing refusal is
+    // not that kind. Whether the board is in the frame is decided by where the camera is
+    // mounted, and the cameras are fixed to the frame (ADR-0079 §3); no later frame moves
+    // a board back into a picture that cuts it.
+    //
+    // What a later frame CAN do is lose pixels, and that is how the re-look was admitting
+    // a cut board. On `1331-framing` §5 "edge" the averaged frame is refused within 0 px
+    // of the edge; one single frame's colour mask then dropped the clipped part of the
+    // ring altogether, so nothing in it touched the edge (79 px clear), and the camera
+    // calibrated and sealed on that look. `1392-annulus` §5's 720x720 crop camera 1 did
+    // the same. #1731's reach rule cannot catch it: the missing pixels are absent, not set
+    // aside. The averaged frame is the better witness for this one question, because a
+    // ring present in any of its thirty frames survives the mean.
+    //
+    // So such a camera keeps the refusal the averaged frame gave it, said once here; its
+    // reason is on its own ERROR line. OD_RELOOK=framing restores 9d699de..#1731.
+    if (!framingRefusalsAreLookedAtAgain())
+    {
+        vector<size_t> looked_at_again;
+        for (size_t i : still_refused)
+        {
+            const board_look::Refused framing = board_look::framingVerdict(calibrations[i].look);
+            if (framing == board_look::Refused::None)
+            {
+                looked_at_again.push_back(i);
+                continue;
+            }
+            log_info("LOOK AGAIN: camera " + to_string((int)i + 1) +
+                     " is not looked at again: the averaged frame refused it on framing, which is "
+                     "where the camera is mounted and not a picture a later frame can cure; a later "
+                     "frame can only lose the part of the board the frame cuts (#1732)");
+        }
+        still_refused = looked_at_again;
+        if (still_refused.empty())
+        {
+            return;
+        }
     }
 
     // #1457: A LOOK IS NOT AN ATTEMPT TO BE REPORTED, and there are two channels where

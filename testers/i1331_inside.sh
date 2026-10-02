@@ -262,6 +262,27 @@ else
   grep -hoE 'board found on the FULL frame[^;]*' /run1331/cut.txt | head -1
   say "FAIL cut: the region this case is about is not the one that was measured" no
 fi
+# #1732: and a further look (#1445) may not overturn the refusal. The edge clip's averaged
+# frame is refused within 0 px of the edge; a single frame whose colour mask lost the
+# clipped part of the ring then reads 79 px clear, and before #1732 camera 1 calibrated and
+# sealed on that look. Asserted on the default run, and falsified on the same binary with
+# OD_RELOOK=framing, which restores 9d699de..#1731: the same clip must then be rescued by a
+# look, or the default's refusal is not measured against anything that can fail.
+if grep -qF 'LOOK AGAIN: camera 1 is not looked at again: the averaged frame refused it on framing' /run1331/edge.txt \
+   && ! grep -qE 'LOOK AGAIN: camera 1 (calibrated on look|seals look)' /run1331/edge.txt; then
+  say "OK   edge: the framing refusal is final -- camera 1 is not looked at again" ok
+else
+  grep -hE 'LOOK AGAIN' /run1331/edge.txt | head -3 | cut -c1-200
+  say "FAIL edge: a further look was spent on, or sealed, a camera the frame clips" no
+fi
+run_one edgerelook /run1331/off_edge.avi OD_RELOOK=framing
+if grep -qE 'LOOK AGAIN: camera 1 seals look [0-9]+ of' /run1331/edgerelook.txt \
+   && grep -q 'CAMERAS: 1 of 1 are looking at the dartboard' /run1331/edgerelook.txt; then
+  say "OK   edge under OD_RELOOK=framing: a single look admits the clipped board and seals it -- the rule is what refuses it" ok
+else
+  grep -hE 'LOOK AGAIN|CAMERAS:' /run1331/edgerelook.txt | head -3 | cut -c1-200
+  say "FAIL edge under OD_RELOOK=framing is not #1445's admission, so the refusal is not measured against anything that can fail" no
+fi
 
 echo
 echo "=== 6. a red room is not the board (77bb5b1), on mocks/rig-20260929 ==="

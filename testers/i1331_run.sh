@@ -37,6 +37,8 @@
 #      framing question is asked of everything the colour stage kept and not of the
 #      winning region alone. #1731: OD_EDGE_GAP=reach (77bb5b1's reach alone) admits the
 #      second at 59 px on the same binary, so the refusal is measured against a failure.
+#      #1732: and no further look (#1445) overturns it; OD_RELOOK=framing restores the
+#      re-look, and the edge clip is then sealed on a single look that lost its cut ring.
 #
 #   6. A red room is not the board (77bb5b1): rig-20260929 camera 1 keys a strip of room
 #      along the top edge. Calibrates 3 of 3 clearing it by 149 px; OD_EDGE_GAP=everything
