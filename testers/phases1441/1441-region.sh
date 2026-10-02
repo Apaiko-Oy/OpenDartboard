@@ -24,7 +24,9 @@ set -u
 #   C  THE OTHER FIVE CLIPS DO NOT MOVE. Asserted against the same binary's own `doubles`
 #      run rather than against five literals, so it goes on being true of a fixture
 #      somebody re-shoots. This is the half that would catch a constant chosen for one
-#      camera.
+#      camera. (#1730: on the twenty-fold model two cameras answer a region with a
+#      bimodal fit rather than a count, and are held to a floor instead of to the
+#      doubles run's number. The paragraph at C says what was measured.)
 #
 #   D  THE SWITCH IS OBEYED AND IS REFUSED, and both are measured. A region past the
 #      board's rim names nothing on any board and is ignored rather than clamped; a
@@ -124,7 +126,37 @@ fi
 
 echo
 echo "=== C. every other clip of every fixture answers exactly as it did ==="
+# #1730: TWO CLIPS ARE NAMED HERE, and what was measured is why. On the counting stage a
+# region moved a COUNT, and a count that moved between two regions was the region. Since
+# #1467 (2bcb9c3) a refusal is a FIT that missed the coherence minimum (0.6), and on these
+# two cameras the fit is bimodal: a frame reads R ~0.85-0.93 or R ~0.25-0.42 and almost
+# nothing between, and which of the two it reads flips with a handful of candidates --
+# rig-20260922/cam_3 frame 60 is R=0.33 at 0.9076 and 0.91 at 1.00; rig-20260929/cam_3
+# frame 420 is 0.30 and 0.88. So the refusal count is the number of frames that tipped,
+# and it is not monotone in the region. Swept on 820cfd1, refusals of 15:
+#
+#   scale    0.84 0.88 0.9076 0.94 0.96 0.98 1.00 1.02 1.05 1.10
+#   r22/c3     5    6    5      4    3    6    3    4    4    4
+#   r29/c3     4    5    5      5    4    4    2    2    4    4
+#
+# against r18/c1, r18/c3, r22/c1 (3), r22/c2 (4), r29/c1 and r29/c2, which answer the
+# same at every scale from 0.84 to 1.05. The doubles region's fewer refusals are NOT the
+# better region: the 1555 bakeoff with OD_WIRE_REGION=doubles (capture clock) took
+# rig-20260922 from 21/23 to 13/23 in the dev window and 23/23 to 17/23 in the opening,
+# every new miss a wedge, and rig-20260929's opening from 27..31 to 26..30; rig-20260918
+# row for row the same, phantoms 0. A refused frame is retried, so the default's extra
+# refusals cost calibration time (rig-0922 dev: 46 fits to the doubles region's 4) and no
+# dart.
+#
+# So the two are held to what the model guarantees of a camera that calibrates -- most of
+# its window answers: at least BIMODAL_FLOOR of the frames, where the worst row of the
+# sweep is 6 refused of 15 -- and every OTHER clip is held to the exact equality this
+# phase always asked. A clip not named here that moves is still a FAIL, so this does not
+# widen: if a third camera turns bimodal, it is a change somebody has to look at.
+BIMODAL="rig-20260922/cam_3.mp4 rig-20260929/cam_3.mp4"
+BIMODAL_FLOOR=8
 MOVED=""
+SHORT=""
 for f in $FIXTURES; do
   for c in $(clips_of "$f"); do
     [ "$c" = "$SUBJECT" ] && continue
@@ -133,14 +165,25 @@ for f in $FIXTURES; do
     measure "$c" "OD_WIRE_REGION=doubles" "/run1441/before_$t.txt"
     A="$(refused "/run1441/after_$t.txt")"; P="$(refused "/run1441/before_$t.txt")"
     T="$(counted "/run1441/after_$t.txt")"
-    echo "  $f $(basename "$c"): refused $P of $T before, $A of $T after (over-counts, not the subject: $(overcount "/run1441/before_$t.txt") -> $(overcount "/run1441/after_$t.txt"))"
-    [ "$A" = "$P" ] || MOVED="$MOVED $f/$(basename "$c") ($P->$A)"
+    name="$f/$(basename "$c")"
+    case " $BIMODAL " in
+      *" $name "*)
+        echo "  $f $(basename "$c"): refused $P of $T before, $A of $T after -- a bimodal fit (#1730), held to answering at least $BIMODAL_FLOOR of $T"
+        [ "$T" -gt 0 ] && [ $(( T - A )) -ge "$BIMODAL_FLOOR" ] || SHORT="$SHORT $name (answered $(( T - A )) of $T)"
+        ;;
+      *)
+        echo "  $f $(basename "$c"): refused $P of $T before, $A of $T after (over-counts, not the subject: $(overcount "/run1441/before_$t.txt") -> $(overcount "/run1441/after_$t.txt"))"
+        [ "$A" = "$P" ] || MOVED="$MOVED $name ($P->$A)"
+        ;;
+    esac
   done
 done
-if [ -z "$MOVED" ]; then
-  say "OK   the region moved one clip's answer and no other" ok
-else
+if [ -n "$MOVED" ]; then
   say "FAIL these clips answer differently with the region than without it, and this slice is about one of them:$MOVED" no
+elif [ -n "$SHORT" ]; then
+  say "FAIL a bimodal camera answers fewer than $BIMODAL_FLOOR frames of its window:$SHORT" no
+else
+  say "OK   the region moved one clip's answer and no other; the two bimodal cameras each answer at least $BIMODAL_FLOOR frames" ok
 fi
 
 echo
