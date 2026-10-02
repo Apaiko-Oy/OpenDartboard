@@ -142,11 +142,12 @@ else
 fi
 
 echo
-echo "=== 4. the mocks still calibrate, the default does not inherit, and --reuse-calibration does ==="
+echo "=== 4. the rig still calibrates, the default does not inherit, and --reuse-calibration does ==="
 mkdir -p $RUN/mocks
-MOCKS=$SRC/mocks/cam_1.mp4,$SRC/mocks/cam_2.mp4,$SRC/mocks/cam_3.mp4
+# #1478: the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+RIG=$SRC/mocks/rig-20260918/cam_1.mp4,$SRC/mocks/rig-20260918/cam_2.mp4,$SRC/mocks/rig-20260918/cam_3.mp4
 run_detector() {
-  ( cd $RUN/mocks && OD_MAX_CYCLES=20 $SRC/build/opendartboard --cams $MOCKS --width 1280 --height 720 "$@" ) \
+  ( cd $RUN/mocks && OD_MAX_CYCLES=20 $SRC/build/opendartboard --cams $RIG --width 1280 --height 720 "$@" ) \
     > $RUN/$RUNNAME.out 2>&1
   echo "${RUNNAME}_RC=$?"
   sed 's/\x1b\[[0-9;]*m//g' $RUN/$RUNNAME.out > $RUN/$RUNNAME.txt
@@ -158,8 +159,8 @@ RUNNAME=third  run_detector --reuse-calibration
 echo "--- ERROR and WARNING in the first run ---"
 grep -E '^\[(ERROR|WARNING|WARN)\]' $RUN/first.txt || echo "(none)"
 FIRST_BAD=$(grep -cE '^\[(ERROR|WARNING|WARN)\]' $RUN/first.txt || true)
-if [ "$FIRST_BAD" = "0" ]; then say "OK   the mocks calibrate with no ERROR and no WARN" ok
-else say "FAIL $FIRST_BAD ERROR/WARN lines on the mock footage" no; fi
+if [ "$FIRST_BAD" = "0" ]; then say "OK   the rig calibrates with no ERROR and no WARN" ok
+else say "FAIL $FIRST_BAD ERROR/WARN lines on the rig footage" no; fi
 
 if [ -f $RUN/mocks/cache/geometry_calibration.dat ]; then
   say "OK   the first run wrote cache/geometry_calibration.dat ($(stat -c%s $RUN/mocks/cache/geometry_calibration.dat) bytes)" ok

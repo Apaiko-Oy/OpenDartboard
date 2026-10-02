@@ -13,7 +13,7 @@ set -u
 #
 # What is asserted is what a tester can see without knowing any flag exists: the camera
 # that is not looking at the board is named, once, with the count it failed on; the two
-# that ARE looking at it calibrate and the board runs; the mocks are unchanged; --cams
+# that ARE looking at it calibrate and the board runs; the rig is unchanged; --cams
 # is obeyed exactly as typed; and a start with no --cams finds the board cameras with a
 # non-board device ahead of them in the list.
 
@@ -23,28 +23,29 @@ g++ -std=c++17 -O1 -o /run1318/make_source /app/testers/i1318_make_source.cpp \
 /run1318/make_source face /run1318/face.avi 1280 720 15 120 || exit 1
 /run1318/make_source wall /run1318/wall.avi 1280 720 15 120 || exit 1
 
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+# #1478: the board cameras are the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 
 echo "--- A: the webcam ahead of the board cameras, WITHOUT --debug ---"
 OD_MAX_CYCLES=20 /app/build/opendartboard \
-  --cams /run1318/face.avi,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4 \
+  --cams /run1318/face.avi,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4 \
   --width 1280 --height 720 > /run1318/a.out 2> /run1318/a.err
 echo "A_RC=$?"
 
 echo "--- B: the control, the footage the detector is known to calibrate on ---"
 OD_MAX_CYCLES=20 /app/build/opendartboard \
-  --cams $MOCKS --width 1280 --height 720 > /run1318/b.out 2> /run1318/b.err
+  --cams $RIG --width 1280 --height 720 > /run1318/b.out 2> /run1318/b.err
 echo "B_RC=$?"
 
 echo "--- C: --cams wins, with a candidate list that says otherwise ---"
 OD_CAM_CANDIDATES=/run1318/face.avi,/run1318/wall.avi \
 OD_MAX_CYCLES=20 /app/build/opendartboard \
-  --cams /app/mocks/cam_3.mp4,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4 \
+  --cams /app/mocks/rig-20260918/cam_3.mp4,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4 \
   --width 1280 --height 720 > /run1318/c.out 2> /run1318/c.err
 echo "C_RC=$?"
 
 echo "--- D: no --cams at all, and a non-board device first in the list ---"
-OD_CAM_CANDIDATES=/run1318/face.avi,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+OD_CAM_CANDIDATES=/run1318/face.avi,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
 OD_MAX_CYCLES=20 /app/build/opendartboard \
   --width 1280 --height 720 > /run1318/d.out 2> /run1318/d.err
 echo "D_RC=$?"
@@ -123,8 +124,8 @@ else say "OK   no BOARD FAULTED" ok; fi
 
 echo "=== 4. the control calibrates and says nothing new ==="
 if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1318/b.txt; then
-  say "OK   the mocks calibrate, all three" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates, all three" ok
+else say "FAIL the rig did not calibrate" no; fi
 grep -E '^\[(ERROR|WARN)\]' /run1318/b.txt || true
 NOISE=$(grep -cE '^\[(ERROR|WARN)\]' /run1318/b.txt || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok
@@ -132,9 +133,9 @@ else say "FAIL the control prints $NOISE ERROR/WARN lines" no; fi
 
 echo "=== 5. --cams wins, exactly as typed, and nothing is probed ==="
 grep -E '^      [0-9]+: |looking through' /run1318/c.txt | head -4 || true
-if grep -q '      1: /app/mocks/cam_3.mp4' /run1318/c.txt \
-   && grep -q '      2: /app/mocks/cam_1.mp4' /run1318/c.txt \
-   && grep -q '      3: /app/mocks/cam_2.mp4' /run1318/c.txt; then
+if grep -q '      1: /app/mocks/rig-20260918/cam_3.mp4' /run1318/c.txt \
+   && grep -q '      2: /app/mocks/rig-20260918/cam_1.mp4' /run1318/c.txt \
+   && grep -q '      3: /app/mocks/rig-20260918/cam_2.mp4' /run1318/c.txt; then
   say "OK   the three named on the command line, in the order they were named" ok
 else say "FAIL --cams did not decide the cameras" no; fi
 if grep -q 'looking through' /run1318/c.txt; then
@@ -149,7 +150,7 @@ grep -E 'CAMERA /|CAMERAS:' /run1318/d.txt | head -8 || true
 if grep -qE 'CAMERA /run1318/face.avi: not used - is not looking at the dartboard' /run1318/d.txt; then
   say "OK   the non-board device is refused by name before it is ever opened for scoring" ok
 else say "FAIL the probe did not refuse the non-board device by name" no; fi
-if grep -q 'CAMERAS: /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 (looked through' /run1318/d.txt; then
+if grep -q 'CAMERAS: /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 (looked through' /run1318/d.txt; then
   say "OK   the three that can see the dartboard are the three that are opened" ok
 else say "FAIL the probe did not choose the three board cameras" no; fi
 if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1318/d.txt; then

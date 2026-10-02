@@ -54,7 +54,7 @@ echo
 echo "--- phase 2: 900 cycles with nothing to push to and no interface to reach it on ---"
 # No --turnaus: it uses the address it was paired to, where nothing is listening any more.
 OD_MAX_CYCLES=900 /app/build/opendartboard --debug \
-  --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+  --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
   --width 1280 --height 720 --allow-plaintext \
   > "$RUN/gone.out" 2> "$RUN/gone.err"
 GONE_RC=$?
@@ -82,7 +82,7 @@ fi
 #    reason and the test would still look like it measured something.
 SCORES=$(grep -cE "^SCORE: |SCORE: [A-Z0-9]+ \| Position:" "$RUN/gone.all" || true)
 if [ "${SCORES:-0}" -ge 1 ]; then
-  ok "it still scores: $SCORES SCORE lines off the mocks"
+  ok "it still scores: $SCORES SCORE lines off mocks/rig-20260918"
 else
   fail "no dart was scored with no network, so 'it still spools' has nothing to be about"
 fi
@@ -107,7 +107,7 @@ python3 /app/testers/turnaus_stub.py > "$RUN/stub2.out" 2> "$RUN/stub2.err" &
 STUB2=$!
 sleep 1
 OD_MAX_CYCLES=60 /app/build/opendartboard --debug \
-  --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+  --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
   --width 1280 --height 720 --allow-plaintext \
   > "$RUN/resume.out" 2> "$RUN/resume.err"
 echo "RESUME_RC=$?"

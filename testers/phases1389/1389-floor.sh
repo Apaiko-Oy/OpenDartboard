@@ -8,7 +8,7 @@ set -u
 # claim had never been demonstrated anywhere in this repository; phase E demonstrates it,
 # on the same binary as phase B, which is what makes phase B a rule rather than a build.
 #
-#   A  the control: the shipped mocks, three of three. It must calibrate and print no
+#   A  the control: mocks/rig-20260918, three of three. It must calibrate and print no
 #      ERROR and no WARN. If this fails, the floor has broken a healthy rig and nothing
 #      below it matters.
 #   B  one camera. Refused -- and the refusal names EVERY camera and its own board_look
@@ -52,7 +52,8 @@ set -u
 # unbounded: OD_MAX_CYCLES does not bound a board that cannot calibrate.
 
 BIN=/app/build/opendartboard
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+# #1478: the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 
 await() {
   local file="$1" needle="$2" limit="$3" i=0
@@ -69,11 +70,11 @@ g++ -std=c++17 -O1 -o /run1389/make_source /app/testers/i1318_make_source.cpp \
 /run1389/make_source face /run1389/face.avi 1280 720 15 120 || exit 1
 
 echo "=== A: the control, three of three ==="
-OD_MAX_CYCLES=20 $BIN --cams $MOCKS --width 1280 --height 720 > /run1389/a.out 2>&1
+OD_MAX_CYCLES=20 $BIN --cams $RIG --width 1280 --height 720 > /run1389/a.out 2>&1
 echo "A_RC=$?"
 
 echo "=== B: one camera of three (OD_DROP_CAM=1,2) ==="
-OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $MOCKS --width 1280 --height 720 \
+OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $RIG --width 1280 --height 720 \
   > /run1389/b.out 2>&1 &
 B=$!
 echo "B reached its verdict after $(await /run1389/b.out 'BOARD FAULTED|Scorer running with' 120)s"
@@ -84,7 +85,7 @@ echo "B_ALIVE=$B_ALIVE"
 kill -TERM $B 2>/dev/null; wait $B 2>/dev/null
 
 echo "=== C: one camera looking at a warm room, one board camera, one silent ==="
-OD_DROP_CAM=2 OD_DROP_EVERY=1 $BIN --cams /run1389/face.avi,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4 \
+OD_DROP_CAM=2 OD_DROP_EVERY=1 $BIN --cams /run1389/face.avi,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4 \
   --width 1280 --height 720 > /run1389/c.out 2>&1 &
 C=$!
 echo "C reached its verdict after $(await /run1389/c.out 'BOARD FAULTED|Scorer running with' 120)s"
@@ -92,7 +93,7 @@ sleep 6
 kill -TERM $C 2>/dev/null; wait $C 2>/dev/null
 
 echo "=== D: two cameras, both looking at the board (OD_DROP_CAM=2) ==="
-OD_DROP_CAM=2 OD_DROP_EVERY=1 $BIN --cams $MOCKS --width 1280 --height 720 \
+OD_DROP_CAM=2 OD_DROP_EVERY=1 $BIN --cams $RIG --width 1280 --height 720 \
   > /run1389/d.out 2>&1 &
 D=$!
 echo "D started scoring after $(await /run1389/d.out 'Scorer running with|BOARD FAULTED' 180)s"
@@ -104,7 +105,7 @@ kill -TERM $D 2>/dev/null; wait $D 2>/dev/null
 
 echo "=== E: the same one camera, with the three quorums put back as they disagreed ==="
 OD_CAMERA_QUORUM=1 OD_STATE_FLOOR=2 OD_STATE_QUORUM=absolute OD_DROP_CAM=1,2 OD_DROP_EVERY=1 \
-  $BIN --cams $MOCKS --width 1280 --height 720 > /run1389/e.out 2>&1 &
+  $BIN --cams $RIG --width 1280 --height 720 > /run1389/e.out 2>&1 &
 E=$!
 echo "E reached its verdict after $(await /run1389/e.out 'BOARD FAULTED|Scorer running with' 120)s"
 sleep 60
@@ -112,7 +113,7 @@ kill -TERM $E 2>/dev/null; wait $E 2>/dev/null
 
 echo "=== F: the same one camera, with the floor moved to 1 and nothing else ==="
 OD_CAMERA_QUORUM=1 OD_DROP_CAM=1,2 OD_DROP_EVERY=1 \
-  $BIN --cams $MOCKS --width 1280 --height 720 > /run1389/f.out 2>&1 &
+  $BIN --cams $RIG --width 1280 --height 720 > /run1389/f.out 2>&1 &
 F=$!
 echo "F reached its verdict after $(await /run1389/f.out 'BOARD FAULTED|Scorer running with' 120)s"
 sleep 6
@@ -127,8 +128,8 @@ say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 echo
 echo "=== 1. the control is untouched: the floor did not break a healthy rig ==="
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1389/a.txt; then
-  say "OK   the mocks calibrate, all three" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates, all three" ok
+else say "FAIL the rig did not calibrate" no; fi
 grep -aE '^\[(ERROR|WARN)\]' /run1389/a.txt || true
 NOISE=$(grep -caE '^\[(ERROR|WARN)\]' /run1389/a.txt || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok

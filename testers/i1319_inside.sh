@@ -97,8 +97,9 @@ OD_MAX_CYCLES=5 /app/build/opendartboard \
 OD_MAX_CYCLES=5 /app/build/opendartboard \
   --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
   --width 1280 --height 720 --fps 30 > /run1319/rig30.out 2>&1
+# #1478: the control is the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
 OD_MAX_CYCLES=20 /app/build/opendartboard \
-  --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+  --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
   --width 1280 --height 720 > /run1319/control.out 2>&1
 for f in rig15 rig30 control; do sed 's/\x1b\[[0-9;]*m//g' /run1319/$f.out > /run1319/$f.txt; done
 
@@ -111,7 +112,7 @@ N=$(grep -cE "runs at [0-9]+ fps where" /run1319/rig30.txt || true)
                 || say "FAIL $N rate lines on footage running at the rate it was asked for" no
 
 echo
-echo "=== 4. the control: mocks/cam_*.mp4 still calibrates, with no new ERROR or WARN ==="
+echo "=== 4. the control: mocks/rig-20260918 still calibrates, with no new ERROR or WARN ==="
 grep -E "^\[(WARN|ERROR)\]" /run1319/control.txt | sed 's/^/     /' | head -10
 N=$(grep -cE "^\[(WARN|ERROR)\]" /run1319/control.txt || true)
 [ "$N" = "0" ] && say "OK   no ERROR and no WARN on the control footage" ok \

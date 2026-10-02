@@ -29,7 +29,7 @@ set -u
 #   C  a camera that answered and failed to calibrate. It must read differently from a
 #      camera that produced nothing, because one is aim or lighting and the other is a
 #      cable.
-#   D  the control: the shipped mocks, three of three, nothing new said.
+#   D  the control: mocks/rig-20260918, three of three, nothing new said.
 #   E  the arithmetic on its own, with the threshold moved under a fixed board -- the one
 #      thing a whole-binary run cannot do without a second build.
 #
@@ -37,7 +37,8 @@ set -u
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
 BIN=/app/build/opendartboard
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+# #1478: the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 STUB_URL=http://127.0.0.1:8899
 
 # Wait for a sentinel the detector itself prints, never for a process pattern.
@@ -91,7 +92,7 @@ echo "PAIR_RC=$?"
 
 echo "=== A: one camera answering of three (OD_DROP_CAM=1,2) ==="
 A_FROM=$(mark)
-OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $MOCKS --width 1280 --height 720 \
+OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1338/a.out 2> /run1338/a.err &
 A=$!
 echo "A reached its verdict after $(await /run1338/a.out 'BOARD FAULTED' 120)s"
@@ -102,7 +103,7 @@ A_TO=$(mark)
 
 echo "=== B: two answering, both looking at the board (OD_DROP_CAM=2) ==="
 B_FROM=$(mark)
-OD_DROP_CAM=2 OD_DROP_EVERY=1 $BIN --cams $MOCKS --width 1280 --height 720 \
+OD_DROP_CAM=2 OD_DROP_EVERY=1 $BIN --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1338/b.out 2> /run1338/b.err &
 B=$!
 echo "B started scoring after $(await /run1338/b.out 'Scorer running with' 180)s"
@@ -112,12 +113,12 @@ echo "B_RC=$?"
 B_TO=$(mark)
 
 echo "=== C: three answering, one of them not looking at a dartboard ==="
-OD_MAX_CYCLES=20 $BIN --cams /run1338/face.avi,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4 \
+OD_MAX_CYCLES=20 $BIN --cams /run1338/face.avi,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4 \
   --width 1280 --height 720 --turnaus $STUB_URL --allow-plaintext > /run1338/c.out 2> /run1338/c.err
 echo "C_RC=$?"
 
 echo "=== D: the control, the footage the detector is known to calibrate on ==="
-OD_MAX_CYCLES=20 $BIN --cams $MOCKS --width 1280 --height 720 \
+OD_MAX_CYCLES=20 $BIN --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1338/d.out 2> /run1338/d.err
 echo "D_RC=$?"
 
@@ -202,8 +203,8 @@ else say "FAIL the refused camera does not say what it failed on" no; fi
 
 echo "=== 5. the control calibrates and says nothing new ==="
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1338/d.txt; then
-  say "OK   the mocks calibrate, all three" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates, all three" ok
+else say "FAIL the rig did not calibrate" no; fi
 if grep -qa 'Scorer running with 3 of 3 cameras' /run1338/d.txt; then
   say "OK   and the scorer repeats the same census" ok
 else say "FAIL the scorer does not state the census on a healthy board" no; fi

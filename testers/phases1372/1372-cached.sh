@@ -15,7 +15,7 @@ set -u
 #
 # Four phases, and the last two are what make the first two mean anything:
 #
-#   S  the seed. The shipped mocks, fresh, three of three -- which is what writes the
+#   S  the seed. mocks/rig-20260918, fresh, three of three -- which is what writes the
 #      cache the rest of this script reads. It must calibrate and say nothing new.
 #   A  the control: the same three cameras, on the cache. It CAN score, so it must be
 #      admitted and it must beat READY. Without A, B passes on a guard that refuses
@@ -40,7 +40,8 @@ set -u
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
 BIN=/app/build/opendartboard
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+# #1478: the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 STUB_URL=http://127.0.0.1:8899
 
 # Wait for a sentinel the detector itself prints, never for a process pattern.
@@ -84,15 +85,15 @@ echo "--- pairing, once, against the stub ---"
 $BIN --pair 483920 --turnaus $STUB_URL --allow-plaintext > /run1372/pair.out 2> /run1372/pair.err
 echo "PAIR_RC=$?"
 
-echo "=== S: the seed -- the mocks, measured fresh, which is what writes cache/ ==="
-OD_MAX_CYCLES=20 $BIN --cams $MOCKS --width 1280 --height 720 \
+echo "=== S: the seed -- the rig, measured fresh, which is what writes cache/ ==="
+OD_MAX_CYCLES=20 $BIN --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1372/s.out 2> /run1372/s.err
 echo "S_RC=$?"
 ls -l /run1372/cache/ 2>&1 | sed 's/^/    /'
 
 echo "=== A: the control -- the same three cameras, on the cache ==="
 A_FROM=$(mark)
-$BIN --reuse-calibration --cams $MOCKS --width 1280 --height 720 \
+$BIN --reuse-calibration --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1372/a.out 2> /run1372/a.err &
 A=$!
 echo "A reached its verdict after $(await /run1372/a.out 'Scorer running with|BOARD FAULTED' 120)s"
@@ -103,7 +104,7 @@ A_TO=$(mark)
 
 echo "=== B: the same cache, two cameras dropped, so one camera can vote ==="
 B_FROM=$(mark)
-OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --reuse-calibration --cams $MOCKS --width 1280 --height 720 \
+OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --reuse-calibration --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1372/b.out 2> /run1372/b.err &
 B=$!
 echo "B reached its verdict after $(await /run1372/b.out 'Scorer running with|BOARD FAULTED' 120)s"
@@ -115,7 +116,7 @@ B_TO=$(mark)
 echo "=== C: falsification -- the same board with the gate made unreachable ==="
 C_FROM=$(mark)
 OD_CACHE_SKIPS_THE_GATE=1 OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --reuse-calibration \
-  --cams $MOCKS --width 1280 --height 720 \
+  --cams $RIG --width 1280 --height 720 \
   --turnaus $STUB_URL --allow-plaintext > /run1372/c.out 2> /run1372/c.err &
 C=$!
 echo "C reached its verdict after $(await /run1372/c.out 'Scorer running with|BOARD FAULTED' 120)s"
@@ -135,8 +136,8 @@ say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 echo
 echo "=== 1. the seed wrote a cache, measuring all three, and said nothing new ==="
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1372/s.txt; then
-  say "OK   the mocks calibrate, all three" ok
-else say "FAIL the mocks did not calibrate, so every phase below reads an empty cache" no; fi
+  say "OK   the rig calibrates, all three" ok
+else say "FAIL the rig did not calibrate, so every phase below reads an empty cache" no; fi
 grep -aE '^\[(ERROR|WARN)\]' /run1372/s.txt || true
 NOISE=$(grep -caE '^\[(ERROR|WARN)\]' /run1372/s.txt || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok

@@ -34,7 +34,8 @@ set -u
 START="${START:-6}"
 OCCLUDE="${OCCLUDE:-0}"
 BLUR="${BLUR:-0}"
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+# #1478: the control is the whole rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+CONTROL=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 
 echo "--- the three guards, called directly ---"
 # #1447: wire_processing.cpp joins this line because #1442 moved `isAWholeRing` out of
@@ -113,12 +114,12 @@ wait $LOOK 2>/dev/null
 echo "LOOK_RC=$? after $(( $(date +%s) - LOOK_T0 )) s"
 
 echo "--- the control: the footage the detector is known to calibrate on ---"
-OD_MAX_CYCLES=20 /app/build/opendartboard --cams $MOCKS \
+OD_MAX_CYCLES=20 /app/build/opendartboard --cams $CONTROL \
   --width 1280 --height 720 > /run1317/control.out 2> /run1317/control.err
 echo "CONTROL_RC=$?"
 
 echo "--- the control WITH --debug, for the wire counts it reports ---"
-OD_MAX_CYCLES=20 /app/build/opendartboard --debug --cams $MOCKS \
+OD_MAX_CYCLES=20 /app/build/opendartboard --debug --cams $CONTROL \
   --width 1280 --height 720 > /run1317/control_dbg.out 2> /run1317/control_dbg.err
 echo "CONTROL_DBG_RC=$?"
 
@@ -339,8 +340,8 @@ fi
 
 echo "=== 4. the control still calibrates and says nothing new ==="
 if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1317/control.txt; then
-  say "OK   the mocks calibrate, all three" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates, all three" ok
+else say "FAIL the rig did not calibrate" no; fi
 grep -E '^\[(ERROR|WARN)\]' /run1317/control.txt || true
 NOISE=$(grep -cE '^\[(ERROR|WARN)\]' /run1317/control.txt || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok
