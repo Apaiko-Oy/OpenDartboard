@@ -1,6 +1,12 @@
 set -u
 # #1394: the colour stage's four windows are fractions of the BOARD, not of the frame --
-# measured, on the binary in build/, on both fixtures and on one binary.
+# measured, on the binary in build/, on the rig and on one binary.
+#
+# #1478: the shipped mocks' column of sections 1 to 5 is gone -- their bulls, fitted
+# boards, spans, windows and kept pixels. The rig's was measured beside it and is the
+# assertion now (docs/shipped-mock-census.md, A1). Section 6 is NOT re-pointed: it halves
+# the board in frame, and the rig is 1.07x from not calibrating at all (1339-denominator's
+# header), so there is nothing at half size to make from it. It stays on the mocks' camera 1.
 #
 # #1323 moved these four distances onto the board and deliberately left their SIZE a
 # fraction of the frame's width, so the origin was board-relative and the scale was not.
@@ -15,7 +21,6 @@ set -u
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 CVFLAGS="$(pkg-config --cflags --libs opencv4)"
 
@@ -49,10 +54,9 @@ kept() { grep -hoE 'Camera [0-9] colour windows kept [0-9]+ px' /run1394/$1.txt 
 fitted() { grep -hoE 'degrees: [0-9]+ px' /run1394/$1.txt | grep -oE '[0-9]+' | tr '\n' ' '; }
 noise() { grep -cE '^\[(ERROR|WARN)\]' /run1394/$1.txt; }
 
-echo "=== 1. both fixtures calibrate, with the six bull centres and six boards ======="
-run mocks "$MOCKS"
+echo "=== 1. the rig calibrates, with its three bull centres and three boards ========"
 run rig "$RIG"
-for fix in mocks rig; do
+for fix in rig; do
   if grep -q 'Initial calibration completed successfully on 3 of 3' /run1394/$fix.txt; then
     say "OK   $fix calibrates on all three cameras" ok
   else say "FAIL $fix did not calibrate on all three cameras" no; fi
@@ -60,17 +64,10 @@ for fix in mocks rig; do
   else grep -E '^\[(ERROR|WARN)\]' /run1394/$fix.txt | head -3
        say "FAIL $fix prints $(noise $fix) ERROR/WARN lines" no; fi
 done
-for e in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bull at (654,293)"; do
-  if grep -qF "$e" /run1394/mocks.txt; then say "OK   mocks: $e" ok
-  else say "FAIL mocks: no line saying $e" no; fi
-done
 for e in "Camera 1 bull at (671,309)" "Camera 2 bull at (626,292)" "Camera 3 bull at (700,298)"; do
   if grep -qF "$e" /run1394/rig.txt; then say "OK   rig: $e" ok
   else say "FAIL rig: no line saying $e" no; fi
 done
-if [ "$(fitted mocks)" = "183859 173006 175444 " ]; then
-  say "OK   mocks: 1331-framing 2.5's three fitted boards, 183859, 173006 and 175444 px" ok
-else say "FAIL mocks fitted $(fitted mocks), not 183859 173006 175444" no; fi
 if [ "$(fitted rig)" = "197117 200385 194335 " ]; then
   say "OK   rig: 1331-framing 2.5's three fitted boards, 197117, 200385 and 194335 px" ok
 else say "FAIL rig fitted $(fitted rig), not 197117 200385 194335" no; fi
@@ -78,45 +75,39 @@ else say "FAIL rig fitted $(fitted rig), not 197117 200385 194335" no; fi
 echo
 echo "=== 2. the window sizes per camera, and what they used to be =================="
 # The before/after #1394 asks for, on ONE binary.
-run mocksframe "$MOCKS" OD_COLOUR_WINDOWS=frame
 run rigframe "$RIG" OD_COLOUR_WINDOWS=frame
-grep -hoE "Camera [0-9] colour windows off [^;]*" /run1394/mocks.txt | sort -u
 grep -hoE "Camera [0-9] colour windows off [^;]*" /run1394/rig.txt | sort -u
-if [ "$(spans mocks)" = "289 312 306 " ] && [ "$(spans rig)" = "314 192 194 " ]; then
-  say "OK   the spans the windows are fractions of: mocks 289/312/306, rig 314/192/194" ok
-else say "FAIL spans read mocks '$(spans mocks)' and rig '$(spans rig)'" no; fi
-if [ "$(win mocks "bull's-eye")" = "168 182 178 " ] && [ "$(win rig "bull's-eye")" = "182 112 113 " ]; then
-  say "OK   bull's-eye: mocks 168/182/178 px, rig 182/112/113 px -- 0.582 of each span" ok
-else say "FAIL bull's-eye read mocks '$(win mocks "bull's-eye")' and rig '$(win rig "bull's-eye")'" no; fi
-if [ "$(win mocks centrality)" = "459 496 486 " ] && [ "$(win rig centrality)" = "498 306 309 " ]; then
-  say "OK   centrality: mocks 459/496/486 px, rig 498/306/309 px -- 1.0 board radii" ok
-else say "FAIL centrality read mocks '$(win mocks centrality)' and rig '$(win rig centrality)'" no; fi
-if [ "$(win mocks connectivity)" = "140 152 149 " ] && [ "$(win rig connectivity)" = "152 94 94 " ]; then
-  say "OK   connectivity: mocks 140/152/149 px, rig 152/94/94 px -- 0.306 board radii" ok
-else say "FAIL connectivity read mocks '$(win mocks connectivity)' and rig '$(win rig connectivity)'" no; fi
+if [ "$(spans rig)" = "314 192 194 " ]; then
+  say "OK   the spans the windows are fractions of: rig 314/192/194" ok
+else say "FAIL spans read rig '$(spans rig)'" no; fi
+if [ "$(win rig "bull's-eye")" = "182 112 113 " ]; then
+  say "OK   bull's-eye: rig 182/112/113 px -- 0.582 of each span" ok
+else say "FAIL bull's-eye read rig '$(win rig "bull's-eye")'" no; fi
+if [ "$(win rig centrality)" = "498 306 309 " ]; then
+  say "OK   centrality: rig 498/306/309 px -- 1.0 board radii" ok
+else say "FAIL centrality read rig '$(win rig centrality)'" no; fi
+if [ "$(win rig connectivity)" = "152 94 94 " ]; then
+  say "OK   connectivity: rig 152/94/94 px -- 0.306 board radii" ok
+else say "FAIL connectivity read rig '$(win rig connectivity)'" no; fi
 # The one window #1394 did NOT move. #1407 moved it on STEP 2.5's pass, to the board's rim
 # in board radii, and `1407-cutoff` holds those numbers; here only the frame rule is held:
 # STEP 1's pass keeps 384 px, and OD_COLOUR_WINDOWS=frame puts 384 back on both passes.
-if [ "$(win mocks "outer cutoff")" = "384 386 384 417 384 410 " ] && [ "$(win rig "outer cutoff")" = "384 420 384 412 384 416 " ] \
-   && [ "$(win mocksframe "outer cutoff")" = "384 384 384 " ] && [ "$(win rigframe "outer cutoff")" = "384 384 384 " ]; then
+if [ "$(win rig "outer cutoff")" = "384 420 384 412 384 416 " ] \
+   && [ "$(win rigframe "outer cutoff")" = "384 384 384 " ]; then
   say "OK   the outer cutoff: 384 px on STEP 1's pass, the rim on STEP 2.5's, 384 again under the frame rule" ok
-else say "FAIL the outer cutoff read mocks '$(win mocks "outer cutoff")', rig '$(win rig "outer cutoff")'" no; fi
+else say "FAIL the outer cutoff read rig '$(win rig "outer cutoff")', framed '$(win rigframe "outer cutoff")'" no; fi
 # #1340's rule: a switch that only ever refuses passes any test asking it to refuse.
-if [ "$(win mocksframe "bull's-eye")" = "128 128 128 " ] && [ "$(win rigframe centrality)" = "320 320 320 " ] \
-   && [ "$(win mocks "bull's-eye")" != "$(win mocksframe "bull's-eye")" ] \
+if [ "$(win rigframe "bull's-eye")" = "128 128 128 " ] && [ "$(win rigframe centrality)" = "320 320 320 " ] \
+   && [ "$(win rig "bull's-eye")" != "$(win rigframe "bull's-eye")" ] \
    && [ "$(win rig centrality)" != "$(win rigframe centrality)" ]; then
-  say "OK   OD_COLOUR_WINDOWS=frame really puts six 128s and six 320s back, on both fixtures" ok
+  say "OK   OD_COLOUR_WINDOWS=frame really puts three 128s and three 320s back, on the rig" ok
 else say "FAIL OD_COLOUR_WINDOWS=frame changed nothing; everything below it proves nothing" no; fi
 
 echo
 echo "=== 3. WHAT THE WINDOWS REALLY KEEP, counted rather than inferred ============="
 # #1393's rule one stage over: an unmoved ellipse is consistent both with a stage that
 # kept the same pixels and with one that kept different pixels the fit shrugged off.
-echo "mocks kept: $(kept mocks) (board) vs $(kept mocksframe) (frame)"
 echo "rig   kept: $(kept rig) (board) vs $(kept rigframe) (frame)"
-if [ "$(kept mocks)" = "38563 39763 48386 " ] && [ "$(kept mocksframe)" = "38537 39763 48386 " ]; then
-  say "OK   mocks keep 38563, 39763 and 48386 px against the frame rule's 38537, 39763 and 48386" ok
-else say "FAIL mocks kept $(kept mocks) board and $(kept mocksframe) framed" no; fi
 if [ "$(kept rig)" = "50876 65205 65278 46870 " ] && [ "$(kept rigframe)" = "49563 65205 65278 46870 " ]; then
   say "OK   rig keeps 50876 px on camera 1 against the frame rule's 49563 -- 1313 px, and nothing elsewhere" ok
 else say "FAIL rig kept $(kept rig) board and $(kept rigframe) framed" no; fi
@@ -131,11 +122,9 @@ if grep -q 'Camera 1 did not calibrate: the bull could not be found' /run1394/ri
   say "OK   board centre + FRAME windows loses rig camera 1's bull; the window size is load-bearing" ok
 else say "FAIL the frame-sized windows kept rig camera 1's bull, so the size decides nothing here" no; fi
 run rigbefore "$RIG" "OD_COLOUR_WINDOWS=frame OD_BOARD_FLOOR=area"
-run mocksbefore "$MOCKS" "OD_COLOUR_WINDOWS=frame OD_BOARD_FLOOR=area"
-if [ "$(fitted mocksbefore)" = "$(fitted mocks)" ] && [ "$(fitted rigbefore)" = "$(fitted rig)" ] \
-   && [ "$(noise rigbefore)" = "0" ] && [ "$(noise mocksbefore)" = "0" ]; then
-  say "OK   and against the exact pre-#1394 state -- both switches -- the six fitted boards are identical" ok
-else say "FAIL pre-#1394 fitted $(fitted mocksbefore) and $(fitted rigbefore)" no; fi
+if [ "$(fitted rigbefore)" = "$(fitted rig)" ] && [ "$(noise rigbefore)" = "0" ]; then
+  say "OK   and against the exact pre-#1394 state -- both switches -- the rig's three fitted boards are identical" ok
+else say "FAIL pre-#1394 fitted $(fitted rigbefore)" no; fi
 echo
 echo "=== 4. THE FLOOR: the camera the old one refused ==============================="
 # minBoardAreaPercent is #1394's fourth criterion. It decides whether the windows are
@@ -159,22 +148,28 @@ echo
 echo "=== 5. the three frame-keyed sites that STAY, counted ========================="
 # Each of these is a measured reason rather than an argument; color_processing.cpp carries
 # the reasoning and this is where the numbers come from.
-grep -hoE 'Camera [0-9] frame-keyed stages.*' /run1394/mocks.txt /run1394/rig.txt | sort -u | cut -c1-200
+grep -hoE 'Camera [0-9] frame-keyed stages.*' /run1394/rig.txt | sort -u | cut -c1-200
 OFFBOARD=$(grep -hoE "rectangle adds [0-9]+ px of red on the board and [0-9]+ px off it" \
-  /run1394/mocks.txt /run1394/rig.txt | grep -oE 'and [0-9]+ px off' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')
+  /run1394/rig.txt | grep -oE 'and [0-9]+ px off' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ')
 if [ "$OFFBOARD" = "0 " ]; then
-  say "OK   SECTION 5's frame-centred rectangle adds NO red off the board on any of the six" ok
+  say "OK   SECTION 5's frame-centred rectangle adds NO red off the board on any of the rig's three" ok
 else say "FAIL SECTION 5 added red off the board: $OFFBOARD" no; fi
 RAMP=$(grep -hoE "which is [0-9.]+% of the range it spends on the whole frame" /run1394/rig.txt \
   | grep -oE '[0-9.]+%' | sort -u | tr '\n' ' ')
 if [ "$RAMP" = "41.0% 41.9% 68.9% " ]; then
   say "OK   SECTION 2's ramp spends 41.0%, 41.9% and 68.9% of its range across the rig's boards" ok
 else say "FAIL SECTION 2's ramp spends $RAMP across the rig's boards" no; fi
-UNREACHED=$(grep -hoE "left [0-9]+ px of the board's own upper half" /run1394/mocks.txt \
+# #1478: this was asked of the shipped mocks alone -- 436 px of their camera 2's upper
+# board unreached and 0 on the other two. It is asked of the rig now, at what the rig
+# measured on fork f15173f's dev build: 0, 10620 and 13161 px. Taken on a run where this
+# file's other rig pins were already red on main (the camera 3 span reads 334, not 194),
+# so it is a measurement of this build and is reported on #1478 as such.
+UNREACHED=$(grep -hoE "left [0-9]+ px of the board's own upper half" /run1394/rig.txt \
   | grep -oE '[0-9]+' | sort -un | tr '\n' ' ')
-if [ "$UNREACHED" = "0 436 " ]; then
-  say "OK   SECTION 6.5's repair leaves 436 px of mocks camera 2's upper board unreached, and 0 elsewhere" ok
-else say "FAIL SECTION 6.5 left $UNREACHED px of the mocks' upper boards unreached" no; fi
+echo "SECTION 6.5 on the rig: '${UNREACHED}'"
+if [ "$UNREACHED" = "0 10620 13161 " ]; then
+  say "OK   SECTION 6.5's repair leaves 0, 10620 and 13161 px of the rig's upper boards unreached" ok
+else say "FAIL SECTION 6.5 left $UNREACHED px of the rig's upper boards unreached" no; fi
 echo
 echo "=== 6. FALSIFY: the board at half the size ===================================="
 # #1339's own scaler moves the single property this issue is about -- how much of the

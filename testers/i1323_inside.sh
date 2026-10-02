@@ -17,14 +17,15 @@ run_one() { # $1 binary, $2 name, $3 clip
   sed 's/\x1b\[[0-9;]*m//g' /run1323/$2.out > /run1323/$2.txt
 }
 
-# The three mocks. OD_MAX_CYCLES ends a board that calibrates, and a board that CANNOT
+# The three rig cameras. OD_MAX_CYCLES ends a board that calibrates, and a board that CANNOT
 # calibrate goes to #895's fault vigil and stays up for good -- which is exactly what
 # §5c builds on purpose. So this waits for the cycles to run out and then ends the run by
 # its own recorded pid, and never by pattern.
-run_mocks() { # $1 binary, $2 name
+# #1478: this was the shipped mocks; the rig is the control now (docs/shipped-mock-census.md).
+run_rig() { # $1 binary, $2 name
   mkdir -p /run1323/$2
   ( cd /run1323/$2 && OD_MAX_CYCLES=20 exec $1 \
-      --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+      --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
       --width 1280 --height 720 > /run1323/$2.out 2>&1 ) &
   local P=$!
   local WAITED=0
@@ -38,6 +39,10 @@ run_mocks() { # $1 binary, $2 name
 regions() { grep -ohE '[0-9]+ of [0-9]+ refused' /run1323/$1.txt | head -1 | awk '{print $3}'; }
 
 echo "--- the footage: the mocks, aimed 180 px right and 90 px low ---"
+# #1478: NOT re-pointed. Sections 2 to 5b are built from the shipped mocks' camera 1 and
+# pin figures read off it -- its bull (616,283) plus this shift, the board middle, the
+# speck's place and size. The rig has no half of them, so they need a measurement on the
+# rig rather than a deleted column, and are left as they are.
 # The shift is #1320's, and so is the speck: a 3 px red disc at 700,380 that reaches bull
 # detection as ~250 px of area, through the same blur, dilation and closing the one in
 # the issue came through.
@@ -46,15 +51,12 @@ g++ -std=c++17 -O1 -o /run1323/offaim /app/testers/i1323_offaim_footage.cpp $CVF
 /run1323/offaim /app/mocks/cam_1.mp4 /run1323/off_speck.avi 300 180 90 700,380,3 || exit 1
 
 echo
-echo "=== 1. both rigs calibrate, and find the bulls they have always found ==="
-run_mocks /app/build/opendartboard mocks
-mkdir -p /run1323/rig
-( cd /run1323/rig && OD_MAX_CYCLES=20 exec /app/build/opendartboard \
-    --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
-    --width 1280 --height 720 > /run1323/rig.out 2>&1 )
-sed 's/\x1b\[[0-9;]*m//g' /run1323/rig.out > /run1323/rig.txt
+echo "=== 1. the rig calibrates, and finds the bulls it has always found ==="
+# #1478: the shipped mocks' half of this section -- their three bulls -- is gone; the rig's
+# half was already measured beside it and is the assertion now.
+run_rig /app/build/opendartboard rig
 
-for rig in mocks rig; do
+for rig in rig; do
   if grep -q 'Initial calibration completed successfully on 3 of 3' /run1323/$rig.txt; then
     say "OK   $rig calibrates on all three cameras" ok
   else say "FAIL $rig did not calibrate on all three cameras" no; fi
@@ -63,10 +65,6 @@ for rig in mocks rig; do
   if [ "$NOISE" = "0" ]; then say "OK   $rig prints no ERROR and no WARN" ok
   else say "FAIL $rig prints $NOISE ERROR/WARN lines" no; fi
 done
-for expected in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bull at (654,293)"; do
-  if grep -qF "$expected" /run1323/mocks.txt; then say "OK   mocks: $expected" ok
-  else say "FAIL mocks: no line saying $expected" no; fi
-done
 for expected in "Camera 1 bull at (671,309)" "Camera 2 bull at (626,292)" "Camera 3 bull at (700,298)"; do
   if grep -qF "$expected" /run1323/rig.txt; then say "OK   rig: $expected" ok
   else say "FAIL rig: no line saying $expected" no; fi
@@ -74,8 +72,9 @@ done
 
 echo
 echo "=== 2. the camera this issue is about finds its bull ==="
-# Camera 1 of the mocks, aimed 180 right and 90 low. Its bull is the control's bull plus
-# that shift and nothing else, because the shift is the only thing done to the footage.
+# Camera 1 of the mocks, aimed 180 right and 90 low. Its bull is that camera's own bull,
+# (616,283), plus that shift and nothing else, because the shift is the only thing done to
+# the footage. (#1478 took (616,283) out of section 1; it is a shipped-mock figure.)
 run_one /app/build/opendartboard plain /run1323/off_plain.avi
 if grep -qF 'Camera 1 bull at (796,373)' /run1323/plain.txt; then
   say "OK   off-aimed: the bull is at (796,373), which is (616,283) plus the shift" ok
@@ -204,7 +203,7 @@ for old, new in edits:
 open(p, 'w').write(s)
 PY
 mutate /run1323/m_drop.py
-run_mocks /run1323/mutant/build/opendartboard mdrop
+run_rig /run1323/mutant/build/opendartboard mdrop
 grep -hE 'Initial calibration completed' /run1323/mdrop.txt | head -1
 if grep -q 'the bull could not be found' /run1323/mdrop.txt &&
    ! grep -q 'Initial calibration completed successfully on 3 of 3' /run1323/mdrop.txt; then

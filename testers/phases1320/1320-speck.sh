@@ -34,6 +34,12 @@ set -u
 # on size against the board it was measured against. What changed is that it now loses to
 # a bull rather than to nobody.
 
+# #1478: the shipped mocks' column is gone from sections 1 to 3 -- their bulls, their
+# winner line and their ratio -- and the rig's, measured beside it, is the assertion
+# (docs/shipped-mock-census.md, A1). Section 4 is NOT re-pointed: the speck clip is cut
+# from the mocks' camera 1, the disc is placed against its bull, and the bull it must find
+# is control 1's plus the shift. The rig has no half of that, so control 1 still runs, for
+# section 4 alone, and asserts nothing of its own.
 echo "--- build the speck footage from the mocks ---"
 g++ -std=c++17 -O1 -o /run1320/i1320_speck_footage /app/testers/i1320_speck_footage.cpp \
   $(pkg-config --cflags --libs opencv4) || exit 1
@@ -41,7 +47,7 @@ g++ -std=c++17 -O1 -o /run1320/i1320_speck_footage /app/testers/i1320_speck_foot
 
 mkdir -p /run1320/mocks /run1320/rig /run1320/off
 
-echo "--- control 1: the shipped mocks, no --debug ---"
+echo "--- control 1: the shipped mocks, no --debug -- read by section 4 only ---"
 cd /run1320/mocks && OD_MAX_CYCLES=20 /app/build/opendartboard \
   --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
   --width 1280 --height 720 > /run1320/mocks.out 2>&1
@@ -79,8 +85,8 @@ done
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
-echo "=== 1. both rigs calibrate, and find the same bulls they always found ==="
-for rig in mocks rig; do
+echo "=== 1. the rig calibrates, and finds the same bulls it always found ==="
+for rig in rig; do
   if grep -q 'Initial calibration completed successfully' /run1320/$rig.txt; then
     say "OK   $rig calibrates" ok
   else say "FAIL $rig did not calibrate" no; fi
@@ -88,10 +94,6 @@ for rig in mocks rig; do
   grep -E '^\[(ERROR|WARN)\]' /run1320/$rig.txt || true
   if [ "$NOISE" = "0" ]; then say "OK   $rig prints no ERROR and no WARN" ok
   else say "FAIL $rig prints $NOISE ERROR/WARN lines" no; fi
-done
-for expected in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bull at (654,293)"; do
-  if grep -qF "$expected" /run1320/mocks.txt; then say "OK   mocks: $expected" ok
-  else say "FAIL mocks: no line saying $expected" no; fi
 done
 for expected in "Camera 1 bull at (671,309)" "Camera 2 bull at (626,292)" "Camera 3 bull at (700,298)"; do
   if grep -qF "$expected" /run1320/rig.txt; then say "OK   rig: $expected" ok
@@ -101,7 +103,7 @@ done
 echo "=== 2. what the winner was chosen on is on screen, without --debug ==="
 # The whole of #1320 is that a 205-pixel speck at C=0.71 beat the bull on circularity
 # alone, and the only place that was written down was a debug image.
-for rig in mocks rig; do
+for rig in rig; do
   if grep -qE 'Camera [0-9]+ bull at \([0-9]+,[0-9]+\), chosen on circularity [0-9.]+, radius [0-9.]+ px \([0-9.]+ of the board radius [0-9.]+ px' /run1320/$rig.txt; then
     say "OK   $rig: the line names circularity, the radius AND the board it was measured against" ok
   else say "FAIL $rig: the winner is not stated with what it was chosen on" no; fi
@@ -111,10 +113,13 @@ echo "=== 3. a constant measured on one rig is a constant that happens to fit ==
 # Both rigs are quoted, because they disagree: what reaches this stage is the bull after
 # a blur, a dilation and a closing, which add pixels rather than a ratio, so the smaller
 # the board is in frame the larger its bull measures against it.
-grep -ohE 'radius [0-9.]+ px \(0\.[0-9]+ of the board radius [0-9.]+ px' /run1320/mocks.txt /run1320/rig.txt || true
-SPREAD=$(grep -ohE '\(0\.[0-9]+ of the board radius' /run1320/mocks.txt /run1320/rig.txt | grep -oE '0\.[0-9]+' | sort -u | wc -l)
-if [ "$SPREAD" -ge 2 ]; then say "OK   the two rigs do not agree on the ratio, and the band holds both" ok
-else say "FAIL only one ratio was measured, so the band is fitted to one rig" no; fi
+#
+# #1478: the second rig here was the shipped mocks. What is asked of the rig alone is the
+# same sentence across its three cameras: more than one ratio, all inside the band.
+grep -ohE 'radius [0-9.]+ px \(0\.[0-9]+ of the board radius [0-9.]+ px' /run1320/rig.txt || true
+SPREAD=$(grep -ohE '\(0\.[0-9]+ of the board radius' /run1320/rig.txt | grep -oE '0\.[0-9]+' | sort -u | wc -l)
+if [ "$SPREAD" -ge 2 ]; then say "OK   the rig's cameras do not agree on the ratio ($SPREAD ratios), and the band holds them all" ok
+else say "FAIL only one ratio was measured, so the band is fitted to one camera" no; fi
 
 echo "=== 4. the speck is refused by name, and the bull beside it is not ==="
 # What is pinned here is where the disc was PAINTED -- 700,380 is an argument to

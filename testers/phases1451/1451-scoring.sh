@@ -52,7 +52,7 @@ set -u
 #   STALE   this binary, the SAME cache. Still admitted, still READY -- naming is not
 #           refusing -- and it must say 2 of 3 at start and name camera 3 with its own
 #           reason and its own remedy (#1389).
-#   WHOLE   this binary, the three shipped mocks, fresh: 3 of 3, named, NOT warned, and no
+#   WHOLE   this binary, mocks/rig-20260918, fresh: 3 of 3, named, NOT warned, and no
 #           new ERROR or WARN. Without WHOLE the warning could be one that fires on every
 #           board, and "the board is fine" would read as an alarm every night until nobody
 #           read it.
@@ -61,7 +61,6 @@ set -u
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
 BIN=/app/build/opendartboard
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 STUB_URL=http://127.0.0.1:8899
 
@@ -203,7 +202,8 @@ phase() {
 phase wstale "$BIN"        "$RIG"      fresh OD_WIRE_COUNT=atleast
 phase before "$BEFORE_BIN" "$RIG"      keep
 phase stale  "$BIN"        "$RIG"      keep
-phase whole  "$BIN"        "$MOCKS"    fresh
+# #1478: WHOLE is the rig measured fresh, not the shipped mocks (docs/shipped-mock-census.md, A2).
+phase whole  "$BIN"        "$RIG"      fresh
 
 kill $STUB 2>/dev/null; wait $STUB 2>/dev/null
 
@@ -278,14 +278,14 @@ echo "    the line, verbatim:"
 echo "$CLINE" | sed 's/^/      /'
 
 echo
-echo "=== 3. WHOLE: the shipped mocks still calibrate 3 of 3, named and not warned ==="
+echo "=== 3. WHOLE: the rig, fresh, calibrates 3 of 3, named and not warned ==="
 grep -aE 'SCORING:|Initial calibration completed|Scorer running with' /run1451/whole.txt | head -3 || true
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1451/whole.txt; then
-  say "OK   mocks/cam_*.mp4 still calibrates 3 of 3" ok
-else say "FAIL the shipped mocks no longer calibrate three of three" no; fi
+  say "OK   mocks/rig-20260918, fresh, calibrates 3 of 3" ok
+else say "FAIL the rig, fresh, does not calibrate three of three" no; fi
 if [ "$(censusN whole)" = "3" ]; then
   say "OK   and all three can be scored from" ok
-else say "FAIL the census says '$(census whole)' on the shipped mocks" no; fi
+else say "FAIL the census says '$(census whole)' on the rig, fresh" no; fi
 if grep -qa 'No camera on this board can be scored from' /run1451/whole.txt; then
   say "FAIL a healthy board was warned" no
 else say "OK   not warned" ok; fi

@@ -88,15 +88,15 @@ int main()
     // Measured on 2026-09-19 on one binary, at STEP 6.5, gates held open. flood is what
     // the colour stage kept on the full frame; ring is countNonZero(masks.doublesMask).
     struct Row { const char *what; int flood; int ring; double span; int rays; };
+    //
+    // #1478: the shipped mocks' three rows are gone; the rig's three were measured beside
+    // them on the same binary and are the table now (docs/shipped-mock-census.md, A1).
     const std::vector<Row> cameras = {
-        {"mocks/cam_1.mp4", 38532, 32580, 291.0, 97},
-        {"mocks/cam_2.mp4", 39731, 34427, 315.0, 103},
-        {"mocks/cam_3.mp4", 48380, 43944, 309.0, 109},
         {"rig-20260918/cam_1.mp4", 50853, 28129, 195.0, 61},
         {"rig-20260918/cam_2.mp4", 65242, 32363, 196.0, 88},
         {"rig-20260918/cam_3.mp4", 46859, 31474, 197.0, 64},
     };
-    std::printf("=== 1. the six cameras of the two fixtures, at the numbers they measured ===\n");
+    std::printf("=== 1. the three cameras of the rig, at the numbers they measured ========\n");
     for (const Row &r : cameras)
     {
         const board_look::Evidence e = board(r.flood, r.ring, r.span, r.rays);
@@ -108,11 +108,12 @@ int main()
 
     // ---- 2. THE ISSUE: the same camera, mounted closer -------------------------------
     //
-    // mocks/cam_3.mp4 is the one with the most ring in it, so it is the one that reaches
-    // the old line first. Under OD_LOOK=frame it is refused somewhere between 1.5x and
-    // 2x closer; under #1392 nothing it says changes at any distance.
+    // rig-20260918/cam_2.mp4 is the one with the most ring and the most colour in it, so
+    // it is the one that reaches the old line first. Under OD_LOOK=frame it is refused
+    // somewhere between 1.5x and 2x closer; under #1392 nothing it says changes at any
+    // distance. (#1478: this was mocks/cam_3.mp4, 48380 / 43944 / 309 / 109.)
     std::printf("\n=== 2. the same board, mounted closer, on the same numbers ================\n");
-    const board_look::Evidence far = board(48380, 43944, 309.0, 109);
+    const board_look::Evidence far = board(65242, 32363, 196.0, 88);
     for (double k : {1.0, 1.25, 1.5, 1.75, 2.0, 3.0})
     {
         const board_look::Evidence near = mountedCloser(far, k);
@@ -120,9 +121,8 @@ int main()
                     k, board_look::ringFraction(near) * 100.0,
                     (double)near.ring_pixels * 100.0 / (double)near.frame_pixels);
         // Within a hundredth of a percentage point. Not exactly equal, because the
-        // counts are integers: scaling 43944 px by 1.25^2 lands on 68663 rather than on
-        // 68662.5, and the span by 1.25 on 386.25, so the ratio moves in the last
-        // decimal. A tolerance that admitted a real change would be useless -- the old
+        // counts are integers: scaling 32363 px by 1.25^2 lands on 50567 rather than on
+        // 50567.19, so the ratio moves in the last decimal. A tolerance that admitted a real change would be useless -- the old
         // measure moves this number by 56% at the same step, which is the line below.
         const double moved = std::fabs(board_look::ringFraction(near) - board_look::ringFraction(far));
         say(moved < 0.0001, "at " + std::to_string(k).substr(0, 4) +
@@ -141,7 +141,7 @@ int main()
     // This half can only be checked where OD_LOOK=frame is set, so the phase script runs
     // this program twice. Under the old measure the SAME camera loses its whole slot
     // somewhere under 2x, which is the defect in one line.
-    std::printf("\n=== 3. what the pre-#1392 measure says about the same six evidences ======\n");
+    std::printf("\n=== 3. what the pre-#1392 measure says about the same evidence ===========\n");
     std::printf("     OD_LOOK=frame is %s\n", old_stage ? "SET" : "not set");
     int refusedByDistance = 0;
     for (double k : {1.0, 1.5, 2.0, 3.0})

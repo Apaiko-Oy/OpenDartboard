@@ -14,7 +14,7 @@ set -u
 #
 # Three phases, and the third is what makes the first two mean anything:
 #
-#   A  the control: the shipped mocks, three of three, which must still calibrate and
+#   A  the control: mocks/rig-20260918, three of three, which must still calibrate and
 #      must print no ERROR and no WARN.
 #   B  the same footage with two cameras dropped. One camera can vote, the quorum is 2,
 #      so the board must be refused -- and the sentence must name the count and the
@@ -35,7 +35,8 @@ set -u
 # is backgrounded and ended by its own recorded pid. Never by pattern.
 
 BIN=/app/build/opendartboard
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+# #1478: the rig, not the shipped mocks (docs/shipped-mock-census.md, A2).
+RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 
 echo "=== A: the control, three of three ==="
 # #1688: the control runs under OD_BOARD=auto. Since #1676 the board is taken as a Winmau
@@ -43,12 +44,14 @@ echo "=== A: the control, three of three ==="
 # wires of a wire number ring, and the default says so in two WARN lines by design
 # (1498-anchor-read pins the mocks the same way). OD_BOARD=auto measures the board instead,
 # so the control still asks for no ERROR and no WARN from a board the detector recognises.
+# #1478 re-pointed this control at mocks/rig-20260918, so the reason above is now the shipped
+# mocks' history; OD_BOARD=auto is kept so the path is the only thing the re-point changed.
 # B and C are about the vote and stay on the default.
-OD_BOARD=auto OD_MAX_CYCLES=20 $BIN --cams $MOCKS --width 1280 --height 720 > /run1348/a.out 2>&1
+OD_BOARD=auto OD_MAX_CYCLES=20 $BIN --cams $RIG --width 1280 --height 720 > /run1348/a.out 2>&1
 echo "A_RC=$?"
 
 echo "=== B: two cameras dropped, so one camera can vote ==="
-OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $MOCKS --width 1280 --height 720 \
+OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $RIG --width 1280 --height 720 \
   > /run1348/b.out 2>&1 &
 B=$!
 i=0; while [ $i -lt 120 ]; do grep -qa 'BOARD FAULTED\|Scorer running with' /run1348/b.out 2>/dev/null && break; i=$((i+1)); sleep 1; done
@@ -58,7 +61,7 @@ kill -TERM $B 2>/dev/null; wait $B 2>/dev/null
 echo "B_RC=$?"
 
 echo "=== C: the same board under OD_STATE_QUORUM=absolute OD_CAMERA_QUORUM=1 ==="
-OD_STATE_QUORUM=absolute OD_CAMERA_QUORUM=1 OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $MOCKS \
+OD_STATE_QUORUM=absolute OD_CAMERA_QUORUM=1 OD_DROP_CAM=1,2 OD_DROP_EVERY=1 $BIN --cams $RIG \
   --width 1280 --height 720 > /run1348/c.out 2>&1 &
 C=$!
 i=0; while [ $i -lt 120 ]; do grep -qa 'BOARD FAULTED\|Scorer running with' /run1348/c.out 2>/dev/null && break; i=$((i+1)); sleep 1; done
@@ -76,8 +79,8 @@ say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 echo
 echo "=== 1. the control is untouched ==="
 if grep -qa 'Initial calibration completed successfully on 3 of 3 cameras' /run1348/a.txt; then
-  say "OK   the mocks calibrate, all three" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates, all three" ok
+else say "FAIL the rig did not calibrate" no; fi
 # Not counted: the OD_BOARD=auto pin's own announcement ("OD_BOARD=auto is set: ..."),
 # which every pin makes at WARN and which says nothing about the board.
 grep -aE '^\[(ERROR|WARN)\]' /run1348/a.txt | grep -v 'OD_BOARD=auto is set: ' || true
