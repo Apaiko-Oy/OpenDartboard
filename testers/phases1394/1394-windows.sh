@@ -75,19 +75,29 @@ else say "FAIL rig fitted $(fitted rig), not 197117 200385 194335" no; fi
 echo
 echo "=== 2. the window sizes per camera, and what they used to be =================="
 # The before/after #1394 asks for, on ONE binary.
-run rigframe "$RIG" OD_COLOUR_WINDOWS=frame
+# #1729: OD_CALIBRATION_LOOKS=once, because what this arm reconstructs is #1323's state, and
+# #1323 had one look. Since #1445 (9d699de) a camera refused on the averaged frame is looked
+# at again, and under the frame windows rig cameras 1 and 3 each find a bull on a later
+# single frame, so the default run ends 3 of 3 and section 3's refusal is buried under
+# eleven retries apiece. The averaged frame's verdict is the one #1394 is about.
+run rigframe "$RIG" "OD_COLOUR_WINDOWS=frame OD_CALIBRATION_LOOKS=once"
 grep -hoE "Camera [0-9] colour windows off [^;]*" /run1394/rig.txt | sort -u
-if [ "$(spans rig)" = "314 192 194 " ]; then
-  say "OK   the spans the windows are fractions of: rig 314/192/194" ok
+# #1729: camera 3 was 194. 7e0ca67 ("the board is what surrounds the rest of the board")
+# credits a candidate region with every region whose middle lies inside its hull, and rig
+# camera 3's colour-stage board is now 334 px across. Its windows below follow it: 0.582,
+# 1.0 and 0.306 of half that span were 113, 309 and 94 px and are 195, 531 and 163.
+# Re-measured on fork 61f9bcb's dev build.
+if [ "$(spans rig)" = "314 192 334 " ]; then
+  say "OK   the spans the windows are fractions of: rig 314/192/334" ok
 else say "FAIL spans read rig '$(spans rig)'" no; fi
-if [ "$(win rig "bull's-eye")" = "182 112 113 " ]; then
-  say "OK   bull's-eye: rig 182/112/113 px -- 0.582 of each span" ok
+if [ "$(win rig "bull's-eye")" = "182 112 195 " ]; then
+  say "OK   bull's-eye: rig 182/112/195 px -- 0.582 of each span" ok
 else say "FAIL bull's-eye read rig '$(win rig "bull's-eye")'" no; fi
-if [ "$(win rig centrality)" = "498 306 309 " ]; then
-  say "OK   centrality: rig 498/306/309 px -- 1.0 board radii" ok
+if [ "$(win rig centrality)" = "498 306 531 " ]; then
+  say "OK   centrality: rig 498/306/531 px -- 1.0 board radii" ok
 else say "FAIL centrality read rig '$(win rig centrality)'" no; fi
-if [ "$(win rig connectivity)" = "152 94 94 " ]; then
-  say "OK   connectivity: rig 152/94/94 px -- 0.306 board radii" ok
+if [ "$(win rig connectivity)" = "152 94 163 " ]; then
+  say "OK   connectivity: rig 152/94/163 px -- 0.306 board radii" ok
 else say "FAIL connectivity read rig '$(win rig connectivity)'" no; fi
 # The one window #1394 did NOT move. #1407 moved it on STEP 2.5's pass, to the board's rim
 # in board radii, and `1407-cutoff` holds those numbers; here only the frame rule is held:
@@ -108,8 +118,11 @@ echo "=== 3. WHAT THE WINDOWS REALLY KEEP, counted rather than inferred ========
 # #1393's rule one stage over: an unmoved ellipse is consistent both with a stage that
 # kept the same pixels and with one that kept different pixels the fit shrugged off.
 echo "rig   kept: $(kept rig) (board) vs $(kept rigframe) (frame)"
-if [ "$(kept rig)" = "50876 65205 65278 46870 " ] && [ "$(kept rigframe)" = "49563 65205 65278 46870 " ]; then
-  say "OK   rig keeps 50876 px on camera 1 against the frame rule's 49563 -- 1313 px, and nothing elsewhere" ok
+# #1729: camera 3 kept 46870 under both rules. Since 7e0ca67 its board-sized windows keep
+# 50740 and the frame windows 45598 -- the camera whose span moved is now the second one the
+# window size decides. Re-measured on fork 61f9bcb's dev build, the frame arm at one look.
+if [ "$(kept rig)" = "50876 65205 65278 50740 " ] && [ "$(kept rigframe)" = "49563 65205 65278 45598 " ]; then
+  say "OK   rig keeps 50876 and 50740 px on cameras 1 and 3 against the frame rule's 49563 and 45598, and nothing moves on camera 2" ok
 else say "FAIL rig kept $(kept rig) board and $(kept rigframe) framed" no; fi
 # THE FINDING, and it is why this slice is one piece of work rather than two. Once the
 # floor lets rig camera 1 measure its board at all, the frame-sized windows drawn around
@@ -117,9 +130,12 @@ else say "FAIL rig kept $(kept rig) board and $(kept rigframe) framed" no; fi
 # falls to 2 of 3 cameras. #1323 moved the origin and left the scale, and on this camera
 # the old floor was all that stood between that pairing and a refused camera. So the
 # control for "what shipped before #1394" is BOTH switches, not one.
+# #1729: it was camera 1 alone and 2 of 3. Since 7e0ca67 camera 3's board is sized off
+# 334 px too, and the frame windows around its centre lose its bull the same way.
 if grep -q 'Camera 1 did not calibrate: the bull could not be found' /run1394/rigframe.txt \
-   && grep -q '2 of 3 are looking at the dartboard' /run1394/rigframe.txt; then
-  say "OK   board centre + FRAME windows loses rig camera 1's bull; the window size is load-bearing" ok
+   && grep -q 'Camera 3 did not calibrate: the bull could not be found' /run1394/rigframe.txt \
+   && grep -q 'CAMERAS: 1 of 3 are looking at the dartboard (2)' /run1394/rigframe.txt; then
+  say "OK   board centre + FRAME windows loses rig cameras 1 and 3's bulls; the window size is load-bearing" ok
 else say "FAIL the frame-sized windows kept rig camera 1's bull, so the size decides nothing here" no; fi
 run rigbefore "$RIG" "OD_COLOUR_WINDOWS=frame OD_BOARD_FLOOR=area"
 if [ "$(fitted rigbefore)" = "$(fitted rig)" ] && [ "$(noise rigbefore)" = "0" ]; then
@@ -156,8 +172,10 @@ if [ "$OFFBOARD" = "0 " ]; then
 else say "FAIL SECTION 5 added red off the board: $OFFBOARD" no; fi
 RAMP=$(grep -hoE "which is [0-9.]+% of the range it spends on the whole frame" /run1394/rig.txt \
   | grep -oE '[0-9.]+%' | sort -u | tr '\n' ' ')
-if [ "$RAMP" = "41.0% 41.9% 68.9% " ]; then
-  say "OK   SECTION 2's ramp spends 41.0%, 41.9% and 68.9% of its range across the rig's boards" ok
+# #1729: 41.0% 41.9% 68.9% until 7e0ca67, whose larger camera 3 board takes it to 72.3%.
+# Re-measured on fork 61f9bcb's dev build.
+if [ "$RAMP" = "41.0% 68.9% 72.3% " ]; then
+  say "OK   SECTION 2's ramp spends 41.0%, 68.9% and 72.3% of its range across the rig's boards" ok
 else say "FAIL SECTION 2's ramp spends $RAMP across the rig's boards" no; fi
 # #1478: this was asked of the shipped mocks alone -- 436 px of their camera 2's upper
 # board unreached and 0 on the other two. It is asked of the rig now, at what the rig
@@ -189,12 +207,15 @@ for n in half halfframe halfarea; do
     say "OK   at half size $n calibrates its camera off the bull at (628,322)" ok
   else say "FAIL at half size $n did not calibrate off (628,322)" no; fi
 done
-if [ "$(spans half)" = "91 " ]; then
-  say "OK   at half size the board spans 91 px, and the windows are fractions of that" ok
+# #1729: the half-size board spanned 91 px until 7e0ca67, which credits a broken outer ring
+# with what it surrounds; it spans 170 px since, and the windows
+# below are fractions of that. Re-measured on fork 61f9bcb's dev build.
+if [ "$(spans half)" = "170 " ]; then
+  say "OK   at half size the board spans 170 px, and the windows are fractions of that" ok
 else say "FAIL at half size the span reads '$(spans half)'" no; fi
-if [ "$(win half "bull's-eye")" = "53 " ] && [ "$(win half centrality)" = "144 " ] \
-   && [ "$(win half connectivity)" = "44 " ]; then
-  say "OK   53, 144 and 44 px -- against the frame rule's 128, 320 and 96 on the same footage" ok
+if [ "$(win half "bull's-eye")" = "99 " ] && [ "$(win half centrality)" = "269 " ] \
+   && [ "$(win half connectivity)" = "82 " ]; then
+  say "OK   99, 269 and 82 px -- against the frame rule's 128, 320 and 96 on the same footage" ok
 else say "FAIL at half size the windows read $(win half "bull's-eye") $(win half centrality) $(win half connectivity)" no; fi
 # The finding. The frame windows on a half-size board keep half again as much.
 echo "half kept: $(kept half) (board) vs $(kept halfframe) (#1323's state) vs $(kept halfarea) (pre-#1323)"
@@ -203,14 +224,19 @@ echo "half kept: $(kept half) (board) vs $(kept halfframe) (#1323's state) vs $(
 # frame's windows -- is exactly the state this issue was filed against, and it is the
 # honest control. On a board half the size it keeps 23145 px inside the region where both
 # on the board keeps 15191: 7954 px, 52% more, of what the windows exist to remove.
-if [ "$(kept half)" = "15191 " ] && [ "$(kept halfframe)" = "15732 23145 " ] \
-   && [ "$(kept halfarea)" = "15446 22859 " ]; then
-  say "OK   at half size: 15191 px on the board, 23145 px with #1323's frame-sized windows, 22859 px before #1323" ok
+# #1729: #1394 measured 15191 against 23145 -- 52% more -- when this board's windows were
+# fractions of a 91 px span. On the 170 px span it measures since 7e0ca67 the board-sized
+# windows are within a quarter of the frame's, and the margin is what that leaves: 19609 and
+# 21233 px on the stage's two passes against 22859 on both frame arms, 17% and 8%
+# more. Re-measured on fork 61f9bcb's dev build.
+if [ "$(kept half)" = "19609 21233 " ] && [ "$(kept halfframe)" = "22859 " ] \
+   && [ "$(kept halfarea)" = "22859 " ]; then
+  say "OK   at half size: 19609 and 21233 px on the board, 22859 px with #1323's frame-sized windows and before #1323" ok
 else say "FAIL at half size the stage kept $(kept half), $(kept halfframe) and $(kept halfarea)" no; fi
 # And the floor, which is what stops any of it happening at all.
 if grep -q 'Camera 1 has no board to measure here: OD_BOARD_FLOOR=area' /run1394/halfarea.txt \
-   && grep -q 'the largest coloured region spans 91 px' /run1394/half.txt; then
-  say "OK   the old floor refuses that 91 px board outright, so every window falls back to the frame" ok
+   && grep -q 'the largest coloured region spans 170 px' /run1394/half.txt; then
+  say "OK   the old floor refuses that 170 px board outright, so every window falls back to the frame" ok
 else say "FAIL the old floor did not refuse the half-size board; phase 4's answer is not general" no; fi
 
 echo

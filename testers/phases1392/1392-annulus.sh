@@ -99,7 +99,11 @@ check_ring() { # file camera expected-percent
     say "OK   $(basename $1 .txt) camera $2: the ring is $got% of the circle its board spans (expected $3%)" ok
   else say "FAIL $(basename $1 .txt) camera $2: the ring is ${got:-nothing}% of its board circle, expected $3%" no; fi
 }
-check_ring /run1392/rig.txt   1 23.6
+# #1729: camera 1 was 23.6% of a 195 px span. 7e0ca67 ("the board is what surrounds the
+# rest of the board") sizes rig camera 1 off its broken doubles ring, 317 px, so the same
+# 28129 ring pixels are 8.9% of a disc 2.6x the size; cameras 2 and 3 key no doubles ring
+# and still span their treble ring. Re-measured on fork 61f9bcb's dev build.
+check_ring /run1392/rig.txt   1 8.9
 check_ring /run1392/rig.txt   2 26.9
 check_ring /run1392/rig.txt   3 25.7
 # #1478: a cross-fixture control stood here -- the rig's ring share against the shipped

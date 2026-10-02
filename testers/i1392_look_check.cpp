@@ -91,10 +91,16 @@ int main()
     //
     // #1478: the shipped mocks' three rows are gone; the rig's three were measured beside
     // them on the same binary and are the table now (docs/shipped-mock-census.md, A1).
+    //
+    // #1729: cameras 1 and 3 re-measured on fork 61f9bcb's dev build. 7e0ca67 sizes camera 1
+    // off its broken doubles ring (span 195 -> 317) and credits camera 3 with what its board
+    // region surrounds (flood 46859 -> 50725, 1394-windows' kept 46870 -> 50740 at that same
+    // commit); camera 1's flood now reads 50866 where it read 50853.
+    // Camera 2, the one section 2 mounts closer, did not move.
     const std::vector<Row> cameras = {
-        {"rig-20260918/cam_1.mp4", 50853, 28129, 195.0, 61},
+        {"rig-20260918/cam_1.mp4", 50866, 28129, 317.0, 61},
         {"rig-20260918/cam_2.mp4", 65242, 32363, 196.0, 88},
-        {"rig-20260918/cam_3.mp4", 46859, 31474, 197.0, 64},
+        {"rig-20260918/cam_3.mp4", 50725, 31474, 197.0, 64},
     };
     std::printf("=== 1. the three cameras of the rig, at the numbers they measured ========\n");
     for (const Row &r : cameras)
