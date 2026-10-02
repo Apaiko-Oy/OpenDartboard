@@ -54,9 +54,14 @@ carved() { grep -hoE 'Camera [0-9]+ bull carve:.*carving [0-9]+ px' /run1393/$1.
 # is visible rather than silent, and this slice is upstream of the fit.
 fitted() { grep -hoE 'degrees: [0-9]+ px' /run1393/$1.txt | grep -oE '[0-9]+' | tr '\n' ' '; }
 # The triples, which are `fullMask` minus the doubles and so the mask this carve reaches
-# first. Areas rather than ellipses because that is what the stage prints.
-triples() { grep -hoE '(outer|inner) triple ellipse from.*area: [0-9]+' /run1393/$1.txt \
-  | sed 's/ ellipse from largest contour//;s/ ellipse from contour [0-9]//' | sort -u | tr '\n' '|'; }
+# first. #1729: until #1499 (merged at f529ecf) the stage fitted them to contours and
+# printed each contour's AREA, and this read those. #1499 ray-traces the treble edges and
+# prints how many ray boundary points each ellipse was fitted from instead, so the area
+# lines are gone and this read nothing at all -- an empty string on both sides, which the
+# guard below refused. It reads the ray counts now, in the order the cameras print them:
+# "outer=67 inner=67 outer=116 ...".
+triples() { grep -hoE '(outer|inner) triple ellipse from [0-9]+ (ray boundary|inner) points' /run1393/$1.txt \
+  | sed -E 's/ triple ellipse from ([0-9]+).*/=\1/' | tr '\n' ' '; }
 
 echo "=== 1. the rig calibrates, with its three bull centres and three boards ========"
 run rig "$RIG"
@@ -79,9 +84,12 @@ echo "=== 2. the carve radius per camera, and what it used to be ===============
 # min(cols, rows) / 15 exactly, so neither column is a different build.
 run rigframe "$RIG" OD_BULL_CARVE=frame
 grep -hoE 'Camera [0-9]+ bull carve:.*' /run1393/rig.txt | sort -u
-if [ "$(radii rig)" = "18 18 18 " ]; then
-  say "OK   rig: 18 px on all three, 0.0935x boards of 195, 196 and 197 px" ok
-else say "FAIL rig carves at $(radii rig), not 18 18 18" no; fi
+# #1729: camera 1 was 18 px. 7e0ca67 ("the board is what surrounds the rest of the board")
+# sizes rig camera 1 off its broken doubles ring, 317 px, and 0.0935x that is 30 px; the red
+# it carves did not move (section 3). Re-measured on fork 61f9bcb's dev build.
+if [ "$(radii rig)" = "30 18 18 " ]; then
+  say "OK   rig: 30, 18 and 18 px, 0.0935x boards of 317, 196 and 197 px" ok
+else say "FAIL rig carves at $(radii rig), not 30 18 18" no; fi
 if [ "$(radii rigframe)" = "48 48 48 " ]; then
   say "OK   under the frame rule all three are 48 px -- a fifteenth of the frame, whatever the board" ok
 else say "FAIL the frame rule gave $(radii rigframe), not three 48s" no; fi
@@ -123,9 +131,11 @@ if [ "$(fitted rig)" = "197117 200385 194335 " ] && [ "$(fitted rigframe)" = "19
 else say "FAIL rig fitted $(fitted rig) / $(fitted rigframe), not 1331-framing 2.5's 197117 200385 194335" no; fi
 # The triples are the mask this carve reaches before the doubles, so they are asked
 # separately rather than taken as covered by the fitted board above.
+# #1729: and pinned, because "the same under both rules" is also what two empty reads say.
 for fix in rig; do
-  if [ "$(triples $fix)" = "$(triples ${fix}frame)" ] && [ -n "$(triples $fix)" ]; then
-    say "OK   $fix: the triples contours are the same under both rules" ok
+  if [ "$(triples $fix)" = "$(triples ${fix}frame)" ] \
+     && [ "$(triples $fix)" = "outer=67 inner=67 outer=116 inner=116 outer=59 inner=59 " ]; then
+    say "OK   $fix: the triples are traced from 67, 116 and 59 rays under both rules" ok
   else say "FAIL $fix triples $(triples $fix) against $(triples ${fix}frame)" no; fi
 done
 
@@ -162,12 +172,18 @@ else say "FAIL at half size the doubles gave $DP derived and $DF framed, not 89 
 if [ "$(carved half)" = "171 " ] && [ "$(carved halfframe)" = "354 " ]; then
   say "OK   the frame rule takes 354 px of red where the derived carve takes 171 -- 2.07x" ok
 else say "FAIL at half size the carves took $(carved half) and $(carved halfframe), not 171 and 354" no; fi
-if [ "$(triples half)" = "inner triple (area: 12503|outer triple (area: 17976|" ]; then
-  say "OK   derived: an outer triple of 17976 px and an inner triple of 12503 px" ok
-else say "FAIL at half size the derived carve fitted $(triples half)" no; fi
-if [ "$(triples halfframe)" = "outer triple (area: 5319|" ]; then
-  say "OK   FRAMED: the outer triple collapses to 5319 px and NO inner triple is fitted at all" ok
-else say "FAIL at half size the frame rule fitted $(triples halfframe), not a lone 5319 px outer triple" no; fi
+# #1729: what the eaten red did DOWNSTREAM is no longer what #1393 measured. Before #1499
+# the triples were fitted to contours of the carved mask, and the frame rule left an outer
+# triple of 5319 px and no inner triple at all against the derived carve's 17976 and 12503.
+# #1499 (f529ecf) ray-traces the treble edges instead, and under it both rules fit both
+# triple edges, from 119 rays derived and 116 framed. The carve still takes 2.07x the red (above), so the frame rule still
+# bites; it is the contour fit that no longer shows it. Re-measured on fork 61f9bcb.
+if [ "$(triples half)" = "outer=119 inner=119 " ]; then
+  say "OK   derived: both triple edges traced, from 119 rays" ok
+else say "FAIL at half size the derived carve fitted $(triples half), not both edges from 119 rays" no; fi
+if [ "$(triples halfframe)" = "outer=116 inner=116 " ]; then
+  say "OK   FRAMED: both triple edges traced too, from 116 rays -- since #1499 the over-carve no longer costs a triple" ok
+else say "FAIL at half size the frame rule fitted $(triples halfframe), not both edges from 116 rays" no; fi
 
 echo
 if [ $FAILED -eq 0 ]; then echo "1393-carve: PASS"; else echo "1393-carve: FAIL"; fi

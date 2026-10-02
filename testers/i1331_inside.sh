@@ -75,7 +75,12 @@ for expected in "Camera 1 bull at (671,309)" "Camera 2 bull at (626,292)" "Camer
 done
 # And the six boards, measured on the FULL frame now rather than inside a frame-centred
 # ellipse, are the same six boards to the pixel.
-for expected in "Camera 1 board found on the FULL frame: radius 194 px across its widest, centre (671,320)" \
+# #1729: camera 1's line was "radius 194 px ... centre (671,320)" until 7e0ca67 ("the board is
+# what surrounds the rest of the board"), which credits a broken outer ring with what it
+# surrounds -- rig camera 1's doubles ring is broken at the top, so its board is now the
+# doubles ring at 316 px rather than the treble ring at 194. Cameras 2 and 3 key no doubles
+# ring at all and did not move. Re-measured on fork 61f9bcb's dev build.
+for expected in "Camera 1 board found on the FULL frame: radius 316 px across its widest, centre (672,371)" \
                 "Camera 2 board found on the FULL frame: radius 195 px across its widest, centre (624,313)" \
                 "Camera 3 board found on the FULL frame: radius 197 px across its widest, centre (700,328)"; do
   if grep -qF "$expected" /run1331/rig.txt; then say "OK   rig: $expected" ok
@@ -84,7 +89,11 @@ for expected in "Camera 1 board found on the FULL frame: radius 194 px across it
 done
 # ADR-0079 §2 on the footage this repository ships: every one of the six has its whole
 # board in shot, and the margin is a distance in pixels rather than a share of anything.
-for expected in "kept comes within 75 px" "kept comes within 39 px" "kept comes within 55 px"; do
+# #1729: these were 75, 39 and 55 px. 77bb5b1 ("a red room is not the board") measures the
+# gap on colour within 1.8x the board's own region instead of on everything kept, which
+# moved them to 215, 152 and 203; 7e0ca67's larger camera 1 board then moved its 215 to 137.
+# Re-measured on fork 61f9bcb's dev build.
+for expected in "kept comes within 137 px" "kept comes within 152 px" "kept comes within 203 px"; do
   if grep -qF "$expected" /run1331/rig.txt; then say "OK   rig: the frame edge is $expected away" ok
   else say "FAIL rig: no camera reports $expected" no; fi
 done
@@ -137,16 +146,23 @@ echo "=== 2.6 #1378 FALSIFY: put the margin back to 1.25 and watch the rig colla
 # fixture's reading rather than a consequence of the constant.
 run_three rigsmall /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 OD_ROI_MARGIN=1.25
 echo "rig at 1.25: $(fitted rigsmall)"
-if [ "$(fitted rigsmall)" = "72374 72531 72171 " ]; then
-  say "OK   at 1.25 the rig's fitted boards collapse to 72374, 72531 and 72171 px -- 36.6%" ok
-else say "FAIL at 1.25 the rig measured $(fitted rigsmall); #1378 measured 72374 72531 72171" no; fi
+# #1729: #1378 measured 72374 72531 72171 -- all three collapsed. Since 7e0ca67 camera 1's
+# board is its 316 px doubles ring (section 1), so its 1.25 region is 396 px and holds the
+# whole ring: camera 1 fits its full 197117 px board at either margin, and the collapse is
+# cameras 2 and 3, whose board is still the treble span. Re-measured on fork 61f9bcb.
+if [ "$(fitted rigsmall)" = "197117 72531 72171 " ]; then
+  say "OK   at 1.25 cameras 2 and 3 collapse to 72531 and 72171 px -- 36.2% and 37.1% -- and camera 1, sized off its doubles ring, keeps 197117" ok
+else say "FAIL at 1.25 the rig measured $(fitted rigsmall); #1729 measured 197117 72531 72171" no; fi
 # And the line whose absence cost eight darts: the region cut coloured board, said out
 # loud, per camera, with the share against the share this check allows.
+# #1729: the two cameras that collapse, and only they -- camera 1's region at 1.25 cuts
+# nothing, which is the control for the same line on the other two.
 CUT=$(grep -cE '^\[WARN\].*drew a region that CUT coloured board' /run1331/rigsmall.txt || true)
-if [ "$CUT" = "3" ]; then
+CUTCAMS=$(grep -hoE '^\[WARN\].*Camera [0-9] drew a region that CUT' /run1331/rigsmall.txt | grep -oE 'Camera [0-9]' | sort -u | tr '\n' ' ')
+if [ "$CUT" = "2" ] && [ "$CUTCAMS" = "Camera 2 Camera 3 " ]; then
   grep -hE 'drew a region that CUT' /run1331/rigsmall.txt | sed 's/.*] - //' | cut -c1-150
-  say "OK   all three cameras say their region cut coloured board, with the share" ok
-else say "FAIL $CUT of 3 cameras reported a region that cut coloured board" no; fi
+  say "OK   cameras 2 and 3 say their region cut coloured board, with the share, and camera 1 does not" ok
+else say "FAIL $CUT of 3 cameras ($CUTCAMS) reported a region that cut coloured board; #1729 measured cameras 2 and 3" no; fi
 # The control for it: at the margin this repository ships, no camera on either fixture
 # says it. Section 1 already asserts both runs print no WARN at all, so this is that
 # assertion said where a reader of #1378 will look for it.
