@@ -26,6 +26,44 @@ MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 # go to their own files, so the run's own log stays readable either way.
 export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:halt_on_error=1:log_path=/run1317/asanrep
 
+# #1688: gcc 10.2.1's libasan in this image sometimes never reaches main on this kernel and
+# loops on `AddressSanitizer:DEADLYSIGNAL` for ever, about 2 MB of it a second. It is not
+# this program: an EMPTY main built with -fsanitize=address hung 10 of 40 times under
+# `timeout 3` here, and 9 of 40 with the options above (measured 2026-10-02, kernel 6.18).
+# The 161 MB of bare DEADLYSIGNAL and no stdout above is very likely the same loop.
+# So every sanitizer process below is bounded -- the foreground ones by `timeout`, the two
+# 40 s ones by their own clock -- and each is then ASKED whether it was that loop: it met
+# its bound, or it wrote nothing on stdout (the loop comes before main) and its reports
+# hold DEADLYSIGNAL and no `ERROR: AddressSanitizer`. Without the question a background
+# run in the loop read as "no finding", which is a pass, and a foreground one wedged
+# run_all.sh. It is a FAIL by name, never a pass and never retried. The cure for the loop
+# itself (an unconfined seccomp profile and `setarch -R`) is the maintainer's decision and
+# is deliberately not taken here. Measured on the build this makes: its own
+# detector binary looped 3 of 20 starts, and the 40 s partial run 2 of 5.
+# The control run measured 34-40 s, so its bound is 300; the capacity probe is a moment.
+ASAN_BOUND_S="${ASAN_BOUND_S:-300}"
+PROBE_BOUND_S="${PROBE_BOUND_S:-30}"
+FAILED=0
+say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
+# hung NAME RC STDOUT REPORTS... -- a process that met its bound, or that never wrote to
+# STDOUT and whose REPORTS are the loop and nothing else, is reported and costs the run its
+# verdict. STDOUT given as "" means the caller has none apart, and only the bound counts.
+hung() {
+  local name="$1" rc="$2" out="$3" d e quiet=0
+  shift 3
+  if [ -n "$out" ] && [ ! -s "$out" ]; then quiet=1; fi
+  d=$(cat "$@" 2>/dev/null | grep -c 'AddressSanitizer:DEADLYSIGNAL' || true)
+  e=$(cat "$@" 2>/dev/null | grep -c 'ERROR: AddressSanitizer' || true)
+  if [ "$rc" = 124 ] || [ "$rc" = 137 ] || { [ $quiet = 1 ] && [ "$d" -gt 0 ] && [ "$e" = 0 ]; }; then
+    if [ "$d" -gt 0 ]; then
+      echo "FAIL $name: ASAN run hung: libasan DEADLYSIGNAL loop, #1688 (rc=$rc, $d DEADLYSIGNAL lines; not a finding, and not retried)"
+    else
+      echo "FAIL $name: ASAN run hung: no answer in its bound and no DEADLYSIGNAL, so not the #1688 loop (rc=$rc; not retried)"
+    fi
+    FAILED=1
+  fi
+}
+
 echo "--- configure and build the sanitizer binary ---"
 cmake -S /app -B $BUILD -DCMAKE_PREFIX_PATH=/usr/local \
   -DCMAKE_CXX_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
@@ -47,27 +85,33 @@ done
 PARTIAL=/run1317/partial_1.avi,/run1317/partial_2.avi,/run1317/partial_3.avi
 
 echo "--- ASan over the shipped mocks ---"
-OD_MAX_CYCLES=20 $BUILD/opendartboard --cams $MOCKS \
+# Each run reports to its own log_path, so `hung` can ask one process about itself.
+S0=$(date +%s)
+ASAN_OPTIONS="${ASAN_OPTIONS/asanrep/asanrep_control}" OD_MAX_CYCLES=20 \
+  timeout -k 10 "$ASAN_BOUND_S" $BUILD/opendartboard --cams $MOCKS \
   --width 1280 --height 720 > /run1317/asan_control.out 2> /run1317/asan_control.err
-echo "ASAN_CONTROL_RC=$?"
+RC=$?
+echo "ASAN_CONTROL_RC=$RC wall_s=$(( $(date +%s) - S0 ))"
+hung "the control run" "$RC" /run1317/asan_control.out \
+  /run1317/asan_control.out /run1317/asan_control.err /run1317/asanrep_control.*
 
 echo "--- ASan over the partial-detection input ---"
-$BUILD/opendartboard --cams $PARTIAL \
+ASAN_OPTIONS="${ASAN_OPTIONS/asanrep/asanrep_partial}" $BUILD/opendartboard --cams $PARTIAL \
   --width 1280 --height 720 > /run1317/asan_partial.out 2> /run1317/asan_partial.err &
 P=$!
 sleep 40
 kill -TERM $P 2>/dev/null
 wait $P 2>/dev/null
-echo "ASAN_PARTIAL_RC=$?"
-
-FAILED=0
-say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
+RC=$?
+echo "ASAN_PARTIAL_RC=$RC"
+hung "the partial run" "$RC" /run1317/asan_partial.out \
+  /run1317/asan_partial.out /run1317/asan_partial.err /run1317/asanrep_partial.*
 
 for name in control partial; do
   echo "=== AddressSanitizer over the $name input ==="
   grep -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer|runtime error' \
-    /run1317/asan_$name.out /run1317/asan_$name.err /run1317/asanrep.* 2>/dev/null || true
-  N=$(cat /run1317/asan_$name.out /run1317/asan_$name.err /run1317/asanrep.* 2>/dev/null | grep -cE 'ERROR: AddressSanitizer' || true)
+    /run1317/asan_$name.out /run1317/asan_$name.err /run1317/asanrep_*.* 2>/dev/null || true
+  N=$(cat /run1317/asan_$name.out /run1317/asan_$name.err /run1317/asanrep_*.* 2>/dev/null | grep -cE 'ERROR: AddressSanitizer' || true)
   if [ "$N" = "0" ]; then say "OK   no AddressSanitizer finding over the $name input" ok
   else say "FAIL $N AddressSanitizer findings over the $name input" no; fi
 done
@@ -105,7 +149,10 @@ B=$!
 sleep 40
 kill -TERM $B 2>/dev/null
 wait $B 2>/dev/null
-echo "ASAN_BASE_PARTIAL_RC=$?"
+RC=$?
+echo "ASAN_BASE_PARTIAL_RC=$RC"
+hung "the base commit's partial run" "$RC" /run1317/asan_base_partial.out \
+  /run1317/asan_base_partial.out /run1317/asan_base_partial.err /run1317/baserep.*
 echo "=== AddressSanitizer over the base commit, same input ==="
 grep -E 'ERROR: AddressSanitizer|SUMMARY: AddressSanitizer' \
   /run1317/asan_base_partial.out /run1317/asan_base_partial.err /run1317/baserep.* 2>/dev/null || echo "(none)"
@@ -122,8 +169,10 @@ g++ -std=c++17 -O1 -g -fsanitize=address -fno-omit-frame-pointer \
   -o /run1317/cap /app/testers/i1317_capacity_probe.cpp $(pkg-config --cflags --libs opencv4) || exit 1
 for n in 9 15 19; do
   ASAN_OPTIONS=detect_leaks=0:abort_on_error=0:halt_on_error=1 \
-    /run1317/cap $n > /run1317/cap_$n.txt 2>&1 || true
+    timeout -k 5 "$PROBE_BOUND_S" /run1317/cap $n > /run1317/cap_$n.txt 2>&1
+  RC=$?
   head -1 /run1317/cap_$n.txt
+  hung "the capacity probe at $n wires" "$RC" "" /run1317/cap_$n.txt
 done
 SEEN9=$(grep -c 'heap-buffer-overflow' /run1317/cap_9.txt || true)
 SEEN15=$(grep -c 'heap-buffer-overflow' /run1317/cap_15.txt || true)
