@@ -42,8 +42,10 @@ g++ -std=c++17 -O1 -I /app/src -I /app/src/utils -I /app/src/detector/geometry/c
   > /run1441/build.log 2>&1 || { echo "FAIL could not build the wire census; nothing below measures anything"; exit 2; }
 
 # The fixtures and their clips, from the directory rather than from a literal (#1437).
-clips_of() { [ "$1" = mocks ] && ls /app/mocks/cam_*.mp4 2>/dev/null | sort || ls "/app/mocks/$1"/cam_*.mp4 2>/dev/null | sort; }
-FIXTURES="$(ls -d /app/mocks/*/ 2>/dev/null | sed 's#/app/mocks/##;s#/$##') mocks"
+# #1478: the shipped mocks (`mocks`, the clips at the top of /app/mocks) left this
+# population; it is the rig directories alone (docs/shipped-mock-census.md, A2).
+clips_of() { ls "/app/mocks/$1"/cam_*.mp4 2>/dev/null | sort; }
+FIXTURES="$(ls -d /app/mocks/*/ 2>/dev/null | sed 's#/app/mocks/##;s#/$##')"
 SUBJECT=/app/mocks/rig-20260918/cam_2.mp4
 
 measure() { env $2 "$BIN" "$1" $BAND 2>/dev/null | grep '^I1437' > "$3"; }

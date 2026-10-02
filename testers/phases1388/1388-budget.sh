@@ -8,7 +8,7 @@ set -u
 # ADR-0080 section 4 adds, which is only observable in a SECOND start, so it must run after
 # phase 3 and in the same directory. Phase 5 makes the code adopt and watches the guard
 # fire, because a guard that cannot be made to fire is not evidence (#708). Phase 6 is
-# #1321's control: the untouched mocks, which must still calibrate and say nothing.
+# #1321's control: the untouched rig, which must still calibrate and say nothing.
 #
 # Every board is ended by its own recorded pid, never by pattern, and every board is
 # bounded -- #895's vigil does not exit and OD_MAX_CYCLES does not bound it.
@@ -34,8 +34,9 @@ g++ -std=c++17 -O2 -o $RUN/disturbance /app/testers/i1388_disturbance.cpp \
 
 WORST=0
 WORST_CLIP=""
-for CLIP in /app/mocks/cam_1.mp4 /app/mocks/cam_2.mp4 /app/mocks/cam_3.mp4 \
-            /app/mocks/rig-20260918/cam_1.mp4 /app/mocks/rig-20260918/cam_2.mp4 \
+# #1478: the shipped mocks left this list; the rig is the one fixture the budget is taken on
+# (docs/shipped-mock-census.md, A2).
+for CLIP in /app/mocks/rig-20260918/cam_1.mp4 /app/mocks/rig-20260918/cam_2.mp4 \
             /app/mocks/rig-20260918/cam_3.mp4; do
   NAME=$(echo "$CLIP" | tr '/.' '__')
   # The camera index only names the slot in the log; the comparison is one clip against
@@ -70,10 +71,11 @@ echo "$WORST" > $RUN/worst_disturbance_seconds
 
 echo "=============== the footage the two arms are built from ==============="
 g++ -std=c++17 -O1 -o $RUN/moved /app/testers/i899_moved_footage.cpp $CVFLAGS || exit 1
+# #1478: the arms are cut from the rig, not the shipped mocks.
 for i in 1 2 3; do
-  $RUN/moved /app/mocks/cam_$i.mp4 $RUN/held_$i.avi   0  0 0 400 0   || exit 1
-  $RUN/moved /app/mocks/cam_$i.mp4 $RUN/later_$i.avi  0  0 0 400 400 || exit 1
-  $RUN/moved /app/mocks/cam_$i.mp4 $RUN/nudged_$i.avi 20 15 0 400 400 || exit 1
+  $RUN/moved /app/mocks/rig-20260918/cam_$i.mp4 $RUN/held_$i.avi   0  0 0 400 0   || exit 1
+  $RUN/moved /app/mocks/rig-20260918/cam_$i.mp4 $RUN/later_$i.avi  0  0 0 400 400 || exit 1
+  $RUN/moved /app/mocks/rig-20260918/cam_$i.mp4 $RUN/nudged_$i.avi 20 15 0 400 400 || exit 1
 done
 
 # $1 = arm name, $2 = the directory it runs in, $3 = footage swapped in after calibration,
@@ -342,16 +344,16 @@ if grep -q 'BOARD ADOPTED GEOMETRY MID-RUN' $RUN/knock.txt; then
   say "FAIL the guard fires on the unmutated tree, so it is measuring something else" no
 else say "OK   one tree adopts and fires it, the other does not" ok; fi
 
-echo "=============== PHASE 6: CONTROL -- the untouched mocks ==============="
+echo "=============== PHASE 6: CONTROL -- the untouched rig ==============="
 mkdir -p $RUN/control
 ( cd $RUN/control && OD_MAX_CYCLES=20 /app/build/opendartboard \
-    --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+    --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
     --width 1280 --height 720 > $RUN/control.out 2> $RUN/control.err )
 echo "CONTROL_RC=$?"
 plain $RUN/control.out > $RUN/control.txt
 if grep -q 'Initial calibration completed successfully' $RUN/control.txt; then
-  say "OK   the mocks calibrate" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates" ok
+else say "FAIL the rig did not calibrate" no; fi
 grep -E '^\[(ERROR|WARN)\]' $RUN/control.txt || true
 NOISE=$(grep -cE '^\[(ERROR|WARN)\]' $RUN/control.txt || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok

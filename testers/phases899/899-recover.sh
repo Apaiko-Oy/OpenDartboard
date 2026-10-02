@@ -21,35 +21,37 @@ set -u
 # reading through the file handle it already holds, and only the reopen sees the new file.
 # Both arms are ended by their own recorded pid, never by pattern.
 #
-# The control is #1321's: the untouched mocks, which must still calibrate with no ERROR
+# The control is #1321's: the untouched rig, which must still calibrate with no ERROR
 # and no WARN and say nothing about sight at all.
 
-echo "--- build the footage from the mocks ---"
+# #1478: the arms and the control are mocks/rig-20260918, not the shipped mocks
+# (docs/shipped-mock-census.md, A2).
+echo "--- build the footage from mocks/rig-20260918 ---"
 g++ -std=c++17 -O1 -o /run899/moved /app/testers/i899_moved_footage.cpp \
   $(pkg-config --cflags --libs opencv4) || exit 1
 for i in 1 2 3; do
   # what the board calibrates on
-  /run899/moved /app/mocks/cam_$i.mp4 /run899/held_$i.avi   0  0 0 400 0   || exit 1
+  /run899/moved /app/mocks/rig-20260918/cam_$i.mp4 /run899/held_$i.avi   0  0 0 400 0   || exit 1
   # the same rig, later, untouched -- the recovering arm
-  /run899/moved /app/mocks/cam_$i.mp4 /run899/later_$i.avi  0  0 0 400 400 || exit 1
+  /run899/moved /app/mocks/rig-20260918/cam_$i.mp4 /run899/later_$i.avi  0  0 0 400 400 || exit 1
   # the same later stretch, 20 px across and 15 px down -- the refusing arm
-  /run899/moved /app/mocks/cam_$i.mp4 /run899/nudged_$i.avi 20 15 0 400 400 || exit 1
+  /run899/moved /app/mocks/rig-20260918/cam_$i.mp4 /run899/nudged_$i.avi 20 15 0 400 400 || exit 1
 done
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 
-echo "=============== CONTROL: the untouched mocks ==============="
+echo "=============== CONTROL: the untouched rig ==============="
 OD_MAX_CYCLES=20 /app/build/opendartboard \
-  --cams /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4 \
+  --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
   --width 1280 --height 720 > /run899/control.out 2> /run899/control.err
 echo "CONTROL_RC=$?"
 sed 's/\x1b\[[0-9;]*m//g' /run899/control.out > /run899/control.txt
 
-echo "=== 9. the mocks still calibrate and say nothing new ==="
+echo "=== 9. the rig still calibrates and says nothing new ==="
 if grep -q 'Initial calibration completed successfully' /run899/control.txt; then
-  say "OK   the mocks calibrate" ok
-else say "FAIL the mocks did not calibrate" no; fi
+  say "OK   the rig calibrates" ok
+else say "FAIL the rig did not calibrate" no; fi
 grep -E '^\[(ERROR|WARN)\]' /run899/control.txt || true
 NOISE=$(grep -cE '^\[(ERROR|WARN)\]' /run899/control.txt || true)
 if [ "$NOISE" = "0" ]; then say "OK   the control prints no ERROR and no WARN" ok
