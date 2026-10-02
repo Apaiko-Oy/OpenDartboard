@@ -14,9 +14,10 @@ set -u
 #
 # What is asserted, and why each part is here:
 #
-#   1. Both fixtures still calibrate 3 of 3 and print no ERROR and no WARN, and the six
-#      per-camera numbers are pinned in the new terms. A gate nothing passes is not a
-#      gate, and #1340's census is what these numbers have to stay consistent with.
+#   1. The rig still calibrates 3 of 3 and prints no ERROR and no WARN, and its three
+#      per-camera numbers are pinned in the new terms (#1478 dropped the mocks' three).
+#      A gate nothing passes is not a gate, and #1340's census is what these numbers
+#      have to stay consistent with.
 #   2. The face is still refused, by name, with its number on the wrong side of the
 #      threshold it is printed against (#1321), and the grey wall beside it -- because a
 #      check that only ever refuses coloured things has not been shown to refuse anything
@@ -39,6 +40,9 @@ say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 plain() { sed 's/\x1b\[[0-9;]*m//g' "$1" > "$2"; }
 
 RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
+# #1478: the shipped mocks are §5's input and nothing else's. §1, §2 and §4 read the rig
+# (docs/shipped-mock-census.md, A1); §5 is built from the mocks' own bulls and has no rig
+# half, so it is left on them.
 MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 
 # "ring 12.2% of a 266408 px board circle, 3.5% of the frame", per camera, one line each.
@@ -71,16 +75,12 @@ g++ -std=c++17 -O1 -o /run1392/look_check /app/testers/i1392_look_check.cpp || e
 /run1392/closer /app/mocks/cam_3.mp4 /run1392/c3.avi 654 293 720 720 200 || exit 1
 
 echo
-echo "=== 1. both fixtures calibrate 3 of 3, and here is what they measure ============"
-OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard --debug --cams "$MOCKS" \
-  --width 1280 --height 720 > /run1392/mocks.out 2>&1 || true
+echo "=== 1. the rig calibrates 3 of 3, and here is what it measures ================="
 OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard --debug --cams "$RIG" \
   --width 1280 --height 720 > /run1392/rig.out 2>&1 || true
-plain /run1392/mocks.out /run1392/mocks.txt
 plain /run1392/rig.out /run1392/rig.txt
-echo "mocks/cam_*.mp4:"    ; sights /run1392/mocks.txt | sed 's/^/    camera /'
 echo "mocks/rig-20260918:" ; sights /run1392/rig.txt   | sed 's/^/    camera /'
-for f in mocks rig; do
+for f in rig; do
   if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1392/$f.txt; then
     say "OK   $f calibrates on all three cameras" ok
   else say "FAIL $f did not calibrate on three cameras" no; fi
@@ -99,25 +99,18 @@ check_ring() { # file camera expected-percent
     say "OK   $(basename $1 .txt) camera $2: the ring is $got% of the circle its board spans (expected $3%)" ok
   else say "FAIL $(basename $1 .txt) camera $2: the ring is ${got:-nothing}% of its board circle, expected $3%" no; fi
 }
-check_ring /run1392/mocks.txt 1 12.2
-check_ring /run1392/mocks.txt 2 11.1
-check_ring /run1392/mocks.txt 3 14.7
 check_ring /run1392/rig.txt   1 23.6
 check_ring /run1392/rig.txt   2 26.9
 check_ring /run1392/rig.txt   3 25.7
-# ... and the two fixtures disagree about it by more than twice, which is the positive
-# control for the table above: the rig's colour mask is its TREBLE ring (#1378), so its
-# span is 0.78 of its board and the same rings read 15.8/0.78^2 = 26% of it. If these two
-# rows ever read the same, the span has stopped being what #1340 measured.
-M3=$(ringshare /run1392/mocks.txt 3); R2=$(ringshare /run1392/rig.txt 2)
-if [ -n "$M3" ] && [ -n "$R2" ] && python3 -c "import sys; sys.exit(0 if $R2 > $M3 * 1.5 else 1)"; then
-  say "OK   the rig reads $R2% where the mocks read $M3%, which is the span being 0.78 of its board" ok
-else say "FAIL the two fixtures no longer disagree about the ring share, so the span has moved" no; fi
+# #1478: a cross-fixture control stood here -- the rig's ring share against the shipped
+# mocks' camera 3, which read under half of it because the rig's colour mask is its TREBLE
+# ring (#1378). It went with the mocks' column; the rig's three rows above are pinned to
+# +/-0.6 and are what now goes red if the span moves.
 
 echo
 echo "=== 2. the face is refused by name, and so is a grey wall ======================="
 OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard \
-  --cams /run1392/face.avi,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4 \
+  --cams /run1392/face.avi,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4 \
   --width 1280 --height 720 > /run1392/face.out 2>&1 || true
 timeout 40 /app/build/opendartboard --cams /run1392/wall.avi,/run1392/wall.avi,/run1392/wall.avi \
   --width 1280 --height 720 > /run1392/wall.out 2>&1 || true
@@ -148,7 +141,7 @@ echo
 echo "=== 3. the issue itself: the same camera, mounted closer ========================"
 # Arithmetic, because footage cannot ask it cleanly. i1392_look_check.cpp says why.
 /run1392/look_check; RC=$?
-if [ "$RC" = "0" ]; then say "OK   the gate is scale-free on the six cameras' own numbers" ok
+if [ "$RC" = "0" ]; then say "OK   the gate is scale-free on the rig cameras' own numbers" ok
 else say "FAIL the gate is not what testers/i1392_look_check.cpp says it is (rc=$RC)" no; fi
 
 echo
@@ -161,19 +154,19 @@ if [ "$RC" = "0" ]; then say "OK   OD_LOOK=frame is the pre-#1392 measure, held 
 else say "FAIL OD_LOOK=frame is not the old stage (rc=$RC)" no; fi
 # ... and on footage, in the old words, with the frame shares the old code really printed.
 OD_LOOK=frame OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard \
-  --cams /run1392/face.avi,/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4 \
+  --cams /run1392/face.avi,/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4 \
   --width 1280 --height 720 > /run1392/faceframe.out 2>&1 || true
-OD_LOOK=frame OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard --debug --cams "$MOCKS" \
-  --width 1280 --height 720 > /run1392/mocksframe.out 2>&1 || true
+OD_LOOK=frame OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard --debug --cams "$RIG" \
+  --width 1280 --height 720 > /run1392/rigframe.out 2>&1 || true
 plain /run1392/faceframe.out /run1392/faceframe.txt
-plain /run1392/mocksframe.out /run1392/mocksframe.txt
+plain /run1392/rigframe.out /run1392/rigframe.txt
 grep -oE 'Camera 1 .*skin in warm room light is most of one' /run1392/faceframe.txt | head -1 || true
 if grep -qE 'Camera 1 .*is not looking at the dartboard: [0-9]+% of its frame keys as dartboard red or green and this check allows at most 12%' /run1392/faceframe.txt; then
   say "OK   under OD_LOOK=frame the refusal is #1318's own sentence, at its own 12% line" ok
 else say "FAIL OD_LOOK=frame did not restore the pre-#1392 sentence" no; fi
-if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1392/mocksframe.txt; then
-  say "OK   and the shipped fixture calibrates 3 of 3 under the old measure too, so the switch is a before/after" ok
-else say "FAIL the shipped fixture does not calibrate under OD_LOOK=frame, so the falsifier is refusing everything" no; fi
+if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1392/rigframe.txt; then
+  say "OK   and the rig calibrates 3 of 3 under the old measure too, so the switch is a before/after" ok
+else say "FAIL the rig does not calibrate under OD_LOOK=frame, so the falsifier is refusing everything" no; fi
 
 echo
 echo "=== 5. the same three boards behind a longer lens ==============================="
@@ -182,6 +175,12 @@ echo "=== 5. the same three boards behind a longer lens ========================
 # frame must. The frame's own ceiling moves too -- a square frame lets a whole board
 # account for 78.5% of it against 44.2% at 16:9 -- which is why the flood line is derived
 # from the frame rather than being a constant.
+# #1478: NOT re-pointed. The crops are about the shipped mocks' own bulls and the far
+# reading is the mocks at 1280x720, which this section now takes for itself because §1 no
+# longer runs them. A rig version needs its crops measured, and is reported rather than made.
+OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard --debug --cams "$MOCKS" \
+  --width 1280 --height 720 > /run1392/mocks.out 2>&1 || true
+plain /run1392/mocks.out /run1392/mocks.txt
 OD_MAX_CYCLES=20 timeout 90 /app/build/opendartboard --debug \
   --cams /run1392/c1.avi,/run1392/c2.avi,/run1392/c3.avi \
   --width 720 --height 720 > /run1392/closer.out 2>&1 || true
