@@ -31,12 +31,14 @@
 #      and the same clip's board is then measured at 0.61 of its real size with its ring
 #      traced by 60 rays instead of 96, ten above the floor that refuses a camera.
 #
-#   5. A board the FRAME's own edge cuts does not calibrate, at two shifts: one where the
-#      board is plainly half out of shot, and one where the largest coloured region still
-#      looks like a tidy whole board 56 px clear of the edge. The second is why the
-#      framing question is asked of everything the colour stage kept and not of the
-#      winning region alone. #1731: OD_EDGE_GAP=reach (77bb5b1's reach alone) admits the
-#      second at 59 px on the same binary, so the refusal is measured against a failure.
+#   5. A board the FRAME's own edge cuts does not calibrate (430 px: the largest coloured
+#      region still looks like a tidy whole board 56 px clear of the edge, which is why
+#      the framing question is asked of everything the colour stage kept and not of the
+#      winning region alone). #1732: the 300 px shift is NOT cut -- the surround's red
+#      reaches the edge on the averaged frame -- and a further look seals the control's
+#      board moved by the shift, which is what is asserted of it. #1731: OD_EDGE_GAP=reach
+#      (77bb5b1's reach alone) admits the cut board at 59 px on the same binary, so the
+#      refusal is measured against a failure.
 #
 #   6. A red room is not the board (77bb5b1): rig-20260929 camera 1 keys a strip of room
 #      along the top edge. Calibrates 3 of 3 clearing it by 149 px; OD_EDGE_GAP=everything

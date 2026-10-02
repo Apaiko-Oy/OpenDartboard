@@ -70,7 +70,8 @@ g++ -std=c++17 -O1 -o /run1392/look_check /app/testers/i1392_look_check.cpp || e
 # colour camera 2 and camera 3 keep is still inside the picture -- ADR-0079 §2 refuses one
 # step further in, and camera 1 is already at the edge there, which §5 reports rather than
 # hides. The centres are the three bulls i1340's tester pins.
-/run1392/closer /app/mocks/cam_1.mp4 /run1392/c1.avi 616 283 720 720 200 || exit 1
+/run1392/closer /app/mocks/cam_1.mp4 /run1392/c1.avi 616 283 720 720 200 2> /run1392/c1.made || { cat /run1392/c1.made; exit 1; }
+cat /run1392/c1.made
 /run1392/closer /app/mocks/cam_2.mp4 /run1392/c2.avi 651 313 720 720 200 || exit 1
 /run1392/closer /app/mocks/cam_3.mp4 /run1392/c3.avi 654 293 720 720 200 || exit 1
 
@@ -206,15 +207,45 @@ for c in 2 3; do
     say "OK   camera $c: the SAME ring is $NEAR_FRAME% of the frame where it was $FAR_FRAME% -- the number this issue removed" ok
   else say "FAIL camera $c: the frame share did not move, so this clip is not a longer lens" no; fi
 done
-if grep -q 'Initial calibration completed successfully on 2 of 3 cameras' /run1392/closer.txt; then
-  say "OK   the two boards that are still wholly in shot calibrate at 720x720" ok
-else say "FAIL the cropped boards did not calibrate" no; fi
-# Camera 1's board really does leave its picture at this crop, and ADR-0079 §2 is what
-# says so. It is asserted rather than tolerated, because a crop that clipped all three
-# would make every number above meaningless.
-if grep -qE 'Camera 1 .*is not looking at a WHOLE dartboard' /run1392/closer.txt; then
-  say "OK   camera 1's board leaves its picture at this crop, and is refused for that and not for colour" ok
-else say "FAIL camera 1 at 720x720 is not refused by ADR-0079 §2, so this crop is not what it says" no; fi
+if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run1392/closer.txt; then
+  say "OK   all three cropped boards calibrate at 720x720 (camera 1 on a further look, below)" ok
+else say "FAIL the cropped boards did not all calibrate" no; fi
+# #1732: camera 1's averaged frame IS refused by ADR-0079 §2 at this crop -- but its board
+# does not leave the picture. Its doubles ring is wholly in shot (right edge near x=648 of
+# 720); what reaches the frame edge is the surround's red logo and stripe, joined to the
+# board on most frames and not on some. So a further look (#1445) reads the true margin
+# (63-69 px) and calibrates, and what is asserted is that the look it seals is the far
+# reading's own board, moved by the crop's origin -- not that it is refused.
+if grep -qE '^\[ERROR\].*Camera 1 .*is not looking at a WHOLE dartboard' /run1392/closer.txt; then
+  say "OK   camera 1's averaged frame is refused by ADR-0079 §2 at this crop, the surround's red at the edge" ok
+else say "FAIL camera 1's averaged frame at 720x720 is not refused by ADR-0079 §2, so this crop is not the case #1732 measured" no; fi
+# The control is camera 1 of the mocks at 1280x720, sealed in this section's own run; the
+# crop's origin is what i1392_closer_footage printed. Tolerances, MEASURED on fork 9c9deec
+# (2026-10-02): bull (360,284) against (360,283), so 1 px, held to 3 px per axis; angle
+# 17.76 against 17.68, 0.08 deg, held to 0.5; radius 245.29 against 245.26, held to 2.5 px
+# (the same tolerances 1331 §5 holds its edge clip to). wedge20 must be identical.
+sealed1() { grep -hoE 'GEOMETRY SEALED: camera 1 index=0 scoring=1 bull=[0-9]+,[0-9]+ star=[0-9]+ read=[0-9]+ wedge20=-?[0-9]+ angle=-?[0-9.]+ radius=[0-9.]+' "$1" | head -1 \
+  | sed -E 's/.*bull=([0-9]+),([0-9]+) .*wedge20=(-?[0-9]+) angle=(-?[0-9.]+) radius=([0-9.]+)/\1 \2 \3 \4 \5/'; }
+ORIGIN=$(sed -nE 's/.* at \((-?[0-9]+),(-?[0-9]+)\) into .*/\1 \2/p' /run1392/c1.made | head -1)
+NEAR_SEAL=$(sealed1 /run1392/closer.txt); FAR_SEAL=$(sealed1 /run1392/mocks.txt)
+echo "    camera 1 crop origin: ${ORIGIN:-unknown}; sealed at 720x720: ${NEAR_SEAL:-nothing}; at 1280x720: ${FAR_SEAL:-nothing}"
+if [ -n "$ORIGIN" ] && [ -n "$NEAR_SEAL" ] && [ -n "$FAR_SEAL" ] && python3 - "$NEAR_SEAL" "$FAR_SEAL" "$ORIGIN" <<'CHECK'
+import sys
+n = sys.argv[1].split(); f = sys.argv[2].split(); o = sys.argv[3].split()
+ex, ey = int(f[0]) - int(o[0]), int(f[1]) - int(o[1])
+bad = []
+if abs(int(n[0]) - ex) > 3 or abs(int(n[1]) - ey) > 3: bad.append(f"bull ({n[0]},{n[1]}) where the far board moved by the crop is ({ex},{ey}), over 3 px")
+if n[2] != f[2]: bad.append(f"wedge20 {n[2]} where the far reading's is {f[2]}")
+if abs(float(n[3]) - float(f[3])) > 0.5: bad.append(f"angle {n[3]} against {f[3]}, over 0.5 deg")
+if abs(float(n[4]) - float(f[4])) > 2.5: bad.append(f"radius {n[4]} against {f[4]}, over 2.5 px")
+print("    " + ("; ".join(bad) if bad else f"bull ({n[0]},{n[1]}) vs ({ex},{ey}), wedge20 {n[2]}, angle {n[3]} vs {f[3]}, radius {n[4]} vs {f[4]}"))
+sys.exit(1 if bad else 0)
+CHECK
+then
+  say "OK   camera 1 at 720x720 seals the far reading's board moved by the crop -- bull, wedge20, angle and radius" ok
+else
+  say "FAIL camera 1 at 720x720 sealed something other than the far reading's board moved by the crop (or nothing)" no
+fi
 
 echo
 echo "CHECK_RC=$FAILED"
