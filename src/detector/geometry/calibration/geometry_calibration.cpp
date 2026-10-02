@@ -40,8 +40,36 @@ namespace geometry_calibration
     // treble ring, so 1.8 holds every piece of a board with margin for perspective. A
     // coloured region belongs to the board when at least `kBoardReachInsideShare` of it
     // lies inside that; the carpet, a shirt, a wall run out of it.
+    //
+    // #1731: or when it goes round the board's middle and most of it -- at least
+    // `kBoardRingInsideShare` -- lies within the reach. That is the doubles ring, and the
+    // reach alone loses it whenever the region measured is the treble ring: 1.8x a treble
+    // ring's hull, scaled about the hull's own middle, does not hold a doubles ring seen in
+    // perspective. On mocks/cam_1.mp4 shifted 430 px it held 79% of the cut doubles ring,
+    // so the ring the frame cuts was set aside as room and the cut board was admitted 59 px
+    // clear -- #1331's guarantee undone. On the three rigs the same ring is set aside on
+    // four cameras at 74-86%. The room surrounds nothing (7e0ca67's argument, and the
+    // masks' since 77bb5b1): every strip of carpet on the three rigs has 0-35% inside and
+    // a hull that misses the middle.
     static constexpr double kBoardReachOfOutline = 1.8;
     static constexpr double kBoardReachInsideShare = 0.95;
+    static constexpr double kBoardRingInsideShare = 0.5;
+
+    // #1731's falsifier, on the same binary: OD_EDGE_GAP=everything measures ADR-0079 §2's
+    // gap on every pixel the colour stage kept, as before 77bb5b1, so a fixture can be shown
+    // to hold a red room that refuses a camera; OD_EDGE_GAP=reach measures it on 77bb5b1's
+    // reach alone, without the ring rule, so the cut board can be shown admitted again.
+    // Anything else is ignored rather than obeyed.
+    static string edgeGapRule()
+    {
+        static const string v = []
+        {
+            const char *e = std::getenv("OD_EDGE_GAP");
+            const string w = e ? string(e) : string();
+            return (w == "everything" || w == "reach") ? w : string("board");
+        }();
+        return v;
+    }
 
     // The kept colour that is the board's, as a 0/255 mask. `reach` receives the region it
     // was judged against and `setAside` the pixels that were not. No outline, no judgement:
@@ -51,7 +79,7 @@ namespace geometry_calibration
         const Mat colour = colourGray > 0;
         setAside = 0;
         reach = Mat::zeros(colourGray.size(), CV_8U);
-        if (outline.size() < 3)
+        if (outline.size() < 3 || edgeGapRule() == "everything")
         {
             reach.setTo(255);
             return colour;
@@ -88,10 +116,27 @@ namespace geometry_calibration
         }
 
         vector<uchar> keep(n, 0);
+        const bool ringsAreTheBoards = edgeGapRule() == "board";
         for (int i = 1; i < n; i++)
         {
             const int area = stats.at<int>(i, CC_STAT_AREA);
             keep[i] = inside[i] >= kBoardReachInsideShare * area;
+            if (!keep[i] && ringsAreTheBoards && inside[i] >= kBoardRingInsideShare * area)
+            {
+                // Does it go round the board's middle? Its hull, for the reason above: a
+                // ring the colour stage broke, or the frame cut, is a C, and a C's hull
+                // still holds its middle.
+                vector<vector<Point>> pieces;
+                findContours(labels == i, pieces, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+                vector<Point> points;
+                for (const vector<Point> &piece : pieces)
+                    points.insert(points.end(), piece.begin(), piece.end());
+                vector<Point> ringHull;
+                if (points.size() >= 3)
+                    convexHull(points, ringHull);
+                keep[i] = ringHull.size() >= 3 &&
+                          pointPolygonTest(ringHull, Point2f((float)middle.x, (float)middle.y), false) > 0;
+            }
             if (!keep[i])
                 setAside += area;
         }
@@ -282,11 +327,14 @@ namespace geometry_calibration
             // picture, and three cameras each looking at a whole board with 100+ px to spare
             // were refused as clipped at a gap of exactly 0.
             //
-            // So a region counts when it lies within the board's reach and not otherwise.
-            // The clipped case above still refuses: its broken doubles arcs are 170/107 of
-            // the surviving treble ring out from the middle, inside the reach, and the arc
-            // cut by the frame is hard against the frame. The carpet is not the board's --
-            // it runs out of the reach -- and it is logged as set aside, not dropped.
+            // So a region counts when it lies within the board's reach, or when it goes
+            // round the board's middle and mostly lies within it (#1731), and not
+            // otherwise. The clipped case above still refuses: its doubles ring is 79%
+            // inside the reach of the surviving treble ring -- not the whole of it, which is
+            // what 77bb5b1 assumed and #1731 measured -- and goes round the treble ring's
+            // middle, and the arc cut by the frame is hard against the frame. The carpet is
+            // not the board's -- it runs out of the reach and surrounds nothing -- and it is
+            // logged as set aside, not dropped.
             Mat reach;
             int setAside = 0;
             const Mat boardColour = colourOfTheBoard(fullColourGray, board.found ? board.outline : vector<Point>(),
@@ -294,8 +342,8 @@ namespace geometry_calibration
             if (setAside > 0)
             {
                 log_debug("Camera " + log_string(cameraIdx + 1) + ": " + log_string(setAside) +
-                          " red/green px lie outside 1.8x the board's own region and are the room's, "
-                          "not the board's; the edge gap is measured without them");
+                          " red/green px lie outside 1.8x the board's own region, go round none of it, and "
+                          "are the room's, not the board's; the edge gap is measured without them");
             }
             if (debugMode)
             {
