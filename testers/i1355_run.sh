@@ -28,7 +28,25 @@ COUNTS=("$@")
 # measures. By the exact name, never by pattern.
 docker rm -f "$(od_name i1355-bounds)" > /dev/null 2>&1
 
+# #1688: every sanitizer run is BOUNDED, and a run that meets its bound is a FAIL with its
+# reason in it. gcc 10.2.1's libasan in $OD_IMAGE sometimes never reaches main on this
+# kernel (6.18, WSL2): it loops on `AddressSanitizer:DEADLYSIGNAL` for ever, about 2 MB of
+# it a second. Measured on f15173f: 3 of 20 runs of `bounds_asan 4` under `timeout 5`, and
+# then 5 of 9 across the three counts; the ones that finish take 0.36-0.39 s. With this
+# bound, 3 of 5 whole runs of this tester FAILed on one hang each. Before this
+# the hang wedged run_all.sh -- one run went 12 minutes and grew the capturing shell to
+# 2 GB, because the output was captured into a variable. It now goes to a file.
+# The likely cause is libasan against the kernel's wider mmap randomisation (an EMPTY main
+# built with -fsanitize=address in the same image hangs 10 of 40 times), and the
+# cure for THAT (`setarch -R`, which needs the container's seccomp profile loosened) is the
+# maintainer's decision and is deliberately not taken here. So a hang is not a pass and is
+# not retried: it is reported by name, and it costs this tester its verdict.
+# OD_ASAN_BOUND_S is the bound, 30 s by default: eighty times a finished run, so a slow box
+# cannot read as a hang, and 60 MB of DEADLYSIGNAL at worst in the container's /tmp.
+ASAN_BOUND_S="${OD_ASAN_BOUND_S:-30}"
+
 docker run --rm --name "$(od_name i1355-bounds)" --cpus=2 --network none -e HOME=/root \
+  -e ASAN_BOUND_S="$ASAN_BOUND_S" \
   -v "$OD_TREE_ROOT":/app -w /app "$OD_IMAGE" bash -c '
     set -u
     g++ -std=c++17 -O1 -I /app/src -I /app/src/utils -o /tmp/bounds_check \
@@ -40,10 +58,26 @@ docker run --rm --name "$(od_name i1355-bounds)" --cpus=2 --network none -e HOME
     rc=0
     for n in '"${COUNTS[*]}"'; do
       /tmp/bounds_check "$n" || rc=1
-      out=$(ASAN_OPTIONS=detect_leaks=0 /tmp/bounds_asan "$n" 2>&1) || rc=1
-      if echo "$out" | grep -q "AddressSanitizer"; then
-        echo "$out" | grep -A4 "ERROR: AddressSanitizer"
+      ASAN_OPTIONS=detect_leaks=0 timeout -k 5 "$ASAN_BOUND_S" /tmp/bounds_asan "$n" \
+        > /tmp/asan_$n.out 2>&1
+      arc=$?
+      if [ $arc -eq 124 ] || [ $arc -eq 137 ]; then
+        deadly=$(grep -c "AddressSanitizer:DEADLYSIGNAL" /tmp/asan_$n.out)
+        if [ "$deadly" -gt 0 ]; then why="libasan DEADLYSIGNAL loop, #1688"
+        else why="no DEADLYSIGNAL in its output, so not the #1688 loop"; fi
+        echo "FAIL $n cameras: ASAN run hung: $why (no answer in ${ASAN_BOUND_S}s, rc=$arc, $deadly DEADLYSIGNAL lines; not a finding about the bounds, and not retried)"
+        rc=1
+      elif grep -q "ERROR: AddressSanitizer" /tmp/asan_$n.out; then
+        grep -A4 "ERROR: AddressSanitizer" /tmp/asan_$n.out
         echo "FAIL $n cameras: AddressSanitizer found an out-of-bounds access"
+        rc=1
+      elif grep -q "AddressSanitizer" /tmp/asan_$n.out; then
+        head -5 /tmp/asan_$n.out
+        echo "FAIL $n cameras: AddressSanitizer stopped the run (rc=$arc) without a report"
+        rc=1
+      elif [ $arc -ne 0 ]; then
+        tail -5 /tmp/asan_$n.out
+        echo "FAIL $n cameras: the sanitizer build exited rc=$arc"
         rc=1
       else
         echo "OK   $n cameras: no out-of-bounds access under AddressSanitizer"
