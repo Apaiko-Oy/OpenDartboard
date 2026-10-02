@@ -408,6 +408,14 @@ tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
 # 4600.
 tester 1445-looks         "bash '$T/i1445_run.sh'"
 slow 4600
+# #1733: a camera a later look sealed is not the board's fault. Three detector runs with
+# the Turnaus stub and #1383's notify listener attached: 1331's edge clip (rescued, then
+# refused by the vote -- BOARD FAULTED and STATUS= must be the gate's sentence), 1331's cut
+# clip (refused on every look -- the camera's own sentence, as before), and rig-20260922
+# rescued 3 of 3, beating READY, then nudged into BOARD MOVED, which BOARD FAULTED and
+# STATUS= must name. Every beat body is held to {condition, cameras}. Red on 778dd19 on
+# exactly the rescued halves. MEASURED 2026-10-03 at load ~5-6: 178-193 s wall.
+tester 1733-rescued       "bash '$T/i1733_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"
