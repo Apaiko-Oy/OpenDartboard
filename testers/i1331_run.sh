@@ -35,7 +35,12 @@
 #      board is plainly half out of shot, and one where the largest coloured region still
 #      looks like a tidy whole board 56 px clear of the edge. The second is why the
 #      framing question is asked of everything the colour stage kept and not of the
-#      winning region alone.
+#      winning region alone. #1731: OD_EDGE_GAP=reach (77bb5b1's reach alone) admits the
+#      second at 59 px on the same binary, so the refusal is measured against a failure.
+#
+#   6. A red room is not the board (77bb5b1): rig-20260929 camera 1 keys a strip of room
+#      along the top edge. Calibrates 3 of 3 clearing it by 149 px; OD_EDGE_GAP=everything
+#      (before 77bb5b1) refuses camera 1 as clipped at 0 px.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 BASE="$OD_RUNS_BASE/1331"

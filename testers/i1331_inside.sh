@@ -93,7 +93,11 @@ done
 # gap on colour within 1.8x the board's own region instead of on everything kept, which
 # moved them to 215, 152 and 203; 7e0ca67's larger camera 1 board then moved its 215 to 137.
 # Re-measured on fork 61f9bcb's dev build.
-for expected in "kept comes within 137 px" "kept comes within 152 px" "kept comes within 203 px"; do
+# #1731: 152 and 203 are now 151 and 166. Cameras 2 and 3 measure their TREBLE ring, and
+# 1.8x of it held only 75% and 86% of their doubles ring, so 77bb5b1 set the board's own
+# doubles ring aside as room; it goes round the board's middle and counts again. Camera 1
+# measures its doubles ring and did not move. Admission and GEOMETRY SEALED are identical.
+for expected in "kept comes within 137 px" "kept comes within 151 px" "kept comes within 166 px"; do
   if grep -qF "$expected" /run1331/rig.txt; then say "OK   rig: the frame edge is $expected away" ok
   else say "FAIL rig: no camera reports $expected" no; fi
 done
@@ -237,6 +241,19 @@ for name in edge cut; do
     say "OK   $name: #1318's refusal path carries it, naming the camera" ok
   else say "FAIL $name: the board did not fault with the camera named" no; fi
 done
+# #1731: and the rule that refuses it, falsified on the same binary. OD_EDGE_GAP=reach is
+# 77bb5b1's reach alone: the cut doubles ring lies 79% inside 1.8x the treble ring and is
+# set aside as room, the gap reads 59 px, and the cut board is admitted -- which is what
+# fork main did from 77bb5b1 to #1731.
+run_one cutreach /run1331/off_cut.avi OD_EDGE_GAP=reach
+if grep -qF 'centre (1046,304); its boundary encloses' /run1331/cutreach.txt \
+   && grep -qE 'centre \(1046,304\).*comes within 59 px of the nearest frame edge' /run1331/cutreach.txt \
+   && ! grep -qE 'Camera 1 did not calibrate: it is not looking at a WHOLE dartboard' /run1331/cutreach.txt; then
+  say "OK   cut under OD_EDGE_GAP=reach: the doubles ring is set aside, the gap reads 59 px and no frame-edge refusal -- the ring rule is what refuses it" ok
+else
+  grep -hoE 'comes within [0-9]+ px of the nearest frame edge|Camera 1 did not calibrate[^:]*: [^:]*' /run1331/cutreach.txt | head -2
+  say "FAIL cut under OD_EDGE_GAP=reach is not 77bb5b1's 59 px admission, so §5 is not measured against anything that can fail" no
+fi
 # The half of §5 that makes the other half mean something: at 430 px the region a framing
 # check would otherwise have asked about looks entirely healthy.
 if grep -qF 'board found on the FULL frame: radius 176 px across its widest, centre (1046,304)' /run1331/cut.txt; then
@@ -244,6 +261,33 @@ if grep -qF 'board found on the FULL frame: radius 176 px across its widest, cen
 else
   grep -hoE 'board found on the FULL frame[^;]*' /run1331/cut.txt | head -1
   say "FAIL cut: the region this case is about is not the one that was measured" no
+fi
+
+echo
+echo "=== 6. a red room is not the board (77bb5b1), on mocks/rig-20260929 ==="
+# #1731: nothing in testers/ pinned 77bb5b1's own case, so §5's repair could have undone
+# it unseen. rig-20260929's camera 1 keys a 37776 px strip of the room as red/green along
+# the top of its picture, hard against y=0: that strip is 0% inside the board's reach and
+# its hull misses the board's middle. Measured on everything kept, as before 77bb5b1, the
+# camera is refused as clipped at 0 px with its whole board in shot; measured on the
+# board's colour it clears the edge by 149 px and the rig calibrates 3 of 3.
+run_three room /app/mocks/rig-20260929/cam_1.mp4,/app/mocks/rig-20260929/cam_2.mp4,/app/mocks/rig-20260929/cam_3.mp4
+run_three roomall /app/mocks/rig-20260929/cam_1.mp4,/app/mocks/rig-20260929/cam_2.mp4,/app/mocks/rig-20260929/cam_3.mp4 OD_EDGE_GAP=everything
+if grep -q 'Initial calibration completed successfully on 3 of 3' /run1331/room.txt; then
+  say "OK   room: rig-20260929 calibrates on all three cameras" ok
+else say "FAIL room: rig-20260929 did not calibrate on all three cameras" no; fi
+if grep -qE 'Camera 1: [0-9]+ red/green px lie outside 1.8x the board.s own region, go round none of it, and are the room.s' /run1331/room.txt \
+   && grep -qE 'Camera 1 board found on the FULL frame: .*comes within 149 px of the nearest frame edge' /run1331/room.txt; then
+  say "OK   room: camera 1 sets the room's colour aside and clears the frame edge by 149 px" ok
+else
+  grep -hoE 'Camera 1 board found on the FULL frame: .*' /run1331/room.txt | head -1
+  say "FAIL room: camera 1 does not set the room aside and clear the edge by 149 px" no
+fi
+if grep -qE '^\[ERROR\].*Camera 1 did not calibrate: it is not looking at a WHOLE dartboard: the coloured region that is its doubles ring comes within 0 px of the edge' /run1331/roomall.txt; then
+  say "OK   room under OD_EDGE_GAP=everything: camera 1 is refused as clipped at 0 px -- the fixture holds a red room" ok
+else
+  grep -hE '^\[ERROR\]' /run1331/roomall.txt | head -1 | cut -c1-200
+  say "FAIL room under OD_EDGE_GAP=everything: camera 1 is not refused at 0 px, so §6 proves nothing" no
 fi
 
 echo
