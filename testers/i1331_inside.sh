@@ -38,6 +38,10 @@ board_radius() { grep -hoE 'of the board radius [0-9.]+' /run1331/$1.txt | head 
 outer_points() { grep -hoE 'outer_points=[0-9]+' /run1331/$1.txt | head -1 | cut -d= -f2; }
 
 echo "--- the footage: the mocks, aimed off the middle of their own frame ---"
+# #1478: NOT re-pointed. Sections 3 to 5 are built from the shipped mocks' camera 1 and pin
+# figures read off it -- its bull (616,283) plus the shift, its 287.7 px board, the cut
+# board's 176 px at (1046,304). The rig has no half of them, so they need a measurement on
+# the rig rather than a deleted column, and are left as they are.
 # Built with #1323's own fixture builder, which is the whole of what is needed here: the
 # frame shifted, nothing painted on it. (230,150) puts the board low and right with 27 px
 # of its coloured extent still clear of the frame edge -- whole, and a long way from the
@@ -48,11 +52,13 @@ g++ -std=c++17 -O1 -o /run1331/offaim /app/testers/i1323_offaim_footage.cpp $CVF
 /run1331/offaim /app/mocks/cam_1.mp4 /run1331/off_edge.avi  150 300 0   || exit 1
 
 echo
-echo "=== 1. both rigs calibrate, and measure the boards they have always measured ==="
-run_three mocks /app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
+echo "=== 1. the rig calibrates, and measures the boards it has always measured ==="
+# #1478: the shipped mocks' column of this section and of 2.5 is gone -- their bulls, their
+# full-frame boards, their margins and their fitted boards. The rig's was measured beside it
+# and is the assertion now (docs/shipped-mock-census.md, A1).
 run_three rig /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
 
-for rig in mocks rig; do
+for rig in rig; do
   if grep -q 'Initial calibration completed successfully on 3 of 3' /run1331/$rig.txt; then
     say "OK   $rig calibrates on all three cameras" ok
   else say "FAIL $rig did not calibrate on all three cameras" no; fi
@@ -63,23 +69,12 @@ for rig in mocks rig; do
 done
 # The six bull centres #1320 recorded and #1323 asserted. ADR-0079 turned the first two
 # stages of this pipeline around; not one of these moved by a pixel.
-for expected in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bull at (654,293)"; do
-  if grep -qF "$expected" /run1331/mocks.txt; then say "OK   mocks: $expected" ok
-  else say "FAIL mocks: no line saying $expected" no; fi
-done
 for expected in "Camera 1 bull at (671,309)" "Camera 2 bull at (626,292)" "Camera 3 bull at (700,298)"; do
   if grep -qF "$expected" /run1331/rig.txt; then say "OK   rig: $expected" ok
   else say "FAIL rig: no line saying $expected" no; fi
 done
 # And the six boards, measured on the FULL frame now rather than inside a frame-centred
 # ellipse, are the same six boards to the pixel.
-for expected in "Camera 1 board found on the FULL frame: radius 291 px across its widest, centre (612,338)" \
-                "Camera 2 board found on the FULL frame: radius 314 px across its widest, centre (619,370)" \
-                "Camera 3 board found on the FULL frame: radius 308 px across its widest, centre (676,374)"; do
-  if grep -qF "$expected" /run1331/mocks.txt; then say "OK   mocks: $expected" ok
-  else grep -hoE 'board found on the FULL frame[^;]*' /run1331/mocks.txt | head -3
-       say "FAIL mocks: no line saying $expected" no; fi
-done
 for expected in "Camera 1 board found on the FULL frame: radius 194 px across its widest, centre (671,320)" \
                 "Camera 2 board found on the FULL frame: radius 195 px across its widest, centre (624,313)" \
                 "Camera 3 board found on the FULL frame: radius 197 px across its widest, centre (700,328)"; do
@@ -89,10 +84,6 @@ for expected in "Camera 1 board found on the FULL frame: radius 194 px across it
 done
 # ADR-0079 §2 on the footage this repository ships: every one of the six has its whole
 # board in shot, and the margin is a distance in pixels rather than a share of anything.
-for expected in "kept comes within 121 px" "kept comes within 148 px" "kept comes within 119 px"; do
-  if grep -qF "$expected" /run1331/mocks.txt; then say "OK   mocks: the frame edge is $expected away" ok
-  else say "FAIL mocks: no camera reports $expected" no; fi
-done
 for expected in "kept comes within 75 px" "kept comes within 39 px" "kept comes within 55 px"; do
   if grep -qF "$expected" /run1331/rig.txt; then say "OK   rig: the frame edge is $expected away" ok
   else say "FAIL rig: no camera reports $expected" no; fi
@@ -100,16 +91,23 @@ done
 
 echo
 echo "=== 2. the region is drawn around the board that was found ==="
-# 2.107x the board, around the board's own middle. On camera 2 of the mocks that is 663 px
+# 2.107x the board, around the board's own middle. On camera 2 of the mocks that was 663 px
 # around (619,370); the ellipse it replaced was 486x316 around (640,360) whatever was in
 # the picture. #1378 moved the margin from 1.25 and roi_processing.hpp carries the
 # arithmetic: what this stage is handed is the largest red/green CONTOUR's span, which on
 # a board whose doubles ring has dropped out of the colour mask is the TREBLE ring.
-if grep -qF "Camera 2 region: 663 px around the board found at (619,370), which measured 314 px" /run1331/mocks.txt; then
-  say "OK   the region names the board it was drawn around, and its radius is 2.107x of it" ok
+#
+# #1478: this was camera 2 of the shipped mocks. On the rig it is camera 2's board from
+# section 1, (624,313) at 195 px, and the region is not a new figure: it is 2.107x that
+# radius, which the log truncates to whole pixels, so anything from 2.107x195 to 2.107x196
+# is the same board.
+RLINE=$(grep -hoE 'Camera 2 region: [0-9]+ px around the board found at \(624,313\), which measured 195 px' /run1331/rig.txt | head -1)
+RPX=$(echo "$RLINE" | grep -oE 'region: [0-9]+' | grep -oE '[0-9]+')
+if [ -n "$RPX" ] && python3 -c "import sys; sys.exit(0 if round(2.107*195) <= $RPX <= round(2.107*196) else 1)"; then
+  say "OK   the region names the board it was drawn around, (624,313) at 195 px, and its radius $RPX px is 2.107x of it" ok
 else
-  grep -hoE 'region: .*' /run1331/mocks.txt | head -3
-  say "FAIL the region does not say which board it was drawn around" no
+  grep -hoE 'region: .*' /run1331/rig.txt | head -3
+  say "FAIL the region does not say which board it was drawn around, at 2.107x of it" no
 fi
 
 echo
@@ -126,11 +124,7 @@ echo "=== 2.5 #1378: the board the MOTION stage measures against, on both fixtur
 # consequence rather than itself -- #1331 shrank it to 36.6% and #1378 put it back -- and
 # a number nothing states is a number the next region change moves again in silence.
 fitted() { grep -hoE 'degrees: [0-9]+ px' /run1331/$1.txt | grep -oE '[0-9]+' | tr '\n' ' '; }
-echo "mocks fitted boards: $(fitted mocks)"
 echo "rig   fitted boards: $(fitted rig)"
-if [ "$(fitted mocks)" = "183859 173006 175444 " ]; then
-  say "OK   mocks: the three fitted boards are 183859, 173006 and 175444 px" ok
-else say "FAIL mocks: the fitted boards are $(fitted mocks), not 183859 173006 175444" no; fi
 if [ "$(fitted rig)" = "197117 200385 194335 " ]; then
   say "OK   rig: the three fitted boards are 197117, 200385 and 194335 px" ok
 else say "FAIL rig: the fitted boards are $(fitted rig), not 197117 200385 194335" no; fi
@@ -156,8 +150,8 @@ else say "FAIL $CUT of 3 cameras reported a region that cut coloured board" no; 
 # The control for it: at the margin this repository ships, no camera on either fixture
 # says it. Section 1 already asserts both runs print no WARN at all, so this is that
 # assertion said where a reader of #1378 will look for it.
-QUIET=$(grep -cE 'drew a region that CUT coloured board' /run1331/mocks.txt /run1331/rig.txt | awk -F: '{s+=$2} END {print s+0}')
-if [ "$QUIET" = "0" ]; then say "OK   and neither fixture says it at 2.107" ok
+QUIET=$(grep -cE 'drew a region that CUT coloured board' /run1331/rig.txt | awk -F: '{s+=$2} END {print s+0}')
+if [ "$QUIET" = "0" ]; then say "OK   and the rig does not say it at 2.107" ok
 else say "FAIL $QUIET cameras report a cut region at the margin this repository ships" no; fi
 
 echo
