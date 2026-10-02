@@ -17,7 +17,9 @@ set -u
 #      were, 8 of 15, and not merely "more than none". #1340's rule: a switch that only
 #      ever refuses passes any test that asks it to refuse. A is worth nothing without
 #      this, because a census that has never been shown to fail is a census nobody can
-#      trust.
+#      trust. (#1729: true of the counting stage. Since #1467 the model decides this
+#      clip's count and the switch moves it by none; B is re-pinned to that and D's 1.30
+#      carries the proof. The paragraph at B says what was measured.)
 #
 #   C  THE OTHER FIVE CLIPS DO NOT MOVE. Asserted against the same binary's own `doubles`
 #      run rather than against five literals, so it goes on being true of a fixture
@@ -96,16 +98,28 @@ fi
 
 echo
 echo "=== B. the same binary with the pre-#1441 region put back ==="
+# #1729: RE-MEASURED, because the count stopped being the region's to decide. #1441's
+# eight refusals were the COUNTING stage's: bisected, the parent of #1467's merge
+# (9d699de) refuses exactly 18,18,18,18,19,17,17,19 here with OD_WIRE_REGION=doubles,
+# and the merge itself (2bcb9c3, the twenty-fold wire model) refuses none -- the model
+# FITS twenty boundaries to the candidates the region admits and generates the ring from
+# the fit, so a trusted fit is twenty whatever the region. On 61f9bcb both regions answer
+# 20 at all fifteen frames of this clip. That is #1467's design, not a defect, so the
+# pinned figure is now 0 and B asserts it: a region that decides this clip's count again
+# is a change somebody should see.
+#
+# What B used to prove -- that A can fail on this binary -- is now D's 1.30, which the
+# model DOES feel (5 of 15 refused on 61f9bcb). A without D is still worth nothing.
 measure "$SUBJECT" "OD_WIRE_REGION=doubles" /run1441/before_subject.txt
 RB="$(refused /run1441/before_subject.txt)"; NB="$(counted /run1441/before_subject.txt)"
-WAS=8
+WAS=0
 echo "  rig-20260918/cam_2 with OD_WIRE_REGION=doubles: refused $RB of $NB by under-count (and $(overcount /run1441/before_subject.txt) over-count)"
-if [ "$RB" = "$WAS" ]; then
-  say "OK   the region before this issue is caught, at the $WAS of $NB it really refused" ok
-elif [ "$RB" = 0 ]; then
-  say "FAIL the switch changed nothing, so A above is measuring one region twice and cannot fail" no
+if [ "$NB" = 0 ]; then
+  say "FAIL the census measured nothing with the switch thrown" no
+elif [ "$RB" = "$WAS" ]; then
+  say "OK   the pre-#1441 region refuses $WAS of $NB here too: since #1467 the fitted model, not the region, decides this clip's count" ok
 else
-  say "FAIL it refused $RB of $NB where the pre-#1441 region refused $WAS; one of the two regions has moved and this tester cannot say which" no
+  say "FAIL it refused $RB of $NB where the model refused $WAS on 61f9bcb; the region decides this clip's count again, and this tester cannot say which half moved" no
 fi
 
 echo
@@ -139,7 +153,7 @@ measure "$SUBJECT" "OD_WIRE_REGION_MARGIN=banana" /run1441/d_word.txt
 DI="$(refused /run1441/d_inside.txt)"; DP="$(refused /run1441/d_past.txt)"; DW="$(refused /run1441/d_word.txt)"
 echo "  1.30 (inside the rim): refused $DI    1.34 (past it): refused $DP    a word: refused $DW    default: refused $R"
 if [ "$DI" = "$R" ]; then
-  say "FAIL a region of 1.30 answers exactly as the default does, so nothing here shows the switch is read at all" no
+  say "FAIL a region of 1.30 answers exactly as the default does, so nothing here shows the switch is read at all -- and since #1729 this is the half that proves A can fail" no
 elif [ "$DP" != "$R" ] || [ "$DW" != "$R" ]; then
   say "FAIL a value naming no region was obeyed: 1.34 gave $DP and a word gave $DW where the default gives $R" no
 else
