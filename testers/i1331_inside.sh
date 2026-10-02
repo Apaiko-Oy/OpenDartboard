@@ -218,13 +218,20 @@ fi
 
 echo
 echo "=== 5. a board the FRAME's own edge cuts does not calibrate, and says so ==="
-# Two of them. The first is plainly cut. The second is the one that matters: at 430 px of
-# shift the largest coloured region is the INNER part of a broken board, which measures a
-# tidy 176 px sitting 56 px clear of the nearest edge -- so a framing question asked of
-# the winning region alone passes it, and this one does not.
+# At 430 px of shift the board is cut: the largest coloured region is the INNER part of a
+# broken board, which measures a tidy 176 px sitting 56 px clear of the nearest edge -- so
+# a framing question asked of the winning region alone passes it, and this one does not.
+# It is refused on the averaged frame and on every further look (#1445), since #1731.
+#
+# #1732: the 300 px shift ("edge") was the second case here, and it is NOT a cut board.
+# Its doubles ring is wholly in shot (right edge near x=1204 of 1280); what reaches the
+# frame edge is the red logo and stripe on the surround, which the colour mask joins to the
+# board on most frames and not on some. So the averaged frame is refused and a further look
+# reads the true margin (79 px) and calibrates -- correctly. What is asserted below is that
+# the look it seals is the control's own board, moved by the shift, not that it is refused.
 run_one edge /run1331/off_edge.avi
 run_one cut /run1331/off_cut.avi
-for name in edge cut; do
+for name in cut; do
   if grep -qE '^\[ERROR\].*Camera 1 did not calibrate: it is not looking at a WHOLE dartboard: the coloured region that is its doubles ring comes within [0-9]+ px of the edge of its own frame and a board wholly in shot leaves at least 1' /run1331/$name.txt; then
     say "OK   $name: camera 1 is named, with the gap it failed on and the gap a whole board leaves" ok
   else
@@ -241,6 +248,38 @@ for name in edge cut; do
     say "OK   $name: #1318's refusal path carries it, naming the camera" ok
   else say "FAIL $name: the board did not fault with the camera named" no; fi
 done
+# #1732: the edge clip's averaged frame is refused, and that refusal is still said once.
+if grep -qE '^\[ERROR\].*Camera 1 did not calibrate: it is not looking at a WHOLE dartboard: the coloured region that is its doubles ring comes within 0 px of the edge' /run1331/edge.txt; then
+  say "OK   edge: the averaged frame is refused at 0 px, the surround's red joined to the board" ok
+else say "FAIL edge: the averaged frame is not refused at the frame edge, so this clip is not the case #1732 measured" no; fi
+# ... and a further look admits it, sealing the CONTROL's board. The control is §3's whole
+# clip, the same mock shifted (230,150) and calibrated in this run, so the expected bull is
+# its bull plus (300-230, 0-150). Tolerances, MEASURED on fork 9c9deec (2026-10-02): bull
+# (70,-148) against (70,-150), so 2 px, held to 3 px per axis; angle 17.89 against 17.79,
+# so 0.10 deg, held to 0.5; radius 246.11 against 245.00, so 1.11 px, held to 2.5 (1%).
+# wedge20 must be identical. Each figure is that run's GEOMETRY SEALED entry for camera 1.
+sealed1() { grep -hoE 'GEOMETRY SEALED: camera 1 index=0 scoring=1 bull=[0-9]+,[0-9]+ star=[0-9]+ read=[0-9]+ wedge20=-?[0-9]+ angle=-?[0-9.]+ radius=[0-9.]+' /run1331/$1.txt | head -1 \
+  | sed -E 's/.*bull=([0-9]+),([0-9]+) .*wedge20=(-?[0-9]+) angle=(-?[0-9.]+) radius=([0-9.]+)/\1 \2 \3 \4 \5/'; }
+EDGE_SEAL=$(sealed1 edge); WHOLE_SEAL=$(sealed1 whole)
+echo "edge sealed: ${EDGE_SEAL:-nothing}  |  control (whole, shift 230,150) sealed: ${WHOLE_SEAL:-nothing}"
+if [ -n "$EDGE_SEAL" ] && [ -n "$WHOLE_SEAL" ] && python3 - "$EDGE_SEAL" "$WHOLE_SEAL" <<'CHECK'
+import sys
+e = sys.argv[1].split(); w = sys.argv[2].split()
+dx, dy = 300 - 230, 0 - 150  # the edge clip's shift minus the control's
+ex, ey = int(w[0]) + dx, int(w[1]) + dy
+bad = []
+if abs(int(e[0]) - ex) > 3 or abs(int(e[1]) - ey) > 3: bad.append(f"bull ({e[0]},{e[1]}) where the control moved by the shift is ({ex},{ey}), over 3 px")
+if e[2] != w[2]: bad.append(f"wedge20 {e[2]} where the control's is {w[2]}")
+if abs(float(e[3]) - float(w[3])) > 0.5: bad.append(f"angle {e[3]} against {w[3]}, over 0.5 deg")
+if abs(float(e[4]) - float(w[4])) > 2.5: bad.append(f"radius {e[4]} against {w[4]}, over 2.5 px")
+print("    " + ("; ".join(bad) if bad else f"bull ({e[0]},{e[1]}) vs ({ex},{ey}), wedge20 {e[2]}, angle {e[3]} vs {w[3]}, radius {e[4]} vs {w[4]}"))
+sys.exit(1 if bad else 0)
+CHECK
+then
+  say "OK   edge: a further look seals the control's board moved by the shift -- bull, wedge20, angle and radius" ok
+else
+  say "FAIL edge: what was sealed is not the control's board moved by the shift (or nothing was sealed)" no
+fi
 # #1731: and the rule that refuses it, falsified on the same binary. OD_EDGE_GAP=reach is
 # 77bb5b1's reach alone: the cut doubles ring lies 79% inside 1.8x the treble ring and is
 # set aside as room, the gap reads 59 px, and the cut board is admitted -- which is what
