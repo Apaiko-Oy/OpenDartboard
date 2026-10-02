@@ -1,6 +1,6 @@
 set -u
 # #1340: a board is big enough when the bull on it can be measured, not when it fills
-# enough of the frame -- measured, on the binary in build/, on both fixtures.
+# enough of the frame -- measured, on the binary in build/, on the rig.
 #
 # #1340 landed on 2026-09-18 and said so in its own commit message: NOT BUILT OR RUN
 # HERE. There was no C++ toolchain on the machine that wrote it. So the change that
@@ -17,7 +17,6 @@ say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 plain() { sed 's/\x1b\[[0-9;]*m//g' "$1" > "$2"; }
 
 RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
-MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 
 # What each camera answered, as one line: "1 (671,309) 194.6" per camera. The bull
 # centre AND the board it was sized against, because #1340 moved the second and the
@@ -70,37 +69,15 @@ if grep -q 'Initial calibration completed successfully on 3 of 3 cameras' /run13
 else say "FAIL the rig this issue is about did not calibrate on three cameras" no; fi
 
 echo
-echo "=== 2. the shipped fixture does not regress, and the before/after is one binary ==="
-# #1688: mocks_after runs under OD_BOARD=auto. Since #1676 the board is taken as a Winmau
-# Blade 6 by default, and the shipped mocks are not one: their camera 2 finds the four clip
-# wires of a wire number ring, so the default says so in two WARN lines (ORIENTATION and
-# BOARD RECOGNITION), by design -- 1498-anchor-read pins the mocks the same way for the same
-# reason. OD_BOARD=auto keeps #1340's floor (only OD_BOARD=frame restores the old one) and
-# measures the board instead of forcing it, so the no-ERROR/no-WARN assertion below is still
-# asked of a board the detector recognises. The ten rig runs are a Blade 6 and stay default.
-OD_BOARD=auto OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
-  > /run1340/mocks_after.out 2>&1 || true
-OD_BOARD=frame OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$MOCKS" --width 1280 --height 720 \
-  > /run1340/mocks_before.out 2>&1 || true
-plain /run1340/mocks_after.out /run1340/mocks_after.txt
-plain /run1340/mocks_before.out /run1340/mocks_before.txt
-echo "before (OD_BOARD=frame): $(answer /run1340/mocks_before.txt)"
-echo "after  (#1340)         : $(answer /run1340/mocks_after.txt)"
-BEFORE_BULLS=$(grep -oE 'Camera [0-9]+ bull at \([0-9]+,[0-9]+\)' /run1340/mocks_before.txt | tr '\n' ' ')
-AFTER_BULLS=$(grep -oE 'Camera [0-9]+ bull at \([0-9]+,[0-9]+\)' /run1340/mocks_after.txt | tr '\n' ' ')
-if [ -n "$AFTER_BULLS" ] && [ "$BEFORE_BULLS" = "$AFTER_BULLS" ]; then
-  say "OK   the shipped fixture's three bull centres are the same before and after" ok
-else say "FAIL the shipped fixture's bull centres moved: '$BEFORE_BULLS' -> '$AFTER_BULLS'" no; fi
-for e in "Camera 1 bull at (616,283)" "Camera 2 bull at (651,313)" "Camera 3 bull at (654,293)"; do
-  if grep -qF "$e" /run1340/mocks_after.txt; then say "OK   mocks: $e" ok
-  else say "FAIL mocks: no line saying $e" no; fi
-done
-# The one WARN not counted is the pin's own announcement on mocks_after ("OD_BOARD=auto is
-# set: ..."): every pin says it is set, at WARN, and it says nothing about the board
-# (i1605_inside.sh excludes its OD_LOOK_BUDGET line the same way).
-for f in mocks_after ten/1; do
-  NOISE=$(grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt | grep -vc 'OD_BOARD=auto is set: ' || true)
-  grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt | grep -v 'OD_BOARD=auto is set: ' || true
+echo "=== 2. the rig prints nothing new =============================================="
+# #1478: this section was the shipped fixture's -- its three bulls before and after, and
+# its run printing no ERROR and no WARN (under OD_BOARD=auto, #1688, because the mocks are
+# not a Blade 6). That column is gone (docs/shipped-mock-census.md, A1). The before/after
+# bull comparison is asked of the rig in section 3, where its OD_BOARD=frame run is, and
+# the noise check of the rig's first run of section 1 is what stays here.
+for f in ten/1; do
+  NOISE=$(grep -cE '^\[(ERROR|WARN)\]' /run1340/$f.txt || true)
+  grep -E '^\[(ERROR|WARN)\]' /run1340/$f.txt || true
   if [ "$NOISE" = "0" ]; then say "OK   $f prints no ERROR and no WARN" ok
   else say "FAIL $f prints $NOISE ERROR/WARN lines" no; fi
 done
@@ -111,16 +88,21 @@ echo "=== 3. the falsifier restores the old stage, not merely a refusal ========
 # OD_BOARD=frame is the pre-#1340 stage is that it reproduces, to the decimal, six board
 # radii and six bull ratios #1320 measured and wrote down before any of this was
 # touched. Those numbers are in bull_processing.hpp and in #1320's issue text; this run
-# has no way to know them except by computing them the old way.
+# has no way to know them except by computing them the old way. (#1478: three of the six
+# were the shipped mocks' and are gone; the rig's three are below.)
 OD_BOARD=frame OD_MAX_CYCLES=20 timeout 60 /app/build/opendartboard --cams "$RIG" --width 1280 --height 720 \
   > /run1340/rig_before.out 2>&1 || true
 plain /run1340/rig_before.out /run1340/rig_before.txt
 echo "rig before (OD_BOARD=frame): $(answer /run1340/rig_before.txt)"
 echo "rig after  (#1340)         : $(answer /run1340/ten/1.txt)"
-for e in "0.100 of the board radius 247.4 px" "0.099 of the board radius 242.5 px" "0.098 of the board radius 250.6 px"; do
-  if grep -qF "$e" /run1340/mocks_before.txt; then say "OK   mocks, measured the old way: $e -- #1320's own number" ok
-  else say "FAIL mocks, OD_BOARD=frame did not reproduce #1320's $e" no; fi
-done
+# #1478: the before/after bull comparison was asked of the shipped mocks in section 2.
+# It is the rig's now: the floor moved the board the bull is sized against, and the whole
+# claim is that the bull did not follow it.
+BEFORE_BULLS=$(grep -oE 'Camera [0-9]+ bull at \([0-9]+,[0-9]+\)' /run1340/rig_before.txt | sort -u | tr '\n' ' ')
+AFTER_BULLS=$(grep -oE 'Camera [0-9]+ bull at \([0-9]+,[0-9]+\)' /run1340/ten/1.txt | sort -u | tr '\n' ' ')
+if [ -n "$AFTER_BULLS" ] && [ "$BEFORE_BULLS" = "$AFTER_BULLS" ]; then
+  say "OK   the rig's three bull centres are the same before and after" ok
+else say "FAIL the rig's bull centres moved: '$BEFORE_BULLS' -> '$AFTER_BULLS'" no; fi
 for e in "0.155 of the board radius 151.3 px" "0.154 of the board radius 153.0 px" "0.154 of the board radius 151.2 px"; do
   if grep -qF "$e" /run1340/rig_before.txt; then say "OK   rig, measured the old way: $e -- #1320's own number" ok
   else say "FAIL rig, OD_BOARD=frame did not reproduce #1320's $e" no; fi
@@ -231,6 +213,10 @@ echo "=== 5. #1320's speck is still refused on size, on this binary ============
 # another; #1340's claim is that it raised the evidence instead. So the speck is run
 # here too rather than left to i1320's tester, because "the rig calibrates" and "the
 # speck is refused" have to be true of ONE binary in ONE run to be worth anything.
+#
+# #1478: NOT re-pointed. The speck clip is cut from the shipped mocks' camera 1 with the
+# disc placed against its bull, and the rig has no half of it; it needs a measurement on
+# the rig rather than a deleted column, and is left as it is.
 g++ -std=c++17 -O1 -o /run1340/speck /app/testers/i1320_speck_footage.cpp \
   $(pkg-config --cflags --libs opencv4) || exit 1
 /run1340/speck /app/mocks/cam_1.mp4 /run1340/speck.avi 300 180 90 700,380,3 || exit 1
