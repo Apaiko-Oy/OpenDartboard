@@ -157,7 +157,13 @@ namespace debug
             // temporarily disabled contour processing
             // "contour_processing/contours_",
             "ellipse_processing/ellipse_result_",
-            "wire_processing/ensemble_average_result_",
+            // #1729: the picture processWires writes on EVERY path -- the twenty boundaries
+            // it ended with, on the frame. This row named ensemble_average_result_, which
+            // only findWiresByEnsemble writes, and since #1467 (2bcb9c3) that counting
+            // path runs under OD_WIRE_MODEL=count alone; so every --debug run on the
+            // default model drew a grey box here and printed one "Missing image" WARN
+            // per camera for a file nothing had been asked to write.
+            "wire_processing/wire_result_",
             "orientation_processing/orientation_result_",
             "geometry_calibration/calibration_camera_"};
 

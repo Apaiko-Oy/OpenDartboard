@@ -18,6 +18,46 @@ FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
 plain() { sed 's/\x1b\[[0-9;]*m//g' "$1"; }
 
+# ---- one board at a time, and the next phase starts only once the last one is gone ----
+#
+# #1729: since #1473 (c73779e) a second board on one host is REFUSED on the abstract lock
+# @opendartboard-score-13520, and that is what turned this tester red. Every board here
+# used to be started as `( cd DIR && "$BIN" ... ) &`, and bash does not exec the last
+# command of a `cd && cmd` subshell: $! was the SUBSHELL, `kill -TERM $!` ended the
+# subshell (rc 143) and the detector it had forked went on running, reparented to the
+# container's init. Before #1473 the orphan was harmless noise; after it, phase 3's
+# board -- in #895's vigil, which never exits on its own -- held the port, and phases 4,
+# 5 and 6 each printed "not starting: another opendartboard (pid N) ... holds the score
+# port 13520" and measured nothing. MEASURED on fork main 61f9bcb (#1478's run): all four
+# refusals name the same pid, phase 3's.
+#
+# So every board is started with `exec`, which makes the recorded pid the detector's own
+# (and `timeout`'s, where one bounds it -- timeout passes the TERM on and waits). A board
+# is ended by that pid alone, never by pattern; and before a board starts, the lock is
+# asked whether it is free. A lock still held is a harness fault and is said by name,
+# because a phase measured against somebody else's board is a phase that measured nothing.
+LOCK=opendartboard-score-13520
+lock_held() { grep -q "@$LOCK\$" /proc/net/unix 2>/dev/null; }
+end_board() {
+  local pid=$1 i=0
+  kill -TERM "$pid" 2>/dev/null
+  while kill -0 "$pid" 2>/dev/null && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "  board pid $pid did not end 30 s after SIGTERM; ending it with SIGKILL"
+    kill -KILL "$pid" 2>/dev/null
+  fi
+  wait "$pid" 2>/dev/null
+}
+lock_free() {
+  local i=0
+  while lock_held && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+  if lock_held; then
+    say "FAIL before $1: a board from an earlier phase still holds @$LOCK, so $1 would be refused and measure nothing (harness fault)" no
+    return 1
+  fi
+  return 0
+}
+
 INC="-I/app/src -I/app/src/utils -I/app/src/detector/geometry/calibration -I/app/src/detector/geometry/detection"
 CVFLAGS="$(pkg-config --cflags --libs opencv4)"
 
@@ -86,7 +126,8 @@ arm() {
   mkdir -p "$DIR"
   for i in 1 2 3; do cp $RUN/held_$i.avi $DIR/src_$i.avi; done
 
-  ( cd "$DIR" && OD_MAX_CYCLES=100000 OD_BLIND_AFTER=200 OD_BLIND_FOR_MS=8000 "$BIN" \
+  lock_free "$NAME"
+  ( cd "$DIR" && OD_MAX_CYCLES=100000 OD_BLIND_AFTER=200 OD_BLIND_FOR_MS=8000 exec "$BIN" \
       --cams $DIR/src_1.avi,$DIR/src_2.avi,$DIR/src_3.avi \
       --width 1280 --height 720 > $RUN/$NAME.out 2> $RUN/$NAME.err ) &
   BOARD=$!
@@ -115,8 +156,7 @@ arm() {
   fi
 
   sleep "$SECONDS_AFTER"
-  kill -TERM $BOARD 2>/dev/null
-  wait $BOARD 2>/dev/null
+  end_board $BOARD
   echo "${NAME}_RC=$?"
   plain $RUN/$NAME.out > $RUN/$NAME.txt
 }
@@ -232,12 +272,12 @@ echo "=============== PHASE 4: the record survives the restart ==============="
 # started the board again, #1330 means the cache is not read, and the board calibrated on
 # the rig as it now is -- the adoption #899 refused, arriving through the unit file. So
 # this phase starts a SECOND board in the directory phase 3 faulted in.
-( cd $RUN/move && timeout 60 /app/build/opendartboard --cams $RUN/move/src_1.avi,$RUN/move/src_2.avi,$RUN/move/src_3.avi \
+lock_free restart
+( cd $RUN/move && exec timeout 60 /app/build/opendartboard --cams $RUN/move/src_1.avi,$RUN/move/src_2.avi,$RUN/move/src_3.avi \
     --width 1280 --height 720 > $RUN/restart.out 2> $RUN/restart.err ) &
 RESTART=$!
 sleep 25
-kill -TERM $RESTART 2>/dev/null
-wait $RESTART 2>/dev/null
+end_board $RESTART
 plain $RUN/restart.out > $RUN/restart.txt
 grep -E 'BOARD HOLDING A GEOMETRY FAULT|Initial calibration|Calibrating camera|BOARD FAULTED' $RUN/restart.txt | head -10
 
@@ -272,6 +312,7 @@ else say "FAIL clearing said nothing about what it cleared" no; fi
 
 echo "=== 4e. and the board calibrates again afterwards ==="
 for i in 1 2 3; do cp $RUN/held_$i.avi $RUN/move/src_$i.avi; done
+lock_free after
 ( cd $RUN/move && OD_MAX_CYCLES=40 timeout 120 /app/build/opendartboard \
     --cams $RUN/move/src_1.avi,$RUN/move/src_2.avi,$RUN/move/src_3.avi \
     --width 1280 --height 720 > $RUN/after.out 2> $RUN/after.err )
@@ -346,6 +387,7 @@ else say "OK   one tree adopts and fires it, the other does not" ok; fi
 
 echo "=============== PHASE 6: CONTROL -- the untouched rig ==============="
 mkdir -p $RUN/control
+lock_free control
 ( cd $RUN/control && OD_MAX_CYCLES=20 /app/build/opendartboard \
     --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
     --width 1280 --height 720 > $RUN/control.out 2> $RUN/control.err )

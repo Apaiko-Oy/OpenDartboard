@@ -41,6 +41,29 @@ set -u
 # in testers/i1451_scoring_check.cpp (label 1451-scorable), where it is exact, and this
 # tester proves the same expression on a board the program really becomes.
 #
+# #1729: THE FIXTURE MOVED, AND WHY. Everything above about rig-20260918/cam_3 was true
+# when it was written and stopped being true at #1467 (2bcb9c3, the twenty-fold wire
+# model). Since that merge the default wire stage FITS twenty boundaries rather than
+# counting them: `processWires` sets `wiresDetected = ring.endpoints.size()`, which is
+# twenty by construction whenever the fit is trusted, so OD_WIRE_COUNT=atleast has nothing
+# long left to accept and this binary writes 20, 20, 20. The counting path is still in the
+# binary under OD_WIRE_MODEL=count, but it no longer reads 21 on that camera either
+# (measured on 61f9bcb: 20). 20 is the right answer -- the board has twenty wires, and the
+# fitted ring's twenty lines lie on the twenty wedge boundaries in the camera-3 picture
+# (#1729's comment). So the stale cache could not be written, BEFORE rewrote
+# the cache in its own 488-byte records (refused by this binary's size check as "a
+# different build"), and STALE recalibrated freshly and said 3 of 3.
+#
+# The state is unchanged and still reachable; only the footage that produces it moved.
+# MEASURED on 61f9bcb: rig-20260929 under OD_WIRE_MODEL=count OD_WIRE_COUNT=atleast
+# calibrates 20, 20, 21 -- the twenty-one in the THIRD slot, exactly the board this tester
+# was built on. Both switches are this binary's own falsification switches (#1442's and
+# #1467's), so the writer is still "a binary that really accepts the long ring". Every
+# assertion below is unchanged; phase 0 is tightened to demand the 21 rather than to infer
+# it from 3 of 3, which is how a fixture that no longer held one passed phase 0 unnoticed.
+# The branch point writes and reads its OWN cache (WBEFORE), on rig-20260918 where it
+# still counts 21, because a cache in this binary's records is a different build to it.
+#
 # Four phases, and the first two exist to make the others mean anything:
 #
 #   WSTALE  write the cache with OD_WIRE_COUNT=atleast on the rig fixture. Camera 3
@@ -62,6 +85,8 @@ set -u
 
 BIN=/app/build/opendartboard
 RIG=/app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4
+# #1729: the footage the stale cache is written from (see the header).
+STALE_RIG=/app/mocks/rig-20260929/cam_1.mp4,/app/mocks/rig-20260929/cam_2.mp4,/app/mocks/rig-20260929/cam_3.mp4
 STUB_URL=http://127.0.0.1:8899
 
 await() {
@@ -106,8 +131,8 @@ fi
 # The fixture this whole tester is built on. It is the only shipped footage holding a
 # camera whose wire stage finds more than twenty, so its absence is not a board that
 # scores differently -- it is a tester about nothing.
-if [ ! -s /app/mocks/rig-20260918/cam_3.mp4 ]; then
-  echo "FAIL mocks/rig-20260918/cam_3.mp4 is missing -- it is the 21-wire camera every"
+if [ ! -s /app/mocks/rig-20260929/cam_3.mp4 ]; then
+  echo "FAIL mocks/rig-20260929/cam_3.mp4 is missing -- it is the 21-wire camera every"
   echo "     phase below is built from, and without it this tester measures nothing."
   exit 1
 fi
@@ -199,9 +224,13 @@ phase() {
   beats "$from" "$to" > /run1451/$tag.beats
 }
 
-phase wstale "$BIN"        "$RIG"      fresh OD_WIRE_COUNT=atleast
+# The branch point predates rig-20260929 and cannot calibrate it (camera 1 is refused as
+# not wholly in shot, camera 3 counts 19; measured on #1729's first run), but it still
+# counts 21 on rig-20260918/cam_3 -- the board this tester was written on.
+phase wbefore "$BEFORE_BIN" "$RIG"      fresh OD_WIRE_COUNT=atleast
 phase before "$BEFORE_BIN" "$RIG"      keep
-phase stale  "$BIN"        "$RIG"      keep
+phase wstale "$BIN"        "$STALE_RIG" fresh OD_WIRE_MODEL=count OD_WIRE_COUNT=atleast
+phase stale  "$BIN"        "$STALE_RIG" keep
 # #1478: WHOLE is the rig measured fresh, not the shipped mocks (docs/shipped-mock-census.md, A2).
 phase whole  "$BIN"        "$RIG"      fresh
 
@@ -219,12 +248,21 @@ censusN() { census "$1" | grep -oE '[0-9]+' | head -1; }
 echo
 echo "=== 0. the cache this tester is built on really holds a ring the guard refuses ==="
 if grep -qa 'SCORING: 3 of 3 cameras can be scored from' /run1451/wstale.txt; then
-  say "OK   with OD_WIRE_COUNT=atleast the 21-wire camera calibrates and is written down" ok
+  say "OK   with OD_WIRE_MODEL=count OD_WIRE_COUNT=atleast all three calibrate and are written down" ok
 else say "FAIL the writing phase did not admit all three, so no stale cache was written" no; fi
+# #1729: the 21 itself, not inferred from "3 of 3". This line passed for nine days on a
+# cache holding 20, 20, 20.
+if grep -qa 'camera 3: has a fitted doubles ring and 21 of the 20 wire boundaries' /run1451/wstale.txt; then
+  say "OK   and camera 3 was written down holding 21 of the 20 wire boundaries" ok
+else say "FAIL camera 3 was not written down holding 21, so the cache holds no ring the guard refuses" no; fi
 
 echo
 echo "=== 1. BEFORE: the board this issue is about, on the binary that has the defect ==="
 grep -aE 'Using the cached calibration|Cached calibration accepted|BOARD FAULTED|Scorer running with' /run1451/before.txt | head -4 || true
+# #1729: the branch point read its own cache, not a foreign build's.
+if grep -qa 'written by a different build' /run1451/before.txt; then
+  say "FAIL the branch point refused the cache as another build's, so it recalibrated and this phase is not about a cache" no
+fi
 if grep -qa 'Cached calibration accepted on 3 of 3 cameras' /run1451/before.txt; then
   say "OK   a board one camera cannot be scored from is ADMITTED, three of three" ok
 else say "FAIL the cached board was not admitted three of three, so nothing below is about it" no; fi
