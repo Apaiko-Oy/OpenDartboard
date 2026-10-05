@@ -36,6 +36,8 @@ set -u
 #      only ever refuses passes any test that asks it to refuse.
 #      #1661, 2026-09-28: the rig-20260918 arm's refusal half is retired (see C below);
 #      rig-20260922 is the rig this is held to now.
+#      #1734, 2026-10-03: rig-20260929's refusal half is exempt the same way (see C
+#      below), and C now fails outright if no rig measured the switch at all.
 #
 #   D  NOTHING ADOPTS FRESH GEOMETRY MID-RUN (ADR-0080 section 2), in four parts, because
 #      getting this wrong is worse than the defect it repairs:
@@ -252,7 +254,24 @@ echo "=== C. one binary, the retry on and off, held to the actual numbers ==="
 # without the retry" is not. rig-20260922 keeps the whole arm: #1661 measured 3 of 3 with
 # the retry and 1 of 3 without. The name is written out rather than inferred, so a rig
 # that stops refusing is still a red here and not a quiet exemption.
-NO_REFUSAL_ARM=" rig-20260918 "
+#
+# #1734, 2026-10-03: rig-20260929's refusal half is exempt as well. Unlike rig-20260918's
+# it was not lost: no merge took it away, because it never had a subject. The arm is not
+# written per rig -- FIXTURES picks up every rig under mocks/ by itself -- so it came into
+# being with the fixture, at f3f2dd4, and has been red since. MEASURED by building fork
+# main (the dev build run_all.sh makes) at f3f2dd4 and at the first-parent merges 4ab5d83,
+# 6d85ec4, 3a90538 and e00ac43, and running the fixture with and without
+# OD_CALIBRATION_LOOKS=once: every build answers `CAMERAS: 3 of 3` both ways and writes no
+# LOOK AGAIN line, so no camera of it was ever refused on its averaged frame; #1734 itself
+# measured 3 of 3 without the retry on 57f2b55 and 778dd19. The same build of f3f2dd4 gives
+# rig-20260922 1 of 3 without the retry and 3 of 3 with it (13 LOOK AGAIN lines), so it is
+# the fixture and not the probe.
+#
+# An exemption list can grow until nothing is left that measures the switch, so the arms
+# that DID measure it (fewer without the retry than with it) are counted, and a phase C
+# with none of them is a red below rather than a quiet green.
+NO_REFUSAL_ARM=" rig-20260918 rig-20260929 "
+SWITCH_MEASURED=""
 for f in $FIXTURES; do
   run "c_${f}_on"   "$(cams_of "$f")"
   run "c_${f}_once" "$(cams_of "$f")" OD_CALIBRATION_LOOKS=once
@@ -271,13 +290,23 @@ for f in $FIXTURES; do
   elif [ "$f" = mocks ] && [ "$OFF" != "$N" ]; then
     say "FAIL the shipped mocks answer $OFF of $N without the retry; this fixture's readings must not have moved and the retry must not be what is holding them up" no
   elif [ "$f" != mocks ] && [ "$OFF" = "$N" ] && [ "${NO_REFUSAL_ARM#* $f }" != "$NO_REFUSAL_ARM" ]; then
-    say "OK   $f: $ON of $N with the retry; $OFF of $N without it is not asserted (#1661: this rig no longer refuses a camera on its averaged frame)" ok
+    case "$f" in
+      rig-20260918) WHY="#1661: this rig no longer refuses a camera on its averaged frame" ;;
+      *) WHY="#1734: this rig has refused no camera on its averaged frame since it was committed" ;;
+    esac
+    say "OK   $f: $ON of $N with the retry; $OFF of $N without it is not asserted ($WHY)" ok
   elif [ "$f" != mocks ] && [ "$OFF" = "$N" ]; then
     say "FAIL $f answers for all $N with the retry DISABLED, so the switch changes nothing and phase C cannot fail" no
   else
+    [ "$f" = mocks ] || SWITCH_MEASURED="$SWITCH_MEASURED $f"
     say "OK   $f: $ON of $N with the retry, $OFF of $N without it" ok
   fi
 done
+if [ -z "$SWITCH_MEASURED" ]; then
+  say "FAIL no rig answered for fewer cameras without the retry than with it, so nothing in phase C measured what OD_CALIBRATION_LOOKS=once switches off" no
+else
+  echo "  the rigs that measured the switch:$SWITCH_MEASURED"
+fi
 
 echo
 echo "=== C2. a look is quiet, and a look is not silent ==="
