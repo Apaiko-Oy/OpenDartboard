@@ -255,14 +255,17 @@ echo "=== C. one binary, the retry on and off, held to the actual numbers ==="
 # the retry and 1 of 3 without. The name is written out rather than inferred, so a rig
 # that stops refusing is still a red here and not a quiet exemption.
 #
-# #1734, 2026-10-03: rig-20260929's refusal half is exempt as well, and it was never
-# retired, because it never had a subject. MEASURED by building every first-parent commit
-# of fork main from f3f2dd4 (the commit that added the fixture) to 778dd19 and running the
-# fixture with OD_CALIBRATION_LOOKS=once: every one answers `CAMERAS: 3 of 3` with no look
-# taken, so no merge changed it -- the fixture arrived calibrating on its averaged frame,
-# and this arm has been red since the fixture was committed, because FIXTURES picks up every
-# rig under mocks/ by itself. The same probe on f3f2dd4 gives rig-20260922 1 of 3 without
-# the retry, so it is the fixture and not the probe.
+# #1734, 2026-10-03: rig-20260929's refusal half is exempt as well. Unlike rig-20260918's
+# it was not lost: no merge took it away, because it never had a subject. The arm is not
+# written per rig -- FIXTURES picks up every rig under mocks/ by itself -- so it came into
+# being with the fixture, at f3f2dd4, and has been red since. MEASURED by building fork
+# main (the dev build run_all.sh makes) at f3f2dd4 and at the first-parent merges 4ab5d83,
+# 6d85ec4, 3a90538 and e00ac43, and running the fixture with and without
+# OD_CALIBRATION_LOOKS=once: every build answers `CAMERAS: 3 of 3` both ways and writes no
+# LOOK AGAIN line, so no camera of it was ever refused on its averaged frame; #1734 itself
+# measured 3 of 3 without the retry on 57f2b55 and 778dd19. The same build of f3f2dd4 gives
+# rig-20260922 1 of 3 without the retry and 3 of 3 with it (13 LOOK AGAIN lines), so it is
+# the fixture and not the probe.
 #
 # An exemption list can grow until nothing is left that measures the switch, so the arms
 # that DID measure it (fewer without the retry than with it) are counted, and a phase C
@@ -289,7 +292,7 @@ for f in $FIXTURES; do
   elif [ "$f" != mocks ] && [ "$OFF" = "$N" ] && [ "${NO_REFUSAL_ARM#* $f }" != "$NO_REFUSAL_ARM" ]; then
     case "$f" in
       rig-20260918) WHY="#1661: this rig no longer refuses a camera on its averaged frame" ;;
-      *) WHY="#1734: this rig has refused no camera on its averaged frame since it was recorded" ;;
+      *) WHY="#1734: this rig has refused no camera on its averaged frame since it was committed" ;;
     esac
     say "OK   $f: $ON of $N with the retry; $OFF of $N without it is not asserted ($WHY)" ok
   elif [ "$f" != mocks ] && [ "$OFF" = "$N" ]; then
