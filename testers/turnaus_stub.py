@@ -464,7 +464,11 @@ class Handler(BaseHTTPRequestHandler):
                     # what really came over the wire, so a tester can prove the shape as
                     # well as the numbers.
                     "cameras": cam_report, "cameras_why": cam_why,
-                    "cameras_raw": body.get("cameras")})
+                    "cameras_raw": body.get("cameras"),
+                    # #1733: every key the board sent, so a tester can say what did NOT
+                    # cross the wire -- a fault's sentence, for one -- rather than only
+                    # what this stub thought to pick out.
+                    "body_keys": sorted(body.keys())})
             if REVOKE_CLUB_AFTER_BEATS and token_beats >= REVOKE_CLUB_AFTER_BEATS:
                 # #1246's revocation: the token row is gone, and the next request meets 401.
                 record({"event": "club_revoked", "generation": state["club_generation"],

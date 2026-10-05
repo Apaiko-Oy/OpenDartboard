@@ -309,10 +309,22 @@ void GeometryDetector::lookAgainAtRefusedCameras()
     // on every refusal it reaches. So without this, a camera refused on look 1 and
     // calibrated on look 2 would leave BOARD FAULTED holding a sentence about a camera
     // that is scoring -- and, worse, would hold the slot against the real fault that comes
-    // later, which on this board is #1388's `Moved`. What the first pass recorded is kept
-    // whole; what the looks record is dropped, and the gate below records the board's real
-    // refusal, with every camera named (#1389), if there is one.
+    // later, which on this board is #1388's `Moved`. What the looks record is dropped, and
+    // the gate below records the board's real refusal, with every camera named (#1389), if
+    // there is one.
+    //
+    // #1733: and so is what the FIRST PASS recorded about a camera a look then sealed,
+    // which is the same hazard one step earlier. The sentence above was written about the
+    // looks and kept the first pass whole -- but the first pass's refusal of a camera is
+    // the one thing this function exists to overturn, so a camera refused on the averaged
+    // frame and sealed by look 1 left `camera N did not calibrate` in the slot for the
+    // life of the process. Measured on fork 778dd19: 1331 §5's edge clip was then refused
+    // by the vote's arithmetic and said BOARD FAULTED about the rescued camera's framing;
+    // rig-20260922, rescued 3 of 3 and later nudged, said BOARD FAULTED and STATUS= about
+    // camera 1's averaged-frame coherence instead of BOARD MOVED. `faultAfterLooks` holds
+    // the rule; a camera refused on every look keeps today's sentence.
     const string fault_before_looking = board_sight::faultDetail();
+    const std::map<int, string> said_before_looking = board_sight::cameraFaults();
 
     // #1605: the budget, read once, and said when it is the pinned one (#1631).
     const int budget = furtherLookBudget();
@@ -476,7 +488,15 @@ void GeometryDetector::lookAgainAtRefusedCameras()
                  "reading than this one and not a camera that cannot be scored with (#1456)");
     }
 
-    board_sight::faultDetail() = fault_before_looking;
+    vector<int> rescued;
+    for (const Watched &w : watched)
+    {
+        if (std::find(still_refused.begin(), still_refused.end(), w.camera) == still_refused.end())
+        {
+            rescued.push_back((int)w.camera);
+        }
+    }
+    board_sight::faultDetail() = board_sight::faultAfterLooks(fault_before_looking, said_before_looking, rescued);
 
     // #1605: A LOOK PAST #1445's TWELVE MEANS THE AVERAGED FRAME IS NO LONGER THE BOARD.
     // The twelve are the transient regime -- a frame's worth of glare or smear -- and
