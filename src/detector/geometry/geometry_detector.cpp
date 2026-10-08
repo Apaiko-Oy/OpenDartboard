@@ -7,7 +7,9 @@
 #include "camera_quorum.hpp"
 #include "look_choice.hpp"
 #include "calibration/board_look.hpp"
+#include "calibration/board_model.hpp"
 #include "calibration/geometry_calibration.hpp"
+#include "calibration/wire_processing.hpp"
 #include "detection/dart_processing.hpp"
 #include "detection/score_processing.hpp"
 #include "utils.hpp"
@@ -1299,8 +1301,42 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
             // defect one field further on. The two halves agree on a freshly calibrated
             // camera and part company on a cached one -- exactly the board this issue is
             // about, and the reason the census must ask the conjunction.
-            const int scorable = score_processing::camerasThatCanScoreAPoint(calibrations);
-            const string each_camera_scores = score_processing::namingEachCamera(calibrations);
+            int scorable = score_processing::camerasThatCanScoreAPoint(calibrations);
+            string each_camera_scores;
+            {
+                // #1748: and the board fit, which is the solver's own admission
+                // (entry_intersection::constraintFrom places nothing from a camera whose
+                // fit is not geometryAccepted). Live 2026-10-08 camera 1 had a fitted
+                // ring, a whole wire ring and a plane built 1.589x too large, and this
+                // line counted it in. The fit is pure over the calibration and refit per
+                // dart anyway (score_processing), so it is read here the same way. Kept
+                // out of `aDartIsScoredFrom`, whose two halves are the vote path's own
+                // guard (#1451) and are held by a check on calibrations with no rings.
+                const board_model::BoardProfile profile =
+                    board_model::profileFromSpec(perspective_processing::DartboardSpec());
+                for (size_t i = 0; i < calibrations.size(); i++)
+                {
+                    each_camera_scores += each_camera_scores.empty() ? "" : "; ";
+                    each_camera_scores += "camera " + to_string(i + 1) + ": ";
+                    if (score_processing::aDartIsScoredFrom(calibrations[i]))
+                    {
+                        const board_model::BoardFit fit = board_model::fitBoardToCamera(
+                            profile, calibrations[i], wire_processing::conicOfDoublesFor(calibrations[i]));
+                        if (fit.planeBuilt && !fit.geometryAccepted)
+                        {
+                            scorable--;
+                            const size_t why = fit.story.find("REJECTED: ");
+                            each_camera_scores += "has a fitted doubles ring and a whole wire ring, but its board "
+                                                  "fit is REJECTED (" +
+                                                  (why == string::npos ? fit.story : fit.story.substr(why + 10)) +
+                                                  "), so the solver places nothing it saw on the board and no "
+                                                  "dart is scored from it (#1748)";
+                            continue;
+                        }
+                    }
+                    each_camera_scores += score_processing::howItScores(calibrations[i]);
+                }
+            }
 
             log_info("SCORING: " + to_string(scorable) + " of " + to_string(camera_slots) +
                      " cameras can be scored from. " + each_camera_scores);

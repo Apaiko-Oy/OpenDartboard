@@ -178,6 +178,33 @@ namespace board_model
      */
     inline constexpr int kMinSupportRays = 50;
 
+    /**
+     * #1748: how far a FITTED ring's traced edge may sit from the wire it was taken for,
+     * in the model's own millimetres -- the width of the doubles ring, 170 - 162 = 8 mm.
+     *
+     * The held-out rings test the fit; the fitted rings are what it was built FROM, and
+     * before this their residual was printed and never judged. It is not a tautology.
+     * The outer trace is the plane's unit circle over the conic's identity, and the
+     * model's wire is 170 mm over the de-bias, so the fitted outer residual is
+     * 170 x (1 / (conic x deBias) - 1): zero when the trace is the ring the plane says it
+     * is and the two marks agree, and 170 x (1/1.589 - 1) = -63 mm when the plane was
+     * built at 1.589 of a trace that IS the doubles ring. Live 2026-10-08 camera 1 read
+     * -65.3 mm on it and was accepted, because the only refusal was a band per held-out
+     * ring and a uniform shrink keeps every ring between its neighbours.
+     *
+     * The bound is the ring's own width because that is what the residual means: a
+     * de-biased trace more than a ring-width from the wire is an edge that is not on
+     * that ring at all. Honest readings, for the margin: cameras 2 and 3 of the same live
+     * session +3.0..+4.1 mm on the outer mark and -1.5..-4.4 on the inner; rig-20260929's
+     * three cameras +2.9..+3.5 and -1.9..-3.3. testers/i1748_scale_check.cpp rebuilds
+     * each from its logged ring fractions and prints the worst against this bound. No
+     * rig number is in it (#1322).
+     */
+    inline double fittedRingToleranceMm(const BoardProfile &profile)
+    {
+        return profile.outerDoubleRadiusMm - profile.innerDoubleRadiusMm;
+    }
+
     /** How many board angles each ring is compared on: the ray trace's own 120 at 3°. */
     inline constexpr int kResidualRays = 120;
 
@@ -457,6 +484,20 @@ namespace board_model
                                            detail::fmt("%.1f", high * profile.outerDoubleRadiusMm) + " mm -- wrong ring "
                                            "identity, or a distortion no flat board explains");
                     }
+                }
+                else if (std::fabs(r.signedMedianMm) > fittedRingToleranceMm(profile))
+                {
+                    // #1748: the fitted rings, judged. See fittedRingToleranceMm for what
+                    // this residual is and why its bound is the ring's own width.
+                    refusals.push_back(std::string(ring == kRingCount ? "the doubles ring" : ringName(ring)) +
+                                       " [fitted] sits at " + detail::fmt("%.1f", r.medianObservedMm) +
+                                       " mm in model space, " + detail::fmt("%+.1f", r.signedMedianMm) +
+                                       " mm from the " + detail::fmt("%.1f", r.modelMm) +
+                                       " mm wire it was taken for, further than that ring is wide (" +
+                                       detail::fmt("%.1f", fittedRingToleranceMm(profile)) +
+                                       " mm) -- the reference this plane was built on is not that ring at "
+                                       "the scale it was built (conic x" + detail::fmt("%.3f", conicOfDoubles) +
+                                       ", de-bias " + detail::fmt("%.4f", fit.deBias) + "; #1748)");
                 }
             }
             fit.rings[i] = r;
