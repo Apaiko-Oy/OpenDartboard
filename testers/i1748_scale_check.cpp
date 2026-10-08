@@ -247,6 +247,43 @@ int main()
         "the worst fitted residual over the six honest cameras is " + fmt("%.1f", worstControl) +
             " mm, which leaves " + fmt("%.1f", bound - worstControl) + " mm to the bound");
 
+    // ---- where the held-out bands are blind: the same shrink with the treble pair gone --
+    //
+    // The live camera 1 fit at x1.589 was in fact REJECTED on 0fb2ca3 too, by the
+    // held-out bands -- the outer treble at 64.5 mm against 102.9..131.7, and the bull and
+    // 25 ring each by a hair (4.0 vs 4.0..10.0, 9.6 vs 10.0..39.7) -- because the treble
+    // edges neighbour each other and their bands are narrow. The bull's and the 25 ring's
+    // are 2.5x and 4x wide, and a camera can lose its treble pair (rig-20260922 had them
+    // refused on every camera before #1499; live camera 2's first look traced no ring at
+    // all). rig-20260929 camera 3's rings with the treble pair zeroed, read at x1.589:
+    // the bull at 0.0451/1.589 = 0.0284 of the board and the 25 ring at 0.0736, both in
+    // band, so the held-out bands accept a plane 1.589x too large; the fitted ring sits
+    // 63 mm from its wire, and only this issue's rule refuses it.
+    {
+        DartboardCalibration lost = calibrationFromLog(cams[5], controls[5]);
+        lost.ellipses.outerTripleEllipse = cv::RotatedRect();
+        lost.ellipses.innerTripleEllipse = cv::RotatedRect();
+        lost.ellipses.hasValidTriples = false;
+        const BoardFit f = fitBoardToCamera(profile, lost, trebleOfDoubles);
+        std::cout << "  rig-20260929 camera 3, treble pair absent, at x" << fmt("%.3f", trebleOfDoubles)
+                  << ": residuals " << residualsOf(f) << std::endl;
+        int heldOutRefusals = 0;
+        for (int i = 0; i <= ellipse_processing::kRingCount; i++)
+        {
+            if (f.rings[i].observed && f.rings[i].heldOut && !f.rings[i].inBand)
+            {
+                heldOutRefusals++;
+            }
+        }
+        say(f.planeBuilt && f.heldOutObserved == 2 && heldOutRefusals == 0,
+            "with the treble pair absent both held-out rings (bull, 25) are IN band at x1.589: the band test "
+            "cannot see a uniform shrink there");
+        say(worstFittedMm(f) > 50.0 && !f.geometryAccepted &&
+                f.story.find("further than that ring is wide") != std::string::npos,
+            "with the treble pair absent the fitted ring sits " + fmt("%.1f", worstFittedMm(f)) +
+                " mm from its wire and the fit is REJECTED by this issue's rule alone, by name");
+    }
+
     // ---- the bound is on the FITTED rings; the held-out bands are #1485's and unchanged --
     {
         // The treble pair standing as the doubles reference at x1.0 (i1510's own plant)

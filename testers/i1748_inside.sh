@@ -53,10 +53,13 @@ if ! build_census "$SRC" "$OUT/census"; then
   echo "FAIL the scale census did not build; nothing below measures anything"
   exit 2
 fi
+CHECK_BUILT=1
 if ! build_check "$SRC" "$OUT/check"; then
-  tail -30 "$OUT/check.build.log"
-  echo "FAIL the scale check did not build; nothing below measures anything"
-  exit 2
+  # Not fatal: on a tree without the rule the check cannot name it and does not
+  # compile, and sections 1 and 2 still measure what that tree does with the frame.
+  tail -5 "$OUT/check.build.log"
+  echo "the scale check did not build on this tree; section 3 is red for it"
+  CHECK_BUILT=0
 fi
 
 census() { # $1 binary, $2 plant, $3 log  -- runs in its own dir: the calibration writes debug files
@@ -122,11 +125,15 @@ fi
 
 echo
 echo "=== 3. the fit refuses a scale its own fitted ring contradicts (the live figures) ==="
-"$OUT/check" | tee "$OUT/check.log" | sed 's/^/    /'
-if [ "${PIPESTATUS[0]}" = 0 ]; then
-  say "OK   the pure check passes: the live camera 1 figures at x1.589 are REJECTED by name; cameras 2/3 and rig-20260929 at x1.0 are accepted" ok
+if [ "$CHECK_BUILT" = 1 ]; then
+  "$OUT/check" | tee "$OUT/check.log" | sed 's/^/    /'
+  if [ "${PIPESTATUS[0]}" = 0 ]; then
+    say "OK   the pure check passes: the live camera 1 figures at x1.589 are REJECTED by name; cameras 2/3 and rig-20260929 at x1.0 are accepted" ok
+  else
+    say "FAIL the pure check failed: $(grep -c '^FAIL' "$OUT/check.log") assertion(s)" no
+  fi
 else
-  say "FAIL the pure check failed: $(grep -c '^FAIL' "$OUT/check.log") assertion(s)" no
+  say "FAIL the pure check did not build on this tree: fittedRingToleranceMm is not in its board_model.hpp" no
 fi
 
 echo
@@ -159,7 +166,18 @@ else
 fi
 
 echo
-echo "=== 5. MUTATION B: both rules removed, which is 0fb2ca3 -- section 2 goes red ======"
+echo "=== 5. MUTATION B: both rules removed, which is 0fb2ca3 -- what that tree does ======"
+# What 0fb2ca3 does with this frame, measured rather than taken from the issue. The
+# issue's premise was that the fit at x1.589 was ACCEPTED; the live log's own line,
+# read past its 700th character, says REJECTED -- the held-out bands caught it: the
+# bullseye at 4.0 mm against 4.0..10.0 and the 25 ring at 9.6 against 10.0..39.7, both
+# by a hair, and the outer treble at 64.5 mm against 102.9..131.7, by 38 mm. So on
+# 0fb2ca3 the planted frame is built at x1.589 and REFUSED, which is still section 2's
+# red (built at x1.589, not accepted), and the solver placed nothing from the camera:
+# the cost live was a lost constraint, not a wrong one. What the held-out bands cannot
+# catch is the same shrink on a camera that LOST its treble pair -- the bull and 25
+# bands are 2.5x and 4x wide -- and that is the pure check's last case, which must go
+# red on this tree and on no other section.
 PLANT_B=$OUT/plant_b
 rm -rf "$PLANT_B"; mkdir -p "$PLANT_B"
 cp -r "$PLANT_A/src" "$PLANT_A/testers" "$PLANT_B/"
@@ -175,16 +193,18 @@ else
   grep -E '^I1748 ' "$OUT/planted_b.log" | cut -c1-400
   B=$(grep '^I1748 ' "$OUT/planted_b.log" | head -1)
   B_CONIC=$(field "$B" conicOfDoubles); B_ACC=$(field "$B" geometryAccepted); B_WF=$(field "$B" worstFittedMm)
-  if [ "$B_CONIC" != 1.0000 ] && [ "$B_ACC" = 1 ] && ge "$B_WF" 50; then
-    say "OK   the mutation is fatal: with both rules out the planted frame is ACCEPTED at x$B_CONIC with its fitted ring $B_WF mm from its wire -- the live fault, and section 2's red" ok
+  if [ "$B_CONIC" != 1.0000 ] && ge "$B_WF" 50; then
+    if [ "$B_ACC" = 0 ]; then B_WORD="refused by the held-out bands, as the live fit was"; else B_WORD="ACCEPTED"; fi
+    say "OK   with both rules out the planted frame is built at x$B_CONIC with its fitted ring $B_WF mm from its wire (geometryAccepted=$B_ACC: $B_WORD) -- section 2 is red on it" ok
+    grep -o 'REJECTED: .*' "$OUT/planted_b.log" | head -1 | cut -c1-300 | sed 's/^/       /'
   else
     say "FAIL with both rules out: conicOfDoubles=$B_CONIC geometryAccepted=$B_ACC worstFittedMm=$B_WF -- section 2 could not have failed on this, so it measures nothing" no
   fi
   "$OUT/check_b" > "$OUT/check_b.log" 2>&1
-  if [ $? -ne 0 ] && grep -q '^FAIL' "$OUT/check_b.log"; then
-    say "OK   and the pure check goes red on it: $(grep -c '^FAIL' "$OUT/check_b.log") assertion(s), first: $(grep -m1 '^FAIL' "$OUT/check_b.log" | cut -c1-160)" ok
+  if [ $? -ne 0 ] && grep -q '^FAIL.*treble pair absent' "$OUT/check_b.log"; then
+    say "OK   and the pure check goes red on it where the held-out bands are blind: $(grep -m1 '^FAIL.*treble pair absent' "$OUT/check_b.log" | cut -c1-220)" ok
   else
-    say "FAIL the pure check still passes with the bound removed, so it measures nothing" no
+    say "FAIL the pure check's treble-pair-absent case still passes with the bound removed, so it measures nothing" no
   fi
 fi
 
