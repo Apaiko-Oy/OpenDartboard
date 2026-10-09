@@ -545,10 +545,13 @@ Two rules, both default, neither with a rig number in it:
    every camera before #1499; live camera 2's first look traced no ring at all): with
    only the bull and the 25 ring held out, the same shrink is in band -- rig-20260929
    camera 3's rings read 0.0284 and 0.0736 of the board at x1.589, both inside -- and
-   this rule is the one that refuses it. `SCORING:` now reads the fit and says a camera
-   whose fit is REJECTED is not scored from, with the fit's own reason (the solver
-   already placed nothing from it, `entry_intersection::constraintFrom`; the census had
-   said 3 of 3), and "read through camera N" prints N from 1 like every other sentence.
+   this rule is the one that refuses it. `SCORING:` now reads the fit and APPENDS to a
+   scorable camera's clause, with the fit's own reason: "its board fit is REJECTED (...),
+   so the solver places nothing it saw on the board and a dart is scored from it only by
+   the vote". The count and the leading words are #1451's unchanged (live it would still
+   say 3 of 3): the string vote, the DEGRADED fallback, does still score from such a
+   camera; only the solver refuses it (`entry_intersection::constraintFrom`). And "read
+   through camera N" prints N from 1 like every other sentence.
 2. **The identity is cross-checked where it is spent** (`wire_processing::conicOfDoublesFor`,
    `ellipse_processing::trebleRingInsideTheTrace`). The reach is a reading about what lies
    OUTSIDE the span; the ellipse stage has one about what lies INSIDE the trace. A doubles
