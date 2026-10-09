@@ -656,14 +656,44 @@ namespace wire_processing
             }
             else if (ratio > trebleOfDoubles / band && ratio < trebleOfDoubles * band)
             {
-                conicOfDoubles = ring_identity::Spec().boardRadiusOfTrebleSpan();
-                log_warning("Camera " + log_string(calib.camera_index + 1) +
-                            " wire model: the fitted conic is " + log_string((int)semiMajor) +
-                            " px where " + log_string((int)boardFromSpan) +
-                            " px is this board's radius by its ring identity, so the ring that was "
-                            "traced is the TREBLE ring; the plane is built at " +
-                            log_string(ring_identity::Spec().boardRadiusOfTrebleSpan()) +
-                            " of it rather than at its own radius.");
+                // #1748: THE IDENTITY IS CROSS-CHECKED WHERE IT IS SPENT. The ratio says
+                // the trace sits on the span, and the identity says the span is the treble
+                // ring -- a reading about what lies OUTSIDE it, which the room can make
+                // true (#1731's red; live 2026-10-08 camera 1 reached past 1.26 spans on a
+                // tenth of its rays). The ellipse stage has a reading about what lies
+                // INSIDE the trace, and only the doubles ring has a treble ring inside it
+                // (ellipse_processing::trebleRingInsideTheTrace says why). Where both
+                // readings exist the inside one wins, the plane is built at x1.0, and the
+                // WARN says both. Built at 1.589 of a doubles trace, the fit's own fitted
+                // ring read -65 mm and thrown 19s published as S3.
+                const bool trebleInsideTheTrace = ellipse_processing::trebleRingInsideTheTrace(calib.ellipses);
+                if (trebleInsideTheTrace)
+                {
+                    conicOfDoubles = 1.0;
+                    log_warning("Camera " + log_string(calib.camera_index + 1) +
+                                " wire model: the fitted conic is " + log_string((int)semiMajor) +
+                                " px where " + log_string((int)boardFromSpan) +
+                                " px is this board's radius by its ring identity (colour reaches " +
+                                log_string(sighting.reach) +
+                                " spans), which would make the ring that was traced the TREBLE ring -- "
+                                "but the ellipse stage found a treble ring inside it, both edges in band "
+                                "at x1.0 of the trace, and only the doubles ring has one of those inside "
+                                "it. The two readings disagree; the ring inside wins, so the plane is "
+                                "built at 1.0 of the trace and what reached past the span is taken for "
+                                "the room, not the board (#1748).");
+                }
+                else
+                {
+                    conicOfDoubles = ring_identity::Spec().boardRadiusOfTrebleSpan();
+                    log_warning("Camera " + log_string(calib.camera_index + 1) +
+                                " wire model: the fitted conic is " + log_string((int)semiMajor) +
+                                " px where " + log_string((int)boardFromSpan) +
+                                " px is this board's radius by its ring identity, so the ring that was "
+                                "traced is the TREBLE ring (no treble ring was found inside it to say "
+                                "otherwise); the plane is built at " +
+                                log_string(ring_identity::Spec().boardRadiusOfTrebleSpan()) +
+                                " of it rather than at its own radius.");
+                }
             }
             else
             {

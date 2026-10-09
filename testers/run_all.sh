@@ -376,6 +376,19 @@ tester 1442-count         "bash '$T/i1442_run.sh'"
 #
 # Measured on the 4-core box at load 9.62: 213 seconds.
 tester 1423-ringidentity  "bash '$T/i1423_run.sh'"
+# #1748: a doubles span the ring identity calls TREBLE (red in the room past 1.26 spans)
+# must not build the plane at 1.589 of the traced doubles ring, and a fit whose own
+# fitted ring sits further from its wire than the ring is wide is refused by name. No
+# recording shows it, so the frame is planted: rig-20260929's camera 2 (the physical
+# camera the live log of 2026-10-08 numbered 1) with a red arc painted at 1.30..1.45
+# spans. Compiles the calibration sources directly, like 1423; no detector binary, so
+# OD_SKIP_BUILD changes nothing. Builds the census three times (this tree, the two
+# planted trees) and calibrates four frames. MEASURED 2026-10-08 on the 4-core box,
+# alone, to completion: 718 s at load 6.8. Under the whole-tree gate's load (25 on
+# 2026-10-09, an ASan tester alongside) it was cut at the 1200 s default inside section 4,
+# so the `slow` line is twice the measured cost, #1341's rule.
+tester 1748-scale         "bash '$T/i1748_run.sh'"
+slow 1500
 
 # #1467: the wire stage fits a twenty-fold model instead of counting to twenty. Six
 # sections, the last of which plants a board plane built with no bull in it -- #1466's

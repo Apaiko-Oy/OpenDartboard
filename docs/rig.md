@@ -467,6 +467,128 @@ run at ~37 ms (a whole-clip replay at load 4-6), the hold moves rig-20260918 dev
 cooldown expiry onto v6.3's one-cycle splash, and the 2 is dropped (#1650,
 `cooldownExpirySpikes`). At 33.3 ms a cycle, the rig's 30 fps, it is not.
 
+**A doubles span the ring identity calls TREBLE (#1748), default.** Live on 2026-10-08
+(68 visits, `opendartboard-main-0fb2ca3-windows-x64`, log `od-live-20261008`), thrown 19s
+published as 3s: of the 262 `SCORE:` lines, eight S3/T3 publications sat at board angles
+180.1-188.2° where the 19 is 189-207° (radii 0.47-0.74), the six flagged against a wedge
+wire at claimed sigmas of 12.2-16.5 mm where the 20-wedge solves of the same session
+claim 5-6 mm, and one unflagged at 0.9 ("S3 clears its nearest wedge wire -- 17.9 mm away
+across a 16.5 mm one-sigma", radius 0.741, angle 180.8°). Every geometric score in the
+session was "from 2 intersecting constraint(s) of 3 cameras, read through camera 1" --
+and that `1` was a 0-based constraint index printed raw (rig-20260929's clean run says
+`camera 0` on 23 of its 24 solves; every other sentence in a log numbers cameras from 1),
+so it names camera 2. Camera 1 was not in any solve.
+
+Camera 1's calibration block, read together, says why:
+
+- `bull at (646,232) ... board radius 334.9 px`; `rings: every ring is where the board
+  puts it -- the bullseye 0.0379 ... the 25 ring 0.0920 ... treble inner 0.5467 ... treble
+  outer 0.6173 ... doubles inner 0.9311` (each against the traced ring at x1.0);
+- `wire model: the fitted conic is 330 px where 532 px is this board's radius by its ring
+  identity, so the ring that was traced is the TREBLE ring; the plane is built at
+  1.588785 of it` (197 times, once per fit);
+- `board model: scale through #1423's ring identity ... 2.46 px/mm at the bull ...
+  residuals the bullseye [held-out] -2.4 mm, the 25 ring [held-out] -6.3 mm, the treble
+  ring's inner edge [held-out] -41.6 mm, the treble ring's outer edge [held-out] -42.5 mm,
+  the doubles ring's inner edge [fitted] -66.4 mm, the doubles ring [fitted] -65.3 mm`,
+  and -- past the 700th character, where the issue stopped reading -- `REJECTED: the
+  bullseye sits at 4.0 mm in model space where its band is 4.0..10.0 mm; the 25 ring sits
+  at 9.6 mm where its band is 10.0..39.7 mm; the treble ring's outer edge sits at 64.5 mm
+  where its band is 102.9..131.7 mm`;
+- `SCORING: 3 of 3 cameras can be scored from` all the same, because that census read
+  the ring and the wire count and not the fit; and in every TOO-FEW story camera 1's slot
+  reads `cam 1: no accepted board fit, so nothing this camera saw can be placed on the
+  board` (39 of them).
+
+A bull at 0.0379 of the traced ring puts that ring at 6.35/0.0379 = 168 mm: the trace was
+the doubles ring, and so was the span (335 vs 330 px). `ring_identity::identify` called
+the span TREBLE because colour reached past 1.26 spans on a tenth of its rays -- the room
+(#1731's red), which no fixture frame has -- and `conicOfDoublesFor` believed the identity
+over the trace, so the plane's 170 mm sat at 524 px and every ring read at 1/1.589 of
+itself: 170 x (1/1.589 - 1) = -63 mm on the fitted ring, which is the -65 the fit printed.
+The fit REFUSED it, by #1485's held-out bands: the treble edges neighbour each other, so
+their bands are narrow and the outer treble at 1/1.589 of itself (64.5 mm) is 38 mm
+below its band; the bull and 25 ring were refused by a hair (4.0 vs 4.0, 9.6 vs 10.0),
+their bands being 2.5x and 4x wide. So the issue's premise -- an accepted fit read
+through on every dart -- is wrong, and so is the brief's "a uniform shrink stays in
+band": it does for the bull and the 25 ring, and not for a treble pair. What the wrong
+plane cost live was camera 1 as a constraint, on all 154 solves and the 39 TOO-FEW
+windows: the 3/19 publications are two-camera solves of cameras 2 and 3, whose sigma on
+that wedge's wire is 12-16 mm. The same wrong plane is what `ANCHOR: camera 1 is REFUSED
+an anchor: two darts placed its wedge 20 at different wires` saw from the anchor's side
+(the derived anchor reads the wire ring, which the vote path still scores from).
+
+**Which camera it is.** The live log's camera 1 is `mocks/rig-20260929/cam_2.mp4`'s
+camera, not cam_1's: on the 29th camera 2 read `bull at (646,232) ... board radius
+332.4 px` and camera 1 `bull at (648,300) ... 199.7 px, 1.51 px/mm, wedge 16 at its image
+south`, and on the 8th those are camera 1 and camera 2 respectively (bull (650,302),
+199 px, 1.51 px/mm, wedge 16 south). The enumeration order swapped between the two days;
+the physical camera did not move. On the 29th that camera calibrated with the doubles
+identity, de-biased by 0.9825, residuals -3.5..+3.0 mm, numbers read. So the hypothesis
+in the issue -- that the 335 px span IS the doubles ring -- is not an inference from the
+residual arithmetic alone: the same camera at the same span is on a fixture, and it is
+the doubles ring there. #1359's 0.59 is 1/1.589 on this camera; whether #1359's earlier
+sightings were this mechanism the log cannot say, because they printed no identity line.
+
+Two rules, both default, neither with a rig number in it:
+
+1. **The fit refuses a scale its own fitted ring contradicts**
+   (`board_model::fitBoardToCamera`, `fittedRingToleranceMm`). The fitted rings' residual
+   was printed and never judged. It is 170 x (1/(conic x deBias) - 1) by construction --
+   zero when the trace is the ring the plane says it is -- and is now held to the width of
+   its own ring, 170 - 162 = 8 mm: a de-biased trace further than a ring-width from the
+   wire is not on that ring. The refusal names the ring, where it sits, the wire, the
+   width, the conic factor and the de-bias, and cites #1748. Cameras 2 and 3 of the same
+   session read +3.0..+4.1 mm on the fitted outer ring and -1.5..-4.4 on the inner;
+   rig-20260929's three cameras +2.9..+3.5 and -1.9..-3.3. What it adds to the held-out
+   bands is the camera that has LOST its treble pair (rig-20260922 had them refused on
+   every camera before #1499; live camera 2's first look traced no ring at all): with
+   only the bull and the 25 ring held out, the same shrink is in band -- rig-20260929
+   camera 3's rings read 0.0284 and 0.0736 of the board at x1.589, both inside -- and
+   this rule is the one that refuses it. `SCORING:` now reads the fit and APPENDS to a
+   scorable camera's clause, with the fit's own reason: "its board fit is REJECTED (...),
+   so the solver places nothing it saw on the board and a dart is scored from it only by
+   the vote". The count and the leading words are #1451's unchanged (live it would still
+   say 3 of 3): the string vote, the DEGRADED fallback, does still score from such a
+   camera; only the solver refuses it (`entry_intersection::constraintFrom`). And "read
+   through camera N" prints N from 1 like every other sentence.
+2. **The identity is cross-checked where it is spent** (`wire_processing::conicOfDoublesFor`,
+   `ellipse_processing::trebleRingInsideTheTrace`). The reach is a reading about what lies
+   OUTSIDE the span; the ellipse stage has one about what lies INSIDE the trace. A doubles
+   ring has a treble ring at 0.58..0.63 of it; a treble ring has nothing coloured between
+   its 25 ring (0.15) and itself, and what the tracer fills into the treble slots of a
+   107 mm ring sits at 58..67 mm, outside the band either way (the treble mask is the
+   colour inside the doubles area, `mask_processing`). So when the ratio puts the trace in
+   the treble band AND both treble edges are observed in band at x1.0 of the trace, the
+   trace is the doubles ring whatever lies outside it, the plane is built at x1.0, and the
+   WARN names both readings and which won. Rule 1 stays underneath it.
+
+**Measured (`testers/run_all.sh 1748`, 718 s on the 4-core box at load 6.8).** The frame
+is rig-20260929 cam_2 at frame 90 (the live camera 1). Unpainted: identity DOUBLES at a
+reach of 0.954 spans, span 332.4 px, trace 328.1 px, de-bias 0.9822, residuals +0.8 /
++0.4 / -3.5 / +1.2 / -2.6* / +3.1* mm (* fitted), accepted. With a 60° arc of board red
+painted at 1.30..1.45 spans: identity TREBLE at a reach of 1.450, the span unchanged at
+332.4 px, the plane built at x1.0 with the WARN naming both readings, and the same
+residuals, accepted. With the cross-check planted out (mutation A) the same frame builds
+at x1.5888, the fitted ring sits 65.6 mm from its wire, the held-out trebles 42.2, and the
+fit is REJECTED naming the 25 ring (9.7 vs 10.0..39.7), the outer treble (64.8 vs
+102.9..131.7) and the fitted ring. With both rules out (mutation B, which is 0fb2ca3) it
+is the same refusal without the fitted-ring sentence -- so on 0fb2ca3 the tester is red
+on section 2 (built at x1.589, refused) and on section 3 (the check does not compile
+without `fittedRingToleranceMm`), not on an accepted fit. The pure check rebuilds the live
+camera 1 at x1.589 as -2.5 / -6.4 / -42.3 / -43.0 / -65.3* / -63.7* mm (the log's -2.4 /
+-6.3 / -41.6 / -42.5 / -66.4 / -65.3) and at x1.0 as +0.1 / -0.2 / -5.9 / -1.8 / -3.4* /
++4.3*, accepted; the six honest cameras' worst fitted residual is 4.9 mm (live camera 3).
+rig-20260929 camera 3 with the treble pair zeroed, at x1.589: -1.8 / -4.0 on the bull and
+25 ring, both in band, -66.8* / -65.7* on the fitted pair, refused by rule 1 alone.
+
+Bakeoff before, on 0fb2ca3's binary (capture clock): rig-20260918 19/20 and 19/20,
+rig-20260922 21/23 and 23/23, the vote pin 17/20, rig-20260929 26..30/36 and 27..31/36;
+pooled 135..143/158 (85.4%), r18+r22 82/86 (95.3%), 0 phantoms -- the documented
+baseline. No fixture camera has a fitted residual past 4.9 mm or a trace in the treble
+band with trebles inside it, so no fixture publication can move; the after run was not
+reached in this slice's budget and is for the merged-tree gate.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never

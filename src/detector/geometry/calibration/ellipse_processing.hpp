@@ -267,6 +267,51 @@ namespace ellipse_processing
     }
 
     /**
+     * #1748: DOES THE TRACED RING HAVE A TREBLE RING INSIDE IT?
+     *
+     * Both edges of the treble ring, observed and inside their #1485 bands against the
+     * traced doubles reference at x1.0 -- what holdRingsToTheBoard has just held them to,
+     * re-derived from the ellipses rather than read off `hasValidTriples`, because
+     * OD_RINGS=asfitted keeps rings the bands refused and those must not be a witness.
+     *
+     * It is the one reading that tells the two rings apart from INSIDE, and it is why
+     * `ring_identity`'s reach -- a reading about what lies OUTSIDE the span -- can be
+     * cross-checked where it is spent (wire_processing::conicOfDoublesFor). A doubles
+     * ring has a treble ring at 0.58..0.63 of it. A treble ring has nothing coloured
+     * between its 25 ring, at 0.15 of it, and itself: the treble mask is the colour inside
+     * the doubles area (mask_processing), so what the tracer fills into the treble slots
+     * of a 107 mm ring sits at 58..67 mm on plain wedge, outside the 0.2334..0.6054 and
+     * 0.6054..0.7745 bands either way. So a trace with a treble pair in band inside it
+     * is the doubles ring, whatever lies outside it.
+     *
+     * Live 2026-10-08, camera 1: span 335 px with colour reaching past 1.26 spans (the
+     * room), trace 330 px with the treble edges at 0.5467 and 0.6173 of it; the identity
+     * said TREBLE, the plane was built at 1.589 of the trace, and thrown 19s read as S3.
+     */
+    inline bool trebleRingInsideTheTrace(const EllipseBoundaryData &e)
+    {
+        const double board = deBiasedBoardReach(e);
+        if (!(board > 0.0))
+        {
+            return false;
+        }
+        for (int ring : {kInnerTriple, kOuterTriple})
+        {
+            const double reach = ringReach(ringEllipse(const_cast<EllipseBoundaryData &>(e), ring));
+            if (!(reach > 0.0))
+            {
+                return false;
+            }
+            const double spans = reach / board;
+            if (spans < ringBandLow(ring) || spans > ringBandHigh(ring))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Hold the five fitted rings to the board the doubles ring says this is, and zero the
      * ones that are not where the board puts them. Returns the sentence to print: every
      * ring, its reading and its band, because a refusal nobody can read is the silence

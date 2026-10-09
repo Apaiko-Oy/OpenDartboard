@@ -1223,7 +1223,12 @@ namespace score_processing
                 log_info("Geometric score: " + result.score + " from " +
                          to_string(solution.usableConstraints) + " intersecting constraint(s) of " +
                          to_string(solution.offeredConstraints) + " cameras, read through camera " +
-                         to_string(reference));
+                         // #1748: `reference` is a 0-based constraint index and every other
+                         // sentence in a log numbers cameras from 1 ("Camera 1 board model",
+                         // "cam 1: no accepted board fit"). Printed raw, the live log of
+                         // 2026-10-08 read "read through camera 1" on 154 solves whose
+                         // camera 1 had been refused -- it was camera 2.
+                         to_string(reference + 1));
                 // The BOARD line, in the geometric path's own words. It deliberately
                 // matches neither "wedge measured" nor "wedge by default": i1484's
                 // census reads those two as a claim about a CAMERA's angular ruler, and
