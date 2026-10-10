@@ -39,12 +39,34 @@ Type=simple
 #   /var/lib/opendartboard/logs/current/opendartboard-20261011T201500Z.log
 #
 # and says which in the journal. The shell does only that: it moves the previous start's
-# file from current/ up to logs/, picks the name, and execs the detector, so the detector
-# is still this unit's main process (NotifyAccess=main below) and the flags after the
-# quoted script are the detector's own, handed through as "$@". `$$` and `%%` are systemd's
-# escapes for a literal dollar and percent sign. Nothing in it can stop the detector
-# starting: the housekeeping is joined by `;`, and a log directory that cannot be made
-# turns the detector's file logging off (logging.hpp), never the board.
+# file from current/ up to logs/, picks the name, and execs the launcher, so the launcher
+# is this unit's main process and the flags after the quoted script are the detector's
+# own, handed through as "$@". `$$` and `%%` are systemd's escapes for a literal dollar
+# and percent sign. Nothing in it can stop the board starting: the housekeeping is joined
+# by `;`, and a log directory that cannot be made turns the detector's file logging off
+# (logging.hpp), never the board.
+#
+# ---- #1796: THE LAUNCHER, NOT THE DETECTOR ----
+#
+# ADR-0077 §1: a board's program is two files, and the one that is started is the small
+# one. /usr/local/bin/opendartboard-launcher reads the update state it keeps under
+# /var/lib/opendartboard, looks for a release on the board's channel when the moment rule
+# allows (ADR-0077 §7: a clean stop fifteen minutes old, a bad ending, or #1797's
+# scheduled stop at 06:00), installs it by rename under /var/lib/opendartboard, and starts
+# the detector it installed -- or /usr/local/bin/opendartboard, this package's own, on a
+# board that has never installed one -- with every argument below, in order, untouched
+# (src/launcher/command_line.hpp; the shell's --log-file arrives the same way). It waits
+# for the detector however long it runs, and when a release's detector exits at once it
+# starts it again and then goes back to the version that worked, saying so in the journal
+# in Finnish and English. It never asks anything here: console_prompt::isInteractiveConsole()
+# answers false under a manager, and testers/i1303_check.sh measures the launcher on an
+# input nobody answers. When the detector stops, the launcher exits with a code of its own
+# (ending.hpp: 0 clean, 40 never started, 41 faulted, 42 killed, 43 a scheduled stop it
+# refused to follow), and Restart= below does what it always did. A scheduled stop (exit
+# 60, #1797) is followed INSIDE the launcher -- one look, one restart with the same
+# arguments -- so a day's restart costs this unit no start and StartLimitBurst nothing.
+# Where the launcher keeps what, and how a Pi is installed once and never touched by hand
+# again, is docs/rig.md, "A Pi updates through the launcher".
 #
 # The pruning is /usr/lib/tmpfiles.d/opendartboard.conf (distributions/debian_arm64/
 # tmpfiles.conf): files in logs/ older than seven days go, and logs/current/ is excluded,
@@ -54,7 +76,7 @@ ExecStart=/bin/sh -c 'logs=/var/lib/opendartboard/logs; mkdir -p "$$logs/current
     for old in "$$logs"/current/*.log; do [ ! -e "$$old" ] || mv -f "$$old" "$$logs/"; done; \
     file="$$logs/current/opendartboard-$$(date -u +%%Y%%m%%dT%%H%%M%%SZ).log"; \
     echo "opendartboard: this start logs to $$file"; \
-    exec /usr/local/bin/opendartboard "$$@" --log-file "$$file"' opendartboard \
+    exec /usr/local/bin/opendartboard-launcher "$$@" --log-file "$$file"' opendartboard \
     --autocams \
     --width ${WIDTH} --height ${HEIGHT} --fps ${FPS} \
     --model /usr/local/share/opendartboard/models/dart.param
@@ -89,12 +111,14 @@ RestartSec=2
 #   systemctl status opendartboard          ->  Status: "ERROR: this board cannot see -- ..."
 #   systemctl show -p StatusText opendartboard
 #
-# `main` here and not `all`: the detector is the main process on a Linux board -- the
-# launcher is Windows-only -- so nothing else has anything to say. Type= stays `simple`:
-# MEASURED on systemd 255 (testers/i1383_units.sh), a simple unit with NotifyAccess set
-# has $NOTIFY_SOCKET and its STATUS= is kept and printed, so nothing about when this unit
-# counts as started moves.
-NotifyAccess=main
+# `all` here and not `main` since #1796: the main process is now the launcher and the
+# detector is its child, and `main` would have systemd drop the detector's datagram on
+# the floor -- the blind board's own sentence, silenced by the process that exists to keep
+# it running. `all` is every process in the unit's cgroup, and the two in it are both
+# ours. Type= stays `simple`: MEASURED on systemd 255 (testers/i1383_units.sh), a simple
+# unit with NotifyAccess set has $NOTIFY_SOCKET and its STATUS= is kept and printed, so
+# nothing about when this unit counts as started moves.
+NotifyAccess=all
 # ---- #1660: WHERE THIS BOARD KEEPS WHAT IT WAS GIVEN ----
 #
 # This unit sets no User=, and systemd gives a system unit with no User= neither $HOME nor

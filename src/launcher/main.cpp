@@ -40,7 +40,9 @@ int main(int argc, char **argv)
     }
 
     launcher::Surroundings surroundings;
-    surroundings.layout = launcher::layoutFor(launcher::detectorPath());
+    // #1796: beside this launcher on Windows, under /var/lib/opendartboard on a Pi, beside
+    // OD_DETECTOR for a harness. detector_process.hpp says which and why.
+    surroundings.layout = launcher::layoutHere();
 
     // The same four steps the detector follows, from the same header (ADR-0077 §5).
     std::string credentials = update_address::argumentAfter(arguments, "--credentials");

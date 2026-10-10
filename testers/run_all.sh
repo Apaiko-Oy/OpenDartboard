@@ -954,6 +954,14 @@ tester 1306-install      "bash '$T/i1306_check.sh'"
 # re-carry against a real stub in one container, each mutation proof inside the harness
 # (--mutate-clock, --mutate-ending); no detector binary, so OD_SKIP_BUILD changes nothing.
 tester 1797-scheduled     "bash '$T/i1797_check.sh'"
+# #1796: a Pi updates through the launcher. The launcher CMake builds for Linux, driven in
+# /var/lib/opendartboard's shape with a tar.gz artefact and a served manifest: a first boot
+# that MAY check and starts the deb's detector, an install, a release that exits at once
+# rolled back inside one launcher run, a scheduled stop followed by one look and one
+# restart, the platform path pure (unit_check.sh 1796) and compiled both ways; the mutation
+# (--mutate, the suffix dropped) inside the harness. Needs loopback, no detector binary;
+# OD_SKIP_BUILD changes nothing about it beyond build/_deps.
+tester 1796-pi-launcher   "bash '$T/i1796_check.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
 # #1383: a blind board given a cycle budget ends, and a blind board says so where a
 # supervisor can read it. Six detector runs on #892's blind fixture and the shipped

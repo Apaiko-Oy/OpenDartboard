@@ -1005,6 +1005,109 @@ ran to the end of the footage and exited 0: the guard measured live, the stop no
 overnight restarts at 06:00, the log shows the sentence, `update\state.txt` shows
 `scheduled`, and the new run's first lines name the version Turnaus offered. Not yet done.
 
+## A Pi updates through the launcher (turnaus#1796)
+
+**The decision** (the maintainer, 2026-10-10): a Raspberry Pi board updates the way a
+Windows board does -- the same launcher, the same signed manifest, the same
+rename-never-overwrite and the same rollback -- from the release Turnaus's publish button
+offers the board's channel. Not apt: no apt repository exists and nobody is going to
+maintain one, so until #1796 every Pi was updated by somebody with a terminal running
+`dpkg -i`. ADR-0077's scope note ("a Linux board updates through apt or by hand") and
+ADR-0083's door 2 are amended on the Turnaus side by number from this issue's report.
+
+**What runs on the board.** The `.deb` carries two binaries in `/usr/local/bin`,
+`opendartboard` and `opendartboard-launcher` (`Makefile`, `deb`; `CMakeLists.txt` builds
+the launcher target on both platforms since #1796 -- the same `src/launcher/main.cpp`,
+nlohmann and the detector's own httplib transport, `src/update/p256_verify.hpp` for the
+signature in place of CNG, no OpenCV). The unit's `ExecStart` execs the launcher where it
+exec'd the detector (`templates/opendartboard.service.template`): the shell still picks
+the per-start log file (#1801), and every argument after the quoted script -- `--autocams`,
+the mode, `--model`, `--log-file` -- passes through the launcher to the detector in order,
+untouched (`command_line.hpp`; measured by `testers/i1796_inside.sh`, which diffs the
+stub's argv against the list it was given). `NotifyAccess=all` where it was `main`,
+because the main process is now the launcher and the detector's own `Status:` line (#1383)
+would otherwise be dropped. `systemctl status opendartboard` shows the launcher as the
+main process and the detector as its child.
+
+**Where the launcher keeps what -- never in `/usr/local/bin`.** The two files there are
+dpkg's, and a launcher that renamed one into `update/previous` would leave `dpkg -V`
+complaining for ever and a later `dpkg -i` writing over its work. So the launcher's tree
+is under the one directory a Pi already keeps everything in (#1660, `StateDirectory=`),
+in exactly the Windows shape (`install_layout.hpp`, `layoutUnderStateDir`):
+
+```
+/var/lib/opendartboard/opendartboard              the detector the launcher installed
+/var/lib/opendartboard/update/state.txt           the six facts (#1306)
+/var/lib/opendartboard/update/previous/           the version that worked, kept whole
+/var/lib/opendartboard/update/staging/            where an archive is unpacked
+/var/lib/opendartboard/update/download.archive    the verified bytes on their way
+/usr/local/bin/opendartboard                      the deb's own: read, copied, never moved
+```
+
+The launcher starts `/var/lib/opendartboard/opendartboard` when it exists and
+`/usr/local/bin/opendartboard` when it does not (`programToStart()`), so a board that has
+never taken a release over the wire runs the deb's detector exactly as before. The first
+update COPIES the deb's detector into `update/previous` -- a copy, since the file is not
+ours to move -- so the first release a Pi installs can be rolled back like every later
+one (`apply_update.hpp`, step 9). `credentials.json`, `channel.json`, `cameras.json` and
+`score_token` are in the same directory and nothing on this path writes them.
+
+**The archive and its manifest.** `release.yml`'s deb job now also writes
+`opendartboard-<version>-linux-arm64.tar.gz` (the detector, the launcher, `LICENSE`,
+`BUILD-INFO.txt`, `models/`) and signs `manifest-linux-arm64.json` over it with the same
+script and key as the Windows `manifest.json`; Turnaus serves it at
+`/updates/opendartboard/<channel>-linux-arm64.json`, which is the path an arm64 build asks
+(`update_check::pathFor`, `OD_UPDATE_PLATFORM`; `docs/api.md`, "The update manifest per
+platform"). The job then asks the arm64 detector it just built to read that manifest at
+that path and to refuse it one byte later, as the Windows job does. A tar.gz rather than a
+zip because `/bin/tar` is Essential on every Debian and python3 is not promised on Pi OS
+Lite: the POSIX unpack seam reads the archive's first two bytes and hands gzip to
+`/bin/tar -xzf`, anything else to python3's zipfile (which is what `testers/i1306_check.sh`
+has always sent it). The deb's `Depends` gains nothing.
+
+**Installed once by hand, and never touched by hand again.** `dpkg -i opendartboard_<v>.deb`
+(the deb on the release, `docs` elsewhere for the card and the pairing), pair the board,
+`systemctl status opendartboard`. From then on the channel decides: the launcher looks
+before a start that follows a clean stop fifteen minutes old, a bad ending, or #1797's
+scheduled stop at 06:00, and a release the channel publishes is on the board the next
+morning with the old version in `update/previous`. A `dpkg -i` by hand is still possible
+and means "put the board on the package's version": `postinst` clears
+`/var/lib/opendartboard/opendartboard` and `update/`, so the next start finds no state and
+runs the deb's detector until the channel offers something else.
+
+**The launcher under systemd.** It asks nothing: `console_prompt::isInteractiveConsole()`
+is false where there is no terminal, and `testers/i1303_check.sh` measures the launcher on
+`/dev/null`, an open pipe nobody writes and no stdin at all (i1796's own runs use a fifo
+nobody writes and `/dev/null`). When the detector stops the launcher exits with
+`ending.hpp`'s code (0, 40, 41, 42, 43) and `Restart=always` starts it again. A
+`scheduled` stop (exit 60) is followed INSIDE the launcher, as on Windows (`carry()` goes
+round once): one look, one restart with the same arguments, no unit restart and nothing
+counted against `StartLimitBurst` -- the same code on both platforms, measured by the same
+testers, which is why the Linux launcher does not simply exit 60 and let systemd carry. A
+release whose detector exits at once is started twice and rolled back within the same
+launcher run, so the unit sees one start where it would have seen three.
+
+**TLS.** The manifest and the artefact are fetched by `src/communication/http_transport.hpp`,
+the detector's own transport; on the base this issue was cut from the POSIX build has no
+TLS (#822's note) and so refuses an https address with "this build has no TLS transport",
+exactly as the detector's `--check-update` does. #1798 adds OpenSSL to that transport; the
+launcher takes the same header and needs nothing of its own. Until #1798 lands a Pi's
+launcher cannot reach a real deployment's manifest, and says so in both languages.
+
+**Measured in the container, 2026-10-11** (`testers/i1796_check.sh`, the launcher built
+by this tree's `CMakeLists.txt` with `-DOD_UPDATE_PLATFORM=linux-arm64` and the fixture's
+anchor, `/tmp/i1796/state` as `STATE_DIRECTORY`, the deb's detector beside the launcher
+in `/tmp/i1796/bin`, the manifest fetched from the credential's `base_url`): see the
+tester's own output on the issue -- first boot one request at
+`/updates/opendartboard/stable-linux-arm64.json` and the deb's detector started; `v1.1.0`
+installed from the tar.gz with `update/previous/opendartboard` a byte-identical copy of the
+deb's and `/usr/local/bin/opendartboard` untouched; `v1.3.0` (exit 3 at once) started
+twice and rolled back to `v1.1.0` in one launcher run ("Going back to version v1.1.0,
+which worked" / "Palataan versioon v1.1.0, joka toimi"); `v1.2.0` stopping on schedule
+followed by one look and one restart with byte-identical argv; the three config files
+byte-identical throughout. `--mutate` (the suffix dropped on a copy of `src/`) turns the
+pure check and the install red.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never

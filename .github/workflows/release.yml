@@ -214,6 +214,12 @@ jobs:
       image: debian:12
       options: --platform linux/arm64
 
+    env:
+      # #1796: the same floor as the Windows job's, for the same reason written there: any
+      # launcher built from a real tag may install this, one built from an untagged tree
+      # (0.0.0-dev) may not. Raise both together.
+      OD_MINIMUM_LAUNCHER: "0.0.1"
+
     steps:
       # 1. Checkout repo (full history so changelogs work later)
       - uses: actions/checkout@v4
@@ -221,10 +227,14 @@ jobs:
           fetch-depth: 0
 
       # 2. Install build & runtime deps
+      #    #1796: openssl signs the Linux manifest and python3 serves it back to the
+      #    artefact for the self-check below; they are this job's tools, not the board's
+      #    (apt-packages.txt is what a build box needs), so they are named here.
       - name: Install apt packages
         run: |
           apt-get update -y
           xargs apt-get install -y < apt-packages.txt
+          apt-get install -y openssl python3
 
       # 3. Derive version from tag (refs/tags/v0.0.1 -> 0.0.1)
       #    #1299: a manual run has no tag, and this used to hand `make deb` the string
@@ -240,11 +250,12 @@ jobs:
 
       # 4. Build binary and .deb
       #    #1408: the anchor reaches the Makefile through the environment and never through
-      #    a source file. ADR-0077's scope is Windows and a Linux board updates through apt,
-      #    so nothing here installs anything -- but `--check-update` is compiled into this
-      #    binary too, and without an anchor its only possible answer is "this build has no
-      #    update key compiled in". A Linux board's operator would then have no way to learn
-      #    a fix exists. The anchor is public and costs the .deb nothing.
+      #    a source file. Until #1796 this comment said a Linux board updates through apt
+      #    and nothing here installs anything; since #1796 the deb carries the launcher,
+      #    which installs the archive packaged below after verifying the manifest signed
+      #    below against this anchor -- so this is now the line that decides whether a Pi
+      #    can ever be updated, exactly as it is for the Windows zip. The anchor is public
+      #    and costs the .deb nothing.
       - name: Build + Package
         env:
           OD_UPDATE_ANCHOR_CURRENT: ${{ vars.OD_UPDATE_ANCHOR_CURRENT }}
@@ -253,14 +264,175 @@ jobs:
           make build VERSION=${{ steps.vars.outputs.VERSION }}
           make deb VERSION=${{ steps.vars.outputs.VERSION }}
 
-      # 5. Upload .deb to the release
+      # #1796: the archive a Pi installs over the wire, beside the .deb it is installed
+      # from the first time. The same shape as the Windows zip -- the detector, the
+      # launcher, LICENSE and BUILD-INFO.txt at the top, which is where apply_update.hpp
+      # looks for `opendartboard` -- plus models/, so an archive is also a complete by-hand
+      # install; the launcher installs the detector and nothing else (ADR-0077 §1: a new
+      # launcher is fetched by hand, and the models are the deb's). A tar.gz and not a
+      # zip, because /bin/tar is on every Pi and python3 is not promised; it carries the
+      # file mode, which a zip does not.
+      - name: Package the Linux arm64 release archive
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.vars.outputs.VERSION }}"
+          stage="dist/linux-arm64"
+          rm -rf "$stage" && mkdir -p "$stage/models"
+          cp build/opendartboard build/opendartboard-launcher LICENSE "$stage/"
+          cp models/dart.param models/dart.bin "$stage/models/"
+          {
+            echo "OpenDartboard (Apaiko-Oy fork) - Linux arm64 (Raspberry Pi)"
+            echo
+            echo "The .deb beside this archive on the release is how a Pi is installed; after that"
+            echo "the launcher the .deb's unit starts installs this archive over the wire when the"
+            echo "board's channel publishes it (docs/rig.md, \"A Pi updates through the launcher\")."
+            echo
+            echo "version:    $version"
+            echo "ref:        $GITHUB_REF_NAME ($GITHUB_REF_TYPE)"
+            echo "commit:     $GITHUB_SHA"
+            echo "source:     https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA"
+            echo "built by:   https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "This program is free software under the GPL-3.0; LICENSE is beside this file."
+            echo "The corresponding source is the repository named above at that commit."
+          } > "$stage/BUILD-INFO.txt"
+          archive="dist/opendartboard-$version-linux-arm64.tar.gz"
+          # root-owned entries, as the deb's files are, and a fixed order so two builds of
+          # one commit differ only where the binaries do.
+          tar --owner=0 --group=0 --numeric-owner --sort=name -czf "$archive" -C "$stage" \
+            opendartboard opendartboard-launcher LICENSE BUILD-INFO.txt models
+          ls -l "$archive"
+          tar -tzvf "$archive"
+          echo "ARCHIVE=$archive" >> "$GITHUB_OUTPUT"
+
+      # #1796: the second manifest. The same script, the same six fields and the same key
+      # as the Windows job's dist/manifest.json, signed over the tar.gz above and attached
+      # as `manifest-linux-arm64.json`, which Turnaus serves at
+      # /updates/opendartboard/<channel>-linux-arm64.json -- the path a Linux arm64 build
+      # asks (update_check::pathFor, OD_UPDATE_PLATFORM). docs/api.md has the shape.
+      - name: Sign the Linux arm64 manifest this release publishes
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.ODPRIVATE }}
+          ANCHOR: ${{ vars.OD_UPDATE_ANCHOR_CURRENT }}
+          CHANNEL: ${{ needs.signing-inputs.outputs.channel }}
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+          ARCHIVE: ${{ steps.package.outputs.ARCHIVE }}
+        run: |
+          set -uo pipefail
+          umask 077
+          key="$RUNNER_TEMP/od-signing-linux.pem"
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+
+          name="$(basename "$ARCHIVE")"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; else tag="v$VERSION"; fi
+
+          bash scripts/sign-manifest.sh \
+            --channel "$CHANNEL" \
+            --version "$VERSION" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$name" \
+            --artefact "$ARCHIVE" \
+            --key "$key" \
+            --anchor "$ANCHOR" \
+            --minimum-launcher "$OD_MINIMUM_LAUNCHER" \
+            --out dist/manifest-linux-arm64.json
+
+      # #1796: the Windows job's criterion, asked of the arm64 artefact: the detector this
+      # job built, with this run's anchor compiled in, verifies the manifest this job
+      # signed, served at the platform path it asks for -- and refuses it one byte later.
+      # The arm64 build defines OD_UPDATE_PLATFORM=linux-arm64, so the path the binary
+      # asks is measured here too: a manifest served only at the bare path would read as
+      # "publishes nothing" and fail the first half.
+      - name: The arm64 artefact verifies the manifest this release ships
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          CHANNEL: ${{ needs.signing-inputs.outputs.channel }}
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+        run: |
+          set +e
+          set -uo pipefail
+          fail() { echo "::error title=release signing (linux-arm64)::$1"; exit 1; }
+
+          root="$RUNNER_TEMP/od-www-linux"
+          rm -rf "$root"
+          mkdir -p "$root/updates/opendartboard"
+          cp dist/manifest-linux-arm64.json "$root/updates/opendartboard/$CHANNEL-linux-arm64.json"
+
+          python3 -m http.server 8796 --bind 127.0.0.1 --directory "$root" > "$RUNNER_TEMP/www-linux.log" 2>&1 &
+          www=$!
+          trap 'kill "$www" > /dev/null 2>&1' EXIT
+          sleep 3
+
+          cfg="$RUNNER_TEMP/od-cfg-linux"
+          rm -rf "$cfg"
+          mkdir -p "$cfg"
+
+          ask() {
+            build/opendartboard --check-update --quiet \
+              --channel "$CHANNEL" --credentials "$cfg/credentials.json" \
+              --turnaus http://127.0.0.1:8796 2>&1
+          }
+
+          said="$(ask)"
+          rc=$?
+          echo "$said"
+          [ "$rc" -eq 0 ] || fail "--check-update exited $rc against the manifest this release ships; a non-zero exit there is a refusal (update_check::exitCode)"
+          case "$said" in
+            *"publishes version $VERSION"*"There is no update."*) ;;
+            *) fail "the arm64 artefact did not read the manifest at its platform path as the version it is. It said: $said" ;;
+          esac
+          grep -q "GET /updates/opendartboard/$CHANNEL-linux-arm64.json" "$RUNNER_TEMP/www-linux.log" \
+            || fail "the artefact did not ask /updates/opendartboard/$CHANNEL-linux-arm64.json; the server saw: $(cat "$RUNNER_TEMP/www-linux.log")"
+
+          payload="$(sed -n 's/.*"payload": "\([^"]*\)".*/\1/p' dist/manifest-linux-arm64.json)"
+          signature="$(sed -n 's/.*"signature": "\([^"]*\)".*/\1/p' dist/manifest-linux-arm64.json)"
+          moved="$(printf '%s' "$payload" | openssl base64 -d -A | sed 's/"size":/"size":1/' | tr -d '\n' | openssl base64 -A)"
+          [ -n "$moved" ] && [ "$moved" != "$payload" ] || fail "the control did not move a byte, so the refusal below would prove nothing"
+          printf '{"payload": "%s", "signature": "%s"}\n' "$moved" "$signature" > "$root/updates/opendartboard/$CHANNEL-linux-arm64.json"
+
+          said="$(ask)"
+          rc=$?
+          echo "$said"
+          [ "$rc" -ne 0 ] || fail "one byte of the payload was changed and this artefact still accepted it, which means nothing above was verified by anything"
+          case "$said" in
+            *"SIGNATURE VERIFICATION FAILED"*) ;;
+            *) fail "a tampered manifest was refused for some other reason than its signature. It said: $said" ;;
+          esac
+
+          echo "the anchor compiled into the arm64 artefact verifies this release's Linux manifest at its own path, and refuses it one byte later"
+
+      # #1796: every run leaves the deb, the archive and the manifest where they can be
+      # fetched and looked at, tag or not -- a dispatched run of this workflow is how the
+      # package's contents are inspected without publishing anything (dpkg-deb -c).
+      - name: Keep the artefacts on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendartboard-linux-arm64
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+            dist/manifest-linux-arm64.json
+          if-no-files-found: error
+
+      # 5. Upload the .deb, the archive and its manifest to the release
       #    #1299: only a tag publishes. A manual run builds and proves the build, and
       #    a Release on this fork is outward-facing enough that it should take a tag.
+      #    #1796: manifest-linux-arm64.json is attached under exactly that name, beside
+      #    the Windows job's manifest.json, because that is what Turnaus's
+      #    PublishedManifests will look for (TURNAUS-1796).
       - name: Publish GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.deb
+          files: |
+            dist/*.deb
+            dist/*.tar.gz
+            dist/manifest-linux-arm64.json
           # GitHub auto‑creates notes
           generate_release_notes: true
           # #1408: both jobs state the same flag, from the same one decision, because both

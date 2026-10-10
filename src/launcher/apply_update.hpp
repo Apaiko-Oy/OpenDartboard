@@ -47,10 +47,13 @@
 // And it costs the artefact nothing -- no link, no DLL, so #1299's one-file property and
 // the dumpbin census in release.yml are untouched.
 //
-// The POSIX branch of the same seam names python3's zipfile module. It exists so that
-// testers/i1306_check.sh can measure every step above on the platform this repository's
-// harnesses run on; CMake builds the launcher on WIN32 only (ADR-0077, "Scope"), so it
-// ships nowhere.
+// The POSIX branch of the same seam reads the archive's first bytes and hands a gzip
+// stream to /bin/tar, which is Essential on every Debian and so on every Pi, and a zip to
+// python3's zipfile module. The zip half is what testers/i1306_check.sh has measured every
+// step above with since #1306; the tar half is what SHIPS since #1796, because the Linux
+// artefact is a tar.gz (an archive that carries a file mode, so makeExecutable() below is
+// belt and braces there rather than the fix it is for a zip) and because a Pi then needs
+// no python3 for its updates -- the deb's Depends gains nothing.
 
 #include "../update/manifest.hpp"
 #include "../update/sha256.hpp"
@@ -233,12 +236,34 @@ namespace launcher
         argv.push_back("-C");
         argv.push_back(into);
 #else
-        argv.push_back("/usr/bin/python3");
-        argv.push_back("-m");
-        argv.push_back("zipfile");
-        argv.push_back("-e");
-        argv.push_back(archive);
-        argv.push_back(into);
+        // #1796: gzip's two magic bytes name a tar.gz; anything else is read as the zip
+        // the harnesses have always sent. Both tools are named absolutely, as tar.exe is.
+        bool gzipped = false;
+        {
+            std::ifstream in(archive.c_str(), std::ios::binary);
+            char magic[2] = {0, 0};
+            if (in && in.read(magic, 2))
+            {
+                gzipped = static_cast<unsigned char>(magic[0]) == 0x1f && static_cast<unsigned char>(magic[1]) == 0x8b;
+            }
+        }
+        if (gzipped)
+        {
+            argv.push_back("/bin/tar");
+            argv.push_back("-xzf");
+            argv.push_back(archive);
+            argv.push_back("-C");
+            argv.push_back(into);
+        }
+        else
+        {
+            argv.push_back("/usr/bin/python3");
+            argv.push_back("-m");
+            argv.push_back("zipfile");
+            argv.push_back("-e");
+            argv.push_back(archive);
+            argv.push_back(into);
+        }
 #endif
         return runTool(argv);
     }
@@ -254,7 +279,32 @@ namespace launcher
      */
     inline odhttp::Response fetchArtefactOverHttp(const std::string &url)
     {
-        odhttp::Url parsed = odhttp::parseUrl(url);
+        std::string asked = url;
+        // #1796, FOR A HARNESS AND SAFE BY ADR-0077 §6. OD_UPDATE_ARTEFACT_BASE replaces the
+        // scheme and host of the manifest's url -- `https://github.com/...` becomes
+        // `http://127.0.0.1:8796/...` -- and keeps the path. testers/i1796_inside.sh drives
+        // the CMake-built launcher, whose artefact fetch is this function and not a seam,
+        // on a container whose transport has no TLS; the Windows journey (i1532) trusts a
+        // loopback certificate instead, which a build without TLS cannot. It is not a
+        // weakness because §6 already says the url is untrusted data: the digest and the
+        // signature are the trust, so a host named here can decide whether the download
+        // happens and never what is installed. A board at a venue has it unset.
+        const char *base = std::getenv("OD_UPDATE_ARTEFACT_BASE");
+        if (base != NULL && *base != '\0')
+        {
+            const size_t scheme = url.find("://");
+            const size_t path = scheme == std::string::npos ? std::string::npos : url.find('/', scheme + 3);
+            if (path != std::string::npos)
+            {
+                std::string prefix(base);
+                while (!prefix.empty() && prefix[prefix.size() - 1] == '/')
+                {
+                    prefix.erase(prefix.size() - 1);
+                }
+                asked = prefix + url.substr(path);
+            }
+        }
+        odhttp::Url parsed = odhttp::parseUrl(asked);
         if (!parsed.valid)
         {
             odhttp::Response response;
@@ -446,6 +496,23 @@ namespace launcher
                 stoppedAt(application, Step::SwapFailed, layout.detector + " (" + lastFileError() + ")");
             return refused;
         }
+        // #1796: a Linux board's first update. Nothing of ours is installed yet and what
+        // runs is the package's own detector (layout.shipped, dpkg's file), so it is COPIED
+        // into previous -- never moved -- and this release can be rolled back to it like
+        // every later one. Empty `shipped` is Windows, where this is never true.
+        const bool kept_shipped = !had_a_detector && !layout.shipped.empty() && fileExists(layout.shipped);
+        if (kept_shipped)
+        {
+            if (!copyFile(layout.shipped, layout.previous_exe))
+            {
+                removeTree(layout.previous_dir);
+                removeTree(layout.staging_dir);
+                Application refused =
+                    stoppedAt(application, Step::CouldNotStage, layout.previous_exe + " (" + lastFileError() + ")");
+                return refused;
+            }
+            makeExecutable(layout.previous_exe);
+        }
 
         // 10. And the new one in. This is the only moment a board has no detector, and it
         //     is one rename wide. If it fails, the old one goes straight back.
@@ -461,14 +528,15 @@ namespace launcher
             }
             removeTree(layout.staging_dir);
             Application refused = stoppedAt(application, Step::SwapFailed, why);
-            refused.detector_is_missing = !fileExists(layout.detector);
+            // #1796: a board with a shipped detector still has a program (programToStart).
+            refused.detector_is_missing = !fileExists(programToStart(layout));
             return refused;
         }
         removeTree(layout.staging_dir);
 
         // 11. What is installed and what is kept. A version that has just been installed
         //     has no failed starts against it, whatever the one it replaced had.
-        state.previous_version = had_a_detector ? answer.running_version : std::string();
+        state.previous_version = (had_a_detector || kept_shipped) ? answer.running_version : std::string();
         state.detector_version = answer.published_version;
         state.failed_starts = 0;
         application.ok = true;

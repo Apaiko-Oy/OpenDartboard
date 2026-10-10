@@ -37,8 +37,39 @@ namespace update_check
 {
     using console_prompt::Text;
 
+    /**
+     * #1796: which platform's artefact this build installs, as the manifest path names it.
+     *
+     * Turnaus publishes ONE manifest per channel per platform, and the platform is a suffix
+     * on the path: `/updates/opendartboard/stable.json` is the Windows x64 zip, which every
+     * build asked for until #1796; `/updates/opendartboard/stable-linux-arm64.json` is the
+     * Raspberry Pi's tar.gz (docs/api.md, "The update manifest per platform"). A Linux
+     * launcher that asked the bare path would verify a perfectly good manifest and then
+     * install a Windows zip, so the suffix is COMPILED IN -- CMakeLists.txt defines
+     * OD_UPDATE_PLATFORM from the processor it builds for -- rather than read from anything
+     * at runtime, for update_keys.hpp's reason: the thing that decides which artefact a
+     * board fetches is not a thing its operator gets to point somewhere else.
+     *
+     * EMPTY WHERE NO ARTEFACT IS PUBLISHED FOR THE PLATFORM. A developer's amd64 Linux
+     * build, and every g++ one-off the testers compile, define nothing and ask the bare
+     * path -- byte for byte what they asked before #1796, which is what keeps
+     * testers/i1305_update_check.cpp's own assertion on this function true. The Windows
+     * build defines nothing either, because the bare path IS its manifest.
+     */
+#ifdef OD_UPDATE_PLATFORM
+    inline std::string platformSuffix() { return std::string("-") + OD_UPDATE_PLATFORM; }
+#else
+    inline std::string platformSuffix() { return std::string(); }
+#endif
+
+    /** Where a channel's manifest for one platform is: the suffix is "" or "-linux-arm64". */
+    inline std::string pathFor(const std::string &channel, const std::string &platform_suffix)
+    {
+        return "/updates/opendartboard/" + channel + platform_suffix + ".json";
+    }
+
     /** Where a channel's manifest is, on whatever Turnaus this board resolves to. */
-    inline std::string pathFor(const std::string &channel) { return "/updates/opendartboard/" + channel + ".json"; }
+    inline std::string pathFor(const std::string &channel) { return pathFor(channel, platformSuffix()); }
 
     /** How a check ended. Five outcomes and each is a different thing to be told. */
     enum class Kind

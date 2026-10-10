@@ -278,7 +278,9 @@ namespace launcher
                 writeState(surroundings.layout.state_file, state);
 
                 const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
-                outcome = runner(surroundings.layout.detector, arguments);
+                // #1796: the installed detector, or the package's own on a Linux board that
+                // has not installed one yet. On Windows programToStart() IS layout.detector.
+                outcome = runner(programToStart(surroundings.layout), arguments);
                 ran_for =
                     std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
 
