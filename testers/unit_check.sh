@@ -67,6 +67,10 @@ case "$NAME" in
   # 1.08-sigma "clears" rebuilt on planted boards, and the sentence that now says whose
   # sigma it is. Reaches score_processing.hpp too (pure) -- wire_model.cpp for row 1512's reason.
   1766) SRC=i1766_twoline_check.cpp;     EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
+  # #1773: a vote reading within its sigma of a RING wire -- lone or consensus -- publishes
+  # flagged with the ring across the wire; the three live darts of 2026-10-10 rebuilt. Pure,
+  # over PointScore in the header; the mutation proof is i1773_check.sh's.
+  1773) SRC=i1773_ringwire_check.cpp;    EXTRA= ;;
   # #1456: which look a refused camera seals -- best R of the budget, ties to the earliest.
   1456) SRC=i1456_look_choice_check.cpp;  EXTRA= ;;
   # #1787: the detection body's account fields (path, cameras, sigma, margin, the vote's
@@ -82,7 +86,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1553 1554 1560 1586 1649 1652 bull-colour 1787" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour 1787" >&2
     exit 2
     ;;
 esac

@@ -691,6 +691,14 @@ tester 1628-wire          "bash '$T/i1628_check.sh'"
 # default and OD_LONE_WIRE=clear, #1662's motion switches pinned off in both. Two
 # whole-clip replays. MEASURED 2026-09-28 on the 4-core box at load ~6 (#1662): 478 s.
 tester 1628-lonefix       "bash '$T/i1628_run.sh'"
+# #1773: #1628's check measured WEDGE wires only, so live on 2026-10-10 a lone T19 3.1 mm
+# inside the treble's inner wire, a lone OUTER 2.3 mm from the bull's wire and a two-camera
+# OUTER 0.5 mm from it all published unflagged. A vote reading -- lone or consensus -- within
+# its 5 mm sigma of a ring wire now publishes flagged with the ring across the wire as
+# #1556's alternative, at 0.7; the score string does not move. The pure half: one compile of
+# the tree plus two of a mutated scratch copy of the header (the wrong radius constant; the
+# flag for lone readings only), predictions stated first, in i1628_check.sh's shape.
+tester 1773-ringwire      "bash '$T/i1773_check.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
