@@ -589,6 +589,80 @@ baseline. No fixture camera has a fitted residual past 4.9 mm or a trace in the 
 band with trebles inside it, so no fixture publication can move; the after run was not
 reached in this slice's budget and is for the merged-tree gate.
 
+**Two-line solves across the 3/19 wire (#1766), measured; no default moves.** The same
+live log: of its 154 geometric scores 152 were "from 2 intersecting constraint(s)"
+(camera 1 refused, above), and eight thrown 19s published as 3s. `testers/i1766_census.py
+--live` lists every two-line publication with its UNCERTAINTY, BOARD and LONE-WIRE
+lines; the eight, by SCORE line (the LONE-WIRE line is the vote's lone reading of the
+SAME event, and its `camera N` is a 0-based index: `camera 1` is the log's camera 2,
+physically rig-20260929's cam_1; `camera 2` is the log's camera 3):
+
+| line | score | angle | r mm | wedge wire | sigma across it | the vote's reading |
+|------|-------|-------|------|-----------|-----------------|--------------------|
+| 752  | T3 (flag T3/S3, ring 4.4/5.0) | 182.4 | 104 | 12.0 mm | <13.6 (ring won) | camera 2 S3 2.2 mm inside its wire, camera 3 T3 clear: S3 |
+| 822  | S3 (flag S3/S19) | 186.8 | 95 | 3.7 mm | 12.2 | camera 2 T19, 7.8 mm clear: T19 |
+| 947  | T3 (flag T3/T19) | 188.2 | 101 | 1.3 mm | 13.7 | camera 2 T19, 7.9 mm clear: T19 |
+| 1667 | T3 (flag T3/T19) | 186.8 | 104 | 3.9 mm | 14.8 | no LONE-WIRE line: unknown |
+| 1821 | S3 (flag S3/T3, ring 0.6/5.0) | 184.0 | 109 | 9.5 mm | unprinted | unknown |
+| 2332 | S3 (flag S3/S19) | 180.1 | 79 | 12.3 mm | 12.9 | unknown |
+| 2367 | S3 clears, 0.9 | 180.8 | 126 | 17.9 mm | 16.5 | unknown |
+| 2444 | T3 (flag T3/T19) | 185.4 | 104 | 6.6 mm | 13.0 | unknown |
+
+So "the cameras' own readings said 19" is shown for two of the eight (822, 947), refuted
+on one (752: both cameras read 3) and unprinted on five -- a LONE-WIRE line prints only
+when the vote had exactly one measured reading, and the live log prints nothing else about
+the vote on a geometric publish. The sixteen 19s the same solves published sit at
+194.7-206.2 deg; the eight 3s at 180.1-188.2; nothing in 189-194.
+
+**What the sigma is.** A two-line solve is a 2x2 system: its covariance is
+A^-1 diag(s1^2, s2^2) A^-T with A the two unit normals, and with equal line sigmas s the
+major axis is s / (sqrt(2) sin(pair/2)). Nothing about the dart is in it beyond the two
+lines' own sigmas (a floored 3 deg over the lever plus 4.5 px lateral: 4.0-7.5 mm on every
+fixture row). `i1766_census.py` recomputes it from each solve's I1512CAM sigmaPerps and
+I1512ENTRY pair angle, and on the bakeoff's 30 two-line solves at 8406446 (six logs, 17 darts) it
+reproduces the claimed major axis to 0.2% on every row: pair angles 33.5-88.6 deg,
+across-wire sigmas 5.0-9.3 mm. The widest is rig-20260929 window 11, cameras 1+3 at
+33.5 deg on a dart at phi 150 (13.9 x 4.1 mm) -- the same physical pair as the live log's
+2+3, and the live 12.2-16.5 mm is that pair crossing at 25-37 deg at the bottom of the
+board, where the 3/19 wire is. The across-wire sigma of a two-line solve is the crossing
+angle of the two cameras' lines on that wedge: the rig's figure for that place on the
+board, and the hypothesis in the issue is confirmed. `i1766_twoline_check.cpp` holds it
+on planted boards: the same dart from the same two cameras reads 2.46x the sigma at
+27 deg that it reads at 70, each within 2% of the arithmetic.
+
+**OD_SOLVE_CONTROL=on is not the mechanism and stays opt-in.** Its refusal is "uncontrolled
+AND no placed tip within 15 mm", and every one of the 30 fixture two-line solves has one
+(nearest tip 1.6-9.7 mm): `refused=0` on all 30, so the switch would publish exactly what
+the default does on every fixture. The live eight print no tip distance, and the same
+physical cameras with accepted fits placed tips on every fixture two-line solve, so the
+switch cannot be shown to have moved any of them; hypothesis (a) in the issue is
+unsupported. Measured on the bakeoff, switch-first on one binary (below): identical
+figures with it off and on.
+
+**No sigma figure sends a two-line solve to the vote.** The fixtures have no two-line
+solve past 9.3 mm across its wire and the live eight sit at 12.2-16.5, so any figure
+between would be fitted to those eight and nothing on disk could measure it -- #1322's
+rule, and #1556's own refusal of k=0.5 one issue earlier. The measurable version, every
+two-line solve to the vote, is refused by its numbers: the vote differs from the geometry
+on 6 of the 30 (rig-20260922 v8.2 S4 the vote reads S18, v8.3 BULL it reads OUTER, both
+windows; opening v1.2 S16 it reads S8; rig-20260929 dev v9.3 S19 it reads T19) and the
+geometry is right on five of the six. r18+r22 would drop by three darts.
+
+**The figure or the sigma (crossingSigmas 1.0 stays).** The sigma is honest -- it is its
+two lines' crossing, to 0.2% -- and 17.9 mm across 16.5 mm is 1.08 sigma, past #1556's
+one-sigma line by eight hundredths; the check rebuilds that dart on planted boards and it
+reads SOLVED under 1.0 and WIRE-UNCERTAIN under 1.25. Moving the line to catch one live
+dart is the fit #1556 refused. What was wrong with the sentence is that it said "clears"
+across a 16.5 mm sigma without saying what a 16.5 mm sigma IS, so the reader could not
+tell it from a dart's scatter. Now `decideBoundaryCall` appends the provenance
+(`entry_intersection::sigmaProvenance`) to the UNCERTAINTY sentence, flagged or clear:
+"(a two-line solve of cameras 2 and 3 crossing at 27.0 deg: the sigma is that crossing's,
+and no third line checks it (#1766))". A controlled solve's sentence is byte-for-byte
+#1556's and a vote publish stays silent. What takes the eight out of the two-line regime
+is the third camera (#1748, landed) and the axis loss on stacked darts (#1684, parked);
+a two-line solve on this wedge of this rig cannot resolve the 3/19 wire better than
++-12-16 mm, and now says so.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never

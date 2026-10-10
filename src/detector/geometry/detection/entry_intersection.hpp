@@ -1543,7 +1543,7 @@ namespace entry_intersection
      * a solve is the crossing angle of the two cameras' lines on that wedge: the rig's
      * figure for that place on the board, not the dart's. Measured (testers/i1766_census.py
      * over the bakeoff's I1512CAM/I1512ENTRY lines): the recomputation reproduces the
-     * claimed major axis to 0.2% on all 28 fixture two-line solves, pair angles 33.5-87.5
+     * claimed major axis to 0.2% on all 30 fixture two-line solves, pair angles 33.5-88.6
      * deg, across-wire sigmas 5.0-9.3 mm. Live on 2026-10-08 the same pair of physical
      * cameras (rig-20260929's 1 and 3, the log's 2 and 3) on the 3/19 wedge claimed
      * 12.2-16.5 mm -- a 25-37 deg crossing at the bottom of the board -- and the sentence

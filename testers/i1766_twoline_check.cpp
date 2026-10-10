@@ -26,8 +26,8 @@
 //      hands it an empty provenance and the sentences are byte-for-byte #1556's.
 //   4. OD_SOLVE_CONTROL's verdict on it: two lines are uncontrolled by construction
 //      (redundancy 0 on both), refused with no placed tip, corroborated with one at the
-//      entry -- which is why the switch moved nothing on the fixtures (28 of 28 two-line
-//      solves tip-corroborated) and cannot be shown to have moved the live eight.
+//      entry -- which is why the switch moved nothing on the fixtures (30 of 30 two-line
+//      solves tip-corroborated on the bakeoff at 8406446) and cannot be shown to have moved the live eight.
 //   5. The census line a replay prints for it says usable=2 uncontrolled=1.
 //
 //   compiled by unit_check.sh (row 1766) with wire_model.cpp, like rows 1512 and 1681.
@@ -367,7 +367,7 @@ int main()
         plantTip(ev[0], cam2, pointAt(mid));
         const EntrySolution tipped = solveEntry(profile, ev);
         say(tipped.solved && tipped.uncontrolled && !tipped.controlRefused && tipped.tipCorroborations == 1,
-            "two lines and a tip at the entry: uncontrolled, corroborated, NOT refused -- which is every fixture two-line solve (28 of 28)");
+            "two lines and a tip at the entry: uncontrolled, corroborated, NOT refused -- which is every fixture two-line solve (30 of 30 on the bakeoff at 8406446)");
         say(!solveControlIsOn() || std::getenv("OD_SOLVE_CONTROL") != nullptr,
             "OD_SOLVE_CONTROL is opt-in: it reads on only when set");
         // ---- 5. the census line a replay prints ----------------------------------------
