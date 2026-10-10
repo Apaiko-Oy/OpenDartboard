@@ -1,5 +1,6 @@
 #!/bin/bash
 # #1797: the scheduled stop on a real replay of mocks/rig-20260918, twice, by hand.
+# unrun-tester: runs the detector unbounded on a minute of three-camera footage, twice; i1797_check.sh gates the rule.
 #
 # NOT IN run_all.sh, deliberately: it runs the detector unbounded on sixty seconds of
 # three-camera footage (the bakeoff's shape, ~2-4 min a run on this box), and the pure
