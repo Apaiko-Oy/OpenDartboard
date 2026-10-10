@@ -1158,7 +1158,9 @@ namespace score_processing
                 decision.path == ScorePath::Geometry, solution.uncertaintyCrossesWire,
                 solution.score.valid ? solution.score.score : string(),
                 solution.alternativeScore, solution.boundaryKind,
-                solution.boundaryAcrossMm, solution.sigmaAcrossMm);
+                solution.boundaryAcrossMm, solution.sigmaAcrossMm,
+                // #1766: on an uncontrolled solve the sentence says whose sigma it is.
+                entry_intersection::sigmaProvenance(solution));
             result.boundary_flagged = crossing.flagged;
             result.alternative_score = crossing.alternative;
             result.boundary_kind = crossing.kind;

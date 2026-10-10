@@ -193,6 +193,13 @@ tester 1678-lonecheck     "bash '$T/unit_check.sh' 1678"
 # #1681: each line's redundancy number in the entry solve, and the tip it asks for
 # where the lines cannot check each other (OD_SOLVE_CONTROL=on acts on it).
 tester 1681-control       "bash '$T/unit_check.sh' 1681"
+# #1766: a two-line solve's across-wire sigma is its two lines' crossing angle (the rig's
+# figure on that wedge, not the dart's), the live 1.08-sigma "clears" rebuilt on planted
+# boards under crossingSigmas 1.0, the sentence that now says whose sigma it is, and the
+# census over rig-20260929's two-line solves (one dev-window replay, OD_GEO_SCORE=on).
+# Costs the pure check's compile plus one whole-clip replay: MEASURED 2026-10-10, see the
+# number in the commit that registered it.
+tester 1766-twoline       "bash '$T/i1766_run.sh'"
 # #1512's fixture half: the geometric census on both rigs against the ground-truth
 # tables and i1511's annotations, side by side with what was published and with the
 # string vote's own reading, plus the control proving OD_GEO_SCORE defaults off with
