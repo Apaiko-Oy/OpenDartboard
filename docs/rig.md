@@ -697,7 +697,7 @@ asks for it, on the client's push thread. At the rig's 1280x720 and three camera
 |---|---|---|
 | one camera's settled frame, grey | 921,600 | 1280 x 720 x 1 |
 | one kept dart, raw (what the buffer holds) | 2,764,800 | 3 x 921,600; `i1787_frames_check.cpp` reads it off the buffer |
-| one kept dart as three PNGs (what leaves) | see `MEASURED png_bytes_per_dart` on the check's output | first frame of `mocks/rig-20260918/cam_1.mp4` and two transforms of it |
+| one kept dart as three PNGs (what leaves) | 1,158,466 (42% of raw) | MEASURED 2026-10-10: first frame of `mocks/rig-20260918/cam_1.mp4`, grey, and two transforms of it, 385,984 + 386,256 + 386,226; the check prints `MEASURED png_bytes_per_dart` on every run |
 | the ring of ten (the default N) | 27,648,000 (26.4 MB) | ten darts; the eleventh pushes the first out |
 
 So the default buffer is 26.4 MB on a Pi 4 with 4 GB and the same on the maintainer's

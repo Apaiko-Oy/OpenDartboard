@@ -74,7 +74,10 @@ tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
 # rig-20260918 frame), each with its mutation inside and the prediction stated first:
 # a body with `path` erased is named by field, a chunk re-posted at a stale offset moves
 # nothing, and the frames buffer answers "gone" for dart N-10 after N darts. No detector
-# binary; OD_SKIP_BUILD changes nothing about it. MEASURED: see i1787_check.sh's header.
+# binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-10 on the 4-core box,
+# to completion, rc=0: 204 s wall with another checkout's replay container alongside --
+# nearly all of it the three -O1 compiles of turnaus_client.cpp; the assertions run in
+# milliseconds. No `slow`: well inside the default 1200.
 tester 1787-account       "bash '$T/i1787_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester

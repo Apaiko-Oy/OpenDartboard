@@ -16,7 +16,9 @@
 # OD_SKIP_BUILD changes nothing; the frames check reads mocks/rig-20260918/cam_1.mp4's
 # first frame for a real settled-size picture and draws one if the clip cannot be opened.
 #
-# MEASURED (#1341's rule): see the WALL line this prints; recorded in run_all.sh beside the row.
+# MEASURED (#1341's rule): 204 s wall on 2026-10-10 (the WALL line below prints it on every
+# run); recorded in run_all.sh beside the row. The frames figure that run printed:
+# raw_bytes_per_dart=2764800 png_bytes_per_dart=1158466 ring_of_10_MB=26.37.
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u

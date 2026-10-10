@@ -1760,12 +1760,15 @@ void TurnausClient::serveFrameRequests()
         const std::string body = frameAnswerBody(reference, answer);
         odhttp::Response posted = odhttp::postJson(url_, std::string(frameRequestsPath(binding)) + "/" + reference, body,
                                                    headers, config_.connect_timeout_s, config_.read_timeout_s);
-        log_info("TURNAUS: frames for " + reference + (answer.found ? " served (" + std::to_string(answer.raw_bytes) +
-                                                                          " raw bytes, " + std::to_string(body.size()) +
-                                                                          " posted)"
-                                                                    : " are gone") +
-                 (posted.status == 202 || posted.status == 200 ? "" : " -- the answer was not taken (HTTP " +
-                                                                          std::to_string(posted.status) + ")"));
+        std::string said = "TURNAUS: frames for " + reference;
+        said += answer.found ? " served (" + std::to_string(answer.raw_bytes) + " raw bytes, " +
+                                   std::to_string(body.size()) + " posted)"
+                             : std::string(" are gone");
+        if (posted.status != 202 && posted.status != 200)
+        {
+            said += " -- the answer was not taken (HTTP " + std::to_string(posted.status) + ")";
+        }
+        log_info(said);
     }
 }
 
