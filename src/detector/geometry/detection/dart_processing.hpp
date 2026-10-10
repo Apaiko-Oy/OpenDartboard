@@ -516,7 +516,8 @@ namespace dart_processing
         {
             return DartBoardState::CLEAN; // Rule 3: a quorum thinks CLEAN
         }
-        if (moves_up >= quorum)
+        const bool quorum_moves = moves_up >= quorum;
+        if (quorum_moves)
         {
             if (board == DartBoardState::DART_3)
             {
