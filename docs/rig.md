@@ -677,6 +677,88 @@ every fixture, both ways, and the documented baseline holds with it off and on.
 `i1766_census.py` over both runs reads the same 30 two-line rows: pair 33.5-88.6 deg,
 across-wire sigma 5.0-9.3 mm, formula residual 0.2%, refused 0, vote differs on 6.
 
+**A vote reading within its sigma of a ring wire (#1773), default.** Live on 2026-10-10
+(build 2b56b48, 56 darts, `OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`) three vote
+publishes went out unflagged with a ring wire inside one sigma of the reading, and two of
+them were the session's only unflagged wrong darts besides #1707's:
+
+| time | thrown | published | the vote | BOARD line | ring wire | margin |
+|---|---|---|---|---|---|---|
+| 15:51:49 | S19 | T19 at 0.7 | lone, camera 1 | `ring=triple segment=19 radius=0.600382` | treble inner, 99 mm | 3.1 mm inside (102.1 mm from the bull) |
+| 16:06:25 | S1 | OUTER at 0.9 | lone, camera 0 | `ring=outer radius=0.050671` | the bull's, 6.35 mm | 2.3 mm outside (8.6 mm) |
+| 16:47:22 | BULL | OUTER at 0.9 | 2 cameras agreeing | `ring=outer radius=0.040479` | the bull's, 6.35 mm | 0.5 mm outside (6.9 mm) |
+
+The first printed `LONE-WIRE: camera 1's T19 is 14.4 mm from a wedge wire, clear of the
+5 mm sigma` -- true, and about the wrong wire: #1628's `wedgeWireMarginMm` measures the
+wedge wires at 9 + 18k degrees and nothing else. The second printed no LONE-WIRE line
+at all, because a ring-only reading has no wedge and the function returns -1 before the
+check says anything. The third printed none because `agreeing == 2`, and nothing on the
+vote path measured a ring wire for any reading: the only ring-wire awareness there was
+#1707's rim fallback, the DOUBLE only and only under `OD_RIM_FALLBACK=on`.
+
+Two rules, both default, both pure in `score_processing.hpp`:
+
+1. **`ringWireMarginMm`** measures the reading's distance to the nearer of its own
+   ring's two wires, by its own ruler: radius x 170 mm against the spec's 6.35 / 15.9 /
+   99 / 107 / 162 / 170 (static_asserted against `DartboardSpec` beside
+   `kScoringRadiusMm`), and names the ring across that wire. The wires are the published
+   RING's edges, not the two nearest the radius: the ring is the ellipses' call and the
+   radius the ruler's, and when they disagree (a treble by the ellipses at a ruler
+   radius of 95 mm) the margin is to the edge the ruler has crossed and the alternative
+   is the ring on its far side. The LONE-WIRE sentence now names both margins and the
+   nearer: `camera 1's T19 is 14.4 mm from a wedge wire and 3.1 mm from the treble's
+   inner wire (the ring wire is nearer), clear of the 5 mm sigma` -- its tail is still
+   the wedge check's, and `I1628LONE` is byte-for-byte what it was.
+2. **`checkVoteReadingAgainstRingWires`** applies #1628's 5 mm sigma (the floor on what
+   one camera's ruler can say; reused, not fitted) to every vote reading that measured a
+   radius, lone or consensus -- two cameras agreeing on the string "OUTER" is not a
+   second measurement of the radius, the published radius is one camera's -- and not to
+   a wedge-by-default reading, which already publishes at 0.5 as "nobody measured the
+   wedge". Inside the sigma the ring across the wire is offered in #1556's shape
+   (`alternative`, `boundary_kind` "ring", the confidence demoted to 0.7) and the score
+   string does not move: `RING-WIRE: camera 1's T19 (alone) sits 3.1 mm from the
+   treble's inner wire by its own ruler, 102.1 mm from the bull, inside the 5 mm sigma,
+   so T19 publishes flagged with S19 across that wire at 0.7 (#1773)`. Clear, it says
+   so (`clears ... 12.0 mm from the treble's inner wire ... clear of the 5 mm sigma`),
+   on every vote publish (#1556 rule 3). `boundary` and `uncertainty` stay null on a
+   vote publish, as docs/api.md says; the margin is in the log and in `I1773RING`.
+
+Three decisions a reader may want to reverse:
+
+- **A ring-only reading near the 25 ring's wire publishes unflagged, and says why.** An
+  OUTER 0.9 mm inside the 25 ring's wire has a single across it whose segment nobody
+  measured: `scorePoint` fills a bull's angle from slot 0 when the camera is not
+  anchored -- an asserted 20 that `wedge_asserted` does not mark, because #1346 marks
+  only asserted SCORES -- so naming "S20" from it would be naming the default. #1556
+  rule 2: a flag that cannot name its second candidate is not a flag. Live case (2)
+  flags because the bull's wire is the nearer (2.3 against 7.3 mm), not the 25's.
+- **When both a wedge wire and a ring wire are inside the sigma, the ring across is
+  offered and the sentence says the wedge wire is there, and nearer if it is.** A dart
+  carries one `alternative`; this issue adds the ring one. The wedge neighbour is what
+  #1628 measured acting on and refused, and the same question on the geometric path is
+  #1782's. The pure check holds a T19 0.9 mm past the 3/19 wire and 3.1 mm inside the
+  treble wire: S19 offered, `its nearest wedge wire is inside the sigma too, at 0.9 mm
+  and nearer, said by LONE-WIRE and not offered (#1628)`.
+- **The rim fallback's own flag stands where it is on and fired.** It is the same ring
+  flag with its own sentence; by default it is off and this rule covers the double.
+
+**Measured (`testers/run_all.sh 1773-ringwire`, 23 s).** The check rebuilds the three live
+darts from their BOARD lines: 102.06 / 3.06 / 14.42 mm (the log's 14.4), 8.61 / 2.26 mm,
+6.88 / 0.53 mm, flagged T19/S19 at 0.7, OUTER/BULL at 0.7, OUTER/BULL demoted 0.9 to
+0.7. Mutation A (a scratch copy of the header reading every radius 50 mm further out)
+fails exactly the 23 `ring:` and 2 `both:` assertions the check counts, the three live
+shapes by name, and not one `pure:`; mutation B (the guard read as `agreeing != 1`)
+fails exactly the 2 `both:` assertions, live case (3). The first tree run was red on
+four assertions: a single at 95.2 mm was measured against the double's inner wire,
+because the single's two bands were split at the 25-ring/treble midpoint; the split is
+the treble's middle, 103 mm.
+
+**The fixture count (`testers/i1773_census.py` over the bakeoff's seven logs).** NOT YET MEASURED: the bakeoff on this binary was in flight (runs 1 and 2, rig-20260918 dev and opening, read 19/20 and 19/20 with 0 phantoms, the documented baseline) when this section was written; the census is to be run over `runs-od-wt-1773/1555/r*.txt` and the count, the wrong-today count and `score_moved=0` recorded here.
+
+
+**Bakeoff on the new binary (capture clock, `testers/i1555_run.sh`, 2026-10-10).** Runs 1 and 2 identical to the baseline (19/20, 19/20, 0 phantoms); runs 3-7 were still in flight -- to be recorded against the baseline of 135..143/158, r18+r22 82/86, 0 phantoms.
+
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never
