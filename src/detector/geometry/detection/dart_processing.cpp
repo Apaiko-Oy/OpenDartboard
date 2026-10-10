@@ -426,6 +426,49 @@ namespace dart_processing
     // dart_processing.hpp.
     static vector<int> reversion_memory;
 
+    // turnaus#1781: the motion clock's time of the last vote that reconciled CLEAN with at
+    // least one reversion vote in it (#1518 or #1552's memory) -- a takeout's END. -1 is
+    // "none yet". What arrivalFollowsTakeoutTooSoon measures from.
+    static long long last_reversion_clean_ms = -1;
+
+    /**
+     * turnaus#1781: the takeout's arm, refused as a dart. `OD_BODY_WINDOW`:
+     *   off (default)  as before
+     *   size           an advance is held when a camera that voted it brought a fresh
+     *                  figure of a body's size (freshFigureIsBodySized)
+     *   after          an advance is held when its vote comes within
+     *                  arrivalAfterTakeoutHorizonMs() of a reversion END
+     *   on             both clauses
+     * `OD_BODY_CENSUS=1` prints one I1781BODY line for every window any camera voted
+     * to advance, with the figures both clauses read, whatever the switch.
+     */
+    static int bodyWindowMode()
+    {
+        static const int v = []
+        {
+            const char *e = std::getenv("OD_BODY_WINDOW");
+            const string s = e ? string(e) : string("off");
+            const int m = s == "size" ? 1 : s == "after" ? 2 : s == "on" ? 3 : 0;
+            if (m != 0)
+                log_info("OD_BODY_WINDOW=" + s + ": an advance a body-sized fresh figure voted" +
+                         string(m == 2 ? " (clause off)" : "") + ", or one within " +
+                         to_string(arrivalAfterTakeoutHorizonMs()) + " ms of a reversion END" +
+                         string(m == 1 ? " (clause off)" : "") + ", is held (turnaus#1781)");
+            return m;
+        }();
+        return v;
+    }
+
+    static bool bodyCensusOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_BODY_CENSUS");
+            return e && string(e) == "1";
+        }();
+        return v;
+    }
+
     // Streamers for debugging
     static unique_ptr<streamer> dart_diff_streamer;
     static unique_ptr<streamer> dart_thresh_streamer;
@@ -2093,6 +2136,9 @@ namespace dart_processing
         // #1691: which cameras' votes were CLEAN votes (a CLEAN candidate, a reversion, or
         // #1552's memory), for the adoption below.
         vector<bool> voted_clean(result.camera_results.size(), false);
+        // turnaus#1781: whether any CLEAN vote in this window was a reversion's (#1518) or
+        // #1552's memory of one -- what makes a reconciled CLEAN a takeout's END.
+        bool any_reversion_vote = false;
 
         // Loop through all cameras once
         for (size_t i = 0; i < result.camera_results.size(); i++)
@@ -2122,6 +2168,11 @@ namespace dart_processing
                 }
                 goes_clean++;
                 voted_clean[i] = true;
+                if ((i < reverted_this_window.size() && reverted_this_window[i]) ||
+                    result.camera_results[i].detected_state != DartBoardState::CLEAN)
+                {
+                    any_reversion_vote = true;
+                }
             }
             else if (result.camera_results[i].detected_state > best_previous_state)
             {
@@ -2213,6 +2264,70 @@ namespace dart_processing
         else
         {
             final_state = best_previous_state; // Rule 2: Stay put
+        }
+
+        // turnaus#1781: the takeout's arm, voted to the board as a dart. Live on 2b56b48 a
+        // phantom D11 0.7 s before the END and a phantom S2 1.0 s after it each reached the
+        // vote with the cameras that saw the arm side-on voting the arrival (`not straight`)
+        // and the one that saw it end-on offering a lone "tip". Nothing bounds a fresh
+        // figure from above, so a body clears the dart floor like a dart. The census reads
+        // both clauses' figures on every window any camera voted up; OD_BODY_WINDOW holds
+        // the advance on them.
+        {
+            const long long vote_ms = od_clock::now_ms();
+            const long long since_end = last_reversion_clean_ms < 0 ? -1 : vote_ms - last_reversion_clean_ms;
+            double largest_share = 0.0;
+            int largest_cam = 0;
+            string shares;
+            for (size_t i = 0; i < result.camera_results.size(); i++)
+            {
+                const CameraDetectionResult &r = result.camera_results[i];
+                if (!r.frame_available || r.abstained_no_board || voted_clean[i] ||
+                    r.detected_state <= best_previous_state)
+                    continue; // only a camera that voted the arrival
+                const double share =
+                    r.board_pixels > 0 ? 100.0 * (double)r.fresh_board_pixels / (double)r.board_pixels : 0.0;
+                char buf[96];
+                snprintf(buf, sizeof(buf), " cam%zu=%d/%d(%.2f%%)", i + 1, r.fresh_board_pixels, r.board_pixels, share);
+                shares += buf;
+                if (freshFigureIsBodySized(r.fresh_board_pixels, r.board_pixels) && share > largest_share)
+                {
+                    largest_share = share;
+                    largest_cam = (int)i + 1;
+                }
+            }
+            const bool advances = final_state > best_previous_state;
+            const bool body = largest_cam > 0;
+            const bool soon = best_previous_state == DartBoardState::CLEAN && arrivalFollowsTakeoutTooSoon(since_end);
+            const int mode = bodyWindowMode();
+            const bool hold = advances && (((mode & 1) && body) || ((mode & 2) && soon));
+            if (bodyCensusOn() && moves_up >= 1)
+            {
+                log_info("I1781BODY window=" + to_string(window_serial) + " " + getDartBoardStateName(best_previous_state) +
+                         "->" + getDartBoardStateName(final_state) + " up=" + to_string(moves_up) +
+                         " sinceEndMs=" + to_string(since_end) + " body=" + to_string(body ? 1 : 0) +
+                         " soon=" + to_string(soon ? 1 : 0) + " held=" + to_string(hold ? 1 : 0) + shares);
+            }
+            if (hold)
+            {
+                char buf[160];
+                snprintf(buf, sizeof(buf), "camera %d's fresh change is %.1f%% of its board, a body's size (%.0f%% or more)",
+                         largest_cam, largest_share, bodySizedFreshSharePercent());
+                const string why = ((mode & 1) && body) ? string(buf)
+                                                        : "its vote came " + to_string(since_end) +
+                                                              " ms after a takeout's END, inside " +
+                                                              to_string(arrivalAfterTakeoutHorizonMs()) +
+                                                              " ms, which is the thrower's arm leaving";
+                log_info("I1781 BODY WINDOW HELD: " + getDartBoardStateName(best_previous_state) + " -> " +
+                         getDartBoardStateName(final_state) + " refused, because " + why +
+                         " -- an arm at a takeout, not a dart (turnaus#1781)");
+                final_state = best_previous_state;
+            }
+            if (final_state == DartBoardState::CLEAN && best_previous_state != DartBoardState::CLEAN &&
+                any_reversion_vote)
+            {
+                last_reversion_clean_ms = vote_ms;
+            }
         }
 
         // #1707: an advance the scoring-area counts alone would have held. The scorer reads

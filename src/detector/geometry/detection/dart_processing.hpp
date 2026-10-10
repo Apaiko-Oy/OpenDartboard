@@ -473,6 +473,40 @@ namespace dart_processing
     }
 
     /**
+     * turnaus#1781: the share of a camera's board above which a voting camera's FRESH
+     * change is a body (the thrower's arm at a takeout), not a dart. FIGURE_SOURCE
+     *
+     * Pure and inline (#1338's reason): testers/i1781_body_check.cpp holds the rule
+     * without building the detector.
+     */
+    inline double bodySizedFreshSharePercent()
+    {
+        return 10.0;
+    }
+
+    inline bool freshFigureIsBodySized(int fresh_pixels, int board_pixels,
+                                       double share_percent = bodySizedFreshSharePercent())
+    {
+        return board_pixels > 0 && fresh_pixels > 0 &&
+               100.0 * (double)fresh_pixels / (double)board_pixels >= share_percent;
+    }
+
+    /**
+     * turnaus#1781: how soon after a takeout that reconciled with a reversion vote an
+     * advance is refused. HORIZON_SOURCE
+     */
+    inline long long arrivalAfterTakeoutHorizonMs()
+    {
+        return 1500;
+    }
+
+    inline bool arrivalFollowsTakeoutTooSoon(long long ms_since_takeout,
+                                             long long horizon_ms = arrivalAfterTakeoutHorizonMs())
+    {
+        return ms_since_takeout >= 0 && ms_since_takeout < horizon_ms;
+    }
+
+    /**
      * #1535: a camera re-reporting, for a NEW dart, a pixel it already reported for an
      * earlier dart of the same visit is not a second witness.
      *
