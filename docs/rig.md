@@ -789,6 +789,78 @@ wedge wire is nearer), inside the sigma; ...the reselection is off..., so it sta
 with `RING-WIRE: camera 0's S19 (alone) sits 5.7 mm from the 25 ring's wire by its own
 ruler, 21.6 mm from the bull, clear of the 5 mm sigma` beside it.
 
+## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
+
+**Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:24) the
+thrower walked up for a takeout and the board published two darts nobody threw: a D11 at
+16:24:28.362 (cameras 2 and 3 `not straight`, camera 1's lone tip), the END at 16:24:29.105
+(`CLEAN BY REVERSION` on all three, camera 2 falling **69,193** -> 36,506 px), and an S2 at
+16:24:30.081 (cameras 1 and 3 `not straight`, camera 2's lone tip). What let each through:
+the state vote counts any fresh figure over the 0.10% floor as an arrival and nothing bounds
+it from above, so the side-on cameras' arm met the quorum; #1707's rim count passed it
+because the arm is in the scoring area; #1518's reversion reads only a fall and the arm's
+arrival is a rise; and the scorer, with both side-on axes refused, published the end-on
+camera's lone tip (`No consensus, using single camera score`). The figure that says
+"body" was in the D11 window (camera 2's cumulative 69,193 px), but INFO prints it only
+one window later, as the END's "fell from". The S2 window opened against a clean
+reference adopted while the arm was still in frame (#1691's shape: all three cameras voted
+CLEAN, so `OD_CLEAN_ADOPT=agreed` would not have kept any reference), and its own figures
+are not in the log.
+
+`OD_BODY_WINDOW` holds such an advance (`dart_processing.cpp`; pure predicates in
+`dart_processing.hpp`):
+- `size`: a camera that voted the arrival brought a fresh figure of at least **15% of its
+  board** (`bodySizedFreshSharePercent`);
+- `after`: a first dart's vote comes within **1,500 ms** of a takeout END that had a
+  reversion vote in it (`arrivalAfterTakeoutHorizonMs`);
+- `on`: both; `off` (default): neither. `OD_BODY_CENSUS=1` prints an `I1781BODY` line
+  for every window any camera voted up, with each up-voter's fresh share and the time
+  since the last reversion END, whatever the switch.
+
+**Where 15% comes from.** The census over the seven bakeoff replays (capture clock,
+`OD_WINDOW_UNIT=cycles`, the live switches): the largest fresh figure any up-voter brought
+to a called dart is 9.96% of a board (rig-20260922 opening, window 1, camera 1, 21,508 of
+215,925 px: v1.2's S16 read against the calibration picture holding the parked dart); the
+next is 7.67% (rig-20260922 dev, camera 2), and every rig-20260918 and rig-20260929 dart is
+under 6.7%. The live arm was 69,193 px cumulative on camera 2, 32.0% of the same rig's
+camera-2 board on rig-20260929 (215,989 px); less two of that camera's largest fixture
+darts (12,692 px each) for the darts already on the board, its fresh figure was at least
+20.3%. 15% is 1.5x the largest fixture dart. **Where 1,500 ms comes from.** The S2's vote
+came ~976 ms after the END's; the soonest fixture first dart after a reversion END is
+4,433 ms (rig-20260922 opening; no other fixture window reconciles a takeout by reversion).
+
+**The S2 question: hold a first dart within a second of the END?** On the fixtures it costs
+nothing (the clause never fires: 7 first darts follow a reversion END, 4.4..97.7 s after it, all on
+rig-20260922 opening). It is a refusal, not a deferral: after a CLEAN every working
+background is empty, so a real dart refused there is still in the next window's fresh
+figure and publishes with the next motion -- but a lone real dart with no later motion
+would wait for the next dart and be read in one figure with it. No fixture dart is that
+quick, and a thrower who has just pulled three darts is not back at the line in 1.5 s.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_BODY_CENSUS=1`, 2026-10-11).** Off is commit 6a2e35e's binary, on is
+0970113's; they differ only in the body constant (10% -> 15%), which only the switch reads,
+and no fixture window reaches 10% either.
+
+| | `OD_BODY_WINDOW` off | `OD_BODY_WINDOW=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+No window is held on any run (no `I1781 BODY WINDOW HELD` line; the switch's startup line is
+in all seven), and every `I1555 PAIR` and phantom row of all seven censuses is identical:
+**no changed row**. rig-20260918's two phantoms are its v6 MISS window, present with the
+switch off; they are the live switches', not this rule's.
+
+`testers/run_all.sh 1781-body` (33 s) holds both predicates at their boundaries, on the
+live figures and on the fixtures' nearest darts, and mutates each constant both ways:
+30% and 3%, 900 ms and 5,000 ms each turn exactly one named assertion red, as predicted.
+It stays opt-in: it rests on one live takeout whose log is the only evidence, and no
+fixture holds an arm-sized window.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while

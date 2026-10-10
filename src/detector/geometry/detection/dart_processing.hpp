@@ -473,6 +473,60 @@ namespace dart_processing
     }
 
     /**
+     * turnaus#1781: the share of a camera's board above which a voting camera's FRESH
+     * change is a body (the thrower's arm at a takeout), not a dart.
+     *
+     * WHERE THE FIGURE COMES FROM. The fixtures: OD_BODY_CENSUS=1 over the seven bakeoff
+     * replays (capture clock, OD_WINDOW_UNIT=cycles, OD_SPIKE_THRESHOLD=0.006
+     * OD_LONE_CAMERA=on; 2026-10-11) prints every camera that voted every called dart.
+     * The largest fresh figure is 9.96% of a board -- rig-20260922 opening, window 1,
+     * camera 1, 21,508 of 215,925 px, v1.2's S16 read against the calibration picture
+     * that still holds the parked dart (#1514) -- and the next largest 7.67%; every
+     * rig-20260918 and rig-20260929 dart is under 6.7%. The live arm: camera 2's
+     * cumulative figure in the D11 window was 69,193 px (the END's CLEAN BY REVERSION
+     * fell FROM it), 32.0% of the same rig's camera-2 board on rig-20260929 (215,989
+     * px; the live log prints no board size). Less two of that camera's largest
+     * fixture darts (12,692 px each) for the visit's darts already on the board, the
+     * arm's fresh figure is at least 43,809 px, 20.3%. 15% is 1.5x the largest fixture
+     * dart and three-quarters of the smallest the live arm can have been.
+     *
+     * Pure and inline (#1338's reason): testers/i1781_body_check.cpp holds the rule
+     * without building the detector.
+     */
+    inline double bodySizedFreshSharePercent()
+    {
+        return 15.0;
+    }
+
+    inline bool freshFigureIsBodySized(int fresh_pixels, int board_pixels,
+                                       double share_percent = bodySizedFreshSharePercent())
+    {
+        return board_pixels > 0 && fresh_pixels > 0 &&
+               100.0 * (double)fresh_pixels / (double)board_pixels >= share_percent;
+    }
+
+    /**
+     * turnaus#1781: how soon after a takeout that reconciled with a reversion vote an
+     * advance is refused. The live phantom S2's vote came ~976 ms after the END's (the
+     * publications at 16:24:29.105 and 16:24:30.081): the arm withdrawing against a
+     * clean reference re-based while it was still in frame (#1691's shape). On the
+     * fixtures the soonest first dart after a reversion END is 4,433 ms (rig-20260922
+     * opening, OD_BODY_CENSUS=1; rig-20260918, rig-20260929 and rig-20260922 dev
+     * reconcile no takeout by reversion at all). 1,500 ms is half again the live
+     * phantom's distance and a third of the soonest fixture dart's.
+     */
+    inline long long arrivalAfterTakeoutHorizonMs()
+    {
+        return 1500;
+    }
+
+    inline bool arrivalFollowsTakeoutTooSoon(long long ms_since_takeout,
+                                             long long horizon_ms = arrivalAfterTakeoutHorizonMs())
+    {
+        return ms_since_takeout >= 0 && ms_since_takeout < horizon_ms;
+    }
+
+    /**
      * #1535: a camera re-reporting, for a NEW dart, a pixel it already reported for an
      * earlier dart of the same visit is not a second witness.
      *
