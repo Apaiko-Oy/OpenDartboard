@@ -1111,11 +1111,11 @@ namespace score_processing
         }
         const float dIn = inner.mm > 0.0f ? std::fabs(out.radiusMm - inner.mm) : -1.0f;
         const float dOut = outer.mm > 0.0f ? std::fabs(out.radiusMm - outer.mm) : -1.0f;
-        const Wire &near = (dIn >= 0.0f && (dOut < 0.0f || dIn <= dOut)) ? inner : outer;
-        out.marginMm = (&near == &inner) ? dIn : dOut;
-        out.wireMm = near.mm;
-        out.wire = near.name;
-        out.across = near.across;
+        const Wire &nearer = (dIn >= 0.0f && (dOut < 0.0f || dIn <= dOut)) ? inner : outer;
+        out.marginMm = (&nearer == &inner) ? dIn : dOut;
+        out.wireMm = nearer.mm;
+        out.wire = nearer.name;
+        out.across = nearer.across;
         return out;
     }
 
