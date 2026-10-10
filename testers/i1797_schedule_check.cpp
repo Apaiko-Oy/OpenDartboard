@@ -269,7 +269,7 @@ int main()
         check(!text.fi.empty() && !text.en.empty() && text.en.find("06:00") != std::string::npos,
               "Moment::Scheduled has its own sentence in both languages: " + text.en);
 
-        Outcome outcome;
+        launcher::Outcome outcome;
         outcome.started = true;
         outcome.code = static_cast<unsigned long>(scheduled_stop::kExitCode);
         check(endingOf(outcome) == Ending::Scheduled,
@@ -279,9 +279,9 @@ int main()
         check(kScheduledStop == 60 && scheduled_stop::kExitCode == 60,
               "  the number is 60 on both sides, from the one header");
         check(!failedToStart(Ending::Scheduled, 1), "  a scheduled stop one second in is not a failure to start");
-        check(endingOf(Outcome{true, 0, false, 0, ""}) == Ending::Cleanly &&
-                  endingOf(Outcome{true, 1, false, 0, ""}) == Ending::Faulted &&
-                  endingOf(Outcome{true, 75, false, 0, ""}) == Ending::Faulted,
+        check(endingOf(launcher::Outcome{true, 0, false, 0, ""}) == Ending::Cleanly &&
+                  endingOf(launcher::Outcome{true, 1, false, 0, ""}) == Ending::Faulted &&
+                  endingOf(launcher::Outcome{true, 75, false, 0, ""}) == Ending::Faulted,
               "  0 is still Cleanly; 1 and 75 (kCouldNotSee) are still Faulted");
         const std::vector<Text> lines = endingLines(outcome);
         bool both = !lines.empty();

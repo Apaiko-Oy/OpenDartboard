@@ -121,7 +121,7 @@ namespace scheduled_stop
     inline std::string dateClockText(long long unix_seconds)
     {
         const std::tm local = localOf(unix_seconds);
-        char text[24];
+        char text[64];
         std::snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d", local.tm_year + 1900, local.tm_mon + 1,
                       local.tm_mday, local.tm_hour, local.tm_min);
         return std::string(text);
