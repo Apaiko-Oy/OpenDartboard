@@ -79,6 +79,16 @@ tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
 # nearly all of it the three -O1 compiles of turnaus_client.cpp; the assertions run in
 # milliseconds. No `slow`: well inside the default 1200.
 tester 1787-account       "bash '$T/i1787_check.sh'"
+# turnaus#1789: what #1787 posts and turnaus#1786 exports, read back here -- a session's
+# truth line recounted into Turnaus's four counts per path, each corrected dart joined to
+# its log window by reference, and its fault class named (#1781, #1707, #1782, #1766,
+# #1773, #1628, #1556, or unclassified). The fixture is the 2026-10-10 session as the
+# issues record it; three mutations with the prediction printed first: one `picked` moved
+# (exactly the four counts it should), `degraded` struck from the columns line (refused,
+# not miscounted), the takeout's END struck from the log (exactly the two phantoms move).
+# Stdlib python in $OD_IMAGE; no detector binary, so OD_SKIP_BUILD changes nothing about
+# it. MEASURED 2026-10-11 on the 4-core box with #1793's replays alongside, rc=0: 4.4 s.
+tester 1789-truth         "bash '$T/i1789_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
