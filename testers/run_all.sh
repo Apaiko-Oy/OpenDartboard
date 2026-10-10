@@ -699,6 +699,15 @@ tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # the tree plus two of a mutated scratch copy of the header (the wrong radius constant; the
 # flag for lone readings only), predictions stated first, in i1628_check.sh's shape.
 tester 1773-ringwire      "bash '$T/i1773_check.sh'"
+# turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
+# on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)
+# holds an advance a body-sized fresh figure voted (15% of a board) or one within 1500 ms of
+# a reversion END. The pure half: one compile of the tree plus four of a mutated scratch
+# copy of dart_processing.hpp -- each constant moved both ways, each predicted to turn
+# exactly one named assertion red (the live phantom or the fixture's nearest dart). No
+# detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the
+# 4-core box at load ~6-11, rc=0: 33 s wall.
+tester 1781-body          "bash '$T/i1781_check.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
