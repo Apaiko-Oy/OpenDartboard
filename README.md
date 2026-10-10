@@ -111,6 +111,11 @@ sudo apt install -y ./opendartboard_0.1.3-1_arm64.deb
 
 # 4. Run it and Watch the scores
 opendartboard --autocams
+
+# 5. Pair it with your Turnaus club (six-digit code from the club's autoscorer page), then start again.
+#    The arm64 package speaks TLS since #1798; a build without OpenSSL refuses the https:// address.
+sudo opendartboard --pair 123456 --credentials /var/lib/opendartboard/credentials.json
+sudo systemctl restart opendartboard
 ```
 
 > **Tip**: Need a quick debug dashboard? Run [`debug.opendartboard.org`](http://debug.opendartboard.org) in any modern browser to see the score output, camera feeds, calibrations images, and more.

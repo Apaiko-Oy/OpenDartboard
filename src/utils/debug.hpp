@@ -67,10 +67,13 @@ namespace debug
         exit(0);
     }
 
-    // Print version information and exit
-    inline void printVersionAndExit(const std::string &version)
+    // Print version information and exit. #1798: the outbound transport and whether it
+    // can do TLS are printed beside the version, because a board that cannot is a
+    // board that cannot pair, and a journal on a Pi should answer that in one line.
+    inline void printVersionAndExit(const std::string &version, const char *transport, bool tls)
     {
         std::cout << "OpenDartboard runtime version: " << version << std::endl;
+        std::cout << "Turnaus transport: " << transport << (tls ? " (TLS: yes, https:// is accepted)" : " (TLS: no, https:// is refused; #1798)") << std::endl;
         exit(0);
     }
 

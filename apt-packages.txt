@@ -10,3 +10,4 @@ gstreamer1.0-libav
 gettext-base
 v4l-utils
 sudo
+libssl-dev

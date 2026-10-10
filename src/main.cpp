@@ -10,6 +10,8 @@
 #include "utils/board_cameras.hpp"
 #include "utils/camera_choice.hpp"
 #include "communication/score_token.hpp"
+// #1798: --version says whether this build can put a request on a TLS wire.
+#include "communication/http_transport.hpp"
 #include "communication/announce.hpp"
 // #1473: one board per host, claimed on a lock before anything opens.
 #include "communication/one_board.hpp"
@@ -44,7 +46,7 @@ int main(int argc, char **argv)
 {
   // Check for help or version flags first
   if (hasFlag(argc, argv, "--version"))
-    debug::printVersionAndExit(version);
+    debug::printVersionAndExit(version, odhttp::transportName(), odhttp::tlsAvailable());
   if (hasFlag(argc, argv, "--help"))
     debug::printHelpAndExit();
 

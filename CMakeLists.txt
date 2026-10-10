@@ -181,6 +181,25 @@ target_link_libraries(opendartboard
         Threads::Threads  # Add pthread linking
 )
 
+# #1798. The POSIX transport is httplib, and httplib speaks TLS only when it is built
+# with CPPHTTPLIB_OPENSSL_SUPPORT and linked against OpenSSL. Until #1798 no POSIX build
+# was, because od-amd64:bullseye (the gate image) has no libssl-dev, and the arm64 .deb
+# -- the build a Raspberry Pi actually runs -- inherited that and could not pair with
+# an https:// Turnaus at all. Now a POSIX build links OpenSSL wherever CMake can find
+# it, and says at configure time which of the two it is building; the build without
+# it is unchanged, and http_transport.hpp still refuses an https:// address there
+# rather than downgrading it. Windows is WinHTTP and never comes here.
+if(NOT WIN32)
+    find_package(OpenSSL)
+    if(OpenSSL_FOUND)
+        target_compile_definitions(opendartboard PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_link_libraries(opendartboard PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        message(STATUS "opendartboard: TLS transport ON (OpenSSL ${OPENSSL_VERSION}); the board can pair with an https:// Turnaus")
+    else()
+        message(STATUS "opendartboard: TLS transport OFF (no OpenSSL found); the board will refuse an https:// Turnaus (#1798)")
+    endif()
+endif()
+
 # Define version for the project
 target_compile_definitions(opendartboard
   PRIVATE

@@ -7,8 +7,12 @@
 // than the timeouts stated here.
 //
 //   POSIX    httplib::Client, which the tree already fetches for the score server.
-//            Built here WITHOUT CPPHTTPLIB_OPENSSL_SUPPORT, because od-amd64:bullseye
-//            has no libssl-dev. So this transport cannot speak TLS and says so by name.
+//            TLS where the build linked OpenSSL (CMake defines CPPHTTPLIB_OPENSSL_SUPPORT
+//            wherever it finds one, #1798): the arm64 .deb and any Pi built from source
+//            do, so a board can pair with an https:// Turnaus. Until #1798 no POSIX
+//            build did, because od-amd64:bullseye -- the gate image -- has no
+//            libssl-dev; that image still builds the variant without TLS, which cannot
+//            speak it and says so by name.
 //   Windows  WinHTTP. winhttp.dll is an in-box Windows DLL, so TLS costs the artefact
 //            nothing -- no OpenSSL, no extra file, no redistributable. This is the
 //            transport the deployed board uses and it is the one that can do https.
@@ -241,7 +245,11 @@ namespace odhttp
         WinHttpCloseHandle(session);
         return r;
 #else
-        httplib::Client client(u.host, u.port);
+        // #1798: the scheme decides the client. Under CPPHTTPLIB_OPENSSL_SUPPORT an
+        // https:// address constructs httplib's TLS client, which verifies the server
+        // against the system's certificate store; without it the https:// case was
+        // refused above and only http:// reaches here.
+        httplib::Client client((u.tls ? "https://" : "http://") + u.host + ":" + std::to_string(u.port));
         client.set_connection_timeout(connect_timeout_s, 0);
         client.set_read_timeout(read_timeout_s, 0);
         client.set_write_timeout(read_timeout_s, 0);
