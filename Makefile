@@ -95,6 +95,9 @@ endif
 		chmod 0644 $(DEB_ROOT)/lib/systemd/system/$$unit.service; \
 	done
 
+	# #1801: the age at which the unit's per-start log files are pruned
+	install -D -m 0644 distributions/debian_arm64/tmpfiles.conf $(DEB_ROOT)/usr/lib/tmpfiles.d/opendartboard.conf
+
 	# Build the .deb. --root-owner-group: the files belong to root on the board, not to
 	# whoever ran the build.
 	dpkg-deb --root-owner-group --build $(DEB_ROOT) dist/

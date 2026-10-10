@@ -109,14 +109,30 @@ sudo apt-get update
 wget https://github.com/OpenDartboard/OpenDartboard/releases/download/v0.1.3/opendartboard_0.1.3-1_arm64.deb
 sudo apt install -y ./opendartboard_0.1.3-1_arm64.deb
 
-# 4. Run it and Watch the scores
-opendartboard --autocams
+# 4. Nothing to start: the package enables opendartboard.service, which starts the
+#    detector at every boot with --autocams and a log file of its own per start
+systemctl status opendartboard
 
-# 5. Pair it with your Turnaus club (six-digit code from the club's autoscorer page), then start again.
+# 5. Pair it with your Turnaus club (six-digit code from the club's autoscorer page), then restart it.
 #    The arm64 package speaks TLS since #1798; a build without OpenSSL refuses the https:// address.
 sudo opendartboard --pair 123456 --credentials /var/lib/opendartboard/credentials.json
 sudo systemctl restart opendartboard
 ```
+
+**The packaged service logs, and the log reaches Turnaus on its own.** Each start writes a
+new file named by its UTC start time,
+`/var/lib/opendartboard/logs/current/opendartboard-<YYYYMMDDTHHMMSSZ>.log`, and says which in
+the journal (`journalctl -u opendartboard`); the start after moves it up to
+`/var/lib/opendartboard/logs/`, where files older than seven days are pruned
+(`/usr/lib/tmpfiles.d/opendartboard.conf`; the newest is never touched). A paired board
+uploads that file to Turnaus at every END and at shutdown (turnaus#1787), so do not add a
+second `--log-file` or `--debug` to the unit. To read it over SSH:
+`sudo ls /var/lib/opendartboard/logs/current/` and `sudo tail -f` the file it names.
+
+An operator who needs a fixed camera list or another log location writes a drop-in with
+`sudo systemctl edit opendartboard` -- an empty `ExecStart=` and then their own -- which
+replaces the packaged line whole. A different `--log-file` keeps the upload; no
+`--log-file` at all stops it.
 
 > **Tip**: Need a quick debug dashboard? Run [`debug.opendartboard.org`](http://debug.opendartboard.org) in any modern browser to see the score output, camera feeds, calibrations images, and more.
 
