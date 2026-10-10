@@ -901,13 +901,33 @@ defaults to it and forwards it, because the bakeoff runs unbounded in a containe
 zone is UTC and a gate crossing 06:00 UTC (09:00 in Helsinki) would otherwise measure a
 replay that stopped at a ten-minute mark. Any other tester that runs the detector unbounded
 past six in the container's zone wants the same line. `OD_SCHEDULED_CLOCK=<unix seconds>`
-is test-only and is an injected clock for the rule alone: the schedule starts at that
-instant and advances with the steady clock, the log's own timestamps stay the machine's,
-and nothing deployed sets it.
+is test-only and is an injected clock for the rule alone: the schedule reads that instant
+when it is armed (the start of scoring) and advances with the steady clock from there, the
+log's own timestamps stay the machine's, and nothing deployed sets it.
 
 **Measured on this box, 2026-10-11** (`testers/i1797_replay.sh`, `mocks/rig-20260918`, the
-dev binary, `--cpus=2`): see the figures the script prints; recorded here once they were.
-_MEASUREMENTS PENDING -- filled in below once the replays ran._
+dev binary built with `-j2` in a 3 GB container in 339 s, `--cpus=2`, the container at
+23:xx UTC). The pure checks first: `1797-scheduled` PASS in 30 s (40 checks on the rule and
+the launcher's side, 24 on the re-carry, 0 failed); `--mutate-clock` (`kStopHour` 7) turns
+16 of the 40 red, each naming the hour (`06:00:00 stops (answered NotYet, due 07:00:00)`);
+`--mutate-ending` (the `kScheduledStop` branch of `endingOf()` deleted) turns 2 of 40 and
+11 of 24 red (`exit code 60 is Ending::Scheduled (got faulted)`, `fetch_manifest called 0
+times`, `kScheduledNotFollowed (41)`). Beside them, unedited: `1303-launcher` PASS 60 s,
+`1306-install` PASS 35 s, `1305-manifest` PASS 35 s, `1383-blind-end` PASS 223 s.
+Then the replays. **Control** (pin unset, the real clock): the schedule armed with `due at
+2026-10-11 06:00 local`, no stop, the replay ran to `END OF FOOTAGE` and exited 0 with
+24 `SCORE:` lines (25, 25 and 25 on three earlier runs of the same binary under a heavier
+host load; the replay pace moves with the box, #1683). **Forced** (`OD_SCHEDULED_CLOCK`
+= 05:59:58 UTC, paired to a closed loopback port so the client runs): the schedule armed
+at `23:18:50.594` with `due at 2026-10-10 06:00`, and at `23:18:52.611` -- two seconds
+into scoring, before any dart -- the log reads, in this order: `I1797 SCHEDULED RESTART
+at 06:00: the launcher looks for an update and starts the board again`, `Scorer stopped`,
+`TURNAUS: log upload: 0 bytes of /run1797/forced.log acknowledged by the server this run`,
+`TURNAUS: client stopped. queued=0 delivered=0 ...`, `WebSocket service stopped`; exit
+code 60. Two earlier forced runs with the clock set 40 s and 20 s after the arming met the
+guard instead -- the first dart had landed 3 s and 1 s before -- and said `I1797 SCHEDULED
+RESTART postponed to 06:10: a dart was published 3 s ago, inside the 10-minute guard`, then
+ran to the end of the footage and exited 0: the guard measured live, the stop not.
 
 **The overnight measurement on the rig is the maintainer's**: a board left running
 overnight restarts at 06:00, the log shows the sentence, `update\state.txt` shows

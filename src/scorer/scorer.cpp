@@ -215,8 +215,9 @@ namespace
     // into local time through the same localtime the log's timestamps use.
     //
     // OD_SCHEDULED_CLOCK=<unix seconds> is TEST-ONLY and is an injected clock, not a pin on
-    // the rule: the schedule then starts at that instant and advances with the steady
-    // clock, so a replay can meet "06:00" ten seconds in (testers/i1797_replay.sh does).
+    // the rule: the schedule reads that instant the first time it is asked -- when run()
+    // arms it, at the start of scoring -- and advances with the steady clock from there,
+    // so a replay can meet "06:00" twenty seconds into scoring (testers/i1797_replay.sh).
     // Nothing else reads it -- the log's own timestamps stay the machine's -- so a replay
     // under it shows both clocks side by side, and a board at a venue never sets it.
     inline long long scheduleClock()
