@@ -53,6 +53,24 @@ struct DetectorResult
     // does not publish it, so docs/api.md's payload is exactly what it was.
     vector<string> candidates;
 
+    // #1787: the rest of the board's account of this dart, for the Turnaus post body
+    // (TurnausClient::detectionBody) and nothing that this socket publishes. Every one
+    // of these is a number the log already prints -- `path=` on the I1555PUBLISH line,
+    // the UNCERTAINTY sentence's sigma and margin, "Geometric score ... from N
+    // intersecting constraint(s)", "Consensus score ... from N cameras", LONE-WIRE's
+    // margin -- posted rather than re-derived. `path` is the gate: a result whose path
+    // is EMPTY (a detector that does not fill these; every tester's hand-built dart)
+    // builds exactly the body it built before this field existed, byte for byte.
+    string path;              // "geometry" | "vote"; empty where nothing below is known
+    bool degraded = false;    // the vote published because the geometry refused, by name
+    vector<int> cameras_used; // 1-based, as the log numbers cameras ("read through camera 2"):
+                              // the lines in a geometric solve; the one camera a vote published
+    float crossing_deg = -1.0f;  // a two-line solve's crossing angle (#1766); -1 otherwise
+    int agreeing = 0;            // a vote publish: how many cameras agreed on the string
+    float lone_wire_mm = -1.0f;  // LONE-WIRE: the published lone reading's wedge-wire margin; -1 unmeasured
+    float ring_wire_mm = -1.0f;  // RING-WIRE (#1773): the same reading's ring-wire margin; -1 unmeasured
+    long window_ordinal = -1;    // the detection window that called this dart (frame_keep)
+
     // Metadata for debugging/analysis
     bool motion_detected = false;
     int processing_time_ms = 0;

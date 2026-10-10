@@ -677,6 +677,58 @@ every fixture, both ways, and the documented baseline holds with it off and on.
 `i1766_census.py` over both runs reads the same 30 two-line rows: pair 33.5-88.6 deg,
 across-wire sigma 5.0-9.3 mm, formula residual 0.2%, refused 0, vote differs on 6.
 
+## Kept frames, the account per dart and the log upload (turnaus#1787)
+
+**What a kept dart is.** The window that calls a dart averages each camera's frames while
+the board settles (`dart_processing.cpp`, `window_frames`): one grey 8-bit picture per
+camera at the camera's own size, the pictures the vote and the entry solve were read from.
+Under `OD_KEEP_FRAMES=on` the vote that advances the board deposits them
+(`src/detector/geometry/detection/frame_keep.hpp`), and the Turnaus client commits the
+deposit under the dart's `reference` when it mints one -- only if the window ordinal the
+published result names is the deposit's, so a window whose dart never published is never
+served under the next dart's name. The `I1512`/`I1681`/`I1773` census lines printed about
+that window ride beside the pictures, taken off the logger as they are written
+(`logging::lineTap`, one pointer read per log line on every board that keeps no frames).
+
+**What it costs, measured.** A kept dart is held RAW; it is PNG-encoded only when Turnaus
+asks for it, on the client's push thread. At the rig's 1280x720 and three cameras:
+
+| figure | bytes | how |
+|---|---|---|
+| one camera's settled frame, grey | 921,600 | 1280 x 720 x 1 |
+| one kept dart, raw (what the buffer holds) | 2,764,800 | 3 x 921,600; `i1787_frames_check.cpp` reads it off the buffer |
+| one kept dart as three PNGs (what leaves) | see `MEASURED png_bytes_per_dart` on the check's output | first frame of `mocks/rig-20260918/cam_1.mp4` and two transforms of it |
+| the ring of ten (the default N) | 27,648,000 (26.4 MB) | ten darts; the eleventh pushes the first out |
+
+So the default buffer is 26.4 MB on a Pi 4 with 4 GB and the same on the maintainer's
+Windows box; `OD_KEEP_FRAMES=25` would be 66 MB, still under the 100 MB the issue asked
+the buffer to stay under, and the pin is off unless set, at which point `deposit()` reads
+one static bool and returns. The scoring thread pays one `clone()` per camera per published
+dart and never an encode. The hypothesis in the brief -- about 8 MB raw per dart -- assumed
+colour frames; the settled frames are grey, so it is a third of that. **Not yet measured on
+the Pi itself**: the figures above are the buffer's own arithmetic, read off it in the
+check on the x86 container; the Pi holds the same pictures at the same size.
+
+**The account per dart.** `TurnausClient::detectionBody` now posts, beside #1366's bytes,
+the numbers the log already prints about the dart (docs/api.md, "The rest of the board's
+account"): `path`, `flagged`, `confidence`, `degraded`, `cameras_used` (numbered from 1 as
+the log numbers cameras), a two-line solve's `crossing_deg` (#1766), `sigma_mm`,
+`margin_mm` and `wire_kind` on a geometric dart, `agreeing` and `lone_wire_mm` on a vote
+dart. They are filled in `score_processing.cpp` beside the sentences that print them and
+carried on `ScoreResult` and `DetectorResult`; `ring_wire_mm` is a field on both with no
+writer on this tree -- #1773's RING-WIRE line is where it gets one. A result whose `path`
+is empty (every hand-built dart in every tester) posts exactly #1366's bytes, which is how
+`i1366_position_check.cpp`'s literal comparison still holds.
+
+**The log upload** reads the file `--log-file` appends to, posts the lines since its last
+acknowledged offset at every END on the push thread once the takeout is delivered, and the
+rest at shutdown; the server (turnaus#1786) is the judge of the offset (a `409` names the
+length it holds and the board moves there), so a lost answer or a restart never stores the
+same bytes twice. `LogUploadLedger` in `turnaus_client.hpp` is the arithmetic;
+`i1787_upload_check.cpp` walks a model of the route through a lost answer, a restart and a
+server that lost its copy, and shows the count model it replaces losing the log on the
+last of those.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never

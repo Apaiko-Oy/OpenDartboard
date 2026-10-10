@@ -664,6 +664,15 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.uncertainty_mm = score_result.uncertainty_mm;
         // #1721: the ranked candidates, for the Turnaus body and nothing else.
         result.candidates = score_result.candidates;
+        // #1787: the rest of the account, for the Turnaus body and nothing else.
+        result.path = score_result.from_geometry ? "geometry" : "vote";
+        result.degraded = score_result.degraded;
+        result.cameras_used = score_result.cameras_used;
+        result.crossing_deg = score_result.crossing_deg;
+        result.agreeing = score_result.agreeing;
+        result.lone_wire_mm = score_result.lone_wire_mm;
+        result.ring_wire_mm = score_result.ring_wire_mm;
+        result.window_ordinal = score_result.window_ordinal;
         // The instant the frames behind this score were acquired, from the backend.
         result.timestamp = camera::newestInstantUs(frames);
     }

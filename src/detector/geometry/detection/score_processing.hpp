@@ -155,6 +155,14 @@ namespace score_processing
         // it for the door). Decided AFTER `score` and from it, so it can move nothing that
         // publishes. Not published on the socket: docs/api.md is unchanged.
         vector<string> candidates;
+        // #1787: the account's remaining numbers, filled beside the log lines that print
+        // them and copied to DetectorResult for the Turnaus body (detector_interface.hpp).
+        vector<int> cameras_used;   // 1-based, as the log numbers cameras
+        float crossing_deg = -1.0f; // a two-line solve's pair angle (#1766); -1 otherwise
+        int agreeing = 0;           // a vote publish's agreeing cameras
+        float lone_wire_mm = -1.0f; // LONE-WIRE's published-reading margin; -1 unmeasured
+        float ring_wire_mm = -1.0f; // RING-WIRE's (#1773) margin, filled where that line is written; -1 unmeasured
+        long window_ordinal = -1;   // the window that called this dart
     };
 
     /**

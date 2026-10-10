@@ -187,6 +187,8 @@ int main(int argc, char **argv)
       hasFlag(argc, argv, "--allow-plaintext") || od_paths::env("OD_ALLOW_PLAINTEXT") == "1";
   // #1259: the pairing request says the board's label, not the literal it always sent.
   turnaus_config.label = label;
+  // #1787: the client posts what --log-file (or --debug) writes, read from the file itself.
+  turnaus_config.log_file = log_file;
 
   // #1306: the four steps are update_address::resolve() and were these twenty lines. They
   // moved because the launcher now follows the same rule (ADR-0077 §5), and a rule two

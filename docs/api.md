@@ -219,6 +219,122 @@ cameras' readings, then the rings and wedges across the nearest wires - and
 asserted 20 is offered its rings and never the wedges beside it). This socket's payload is
 exactly what the table above says; `candidates` is not in it.
 
+### The rest of the board's account, posted with every dart (turnaus#1787)
+
+**The Turnaus body carries the board's whole account of the dart, and the socket does
+not** (turnaus#1787, 2026-10-10). The server (turnaus#1786) stores a correction beside what
+the board said, so what the board said has to reach it: every number below is one the log
+already prints about the dart -- the `path=` of I1555PUBLISH, the UNCERTAINTY sentence's
+sigma and margin, "Geometric score ... from N intersecting constraint(s)", "Consensus
+score ... from N cameras", LONE-WIRE's and RING-WIRE's margins -- posted rather than
+re-derived. **The existing fields are byte for byte what they were**: a body is the keys
+below added to #1366's, and a detector result that carries no account (`path` empty) still
+builds exactly #1366's bytes (`testers/i1787_body_check.cpp` compares the literal). An
+older server ignores keys it does not read.
+
+A field is **present exactly when the board has the number, and absent otherwise** --
+never `null`, never a nought, as #1366 spelled the position -- so a reader asks "is it
+there" and never "is it real".
+
+| Field          | Type           | Present                      | Meaning                                                                                                    |
+| -------------- | -------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `path`         | `string`       | every dart                   | `"geometry"` (the entry solve named it) or `"vote"` (a camera's score string did), as I1555PUBLISH's `path=` |
+| `flagged`      | `bool`         | every dart                   | the call was close (#1556); `alternative` says what the other answer is                                    |
+| `confidence`   | `number`       | every dart                   | the socket's `confidence`, two places                                                                      |
+| `degraded`     | `bool`         | every dart                   | the geometry was asked, refused by name, and the vote published (#1555)                                   |
+| `cameras_used` | `int[]`        | when a camera scored it      | **numbered from 1 as every log line numbers cameras**: the lines the solve intersected, or the one camera whose string the vote published. Absent on the MISS no camera scored |
+| `crossing_deg` | `number`       | a two-line solve             | the two lines' crossing angle, which IS that solve's across-wire sigma (#1766)                              |
+| `sigma_mm`     | `number`       | a geometric dart             | the socket's `uncertainty`: one sigma across the wire `wire_kind` names                                     |
+| `margin_mm`    | `number`       | a geometric dart             | the socket's `boundary`: millimetres to that wire                                                          |
+| `wire_kind`    | `string`       | a geometric dart             | `"ring"` or `"wedge"`                                                                                       |
+| `agreeing`     | `int`          | `path` is `vote`             | how many cameras agreed on the string: 2 or more is the Consensus line, 1 a lone reading, 0 the MISS      |
+| `lone_wire_mm` | `number`       | LONE-WIRE measured it        | the published lone reading's margin to the nearest wedge wire (#1628)                                      |
+| `ring_wire_mm` | `number`       | RING-WIRE measured it        | the same reading's margin to the nearest ring wire (#1773; absent on a tree without that line)             |
+
+A flagged two-line geometric dart therefore posts, beside #1366's keys and #1651's
+`alternative` and #1721's `candidates`:
+
+```json
+{"path":"geometry","flagged":true,"confidence":0.7,"degraded":false,"cameras_used":[2,3],
+ "crossing_deg":27.0,"sigma_mm":5.0,"margin_mm":4.4,"wire_kind":"ring"}
+```
+
+and a lone camera's vote dart `{"path":"vote","flagged":false,"confidence":0.7,"degraded":true,
+"cameras_used":[2],"agreeing":1,"lone_wire_mm":7.8}`. A MISS carries `path`, `flagged`,
+`confidence`, `degraded` and `agreeing` and nothing a camera never measured.
+
+### The log, uploaded, and a corrected dart's frames, on request (turnaus#1787)
+
+Two more things the board does for the server's record, both on the Turnaus client's push
+thread, **never on the scoring thread**, and both only once the END's takeout and every
+dart before it are delivered -- a takeout is never delayed behind a log post. Route names
+and shapes are this board's proposal for turnaus#1786 to build to; the server half does not
+exist yet, and a deployment without a route answers 404, which the board takes as "not
+here" once and says once.
+
+**The log upload.** A board started with `--log-file <path>` (or `--debug`, which sets one)
+posts the lines written since its last post at every END, and the rest at shutdown:
+
+```
+POST /api/v1/autoscorer/log            (a club board; /api/v1/casual/log on a Contest)
+Authorization: Bearer <the board's credential>
+{"file":"darts-log.txt","offset":48213,"text":"[20:14:02.113][INFO][SCORER] - SCORE: T20 ...\n...","final":false}
+```
+
+- `file` is the log file's leaf name, `offset` the byte offset in that file the chunk
+  begins at, `text` the bytes from there -- whole lines, at most 1 MiB per post, more posts
+  while behind -- and `final` true on the shutdown chunk, which also carries the tail
+  without waiting for its newline.
+- **Idempotent by byte offset, and the server is the judge.** The server appends a chunk
+  only when `offset` equals the length it already holds for that board and file, answering
+  `202`. Any other offset is answered **`409`** with `{"data":{"length":<bytes it holds>}}`,
+  and the board moves to that offset and continues -- forward after a restart (every
+  process starts at offset 0 and is told where the server is on its first post), back
+  after a lost answer (the server took the chunk, the board never heard; the re-post is
+  refused rather than stored twice). The same bytes are therefore never kept twice and
+  nothing is ever rewritten. `testers/i1787_upload_check.cpp` holds the bookkeeping,
+  lost answers and restarts included.
+- A post that does not get through (no server, 5xx, 429) is said **once** in the log and
+  retried from the same offset at the next END; `401`, `403`, `404` and `422` end the upload
+  for the run, said once, and never touch the darts. `TURNAUS: log upload: N bytes ...
+  acknowledged` at shutdown says how far it got.
+- Nothing is spooled: the file is the spool, append-only, and the offset is the cursor.
+
+**A corrected dart's frames.** With `OD_KEEP_FRAMES=on` the board keeps the settled frames
+of its last ten published darts (`OD_KEEP_FRAMES=25` keeps 25; docs/rig.md has the memory
+measured). **Which route shape, and why: the board polls** rather than serving a route of
+its own. The score socket exists and could carry a token-authorised `GET /frames/{reference}`
+that Turnaus calls, but that works only when the server can reach the board, and a board in
+a garage is behind NAT and a club's is on a wifi the server was never on; the client is
+HTTP-out only today and stays so. So at every END, when the buffer is on, the board asks:
+
+```
+GET /api/v1/autoscorer/frame-requests        (/api/v1/casual/frame-requests on a Contest)
+Authorization: Bearer <the board's credential>
+-> 200 {"data":[{"reference":"01J9X..."}, ...]}     the darts the server wants pictures of
+```
+
+and answers each one:
+
+```
+POST /api/v1/autoscorer/frame-requests/{reference}
+{"reference":"01J9X...","found":true,"window":45,
+ "census":["I1512ENTRY window=45 ...","I1681CONTROL window=45 ..."],
+ "frames":[{"camera":1,"png_base64":"iVBOR..."},{"camera":2,"png_base64":"..."},{"camera":3,"png_base64":"..."}]}
+-> 202
+```
+
+or, for a dart no longer kept -- never kept, or pushed out by the ten after it --
+`{"reference":"01J9X...","found":false}`. `window` is the detection window that called the
+dart, `census` the `I1512`/`I1681`/`I1773` lines the scoring printed about that window
+(present only when the census pin `OD_GEO_SCORE=on` printed them, as in the log),
+`frames` one PNG per camera that brought a frame to the window, `camera` numbered from 1
+as the log numbers them, grey, at the camera's own size. It costs one GET per END while the
+buffer is on and nothing while it is off (a board with the buffer off never polls, so a
+request to it simply ages out on the server -- turnaus#1786 calls the whole thing best
+effort). The answer is the only thing that ever leaves the buffer; nothing about a
+correction is kept on the board.
+
 ### Finding a board on the network
 
 A board whose socket is open on the network - started with `--listen` - **announces itself

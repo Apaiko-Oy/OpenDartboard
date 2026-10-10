@@ -1,4 +1,5 @@
 #include "dart_processing.hpp"
+#include "frame_keep.hpp"
 #include "utils/cycle_cost.hpp"
 #include <iostream>
 #include <cstdlib>
@@ -2217,6 +2218,14 @@ namespace dart_processing
         // #1707: an advance the scoring-area counts alone would have held. The scorer reads
         // it (score_processing, rimCarriedFallback): the dart is at or beyond the double.
         result.rim_carried = final_state > best_previous_state && moves_up_in_scoring < quorum;
+        // #1787: the board gained a dart, so this window's settled frames are the pictures
+        // of it. A no-op (one static bool) unless OD_KEEP_FRAMES is set; otherwise one
+        // clone per camera into frame_keep's pending slot, committed under the dart's
+        // reference when the Turnaus client mints it.
+        if (final_state > best_previous_state)
+        {
+            frame_keep::deposit(window_serial, window_frames);
+        }
         if (result.rim_carried)
         {
             log_info("I1707 RIM CARRIED: " + to_string(moves_up) + " camera(s) moved up and " +
