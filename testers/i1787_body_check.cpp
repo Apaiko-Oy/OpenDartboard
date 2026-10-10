@@ -176,6 +176,9 @@ int main()
     vote.cameras_used = {2};
     vote.agreeing = 1;
     vote.lone_wire_mm = 7.8f;
+    // The same reading with #1773's RING-WIRE margin measured: 2.5 mm, inside the 5 mm sigma.
+    DetectorResult ringed = vote;
+    ringed.ring_wire_mm = 2.5f;
     {
         TurnausClient::DetectionBody b = TurnausClient::detectionBody(REF, vote);
         json j = json::parse(b.json);
@@ -195,9 +198,10 @@ int main()
         say(j["board_radius"].dump() == "0.55" && j["board_angle"].dump() == "200.0",
             "the position is as #1366 writes it");
 
-        DetectorResult ringed = vote;
-        ringed.ring_wire_mm = 2.5f;
-        say(bodyOf(ringed)["ring_wire_mm"].dump() == "2.5", "and a RING-WIRE margin, once measured, is posted");
+        say(bodyOf(ringed)["ring_wire_mm"].dump() == "2.5",
+            "and a RING-WIRE margin (#1773, every vote publish that measured a radius) is posted as ring_wire_mm");
+        say(TurnausClient::accountFieldsExpected(ringed).back() == "ring_wire_mm",
+            "which the rule expects of it by name");
         DetectorResult agreed = vote;
         agreed.agreeing = 2;
         agreed.confidence = 0.9f;
@@ -244,16 +248,16 @@ int main()
     //
     // PREDICTION, stated before the run: for each of the three darts and for each account
     // field its body carries, a body with that one field erased is reported as missing
-    // exactly that field -- by name -- and nothing else. 9 + 7 + 5 = 21 mutations (the
-    // geometric dart's nine, the vote's seven, the miss's five); every one is named; none
-    // names a second field.
+    // exactly that field -- by name -- and nothing else. 9 + 7 + 8 + 5 = 29 mutations (the
+    // geometric dart's nine, the vote's seven, the ring-wire vote's eight -- the same seven
+    // and ring_wire_mm -- and the miss's five); every one is named; none names a second field.
     {
         struct Dart
         {
             const char *name;
             DetectorResult r;
         };
-        const Dart darts[] = {{"flagged geometric", geo}, {"unflagged vote", vote}, {"miss", miss}};
+        const Dart darts[] = {{"flagged geometric", geo}, {"unflagged vote", vote}, {"ring-wire vote", ringed}, {"miss", miss}};
         int mutations = 0, named = 0, overnamed = 0;
         for (const Dart &d : darts)
         {
@@ -276,7 +280,7 @@ int main()
                           << std::endl;
             }
         }
-        say(mutations == 21, "21 mutations were run, one per field per dart (" + std::to_string(mutations) + ")");
+        say(mutations == 29, "29 mutations were run, one per field per dart (" + std::to_string(mutations) + ")");
         say(named == mutations && overnamed == 0,
             "every mutation is named by exactly the field it dropped (" + std::to_string(named) + " of " +
                 std::to_string(mutations) + ")");

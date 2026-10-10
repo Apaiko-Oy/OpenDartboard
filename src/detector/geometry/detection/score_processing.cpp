@@ -1357,6 +1357,7 @@ namespace score_processing
                 if (!rim.to_miss && !ring_wire.account.empty())
                 {
                     log_info(ring_wire.account);
+                    result.ring_wire_mm = ring_wire.ring.marginMm; // #1787: the sentence's margin, as a field
                 }
                 if (!rim.to_miss && !rim.flag && ring_wire.flagged)
                 {

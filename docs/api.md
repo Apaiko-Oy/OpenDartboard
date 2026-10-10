@@ -249,7 +249,7 @@ there" and never "is it real".
 | `wire_kind`    | `string`       | a geometric dart             | `"ring"` or `"wedge"`                                                                                       |
 | `agreeing`     | `int`          | `path` is `vote`             | how many cameras agreed on the string: 2 or more is the Consensus line, 1 a lone reading, 0 the MISS      |
 | `lone_wire_mm` | `number`       | LONE-WIRE measured it        | the published lone reading's margin to the nearest wedge wire (#1628)                                      |
-| `ring_wire_mm` | `number`       | RING-WIRE measured it        | the same reading's margin to the nearest ring wire (#1773; absent on a tree without that line)             |
+| `ring_wire_mm` | `number`       | RING-WIRE measured it        | the same reading's margin to the nearest ring wire (#1773), on every vote publish that measured a radius    |
 
 A flagged two-line geometric dart therefore posts, beside #1366's keys and #1651's
 `alternative` and #1721's `candidates`:

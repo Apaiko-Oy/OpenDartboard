@@ -827,8 +827,9 @@ account"): `path`, `flagged`, `confidence`, `degraded`, `cameras_used` (numbered
 the log numbers cameras), a two-line solve's `crossing_deg` (#1766), `sigma_mm`,
 `margin_mm` and `wire_kind` on a geometric dart, `agreeing` and `lone_wire_mm` on a vote
 dart. They are filled in `score_processing.cpp` beside the sentences that print them and
-carried on `ScoreResult` and `DetectorResult`; `ring_wire_mm` is a field on both with no
-writer on this tree -- #1773's RING-WIRE line is where it gets one. A result whose `path`
+carried on `ScoreResult` and `DetectorResult`; `ring_wire_mm` is filled beside #1773's
+RING-WIRE sentence (`ring_wire.ring.marginMm`) on every vote publish that measured a
+radius, -1 (absent from the body) where that sentence did not print. A result whose `path`
 is empty (every hand-built dart in every tester) posts exactly #1366's bytes, which is how
 `i1366_position_check.cpp`'s literal comparison still holds.
 

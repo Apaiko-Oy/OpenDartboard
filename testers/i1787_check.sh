@@ -4,7 +4,7 @@
 # prediction stated in its own header:
 #
 #   1. i1787_body_check.cpp     the account's fields in TurnausClient::detectionBody beside
-#                               #1366's unchanged bytes; 21 one-field mutations named by field
+#                               #1366's unchanged bytes; 29 one-field mutations named by field
 #   2. i1787_upload_check.cpp   LogUploadLedger: the same bytes never twice, a failed post
 #                               re-posts from the same offset; the count model shown to lose
 #   3. i1787_frames_check.cpp   frame_keep: ten kept, dart 5 gone, dart 15 served with its
