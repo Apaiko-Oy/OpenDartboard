@@ -29,7 +29,11 @@ using namespace std;
 using json = nlohmann::json;
 
 // Proper SHA1 implementation for WebSocket handshake
-class SHA1
+// #1798: `SHA1` was this class's name, and it collides with OpenSSL's SHA1() the moment
+// httplib.h is built with CPPHTTPLIB_OPENSSL_SUPPORT, which the TLS-capable POSIX build
+// now is. Renamed rather than namespaced so that the collision cannot come back through
+// a `using`.
+class WsSha1
 {
 private:
     uint32_t h[5];
@@ -101,7 +105,7 @@ private:
     }
 
 public:
-    SHA1()
+    WsSha1()
     {
         h[0] = 0x67452301;
         h[1] = 0xEFCDAB89;
@@ -211,7 +215,7 @@ string generate_websocket_accept(const string &key)
 {
     string combined = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-    SHA1 sha1;
+    WsSha1 sha1;
     sha1.update((const uint8_t *)combined.c_str(), combined.length());
     vector<uint8_t> hash = sha1.finalize();
 
