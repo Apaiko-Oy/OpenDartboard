@@ -983,6 +983,275 @@ namespace score_processing
         return p.board.radius * kScoringRadiusMm * std::sin(d * (float)CV_PI / 180.0f);
     }
 
+    // ---- #1773: the RING wires, which #1628's check never measured ----------------------
+    //
+    // Live on 2026-10-10 (build 2b56b48, 56 darts) three vote publishes went out
+    // unflagged at 0.7 and 0.9 with a ring wire inside one sigma of the reading:
+    //   15:51:49  a thrown S19 published T19, lone camera 1, `radius=0.600382`: 102.1 mm
+    //             from the bull, 3.1 mm inside the treble's inner wire at 99 and 4.9 mm
+    //             inside its outer one at 107. LONE-WIRE said "14.4 mm from a wedge wire,
+    //             clear of the 5 mm sigma" -- true, and about the wrong wire.
+    //   16:06:25  a thrown S1 published OUTER, lone camera 0, `radius=0.050671`: 8.6 mm,
+    //             2.3 mm outside the bull's wire at 6.35. No LONE-WIRE line at all: a
+    //             ring-only reading has no wedge, so wedgeWireMarginMm returns -1 and the
+    //             check returned before it said anything.
+    //   16:47:22  a thrown BULL published OUTER from TWO cameras agreeing,
+    //             `radius=0.040479`: 6.9 mm, 0.5 mm outside the bull's wire. No LONE-WIRE
+    //             line because `agreeing == 2`, and nothing else on the vote path
+    //             measures a ring wire.
+    // The only ring-wire awareness the vote path had was #1707's rim fallback: the DOUBLE
+    // only, and only under OD_RIM_FALLBACK=on. The rule below is that fallback's flag shape
+    // (`boundary_flagged`, `alternative_score`, `boundary_kind == "ring"`, the confidence
+    // demoted to #1556's 0.7) for EVERY ring wire, on by default, and it applies to a
+    // consensus reading as well as a lone one: two cameras agreeing on the STRING "OUTER"
+    // is not a second measurement of the radius -- the published radius is one camera's
+    // ruler -- and a millimetre from the wire is a millimetre whichever camera read it.
+    //
+    // THE SCORE DOES NOT MOVE. #1628 measured a reselection on the vote path at 1:1 and
+    // refused it; this is not a reselection. The dart publishes what it always did, the
+    // ring across the wire is offered as #1556's alternative, and the thrower taps.
+    //
+    // THE SIGMA IS #1628's 5 mm (kLoneReadingSigmaMm): the floor on what one camera's
+    // ruler can say about a tip's position. The wire radii are the spec's, the same
+    // model `boardRadius` reads the radius against; score_processing.cpp static_asserts
+    // each against DartboardSpec, the way kScoringRadiusMm already is.
+
+    inline constexpr float kBullWireMm = 6.35f;        // bull | outer
+    inline constexpr float kBull25WireMm = 15.9f;      // outer | single
+    inline constexpr float kInnerTrebleWireMm = 99.0f; // single | triple
+    inline constexpr float kOuterTrebleWireMm = 107.0f; // triple | single
+    inline constexpr float kInnerDoubleWireMm = 162.0f; // single | double
+    // double | MISS is kScoringRadiusMm, 170.
+
+    /**
+     * #1773: this reading's distance to the nearest RING wire of the ring it was scored
+     * in, in board millimetres by its own ruler, with the wire named and the ring across
+     * it. `marginMm` is -1 where the reading is a MISS or has no radius. `across` is the
+     * ring word on the other side of that wire ("single", "triple", "double", "bull",
+     * "outer", or "miss" past the outer double).
+     *
+     * The wires asked are the published RING's own two edges, not the two nearest the
+     * radius: the ring is decided by the camera's fitted ellipses and the radius by its
+     * radial ruler, and when the two disagree (a treble by the ellipse at a ruler radius
+     * of 95 mm) the margin is the distance to the ring's edge the ruler has crossed, and
+     * the alternative is the ring on the far side of it -- which is what the thrower
+     * should be offered.
+     */
+    struct RingWireMargin
+    {
+        float marginMm = -1.0f; // |radius - wire|; -1 where nothing was measured
+        float radiusMm = -1.0f; // the reading's radius by its own ruler, in mm
+        float wireMm = -1.0f;   // the wire's radius
+        std::string wire;       // "the treble's inner wire", "the bull's wire", ...
+        std::string across;     // the ring on the other side of the wire
+    };
+
+    inline RingWireMargin ringWireMarginMm(const PointScore &p)
+    {
+        RingWireMargin out;
+        if (p.score == "MISS" || p.ring.empty() || !p.board.has_radius || p.board.radius < 0.0f)
+        {
+            return out;
+        }
+        out.radiusMm = p.board.radius * kScoringRadiusMm;
+        struct Wire
+        {
+            float mm;
+            const char *name;
+            const char *across;
+        };
+        Wire inner{-1.0f, "", ""}, outer{-1.0f, "", ""};
+        if (p.ring == "bull")
+        {
+            outer = {kBullWireMm, "the bull's wire", "outer"};
+        }
+        else if (p.ring == "outer")
+        {
+            inner = {kBullWireMm, "the bull's wire", "bull"};
+            outer = {kBull25WireMm, "the 25 ring's wire", "single"};
+        }
+        else if (p.ring == "single")
+        {
+            // A single spans two bands; the ruler says which the tip is in.
+            if (out.radiusMm < (kBull25WireMm + kInnerTrebleWireMm) / 2.0f)
+            {
+                inner = {kBull25WireMm, "the 25 ring's wire", "outer"};
+                outer = {kInnerTrebleWireMm, "the treble's inner wire", "triple"};
+            }
+            else
+            {
+                inner = {kOuterTrebleWireMm, "the treble's outer wire", "triple"};
+                outer = {kInnerDoubleWireMm, "the double's inner wire", "double"};
+            }
+        }
+        else if (p.ring == "triple")
+        {
+            inner = {kInnerTrebleWireMm, "the treble's inner wire", "single"};
+            outer = {kOuterTrebleWireMm, "the treble's outer wire", "single"};
+        }
+        else if (p.ring == "double")
+        {
+            inner = {kInnerDoubleWireMm, "the double's inner wire", "single"};
+            outer = {kScoringRadiusMm, "the double's outer wire", "miss"};
+        }
+        else
+        {
+            return out;
+        }
+        const float dIn = inner.mm > 0.0f ? std::fabs(out.radiusMm - inner.mm) : -1.0f;
+        const float dOut = outer.mm > 0.0f ? std::fabs(out.radiusMm - outer.mm) : -1.0f;
+        const Wire &near = (dIn >= 0.0f && (dOut < 0.0f || dIn <= dOut)) ? inner : outer;
+        out.marginMm = (&near == &inner) ? dIn : dOut;
+        out.wireMm = near.mm;
+        out.wire = near.name;
+        out.across = near.across;
+        return out;
+    }
+
+    /**
+     * #1773: the score string on the other side of a ring wire, in the vote's own
+     * vocabulary; empty where it cannot be named. A single, treble or double across the
+     * wire needs the reading's segment, and a ring-only reading (a BULL or an OUTER) has
+     * none: its angle is filled by `scorePoint` from slot 0 when the camera is not
+     * anchored -- an asserted 20 that `wedge_asserted` does not mark, because #1346
+     * marks only the asserted scores -- so naming a single from it would be naming the
+     * 20 by default. #1556 rule 2: a flag that cannot name its second candidate is not a
+     * flag, and the account says so instead.
+     */
+    inline std::string scoreAcrossRingWire(const PointScore &p, const std::string &across)
+    {
+        if (across == "bull")
+        {
+            return "BULL";
+        }
+        if (across == "outer")
+        {
+            return "OUTER";
+        }
+        if (across == "miss")
+        {
+            return "MISS";
+        }
+        if (p.ring_only || p.segment < 1 || p.segment > 20)
+        {
+            return std::string();
+        }
+        const char prefix = across == "single" ? 'S' : across == "triple" ? 'T' : across == "double" ? 'D' : '\0';
+        if (prefix == '\0')
+        {
+            return std::string();
+        }
+        return std::string(1, prefix) + std::to_string(p.segment);
+    }
+
+    /** #1773: what the ring-wire check said about the vote's reading. */
+    struct RingWireCall
+    {
+        bool checked = false;     // a vote reading with a measured radius was asked
+        bool near_wire = false;   // the ring margin is inside the sigma
+        bool flagged = false;     // ... and the ring across it could be named
+        std::string alternative;  // the score across the wire; empty unless flagged
+        float confidence = 0.5f;  // what publishes: the choice's, demoted to 0.7 if flagged
+        RingWireMargin ring;      // the measurement
+        float wedge_margin_mm = -1.0f; // #1628's margin of the same reading, for the sentence
+        std::string account;      // the RING-WIRE log sentence; empty where nothing was checked
+    };
+
+    /**
+     * #1773: the rule, pure, over the vote's chosen reading. It applies to every vote
+     * publish that measured a radius -- lone or consensus -- and not to a wedge-by-default
+     * reading (`choice.by_default`), which already publishes at 0.5 as "nobody measured
+     * the wedge": a T20 whose 20 is asserted has an S20 across its wire that is asserted
+     * too, and offering one asserted score as the alternative to another is not a
+     * two-candidate flag about anything measured.
+     *
+     * WHEN BOTH A WEDGE WIRE AND A RING WIRE ARE INSIDE THE SIGMA, the ring across is
+     * what is offered and the sentence says the wedge wire is there, and nearer if it is.
+     * The wedge neighbour is not offered: #1628 measured acting on the wedge margin and
+     * refused it, and the same question on the geometric path is #1782's. A reading can
+     * only carry one alternative (#1556's shape; docs/api.md), and this issue adds the
+     * ring one.
+     */
+    inline RingWireCall checkVoteReadingAgainstRingWires(const PointScore &p, const ScoreChoice &choice,
+                                                         float sigmaMm = kLoneReadingSigmaMm)
+    {
+        RingWireCall out;
+        out.confidence = choice.confidence;
+        if (choice.camera < 0 || choice.agreeing < 1 || choice.by_default)
+        {
+            return out;
+        }
+        out.ring = ringWireMarginMm(p);
+        out.wedge_margin_mm = wedgeWireMarginMm(p);
+        if (out.ring.marginMm < 0.0f)
+        {
+            return out;
+        }
+        out.checked = true;
+        out.near_wire = out.ring.marginMm < sigmaMm;
+        char head[200];
+        snprintf(head, sizeof(head), "camera %d's %s (%s) sits %.1f mm from %s by its own ruler, %.1f mm from the bull",
+                 choice.camera, p.score.c_str(),
+                 choice.agreeing >= 2 ? (std::to_string(choice.agreeing) + " cameras agreeing").c_str() : "alone",
+                 out.ring.marginMm, out.ring.wire.c_str(), out.ring.radiusMm);
+        char sigma[48];
+        snprintf(sigma, sizeof(sigma), "%.0f mm", sigmaMm);
+        if (!out.near_wire)
+        {
+            out.account = std::string("RING-WIRE: ") + head + ", clear of the " + sigma + " sigma";
+            return out;
+        }
+        const std::string alternative = scoreAcrossRingWire(p, out.ring.across);
+        std::string wedge;
+        if (out.wedge_margin_mm >= 0.0f && out.wedge_margin_mm < sigmaMm)
+        {
+            char w[160];
+            snprintf(w, sizeof(w),
+                     "; its nearest wedge wire is inside the sigma too, at %.1f mm%s, said by LONE-WIRE and not offered (#1628)",
+                     out.wedge_margin_mm, out.wedge_margin_mm < out.ring.marginMm ? " and nearer" : "");
+            wedge = w;
+        }
+        if (alternative.empty() || alternative == p.score)
+        {
+            out.account = std::string("RING-WIRE: ") + head + ", inside the " + sigma +
+                          " sigma, but the " + out.ring.across +
+                          " across it cannot be named from a reading that never asked the angular ruler, "
+                          "so nothing is flagged (#1556 rule 2)" + wedge;
+            return out;
+        }
+        out.flagged = true;
+        out.alternative = alternative;
+        out.confidence = std::min(choice.confidence, geometricConfidence(true));
+        char tail[200];
+        snprintf(tail, sizeof(tail),
+                 ", inside the %s sigma, so %s publishes flagged with %s across that wire at %.1f (#1773)",
+                 sigma, p.score.c_str(), alternative.c_str(), out.confidence);
+        out.account = std::string("RING-WIRE: ") + head + tail + wedge;
+        return out;
+    }
+
+    /**
+     * #1773's census line, one per called dart under the census pin, beside I1628LONE:
+     * the vote's chosen reading and its ring-wire margin, whether the ring check flagged
+     * it and with what. Parsed by testers/i1773_census.py, which joins it to I1555PUBLISH
+     * for the path and to the truth tables for the verdict.
+     */
+    inline std::string ringWireCensusLine(long window, const ScoreChoice &choice, const PointScore &p,
+                                          const RingWireCall &call)
+    {
+        char line[320];
+        snprintf(line, sizeof(line),
+                 "I1773RING window=%ld agreeing=%d cam=%d score=%s ring=%s radius_mm=%.2f wire_mm=%.2f "
+                 "margin=%.2f wedge_margin=%.2f checked=%d near=%d flagged=%d alt=%s conf=%.2f",
+                 window, choice.agreeing, choice.camera + 1,
+                 choice.camera >= 0 ? p.score.c_str() : "-",
+                 p.ring.empty() ? "-" : p.ring.c_str(),
+                 call.ring.radiusMm, call.ring.wireMm, call.ring.marginMm, call.wedge_margin_mm,
+                 call.checked ? 1 : 0, call.near_wire ? 1 : 0, call.flagged ? 1 : 0,
+                 call.alternative.empty() ? "-" : call.alternative.c_str(), call.confidence);
+        return line;
+    }
+
     /** #1628: what the wire check did to the vote's choice. */
     struct LoneWireCheck
     {
@@ -1025,9 +1294,24 @@ namespace score_processing
         }
         out.checked = true;
         out.near_wire = out.margin_mm < sigmaMm;
-        char head[160];
-        snprintf(head, sizeof(head), "camera %d's %s is %.1f mm from a wedge wire",
-                 choice.camera, lone.score.c_str(), out.margin_mm);
+        // #1773: and the nearest RING wire beside it, naming whichever is nearer. Live on
+        // 2026-10-10 this sentence read "14.4 mm from a wedge wire, clear of the 5 mm
+        // sigma" about a T19 3.1 mm inside the treble's inner wire -- true, and about the
+        // wrong wire. The rest of the sentence is still about the wedge check; the ring
+        // wire's flag is checkVoteReadingAgainstRingWires's and prints as RING-WIRE.
+        const RingWireMargin ringWire = ringWireMarginMm(lone);
+        char head[240];
+        if (ringWire.marginMm >= 0.0f)
+        {
+            snprintf(head, sizeof(head), "camera %d's %s is %.1f mm from a wedge wire and %.1f mm from %s (the %s is nearer)",
+                     choice.camera, lone.score.c_str(), out.margin_mm, ringWire.marginMm, ringWire.wire.c_str(),
+                     ringWire.marginMm < out.margin_mm ? "ring wire" : "wedge wire");
+        }
+        else
+        {
+            snprintf(head, sizeof(head), "camera %d's %s is %.1f mm from a wedge wire",
+                     choice.camera, lone.score.c_str(), out.margin_mm);
+        }
         if (!out.near_wire)
         {
             out.account = std::string("LONE-WIRE: ") + head + ", clear of the " +

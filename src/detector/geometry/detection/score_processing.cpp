@@ -947,6 +947,14 @@ namespace score_processing
                   "#1628: the lone-reading sigma is #1556's floor; change both or neither");
     static_assert(perspective_processing::DartboardSpec{}.outerDoubleRadius == kScoringRadiusMm,
                   "#1628: the wedge margin's scale is the board's scoring radius");
+    // #1773: the ring wires the vote's reading is measured against are the spec's, the
+    // same model its radius was read against; held equal here for the same reason.
+    static_assert(perspective_processing::DartboardSpec{}.bullRadius == kBullWireMm &&
+                      perspective_processing::DartboardSpec{}.bull25Radius == kBull25WireMm &&
+                      perspective_processing::DartboardSpec{}.innerTripleRadius == kInnerTrebleWireMm &&
+                      perspective_processing::DartboardSpec{}.outerTripleRadius == kOuterTrebleWireMm &&
+                      perspective_processing::DartboardSpec{}.innerDoubleRadius == kInnerDoubleWireMm,
+                  "#1773: the ring wires are the board spec's; change both or neither");
 
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
     {
@@ -1094,6 +1102,13 @@ namespace score_processing
             {
                 log_info(lone_wire.account);
             }
+            // #1773: and the same reading against the RING wires -- lone or consensus,
+            // because two cameras agreeing on "OUTER" is one camera's radius 0.5 mm from
+            // the bull's wire all the same (live, 2026-10-10 16:47). Measured here for
+            // every called dart so the census can count it on both paths; it is spent
+            // (the flag, the alternative, the demotion) only where the vote publishes.
+            const RingWireCall ring_wire = checkVoteReadingAgainstRingWires(
+                choice.camera >= 0 ? point_scores[choice.camera] : PointScore(), choice);
 
             // #1512/#1555: the geometric entry, for EVERY called dart -- the no-winner
             // MISS included, because a lone-witness phantom (#1505) is exactly an event
@@ -1308,6 +1323,26 @@ namespace score_processing
                 result.center_position = dart_result.camera_results[best_camera].center_position;
                 result.dartboard_position = dart_result.camera_results[best_camera].tip_position; // TODO: Convert to dartboard coordinates
                 result.confidence = choice.confidence;
+                // #1773: the reading's nearest RING wire, by its own ruler, on every vote
+                // publish and by default. Inside the sigma, the ring across the wire is
+                // offered in #1556's shape -- `rimCarriedFallback`'s shape one branch up,
+                // which was the DOUBLE only and opt-in -- and the confidence is demoted to
+                // #1556's 0.7. The score string is untouched. Said on every vote publish,
+                // flagged or clear (#1556 rule 3). The rim fallback's own flag, where it
+                // is on and fired, stands: it is the same ring flag with its own sentence.
+                // `boundary_mm` and `uncertainty_mm` stay -1: docs/api.md says a vote
+                // publish carries no millimetre uncertainty, and the margin is in the log.
+                if (!rim.to_miss && !ring_wire.account.empty())
+                {
+                    log_info(ring_wire.account);
+                }
+                if (!rim.to_miss && !rim.flag && ring_wire.flagged)
+                {
+                    result.boundary_flagged = true;
+                    result.alternative_score = ring_wire.alternative;
+                    result.boundary_kind = "ring";
+                    result.confidence = ring_wire.confidence;
+                }
                 result.camera_index = best_camera;
                 result.valid = true;
                 // #1186: the board-frame fields come from the same camera and the same
@@ -1429,6 +1464,10 @@ namespace score_processing
                 // published. That is the whole point of keeping the losing path
                 // reachable -- one binary, both answers, on the same dart.
                 log_info(loneWireCensusLine(window, point_scores, may_vote, vote_choice, lone_wire));
+                // #1773: the same reading's ring-wire margin and what the ring check said.
+                log_info(ringWireCensusLine(window, choice,
+                                            choice.camera >= 0 ? point_scores[choice.camera] : PointScore(),
+                                            ring_wire));
                 log_info(publishCensusLine(window, decision.path, result.score, result.confidence,
                                            result.degraded,
                                            entry_intersection::outcomeWord(solution.outcome),
