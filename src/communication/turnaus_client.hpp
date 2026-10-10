@@ -282,6 +282,18 @@ private:
     uint64_t posted_ = 0;
 };
 
+/**
+ * turnaus#1793: whether a delivered dart's answer is said at INFO. A DROPPED answer is
+ * ordinary under OD_PAST_THREE=on -- a board that pushes every arrival past three meets it
+ * whenever the round in hand already holds three (turnaus#1281) -- so it is said once per
+ * round and the rest go to DEBUG. Never retried and never a delivery fault either way: it
+ * is a 202, and deliver() settles it. With the switch off every answer is said, as before.
+ */
+inline bool droppedAnswerIsSaid(const std::string &outcome, bool said_this_round, bool switch_on)
+{
+    return !switch_on || outcome != "DROPPED" || !said_this_round;
+}
+
 class TurnausClient
 {
 public:
@@ -806,6 +818,9 @@ private:
     bool said_log_upload_failed_ = false; // a failure is said ONCE in the log, not once per END
     bool log_upload_off_ = false;         // a refusal (401, 403, 404, 422): nothing more this run
     bool frames_route_off_ = false;       // the deployment has no frame-request route: said once
+    // turnaus#1793: a DROPPED answer to a dart has been said at INFO since the last takeout
+    // was delivered (OD_PAST_THREE=on only; droppedAnswerIsSaid). Push thread only.
+    bool dropped_said_this_round_ = false;
 
     std::atomic<uint64_t> queued_{0};
     std::atomic<uint64_t> delivered_{0};

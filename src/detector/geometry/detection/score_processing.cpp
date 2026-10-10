@@ -979,7 +979,10 @@ namespace score_processing
 
         ScoreResult result;
 
-        if (dart_result.previous_state == dart_result.current_state)
+        // turnaus#1793: or no dart called past three (OD_PAST_THREE=on), which publishes from
+        // DART_3 to DART_3 through the DART_3 case below.
+        if (!dart_processing::windowPublishes(dart_result.previous_state, dart_result.current_state,
+                                              dart_result.past_three))
         {
             // No state change, return invalid result
             result.valid = false;
