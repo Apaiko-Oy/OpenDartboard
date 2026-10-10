@@ -861,6 +861,65 @@ live figures and on the fixtures' nearest darts, and mutates each constant both 
 It stays opt-in: it rests on one live takeout whose log is the only evidence, and no
 fixture holds an arm-sized window.
 
+## A dart past three (turnaus#1793), opt-in
+
+**What the code did** (read, then confirmed on the replays). The board counts arrivals itself,
+CLEAN -> DART_1 -> DART_2 -> DART_3. A camera at DART_3 whose fresh figure cleared the floor
+gave the candidate DART_3 (`Stay in DART_3`, `dart_processing.cpp`), which equals the board's
+state, so the vote counted it as a stay; and `score_processing` publishes only on a state
+change. So a board that had counted a dart nobody threw had no state for the visit's real
+third dart: when the player removed the phantom in Turnaus ("There was no dart there",
+turnaus#1723), the round had room again and nothing was pushed for the dart that filled it.
+The client already treated `DROPPED` as ordinary: a `202`, settled, not retried, counted as
+delivered, and logged once per push.
+
+`OD_PAST_THREE=on` (`dart_processing.cpp`; pure decisions in `dart_processing.hpp`):
+- a camera at DART_3 whose fresh figure clears the floor, or the rim floor (#1689), votes an
+  arrival past three (`votesArrivalPastThree`), and the vote counts it as an up vote
+  (`votesUp`) under the same quorum, the lone-camera rule (#1678) and the body hold (#1781);
+- a quorum calls a dart and the board stays DART_3 (`reconcileVote`); everything that
+  follows a called dart reads `windowCalledADart` instead of `final > previous`: the working
+  backgrounds move (#1495), the tips are recorded (#1535), the reversion memory is cleared
+  (#1552), the frames are kept (#1787), and a held past-three vote re-bases under
+  `OD_HELD_REBASE=on` (#1690) exactly as a held vote does at DART_1/2;
+- `score_processing` publishes it (`windowPublishes`) through the DART_3 case, and the line
+  `I1793 PAST THREE` says so;
+- the client says a `DROPPED` answer once per round at INFO and the rest at DEBUG
+  (`push_answer.hpp`); a delivered takeout ends the round. Off: every answer is said, as before.
+
+Turnaus decides whether the round has room: it counts the dart when a withdrawal left room
+and answers `DROPPED` to a fourth dart into a full round (turnaus#1281). The takeout is
+unchanged: CLEAN wins at quorum before any up vote is counted, from DART_3 as before.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_PAST_THREE=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+**No changed row** in any of the seven censuses, and **no arrival past three pushed** on any
+fixture: no `I1793 PAST THREE` line in any run (the switch's startup line is in all seven).
+The detector logs are identical line for line once the timings and the capture anchors are
+taken out, so no window was even held on a past-three vote (a held one would print a
+`STATE VOTE` line with its up count). No fixture holds a fourth arrival: every window opened
+on a board at DART_3 is the takeout. **No written turn changes** on any fixture.
+rig-20260918's v6 is the phantom's shape (a MISS window where v6.1's unseen miss was) but not
+#1793's: the round holds three windows and nothing arrives after them.
+
+What is not measured: a past-three vote cast by a camera in a window the vote reconciled
+CLEAN prints nothing, so how often the takeout's own motion votes past three on one camera
+before CLEAN wins is not counted. `testers/run_all.sh 1793-pastthree` holds the decisions on
+a replayed round (a phantom the player removes, then three real darts: S1 pushed and written
+with the switch on, not pushed with it off; a fourth arrival into a full round pushed and
+DROPPED with the written turn unchanged; a lone camera held; the takeout after it an END)
+and mutates each decision with its prediction stated first. It stays opt-in: the fixtures
+cannot show the case it is for, and only a live session can.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while
