@@ -198,7 +198,13 @@ namespace score_processing
                                            const std::string &publishedScore,
                                            const std::string &alternativeScore,
                                            const std::string &boundaryKind,
-                                           double boundaryMm, double uncertaintyMm)
+                                           double boundaryMm, double uncertaintyMm,
+                                           // #1766: what the sigma IS when no third line
+                                           // checked it (entry_intersection::sigmaProvenance).
+                                           // Appended to the sentence whether the call is
+                                           // flagged or clear, never to a vote publish (rule 1
+                                           // above), and empty on a controlled solve.
+                                           const std::string &sigmaProvenance = std::string())
     {
         BoundaryCall out;
         if (!geometryPublished)
@@ -206,6 +212,15 @@ namespace score_processing
             out.account = "";
             return out;
         }
+        // #1766: the sentence says what kind of sigma it is spending. Live on 2026-10-08 a
+        // two-line solve "cleared" the 3/19 wire at 17.9 mm across a 16.5 mm sigma (1.08
+        // sigma) while its six siblings on the same wedge were flagged at 12-15 mm, and
+        // nothing in the sentence said the 16.5 was the two cameras' crossing angle on that
+        // wedge -- the rig's figure, measured to 0.2% on every fixture two-line solve -- and
+        // not a dart's scatter. The threshold is #1556's, unchanged; the reader is told what
+        // the sigma is.
+        const std::string provenance =
+            sigmaProvenance.empty() ? std::string() : " (" + sigmaProvenance + ")";
         out.published = publishedScore;
         out.kind = boundaryKind;
         out.boundaryMm = (float)boundaryMm;
@@ -223,7 +238,7 @@ namespace score_processing
                           " wire is " + margin +
                           ", so " + publishedScore +
                           " publishes now as the more probable candidate and is flagged; a "
-                          "tap affirms it or appends the other";
+                          "tap affirms it or appends the other" + provenance;
             return out;
         }
         if (uncertaintyCrossesWire)
@@ -241,7 +256,7 @@ namespace score_processing
                  boundaryMm, uncertaintyMm);
         out.account = "UNCERTAINTY: " + publishedScore + " clears its nearest " +
                       (boundaryKind.empty() ? std::string("scoring") : boundaryKind) +
-                      " wire -- " + margin;
+                      " wire -- " + margin + provenance;
         return out;
     }
 

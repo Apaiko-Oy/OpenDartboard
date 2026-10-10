@@ -63,6 +63,10 @@ case "$NAME" in
   # #1678: the lone-camera corroboration rule (OD_LONE_CAMERA=on), pure.
   1678) SRC=i1678_lone_check.cpp;       EXTRA= ;;
   1681) SRC=i1681_control_check.cpp;     EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
+  # #1766: a two-line solve's across-wire sigma is its two lines' crossing angle, the live
+  # 1.08-sigma "clears" rebuilt on planted boards, and the sentence that now says whose
+  # sigma it is. Reaches score_processing.hpp too (pure) -- wire_model.cpp for row 1512's reason.
+  1766) SRC=i1766_twoline_check.cpp;     EXTRA=src/detector/geometry/calibration/wire_model.cpp ;;
   # #1456: which look a refused camera seals -- best R of the budget, ties to the earliest.
   1456) SRC=i1456_look_choice_check.cpp;  EXTRA= ;;
   # Not an iNNNN: the connected-bull regression shipped with the maintainer's fix of
@@ -73,7 +77,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1553 1554 1560 1586 1649 1652 bull-colour" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1553 1554 1560 1586 1649 1652 bull-colour" >&2
     exit 2
     ;;
 esac

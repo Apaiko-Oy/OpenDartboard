@@ -1532,6 +1532,51 @@ namespace entry_intersection
         return std::string(head) + (sol.controlStory.empty() ? "-" : sol.controlStory);
     }
 
+    /**
+     * #1766: WHAT THE ACROSS-WIRE SIGMA IS, when no third line checked it. Empty on a
+     * controlled solve. The sentence `decideBoundaryCall` prints appends it.
+     *
+     * A two-line solve is a 2x2 system: its covariance is A^-1 diag(s1^2, s2^2) A^-T with A
+     * the two unit normals, and nothing else goes in -- with equal line sigmas s the major
+     * axis is s / (sqrt(2) sin(pair/2)). The line sigmas are 4-7 mm on every fixture (a
+     * floored 3 deg over the lever, plus 4.5 px lateral), so the across-wire sigma of such
+     * a solve is the crossing angle of the two cameras' lines on that wedge: the rig's
+     * figure for that place on the board, not the dart's. Measured (testers/i1766_census.py
+     * over the bakeoff's I1512CAM/I1512ENTRY lines): the recomputation reproduces the
+     * claimed major axis to 0.2% on all 30 fixture two-line solves, pair angles 33.5-88.6
+     * deg, across-wire sigmas 5.0-9.3 mm. Live on 2026-10-08 the same pair of physical
+     * cameras (rig-20260929's 1 and 3, the log's 2 and 3) on the 3/19 wedge claimed
+     * 12.2-16.5 mm -- a 25-37 deg crossing at the bottom of the board -- and the sentence
+     * "clears ... 17.9 mm away across a 16.5 mm one-sigma" said nothing about where the
+     * 16.5 came from. Now it does, flagged or clear alike.
+     */
+    inline std::string sigmaProvenance(const EntrySolution &sol)
+    {
+        if (!sol.solved || !sol.uncontrolled)
+        {
+            return std::string();
+        }
+        std::string cams;
+        int used = 0;
+        for (const Constraint &con : sol.constraints)
+        {
+            if (con.usable && !con.excluded)
+            {
+                cams += (used == 0 ? "" : " and ") + std::to_string(con.camera + 1);
+                used++;
+            }
+        }
+        if (used == 2)
+        {
+            return "a two-line solve of cameras " + cams + " crossing at " +
+                   detail::fmt("%.1f", sol.bestPairAngleDeg) +
+                   " deg: the sigma is that crossing's, and no third line checks it (#1766)";
+        }
+        return "a solve whose camera " + std::to_string(sol.leastControlledCamera) +
+               " line has redundancy " + detail::fmt("%.2f", sol.minRedundancy) +
+               ": the other lines cannot see it displaced, so nothing checks this sigma (#1766)";
+    }
+
     /** One line per offered camera; exclusion words last. */
     inline std::string censusCameraLine(const Constraint &con, long window)
     {
