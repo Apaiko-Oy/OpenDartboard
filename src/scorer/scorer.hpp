@@ -8,6 +8,7 @@
 #include "../communication/websocket_service.hpp"
 #include "../communication/score_queue.hpp"
 #include "../communication/turnaus_client.hpp"
+#include "../utils/scheduled_stop.hpp"
 #include <memory>
 
 using namespace std;
@@ -47,6 +48,22 @@ public:
    * testers/i1383_units.sh fails the tree if the shipped unit ever names one.
    */
   static constexpr int kCouldNotSee = 75;
+
+  /**
+   * #1797: the exit status of a board that stopped ITSELF at 06:00 local so the launcher
+   * can look for an update and start it again. The number lives in
+   * src/utils/scheduled_stop.hpp, the one header the detector and the launcher both read,
+   * so the two programs cannot disagree about it; that header says why it is 60 and not
+   * 0, 75 or one of the launcher's own. The stop leaves by the same flag and the same
+   * unwind as SIGTERM, so every shutdown duty runs; only this number differs.
+   */
+  static constexpr int kScheduledStop = scheduled_stop::kExitCode;
+
+  /**
+   * Whether this run ended because the schedule stopped it. Read once, by main, to decide
+   * the status above. False on every other route out, including a vigil left by SIGTERM.
+   */
+  bool stoppedOnSchedule() const { return stopped_on_schedule_; }
 
   /**
    * Whether this run ended because a cycle budget ended a board that could not see.
@@ -120,6 +137,20 @@ private:
   // #1383: set by the fault vigil and by nothing else. Written and read on the thread
   // that calls run(), so it is a plain bool rather than an atomic.
   bool ended_blind_on_the_budget_{false};
+
+  // #1797: set by the scheduled stop and by nothing else; same thread as run(), so plain.
+  bool stopped_on_schedule_{false};
+
+  // #1797: the schedule, armed at the top of run() from the pin and the clock, and the two
+  // facts its one guard reads -- written in sendResult() on the scoring thread beside the
+  // `SCORE:` line itself (a publish that is not END is a dart and opens the round; END
+  // closes it), read by scheduledStopIsDue() on the same thread.
+  scheduled_stop::Schedule schedule_;
+  scheduled_stop::Facts schedule_facts_;
+
+  // #1797: one poll of the schedule, said in the log when the answer changed. True means
+  // stop now, by the same flag a signal sets; the caller clears `running` and leaves.
+  bool scheduledStopIsDue();
 
   std::shared_ptr<ScoreQueue> score_queue_;
   std::unique_ptr<WebSocketService> websocket_service_;

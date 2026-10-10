@@ -63,8 +63,16 @@ T0=$(date +%s.%N)
 # runs-i1650; turnaus#1655 has the four runs).
 # OD_MOTION_CLOCK=wall pins the pre-#1655 instrument; its figures move with the box's load.
 export OD_MOTION_CLOCK="${OD_MOTION_CLOCK:-capture}"
+#
+# #1797: OD_SCHEDULED_RESTART=off keeps the detector from stopping itself at 06:00 in the
+# container's zone (UTC in od-amd64:bullseye, 09:00 in Helsinki). The bakeoff runs
+# unbounded (OD_MAX_CYCLES=0) for twenty minutes and a gate that crosses six o'clock would
+# otherwise measure a replay that stopped at a 10-minute mark; the pin is the only way to
+# keep a board from stopping at six (docs/rig.md), so the bakeoff DEFAULTS to it and
+# forwards it. OD_SCHEDULED_RESTART=on measures the stop instead, which is i1797_replay.sh's.
+export OD_SCHEDULED_RESTART="${OD_SCHEDULED_RESTART:-off}"
 FWD=()
-for v in OD_MOTION_CLOCK OD_WINDOW_UNIT OD_BODY_WINDOW OD_BODY_CENSUS OD_WINDOW_CROP OD_BOARD_COUNT OD_HELD_REBASE OD_CLEAN_ADOPT OD_RIM_FALLBACK OD_WIRE_REGION OD_WIRE_REGION_MARGIN OD_SPIKE_THRESHOLD OD_LONE_CAMERA OD_LONE_CENSUS OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS OD_BULL_SUBPIXEL OD_SOLVE_CONTROL; do
+for v in OD_MOTION_CLOCK OD_SCHEDULED_RESTART OD_WINDOW_UNIT OD_BODY_WINDOW OD_BODY_CENSUS OD_WINDOW_CROP OD_BOARD_COUNT OD_HELD_REBASE OD_CLEAN_ADOPT OD_RIM_FALLBACK OD_WIRE_REGION OD_WIRE_REGION_MARGIN OD_SPIKE_THRESHOLD OD_LONE_CAMERA OD_LONE_CENSUS OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS OD_BULL_SUBPIXEL OD_SOLVE_CONTROL; do
   if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1555 FORWARD $v=${!v}"; fi
 done
 

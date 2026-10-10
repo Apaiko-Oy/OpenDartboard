@@ -122,7 +122,7 @@ namespace launcher
         std::string previous_version; // what is kept in update\previous, empty when nothing is
         long long last_started = 0;   // unix seconds, 0 when never
         long long last_stopped = 0;   // unix seconds, 0 when never
-        std::string last_ending;      // "cleanly" | "faulted" | "killed" | "never-started" | ""
+        std::string last_ending;      // "cleanly" | "faulted" | "killed" | "never-started" | "scheduled" (#1797) | ""
         int failed_starts = 0;        // consecutive fast bad endings of the version now installed
     };
 

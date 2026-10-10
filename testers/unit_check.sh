@@ -78,6 +78,11 @@ case "$NAME" in
   # turnaus_client.cpp for detectionBody, as i1366_position_check.py compiles it; the
   # upload-ledger and frames-buffer checks are i1787_check.sh's, which also runs this.
   1787) SRC=i1787_body_check.cpp;        EXTRA="src/communication/turnaus_client.cpp -lpthread" ;;
+  # #1797: the 06:00 scheduled stop's clock rule and its one guard, driven with a fake
+  # clock, and the launcher's side of it (decideMoment's fourth door, endingOf's word).
+  # Pure, over scheduled_stop.hpp and the launcher headers; the mutation proofs and the
+  # re-carry against a real stub are i1797_check.sh's, which also runs this.
+  1797) SRC=i1797_schedule_check.cpp;    EXTRA= ;;
   # Not an iNNNN: the connected-bull regression shipped with the maintainer's fix of
   # 2026-09-22 (1e39e79), which carried no issue number and no row; registered by #1534.
   # The whole calibration directory, because half of what it asserts is
@@ -86,7 +91,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour 1787" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour 1787 1797" >&2
     exit 2
     ;;
 esac
