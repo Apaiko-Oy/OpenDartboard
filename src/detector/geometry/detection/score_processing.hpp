@@ -1072,8 +1072,11 @@ namespace score_processing
         }
         else if (p.ring == "single")
         {
-            // A single spans two bands; the ruler says which the tip is in.
-            if (out.radiusMm < (kBull25WireMm + kInnerTrebleWireMm) / 2.0f)
+            // A single spans two bands, 15.9..99 inside the treble and 107..162 outside
+            // it; the ruler says which the tip is in, split at the treble's middle (a
+            // ruler radius inside the treble band on a reading the ellipses called
+            // single goes to the nearer treble wire either way).
+            if (out.radiusMm < (kInnerTrebleWireMm + kOuterTrebleWireMm) / 2.0f)
             {
                 inner = {kBull25WireMm, "the 25 ring's wire", "outer"};
                 outer = {kInnerTrebleWireMm, "the treble's inner wire", "triple"};
