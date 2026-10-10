@@ -1005,6 +1005,127 @@ ran to the end of the footage and exited 0: the guard measured live, the stop no
 overnight restarts at 06:00, the log shows the sentence, `update\state.txt` shows
 `scheduled`, and the new run's first lines name the version Turnaus offered. Not yet done.
 
+## A session read back: the truth line, the log and the fault classes (turnaus#1789)
+
+What the board posts (#1787) Turnaus keeps per dart beside the thrower's corrections and
+exports per board-day as a **truth line** (turnaus#1786), with the day's uploaded log
+beside it. `testers/i1789_truth_census.py` reads both back on this side: it recounts the
+four counts the desk shows, prints every corrected dart with its log window, and names
+each one's fault class. The server's counts are the authority; this is the independent
+recount, so the two can be compared.
+
+**Fetching a session.** A Platform Operator issues an operator token on the Turnaus
+operator desk (turnaus#1790; it holds the one ability `operator:boards.read`). With it,
+for a board's `kind` (`device` or `casual`), its id and the Finnish calendar day:
+
+    TOKEN=...   # the operator token, shown once when it is issued
+    BASE=https://<turnaus host>/api/v1/operator/boards/device/<id>/2026-10-10
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/truth-line" > truth-line.txt
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/log"        > log.txt
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE"            > day.json   # the server's own counts
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/frames/<reference>/<camera>" > frame.png
+
+Any credential but an operator's answers 404 there and a revoked token 401. The script
+reads files, never the network; run it in the image (no host python3 on the box):
+
+    docker run --rm --network none -v "$PWD":/app:ro -w /app od-amd64:bullseye \
+      python3 testers/i1789_truth_census.py --truth truth-line.txt --log log.txt
+
+**The format it reads is Turnaus main's, and it reads it by name.** The header is
+`# turnaus truth line v1 board=<kind>/<id> day=<day> zone=Europe/Helsinki`, then
+`# <columns>`, then one space-separated line per dart, `-` for anything not said. The
+columns are `BoardSession::COLUMNS`: `reference published alternative corrected picked
+path flagged degraded candidates cameras crossing_deg sigma_mm margin_mm wire_kind agreeing
+lone_wire_mm ring_wire_mm radius angle bounced outcome corrections posted_at`. `degraded`
+was added after `flagged` while the header still said v1, so the field order is taken from
+the export's own columns line and never by position; a column the script needs that is not
+named, a dart line whose field count is not the columns line's, a `picked` that is not one
+of `App\Autoscoring\Pick`'s (`alternative published candidate typed removed turn`) or a
+`path` that is not `geometry`/`vote`/`-` is refused with exit 3, naming the line, and
+nothing is counted. Sectors are #821's grammar (`None` is a miss, `25` and `Bull`).
+
+**What each count means** (`I1789 COUNT path=<geometry|vote|unknown|total>`). A dart is
+counted by its last correction, which is what `picked` carries (Turnaus's
+`BoardSession::countOf`):
+
+| count | the dart | what it says |
+|---|---|---|
+| `alternative` | flagged, corrected to the board's alternative | the flag worked |
+| `candidate` | flagged, corrected to another of its candidates | the flag offered the wrong coin, the payload held the right one (#1782's shape) |
+| `typed` | flagged, corrected to something offered nowhere | the flag offered the wrong coins |
+| `unflagged` | not flagged, corrected to anything | nothing warned |
+| `removed` | the dart was never there | a phantom (#1781); in none of the four |
+| `undone` | the last correction put back what was published | no correction at all |
+| `turn` | a Casual turn's total was corrected | names no dart; in none of the four |
+| `corrected` | any correction at all | the desk's figure |
+| `false_flag` | flagged and its published score stood | `false_flag_rate` is it over `flagged` |
+
+**The join.** The client prints every accepted push as `TURNAUS: <OUTCOME> <body>`, and the
+body carries the dart's `reference`. The dart's window is its `SCORE:` line (the nearest
+before the push whose sector is the published one) back to the previous `SCORE:` line, and
+the script prints its `SCORE`, `UNCERTAINTY`, `Geometric score`, `Consensus score` /
+`No consensus`, `LONE-WIRE`, `RING-WIRE`, `BOARD` and `I1707 RIM CARRIED` lines and the push
+line. A corrected dart whose reference is not in the log is printed `I1789 ABSENT`, never
+dropped. `I1789 PICK-DISAGREES` names a dart whose `picked` is not what Turnaus's
+`DartCorrections::picked` would decide from the sectors.
+
+**The fault classes**, from the account, the first that holds winning:
+
+| class | issue | holds when |
+|---|---|---|
+| `phantom-takeout` | #1781 | the dart's SCORE line is within 2.0 s of a `SCORE: END` -- the one class that needs the log, because the truth line carries no END |
+| `rim-one-tip` | #1707 | a lone vote reading (`agreeing` 1) published a double, or was corrected to a miss |
+| `corner` | #1782 | a geometric solve within its own `sigma_mm` of a ring wire AND a wedge wire (the account's margin for one, the other from `radius`/`angle` on the 170 mm model) |
+| `two-line-wire` | #1766 | a two-camera geometric solve within its own `sigma_mm` of the wire it names |
+| `ring-wire` | #1773 | a vote reading, lone or consensus, within 5 mm of a ring wire (`ring_wire_mm`) |
+| `lone-wedge-wire` | #1628 | a lone vote reading within 5 mm of a wedge wire (`lone_wire_mm`); the nearer margin decides against `ring-wire` |
+| `unflagged-geometric` | #1556 | a geometric solve published unflagged and corrected |
+| `unclassified` | -- | the honest default |
+
+The 2.0 s is #1789's own figure; #1781's phantoms were 0.74 s before and 0.98 s after their
+END. The 5 mm is #1628's lone-reading sigma, which #1773 reused for ring wires.
+
+**The reference set: 2026-10-10 (build 2b56b48).** `testers/fixtures/i1789/` holds the
+session as a hand-written truth line of 25 darts and a log excerpt written from the lines
+the issues quote: the live logs are not on this machine, and 2b56b48 predates the account,
+so the fixture is what a board posting the account would have exported for the darts
+#1707, #1773, #1781, #1782 and #1783 describe; the header of each file says what is
+recorded, what is computed and what is invented. Its census:
+
+| path | posted | corrected | alternative | candidate | typed | unflagged | removed | flagged | false flags |
+|---|---|---|---|---|---|---|---|---|---|
+| geometry | 3 | 2 | 1 | 1 | 0 | 0 | 0 | 3 | 1 |
+| vote | 22 | 11 | 0 | 0 | 0 | 9 | 2 | 0 | 0 |
+| total | 25 | 13 | 1 | 1 | 0 | 9 | 2 | 3 | 1 |
+
+| time | thrown | published | class |
+|---|---|---|---|
+| 15:39:23 | miss | S20, lone, radius 0.562 (absent from the excerpt on purpose) | rim-one-tip (#1707) |
+| 15:51:49 | S19 | T19, lone, 3.1 mm from the treble's inner wire | ring-wire (#1773) |
+| 16:06:25 | S1 | OUTER, lone, 2.3 mm from the bull's wire | ring-wire (#1773) |
+| 16:20:06 | S16 | D16, lone, radius 0.9615 | rim-one-tip (#1707) |
+| 16:21:11 | miss | D3, lone, radius 0.998 | rim-one-tip (#1707) |
+| 16:24:24 | S3 | MISS, no reading | unclassified (#1781 notes it, one instance) |
+| 16:24:28 | -- | D11, removed, 0.74 s before the END | phantom-takeout (#1781) |
+| 16:24:30 | -- | S2, removed, 0.98 s after the END | phantom-takeout (#1781) |
+| 16:28:35, 16:28:37 | miss, miss | D18, D18, lone, radius 0.999 / 0.990 | rim-one-tip (#1707) |
+| 16:38:53 | S19 | T3 flagged S3, two lines, 0.6 / 1.8 mm across 5.3 mm | corner (#1782) |
+| 16:47:22 | BULL | OUTER, two cameras, 0.5 mm from the bull's wire | ring-wire (#1773) |
+| 16:49:15 | S20 | S1 flagged S20, two lines, 2.1 mm across 5.1 mm | two-line-wire (#1766) |
+
+The session has no instance of `lone-wedge-wire` or `unflagged-geometric` (#1773 records
+every unflagged geometric solve of the day right); the self-test holds those two rules on
+hand-built accounts, not on session data.
+
+**Measured (`testers/run_all.sh 1789-truth`, 4.4 s).** The self-test (18 cases); the
+fixture against its header's 18 expectations; and three mutations, each predicted first:
+the 16:49:15 dart's `picked` moved from `alternative` to `typed` turns exactly
+`geometry.alternative`, `geometry.typed`, `total.alternative` and `total.typed` red and
+`PICK-DISAGREES` names it; `degraded` struck from the columns line is refused on the first
+dart line (23 fields where the columns line names 22) with no count printed; the 16:24:29
+END struck from the log moves exactly the two phantoms, the D11 to `rim-one-tip` and the S2
+to `ring-wire` (4.35 mm), which is why the takeout is decided first.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never
