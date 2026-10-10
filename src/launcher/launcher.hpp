@@ -276,16 +276,16 @@ namespace launcher
                 state.last_started = clock();
                 state.last_ending.clear();
                 writeState(surroundings.layout.state_file, state);
-    
+
                 const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
                 outcome = runner(surroundings.layout.detector, arguments);
                 ran_for =
                     std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
-    
+
                 const Ending ending = endingOf(outcome);
                 state.last_stopped = clock();
                 state.last_ending = endingWord(ending);
-    
+
                 if (!failedToStart(ending, ran_for))
                 {
                     // It started. Whatever it then did is #1303's business, and a version that
@@ -294,10 +294,10 @@ namespace launcher
                     writeState(surroundings.layout.state_file, state);
                     break;
                 }
-    
+
                 state.failed_starts++;
                 writeState(surroundings.layout.state_file, state);
-    
+
                 const bool attempts_left = state.failed_starts < kAllowedFailedStarts;
                 const bool can_go_back = hasSomethingToGoBackTo(state) && fileExists(surroundings.layout.previous_exe);
                 if (!attempts_left && !can_go_back)
@@ -308,14 +308,14 @@ namespace launcher
                 {
                     break; // the bound, so that nothing here can loop
                 }
-    
+
                 const Text tried = {"Versio " + report.ran_version + " ei käynnistynyt (" + std::to_string(ran_for) +
                                         " s, paluukoodi " + codeAsText(outcome.code) + ").",
                                     "Version " + report.ran_version + " did not start (" + std::to_string(ran_for) +
                                         " s, exit code " + codeAsText(outcome.code) + ")."};
                 console.say(tried);
                 report.said.push_back(tried);
-    
+
                 if (attempts_left)
                 {
                     const Text again = {"Yritetään vielä kerran.", "Trying once more."};
@@ -323,7 +323,7 @@ namespace launcher
                     report.said.push_back(again);
                     continue;
                 }
-    
+
                 const std::string going_back_to = state.previous_version;
                 if (rollBack(surroundings.layout, state))
                 {

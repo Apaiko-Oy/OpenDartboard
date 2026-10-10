@@ -46,7 +46,7 @@ od_run "1797-replay" --cpus=2 --network none -e HOME=/root -e OFFSET="$OFFSET" \
   replay() { # replay <name> <env...>
     local name="$1"; shift
     rm -rf /run1797/cache /run1797/debug_frames
-    env OD_MAX_CYCLES=0 OD_GEO_SCORE=on "$@" timeout 900 $BIN --cams "$CAMS" --width 1280 --height 720 \
+    env OD_MAX_CYCLES=0 "$@" timeout 900 $BIN --cams "$CAMS" --width 1280 --height 720 \
         --log-file "/run1797/$name.log" > "/run1797/$name.out" 2>&1
     local rc=$?
     sed "s/\x1b\[[0-9;]*m//g" "/run1797/$name.out" > "/run1797/$name.txt"
@@ -69,7 +69,7 @@ od_run "1797-replay" --cpus=2 --network none -e HOME=/root -e OFFSET="$OFFSET" \
 
   echo
   echo "==== forced: OD_SCHEDULED_CLOCK puts the rule at 06:00 ${OFFSET}s after the start ===="
-  FORCED=$(( $(date -u -d "today 06:00:00" +%s) - OFFSET ))
+  FORCED=$(( $(date -u -d "$(date -u +%Y-%m-%d) 06:00:00" +%s) - OFFSET ))
   echo "OD_SCHEDULED_CLOCK=$FORCED ($(date -u -d @$FORCED +%H:%M:%S) UTC for the rule; the log stamps stay real)"
   replay forced OD_SCHEDULED_CLOCK="$FORCED"; RC=$?
   note $([ $RC -eq 60 ] && echo 0 || echo 1) "forced: the detector exited 60, scheduled_stop::kExitCode (rc=$RC)"

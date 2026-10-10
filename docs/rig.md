@@ -842,6 +842,77 @@ same bytes twice. `LogUploadLedger` in `turnaus_client.hpp` is the arithmetic;
 server that lost its copy, and shows the count model it replaces losing the log on the
 last of those.
 
+## The scheduled restart at 06:00 (turnaus#1797)
+
+**Why a working board stops.** ADR-0077 §7 lets the launcher look for an update only
+before a start that follows a clean stop at least fifteen minutes old
+(`src/launcher/update_moment.hpp`, `kQuietSeconds`). A board that is online around the
+clock never starts, so a release on its channel reaches it only when somebody restarts it
+by hand. The maintainer's decision of 2026-10-10 -- "no one is playing at 6am" -- is that
+a board still running at 06:00 local stops itself then, and the restart is what lets the
+launcher look. No push from Turnaus (the beat answer stays the interval and the silence),
+no idle heuristics beyond the one guard below.
+
+**The rule** (`src/utils/scheduled_stop.hpp`, pure, driven with a fake clock by
+`testers/i1797_schedule_check.cpp`). Local time by the machine's zone, through the same
+`std::localtime` the log's timestamps use. A detector started before 06:00 is due to stop
+at 06:00:00 that day; one started at or after 06:00 waits for the next day's 06:00, so the
+board the launcher starts again at 06:00:xx does not stop twice. The log says when the stop
+is due as the loop starts (`I1797 SCHEDULED RESTART armed: due at 2026-10-12 06:00 local`).
+**The one guard**, said in the log each time it fires: a dart published in the last ten
+minutes, or a round the board has not yet seen taken out (a `SCORE: <x>` with no
+`SCORE: END` after it), postpones the stop to the next ten-minute mark --
+`I1797 SCHEDULED RESTART postponed to 06:10: a dart was published 240 s ago, inside the
+10-minute guard` -- and again to 06:20 if the board is still busy then. The two facts are
+written in `Scorer::sendResult` beside the `SCORE:` line itself. When the board is quiet
+the log says `I1797 SCHEDULED RESTART at 06:00: the launcher looks for an update and starts
+the board again` and the loop leaves by the flag SIGINT and SIGTERM set (#825), so the
+shutdown is the ordinary one -- the announcement withdrawn, the score socket joined,
+#1787's final log post and `TURNAUS: client stopped` -- and the only difference is the
+exit status.
+
+**Exit code 60** (`scheduled_stop::kExitCode`, `Scorer::kScheduledStop`, the launcher's
+`kScheduledStop`: one constant, one header, both programs). Above 0 and below 128; away
+from 75 (`kCouldNotSee`) and 78 which the detector already returns, from the sysexits
+range 64-78 generally, from the launcher's own 40-42 so a Task Scheduler reader is never
+looking at the child's number, and from 124-127 which `timeout` and the shell use. The
+launcher writes it into `update\state.txt` as `last_ending=scheduled`; `endedBadly()`
+does not name it, it counts against nothing, and `decideMoment()` answers
+`Moment::Scheduled` -- MAY check -- at any gap, two seconds included, with its own
+sentence in both languages. A `cleanly` stop two seconds old is still `QuickRestart`.
+
+**The launcher starts it again.** `carry()` (`src/launcher/launcher.hpp`) goes round once
+more after a `scheduled` ending and only after that one: it says the ending in the window,
+reads the state, looks (installing or rolling back exactly as #1306), and starts the
+detector with the same arguments. A detector that comes back `scheduled` again inside a
+minute of the start that followed a scheduled stop is a bug in the rule, not a day: the
+launcher refuses to follow it, says so, and exits 43 (`kScheduledNotFollowed`).
+`testers/i1797_carry_check.cpp` measures this against a real child (`i1797_stub`, exit 60
+once and 0 the second time): two starts, identical `argv`, one manifest request between
+them while the state file says `scheduled`, the sentence said; a clean ending from the
+same state is one start and no look, byte for byte #1303's. Under systemd the unit's
+`Restart=always` would do the carrying (#1796, the Pi; not this issue).
+
+**The pin.** `OD_SCHEDULED_RESTART=off` is the only way to keep a board from stopping at
+six: it is read once at start like the other `OD_*` pins and says so in the log
+(`OD_SCHEDULED_RESTART=off is set: this board does not stop itself at 06:00 ...`). It is
+for a rig under a replay and for a tester with a long clock: `testers/i1555_run.sh`
+defaults to it and forwards it, because the bakeoff runs unbounded in a container whose
+zone is UTC and a gate crossing 06:00 UTC (09:00 in Helsinki) would otherwise measure a
+replay that stopped at a ten-minute mark. Any other tester that runs the detector unbounded
+past six in the container's zone wants the same line. `OD_SCHEDULED_CLOCK=<unix seconds>`
+is test-only and is an injected clock for the rule alone: the schedule starts at that
+instant and advances with the steady clock, the log's own timestamps stay the machine's,
+and nothing deployed sets it.
+
+**Measured on this box, 2026-10-11** (`testers/i1797_replay.sh`, `mocks/rig-20260918`, the
+dev binary, `--cpus=2`): see the figures the script prints; recorded here once they were.
+_MEASUREMENTS PENDING -- filled in below once the replays ran._
+
+**The overnight measurement on the rig is the maintainer's**: a board left running
+overnight restarts at 06:00, the log shows the sentence, `update\state.txt` shows
+`scheduled`, and the new run's first lines name the version Turnaus offered. Not yet done.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never

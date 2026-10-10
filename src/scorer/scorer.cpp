@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include "utils/od_clock.hpp"
 #include "utils/board_sight.hpp"
 #include "utils/od_fix.hpp"
