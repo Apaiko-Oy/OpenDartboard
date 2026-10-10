@@ -73,6 +73,11 @@ case "$NAME" in
   1773) SRC=i1773_ringwire_check.cpp;    EXTRA= ;;
   # #1456: which look a refused camera seals -- best R of the budget, ties to the earliest.
   1456) SRC=i1456_look_choice_check.cpp;  EXTRA= ;;
+  # #1787: the detection body's account fields (path, cameras, sigma, margin, the vote's
+  # story) beside #1366's unchanged bytes, with the mutation inside the check. Links
+  # turnaus_client.cpp for detectionBody, as i1366_position_check.py compiles it; the
+  # upload-ledger and frames-buffer checks are i1787_check.sh's, which also runs this.
+  1787) SRC=i1787_body_check.cpp;        EXTRA="src/communication/turnaus_client.cpp -lpthread" ;;
   # Not an iNNNN: the connected-bull regression shipped with the maintainer's fix of
   # 2026-09-22 (1e39e79), which carried no issue number and no row; registered by #1534.
   # The whole calibration directory, because half of what it asserts is
@@ -81,7 +86,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour 1787" >&2
     exit 2
     ;;
 esac

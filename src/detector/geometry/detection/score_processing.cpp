@@ -1162,6 +1162,14 @@ namespace score_processing
             result.geometry_outcome = decision.geometry_asked
                                           ? outcome_word
                                           : string();
+            // #1787: the window that called this dart, as the census lines name it.
+            for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+            {
+                if (r.axis.windowOrdinal >= 0)
+                {
+                    result.window_ordinal = r.axis.windowOrdinal;
+                }
+            }
 
             // #1556: the crossing, decided in one place for every called dart and BEFORE
             // the branch below, so no path can be the one that forgets to say it. The
@@ -1246,6 +1254,20 @@ namespace score_processing
                          // 2026-10-08 read "read through camera 1" on 154 solves whose
                          // camera 1 had been refused -- it was camera 2.
                          to_string(reference + 1));
+                // #1787: the same count as fields -- the lines the solve intersected, by
+                // camera number as the sentence above spells it, and on a two-line solve
+                // the crossing angle #1766 showed is the whole of its across-wire sigma.
+                for (const entry_intersection::Constraint &con : solution.constraints)
+                {
+                    if (con.usable && con.camera >= 0)
+                    {
+                        result.cameras_used.push_back(con.camera + 1);
+                    }
+                }
+                if (solution.usableConstraints == 2)
+                {
+                    result.crossing_deg = (float)solution.bestPairAngleDeg;
+                }
                 // The BOARD line, in the geometric path's own words. It deliberately
                 // matches neither "wedge measured" nor "wedge by default": i1484's
                 // census reads those two as a claim about a CAMERA's angular ruler, and
@@ -1335,6 +1357,7 @@ namespace score_processing
                 if (!rim.to_miss && !ring_wire.account.empty())
                 {
                     log_info(ring_wire.account);
+                    result.ring_wire_mm = ring_wire.ring.marginMm; // #1787: the sentence's margin, as a field
                 }
                 if (!rim.to_miss && !rim.flag && ring_wire.flagged)
                 {
@@ -1345,6 +1368,16 @@ namespace score_processing
                 }
                 result.camera_index = best_camera;
                 result.valid = true;
+                // #1787: the vote's own account as fields -- "from N cameras" of the
+                // Consensus line, the one camera whose string published, and the margin
+                // the LONE-WIRE sentence printed where a lone reading was checked.
+                result.agreeing = choice.agreeing;
+                result.cameras_used.push_back(best_camera + 1);
+                if (lone_wire.checked)
+                {
+                    result.lone_wire_mm = lone_wire.chosen_margin_mm >= 0.0f ? lone_wire.chosen_margin_mm
+                                                                              : lone_wire.margin_mm;
+                }
                 // #1186: the board-frame fields come from the same camera and the same
                 // decision the score string came from, never from the string.
                 result.ring = point_scores[best_camera].ring;

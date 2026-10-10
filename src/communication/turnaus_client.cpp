@@ -749,8 +749,111 @@ TurnausClient::DetectionBody TurnausClient::detectionBody(const std::string &ref
             "is, so this dart goes without a position";
     }
 
+    // #1787: the rest of the board's account, so the server (turnaus#1786) holds beside
+    // each dart what the log said about it -- which path named it, from how many cameras,
+    // how close to which wire, and what the vote's own story was. Every number is one the
+    // log already prints and the detector already carries (detector_interface.hpp); this
+    // posts them. GATED ON `path`: a result that does not carry the account (a detector
+    // that does not fill it, every tester's hand-built dart) posts exactly the bytes it
+    // posted before this block existed, so #1366's byte-for-byte holds and an older server
+    // sees nothing new. A field is present exactly when the result has its number --
+    // absent, never null or a nought, as #1366 spelled the position -- and
+    // accountFieldsExpected() in the header is the same rule written once more, for the
+    // check that names a missing field.
+    if (!result.path.empty())
+    {
+        body["path"] = result.path;
+        body["flagged"] = result.boundary_flagged;
+        body["confidence"] = atPlaces((double)result.confidence, 2);
+        body["degraded"] = result.degraded;
+        if (!result.cameras_used.empty())
+        {
+            body["cameras_used"] = result.cameras_used;
+        }
+        if (result.crossing_deg >= 0.0f)
+        {
+            body["crossing_deg"] = atPlaces((double)result.crossing_deg, 2);
+        }
+        if (result.uncertainty_mm >= 0.0f)
+        {
+            body["sigma_mm"] = atPlaces((double)result.uncertainty_mm, 2);
+        }
+        if (result.boundary_mm >= 0.0f)
+        {
+            body["margin_mm"] = atPlaces((double)result.boundary_mm, 2);
+        }
+        if (!result.boundary_kind.empty())
+        {
+            body["wire_kind"] = result.boundary_kind;
+        }
+        if (result.path == "vote")
+        {
+            body["agreeing"] = result.agreeing;
+        }
+        if (result.lone_wire_mm >= 0.0f)
+        {
+            body["lone_wire_mm"] = atPlaces((double)result.lone_wire_mm, 2);
+        }
+        if (result.ring_wire_mm >= 0.0f)
+        {
+            body["ring_wire_mm"] = atPlaces((double)result.ring_wire_mm, 2);
+        }
+        out.carries_account = true;
+    }
+
     out.json = body.dump();
     return out;
+}
+
+const char *TurnausClient::logPath(Binding binding)
+{
+    return binding == Binding::Contest ? "/api/v1/casual/log" : "/api/v1/autoscorer/log";
+}
+
+const char *TurnausClient::frameRequestsPath(Binding binding)
+{
+    return binding == Binding::Contest ? "/api/v1/casual/frame-requests" : "/api/v1/autoscorer/frame-requests";
+}
+
+std::string TurnausClient::logChunkBody(const std::string &file, uint64_t offset, const std::string &text, bool final)
+{
+    json body;
+    body["file"] = file;
+    body["offset"] = offset;
+    body["text"] = text;
+    body["final"] = final;
+    // A log line is ASCII in every word this program writes, and a label or a path can
+    // carry UTF-8; a byte that is neither (a torn write, a foreign tool appending) is
+    // replaced with U+FFFD rather than refused, because a chunk that cannot be posted
+    // would wedge the offset for the life of the file. The OFFSET still counts the bytes
+    // as they are on disk, so the next chunk begins where this one really ended.
+    return body.dump(-1, ' ', false, json::error_handler_t::replace);
+}
+
+std::string TurnausClient::frameAnswerBody(const std::string &reference, const frame_keep::Answer &answer)
+{
+    json body;
+    body["reference"] = reference;
+    body["found"] = answer.found;
+    if (answer.found)
+    {
+        body["window"] = answer.window;
+        body["census"] = answer.census;
+        json frames = json::array();
+        for (size_t i = 0; i < answer.pngs.size(); i++)
+        {
+            if (answer.pngs[i].empty())
+            {
+                continue; // that camera brought no frame to the window
+            }
+            json f;
+            f["camera"] = (int)i + 1; // numbered as every log line numbers cameras
+            f["png_base64"] = frame_keep::base64(answer.pngs[i]);
+            frames.push_back(f);
+        }
+        body["frames"] = frames;
+    }
+    return body.dump();
 }
 
 bool TurnausClient::offer(const DetectorResult &result)
@@ -828,6 +931,11 @@ bool TurnausClient::offer(const DetectorResult &result)
         item.path = takeoutsPath(item.binding);
         item.body = "{}";
         item.idempotency_key = "";
+        // #1787: an END is also when the log lines since the last END are owed, and when
+        // the server is asked whether it wants a corrected dart's frames. Flags only: the
+        // push thread does both once the takeout and the darts before it are delivered.
+        log_upload_due_ = !config_.log_file.empty();
+        frames_poll_due_ = frame_keep::enabled();
     }
     else
     {
@@ -861,6 +969,10 @@ bool TurnausClient::offer(const DetectorResult &result)
         item.idempotency_key = reference;
         item.path = detectionsPath(item.binding);
         item.body = built.json;
+        // #1787: the reference is minted here and nowhere else, so this is where the
+        // window's settled frames (deposited by dart_processing at the vote) take the name
+        // Turnaus will ask for them by. A no-op unless OD_KEEP_FRAMES is set.
+        frame_keep::commit(reference, result.window_ordinal);
     }
 
     {
@@ -1307,6 +1419,21 @@ void TurnausClient::stop()
                  " unsent push(es) to the spool on the way out");
     }
 
+    // #1787: the rest of the log, on the way out. The push thread is joined, so this is
+    // the one thread that reads the ledger; bounded by the transport's timeouts times the
+    // few chunks allowed, and skipped on a board that keeps no log file or holds no
+    // credential. `final` sends the tail without waiting for its newline, because there
+    // is no next END to wait for.
+    if (paired_.load() && !config_.log_file.empty() && !log_upload_off_)
+    {
+        uploadLog(true, 4);
+    }
+    if (!config_.log_file.empty())
+    {
+        log_info("TURNAUS: log upload: " + std::to_string(log_ledger_.postedBytes()) +
+                 " bytes of " + config_.log_file + " acknowledged by the server this run");
+    }
+
     log_info("TURNAUS: client stopped. queued=" + std::to_string(queued_.load()) +
              " delivered=" + std::to_string(delivered_.load()) +
              " attempts=" + std::to_string(attempts_.load()) +
@@ -1356,6 +1483,11 @@ void TurnausClient::run()
             }
             if (queue_.empty())
             {
+                // #1787: nothing is owed to the round, so what the last END owed besides
+                // its takeout is done now -- after every dart and the takeout itself, and
+                // never with the queue's lock held.
+                lock.unlock();
+                endOfRoundDuties();
                 continue;
             }
             // Copied out under the lock; the lock is released before the POST. This is
@@ -1465,6 +1597,178 @@ void TurnausClient::run()
         {
             backoff_ms = config_.backoff_max_ms;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// #1787: what an END owes besides its takeout -- the log since the last END, and an
+// answer to any frames request the server has pending. Push thread only.
+// ---------------------------------------------------------------------------------
+
+void TurnausClient::endOfRoundDuties()
+{
+    if (log_upload_due_.exchange(false) && paired_.load())
+    {
+        uploadLog(false, 16);
+    }
+    if (frames_poll_due_.exchange(false) && paired_.load())
+    {
+        serveFrameRequests();
+    }
+}
+
+void TurnausClient::uploadLog(bool final, int most_chunks)
+{
+    if (config_.log_file.empty() || log_upload_off_)
+    {
+        return;
+    }
+    const std::string file = config_.log_file;
+    const size_t slash = file.find_last_of("/\\");
+    const std::string leaf = slash == std::string::npos ? file : file.substr(slash + 1);
+
+    for (int chunk_no = 0; chunk_no < most_chunks; chunk_no++)
+    {
+        // The file's length NOW; lines keep arriving underneath this read, and the ledger
+        // only ever claims what the server acknowledged, so a line written during the
+        // post is simply the first line of the next chunk.
+        std::ifstream in(file.c_str(), std::ios::binary | std::ios::ate);
+        if (!in)
+        {
+            if (!said_log_upload_failed_)
+            {
+                said_log_upload_failed_ = true;
+                log_warning("TURNAUS: the log file " + file + " could not be read for upload; it will be tried again at the next END");
+            }
+            return;
+        }
+        const uint64_t size = (uint64_t)in.tellg();
+        const LogUploadLedger::Chunk chunk = log_ledger_.next(size);
+        if (chunk.length == 0)
+        {
+            return; // caught up
+        }
+        std::string bytes(chunk.length, '\0');
+        in.seekg((std::streamoff)chunk.offset);
+        in.read(&bytes[0], (std::streamsize)chunk.length);
+        bytes.resize((size_t)in.gcount());
+        const uint64_t send = LogUploadLedger::sendable(bytes, final);
+        if (send == 0)
+        {
+            return; // a partial line is all there is; it ends by the next END
+        }
+        bytes.resize((size_t)send);
+
+        const Binding binding = destination();
+        std::map<std::string, std::string> headers;
+        headers["Authorization"] = "Bearer " + credentialFor(binding);
+        headers["Accept"] = "application/json";
+        const bool last = final && chunk.offset + send >= size;
+        odhttp::Response res = odhttp::postJson(url_, logPath(binding), logChunkBody(leaf, chunk.offset, bytes, last),
+                                                headers, config_.connect_timeout_s, config_.read_timeout_s);
+        if (res.status == 202 || res.status == 200 || res.status == 201)
+        {
+            log_ledger_.posted(chunk.offset, send);
+            said_log_upload_failed_ = false; // a later failure is news again
+            continue;
+        }
+        if (res.status == 409)
+        {
+            // The server holds a different length of this file than the ledger thought:
+            // a retry of a chunk it already took, or a restart on a file it has most of.
+            // Its answer names the length; continue from there, forward or back.
+            uint64_t length = 0;
+            try
+            {
+                json j = json::parse(res.body);
+                length = j["data"].value("length", (uint64_t)0);
+            }
+            catch (const std::exception &)
+            {
+            }
+            if (length == log_ledger_.postedBytes())
+            {
+                return; // nothing to learn from it; the next END tries again
+            }
+            log_ledger_.resync(length);
+            continue;
+        }
+        if (res.status == 401 || res.status == 403 || res.status == 404 || res.status == 422)
+        {
+            // Nothing a retry improves: no route on this deployment, a credential this
+            // route refuses, or a body it cannot read. Said once, and the upload is off
+            // for the rest of this run; the darts are unaffected.
+            log_upload_off_ = true;
+            log_warning("TURNAUS: the log upload was refused (HTTP " + std::to_string(res.status) + " at " +
+                        std::string(logPath(binding)) + "); nothing more of the log will be posted this run");
+            return;
+        }
+        // Unreachable, 5xx, 429: owed still, from the same offset, at the next END.
+        if (!said_log_upload_failed_)
+        {
+            said_log_upload_failed_ = true;
+            log_warning("TURNAUS: the log upload did not get through (" +
+                        (res.reached_a_server() ? "HTTP " + std::to_string(res.status) : res.transport_error) +
+                        ") from offset " + std::to_string(chunk.offset) + "; it will be retried at the next END");
+        }
+        return;
+    }
+}
+
+void TurnausClient::serveFrameRequests()
+{
+    if (frames_route_off_)
+    {
+        return;
+    }
+    const Binding binding = destination();
+    std::map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + credentialFor(binding);
+    headers["Accept"] = "application/json";
+    odhttp::Response res = odhttp::perform(url_, "GET", frameRequestsPath(binding), std::string(), headers,
+                                           config_.connect_timeout_s, config_.read_timeout_s);
+    if (res.status == 404)
+    {
+        frames_route_off_ = true;
+        log_info("TURNAUS: this deployment has no frame-request route (404 at " +
+                 std::string(frameRequestsPath(binding)) + "); the kept frames stay on this board");
+        return;
+    }
+    if (res.status != 200)
+    {
+        return; // asked again at the next END; a request waits, it is not lost
+    }
+    std::vector<std::string> references;
+    try
+    {
+        json j = json::parse(res.body);
+        for (const json &r : j["data"])
+        {
+            if (r.contains("reference") && r["reference"].is_string())
+            {
+                references.push_back(r["reference"].get<std::string>());
+            }
+        }
+    }
+    catch (const std::exception &)
+    {
+        return;
+    }
+    for (const std::string &reference : references)
+    {
+        const frame_keep::Answer answer = frame_keep::answer(reference);
+        const std::string body = frameAnswerBody(reference, answer);
+        odhttp::Response posted = odhttp::postJson(url_, std::string(frameRequestsPath(binding)) + "/" + reference, body,
+                                                   headers, config_.connect_timeout_s, config_.read_timeout_s);
+        std::string said = "TURNAUS: frames for " + reference;
+        said += answer.found ? " served (" + std::to_string(answer.raw_bytes) + " raw bytes, " +
+                                   std::to_string(body.size()) + " posted)"
+                             : std::string(" are gone");
+        if (posted.status != 202 && posted.status != 200)
+        {
+            said += " -- the answer was not taken (HTTP " + std::to_string(posted.status) + ")";
+        }
+        log_info(said);
     }
 }
 

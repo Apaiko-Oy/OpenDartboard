@@ -67,6 +67,18 @@ tester address            "bash '$T/check_default_address.sh'"
 # because the box that runs the suite has no host python3 and this row read rc=49 there --
 # #1560's rule, written beside 1560-lensmodel below. So it costs one container start now.
 tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
+# #1787: the board's full per-dart account in the Turnaus body, the log upload's offset
+# bookkeeping, and the ring of kept frames a corrected dart's pictures are served from.
+# Three pure checks compiled in one container (the body check links turnaus_client.cpp;
+# the frames check links nothing and measures the bytes per kept dart on a real
+# rig-20260918 frame), each with its mutation inside and the prediction stated first:
+# a body with `path` erased is named by field, a chunk re-posted at a stale offset moves
+# nothing, and the frames buffer answers "gone" for dart N-10 after N darts. No detector
+# binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-10 on the 4-core box,
+# to completion, rc=0: 204 s wall with another checkout's replay container alongside --
+# nearly all of it the three -O1 compiles of turnaus_client.cpp; the assertions run in
+# milliseconds. No `slow`: well inside the default 1200.
+tester 1787-account       "bash '$T/i1787_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down

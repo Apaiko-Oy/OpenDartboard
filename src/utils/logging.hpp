@@ -72,6 +72,13 @@ namespace logging
     inline bool showTimestamp = false;               // Console timestamps off by default
     inline bool enableFileLogging = false;           // File logging off by default
 
+    // #1787: one reader of every line that reaches the console (colours stripped, no
+    // timestamp), installed by frame_keep.hpp under OD_KEEP_FRAMES so a window's census
+    // lines can be kept beside its frames. Null -- one pointer read per log line -- on
+    // every board that does not keep frames. Called on whatever thread logged, so a tap
+    // locks for itself and never logs.
+    inline void (*lineTap)(const string &) = nullptr;
+
     // The path cannot be one of those, because a std::string has a destructor and this
     // program logs from threads that are still running when exit() runs the destructors:
     // a destroyed string's freed heap pointer was being read as a filename. A
@@ -273,6 +280,11 @@ namespace logging
         consoleMessage += " - " + message;
 
         cout << consoleMessage << endl;
+
+        if (lineTap != nullptr)
+        {
+            lineTap(stripColorCodes(message)); // #1787
+        }
 
         // File logging (always with timestamp, NO colors)
         if (enableFileLogging)

@@ -26,7 +26,10 @@
 #include "../utils/board_sight.hpp"
 #include "http_transport.hpp"
 #include "../detector/detector_interface.hpp"
+#include "../detector/geometry/detection/frame_keep.hpp"
+#include <algorithm>
 #include <string>
+#include <vector>
 #include <deque>
 #include <mutex>
 #include <condition_variable>
@@ -46,6 +49,9 @@ struct TurnausConfig
     // (announce::defaultLabel), the same label the board already announces. Empty only for
     // a caller that never set it, which is sent as the old literal.
     std::string label;
+    // #1787: the file --log-file (or --debug) appends the log to, so the client can post
+    // what it wrote. Empty on a board that keeps no log file: nothing is uploaded.
+    std::string log_file;
     size_t queue_capacity = 512;  // detections held in memory before the policy bites
     int connect_timeout_s = 3;
     int read_timeout_s = 5;
@@ -190,6 +196,90 @@ private:
     uint64_t spool_records_ = 0;
     uint64_t settled_records_ = 0;
     std::set<uint64_t> out_of_order_; // settled ahead of the prefix, waiting for it
+};
+
+/**
+ * #1787: the log upload's offset bookkeeping, as a thing of its own.
+ *
+ * The board's log file is append-only (logging.hpp opens it `ios::app` for every line)
+ * and the upload is idempotent BY BYTE OFFSET: every chunk posted names the offset it
+ * begins at, the server appends it only when that offset is the length it already holds,
+ * and answers 409 with its length when it is not -- so a chunk re-posted after a lost
+ * answer is refused rather than stored twice, and a board restarted on the same file
+ * (the offset starts at nought in every process) skips to where the server is on its
+ * first post. The ledger holds one number, how many leading bytes the server has, and
+ * moves it only on a success for the chunk that began exactly there; a failed post moves
+ * nothing, so the next END re-reads from the same offset.
+ *
+ * Chunks end on a line. logging.hpp writes a line and closes the file, but another
+ * thread may be between the two when the upload reads, and a chunk cut mid-line would
+ * post half a sentence now and the other half at the next END -- harmless to the bytes,
+ * ugly to a reader, and a chunk cut inside a multi-byte character is not valid JSON
+ * text. So `sendable` answers the length up to the last newline, nothing when the tail
+ * holds no newline yet (it will at the next END), and everything at shutdown, when there
+ * is no next END.
+ *
+ * Pure, and inline for SpoolLedger's reason: testers/i1787_upload_check.cpp holds it
+ * without a client, a file or a network.
+ */
+class LogUploadLedger
+{
+public:
+    /** The most one POST carries. A busy evening's END is tens of kilobytes; this is the cap, not the cadence. */
+    static constexpr uint64_t kChunkCap = 1024 * 1024;
+
+    struct Chunk
+    {
+        uint64_t offset = 0;
+        uint64_t length = 0;
+    };
+
+    /** What to read next: from the posted offset, to the file's end or the cap. */
+    Chunk next(uint64_t file_size) const
+    {
+        Chunk c;
+        c.offset = posted_;
+        c.length = file_size > posted_ ? std::min<uint64_t>(file_size - posted_, kChunkCap) : 0;
+        return c;
+    }
+
+    /**
+     * How much of `bytes` (read from the chunk's offset) may be posted now: up to and
+     * including the last newline; all of it when it fills the cap or when `final` (there
+     * is no next END to wait for); nothing when a partial line is all there is.
+     */
+    static uint64_t sendable(const std::string &bytes, bool final)
+    {
+        if (bytes.empty())
+        {
+            return 0;
+        }
+        if (final || bytes.size() >= kChunkCap)
+        {
+            return bytes.size();
+        }
+        const size_t nl = bytes.find_last_of('\n');
+        return nl == std::string::npos ? 0 : (uint64_t)nl + 1;
+    }
+
+    /** The server took the chunk that began at `offset`. False -- and nothing moves -- for any other offset. */
+    bool posted(uint64_t offset, uint64_t length)
+    {
+        if (offset != posted_ || length == 0)
+        {
+            return false;
+        }
+        posted_ += length;
+        return true;
+    }
+
+    /** The server said (409) how many bytes it holds: continue from there, forward or back. */
+    void resync(uint64_t server_length) { posted_ = server_length; }
+
+    uint64_t postedBytes() const { return posted_; }
+
+private:
+    uint64_t posted_ = 0;
 };
 
 class TurnausClient
@@ -363,7 +453,81 @@ public:
          * no key at all, never an empty array.
          */
         int candidates_sent = 0;
+        /**
+         * #1787: true when the rest of the board's account is in it (`path` and what goes
+         * with it). False for a result whose `path` is empty, which posts exactly the
+         * bytes it posted before #1787.
+         */
+        bool carries_account = false;
     };
+
+    /**
+     * #1787: the names of the account's fields, in one place, so a check can ask "which
+     * of these is missing from this body" and name it. In the order they are documented.
+     */
+    static const std::vector<std::string> &accountFields()
+    {
+        static const std::vector<std::string> fields = {
+            "path", "flagged", "confidence", "degraded", "cameras_used", "crossing_deg",
+            "sigma_mm", "margin_mm", "wire_kind", "agreeing", "lone_wire_mm", "ring_wire_mm"};
+        return fields;
+    }
+
+    /**
+     * #1787: which of the account's fields a body built from `result` MUST carry, so a
+     * check can say by name what a body lost. Pure, over the same rules detectionBody
+     * applies: every field is present exactly when the result has the number for it.
+     */
+    static std::vector<std::string> accountFieldsExpected(const DetectorResult &result)
+    {
+        std::vector<std::string> out;
+        if (result.path.empty())
+        {
+            return out;
+        }
+        out = {"path", "flagged", "confidence", "degraded"};
+        if (!result.cameras_used.empty())
+        {
+            out.push_back("cameras_used");
+        }
+        if (result.crossing_deg >= 0.0f)
+        {
+            out.push_back("crossing_deg");
+        }
+        if (result.uncertainty_mm >= 0.0f)
+        {
+            out.push_back("sigma_mm");
+        }
+        if (result.boundary_mm >= 0.0f)
+        {
+            out.push_back("margin_mm");
+        }
+        if (!result.boundary_kind.empty())
+        {
+            out.push_back("wire_kind");
+        }
+        if (result.path == "vote")
+        {
+            out.push_back("agreeing");
+        }
+        if (result.lone_wire_mm >= 0.0f)
+        {
+            out.push_back("lone_wire_mm");
+        }
+        if (result.ring_wire_mm >= 0.0f)
+        {
+            out.push_back("ring_wire_mm");
+        }
+        return out;
+    }
+
+    // ---- #1787: the log upload and the frames request, as bodies a check can hold ----
+
+    /** The JSON one log chunk is posted as. `text` is the bytes from `offset`, whole lines. */
+    static std::string logChunkBody(const std::string &file, uint64_t offset, const std::string &text, bool final);
+
+    /** The JSON a frames request is answered with: the PNGs and the census, or "gone". */
+    static std::string frameAnswerBody(const std::string &reference, const frame_keep::Answer &answer);
 
     /**
      * #1721: the most candidates `POST /api/v1/{autoscorer,casual}/detections` admits
@@ -489,6 +653,8 @@ public:
     uint64_t beats() const { return beats_; }
     uint64_t beatsLost() const { return beats_lost_; }
     size_t backlog() const;
+    /** #1787: how many bytes of the log file the server has acknowledged this run. */
+    uint64_t logBytesPosted() const { return log_ledger_.postedBytes(); }
 
 private:
     void run();
@@ -505,6 +671,19 @@ private:
     static const char *detectionsPath(Binding binding);
     static const char *takeoutsPath(Binding binding);
     static const char *heartbeatsPath(Binding binding);
+    /** #1787: where the log is posted and where frame requests are read, per binding (docs/api.md). */
+    static const char *logPath(Binding binding);
+    static const char *frameRequestsPath(Binding binding);
+    /**
+     * #1787: what an END owes besides its takeout, done on the push thread once the
+     * queue is empty -- so a takeout is never delayed behind a log post. Each duty is
+     * due once per END, tried once, and due again at the next END whatever came of it.
+     */
+    void endOfRoundDuties();
+    /** Post the log lines written since the last acknowledged offset; at most `most_chunks` posts. */
+    void uploadLog(bool final, int most_chunks);
+    /** Ask the server for pending frame requests and answer each from frame_keep. */
+    void serveFrameRequests();
     /**
      * #891. The evening ended: forget the Contest binding, drop what was owed to it, and
      * fall back to the Organisation binding if this board has one.
@@ -617,6 +796,16 @@ private:
     // offer() can never wait behind a cursor write.
     mutable std::mutex spool_mutex_;
     SpoolLedger ledger_;
+
+    // #1787. Raised by offer() on an END; taken by the push thread when the queue is
+    // empty. The ledger and the said-once flags are the push thread's alone while it
+    // runs, and stop()'s after it is joined; nothing else reads them.
+    std::atomic<bool> log_upload_due_{false};
+    std::atomic<bool> frames_poll_due_{false};
+    LogUploadLedger log_ledger_;
+    bool said_log_upload_failed_ = false; // a failure is said ONCE in the log, not once per END
+    bool log_upload_off_ = false;         // a refusal (401, 403, 404, 422): nothing more this run
+    bool frames_route_off_ = false;       // the deployment has no frame-request route: said once
 
     std::atomic<uint64_t> queued_{0};
     std::atomic<uint64_t> delivered_{0};
