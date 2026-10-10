@@ -22,7 +22,8 @@
 #   2 package  `dpkg-deb -c` holds every path the units name, with the modes they need;
 #              `dpkg-deb -I` holds postinst, prerm and postrm; the rendered units carry no
 #              unreplaced ${...}, keep $STATE_DIRECTORY in their comments, and the detector
-#              and lock_cams.sh are handed the same mode.
+#              and lock_cams.sh are handed the same mode. #1801: the tmpfiles.d rule is
+#              carried, and the unit's ExecStart names --autocams and --log-file.
 #   3 install  The package into a fresh container with /score_token planted where a
 #              pre-#1660 unit left it. There is no booted systemd in a container, so
 #              postinst's enable is measured (it writes symlinks offline) and its
@@ -99,6 +100,7 @@ has -rw-r--r-- lib/systemd/system/opendartboard.service
 has -rw-r--r-- lib/systemd/system/lock_cams.service
 has -rw-r--r-- usr/local/share/opendartboard/models/dart.param
 has -rw-r--r-- usr/local/share/opendartboard/models/dart.bin
+has -rw-r--r-- usr/lib/tmpfiles.d/opendartboard.conf
 if echo "$listing" | awk "\$2!=\"root/root\" {f=1} END {exit f}"; then ok "every file root/root"
 else fail "a file is not root/root"; fi
 info="$(dpkg-deb -I /pkg.deb)"
@@ -122,6 +124,15 @@ det="$(awk "/--width/ {print \$2\"x\"\$4\"@\"\$6}" "$f" 2>/dev/null)"
 lock="$(awk -F"[= ]" "/^Environment=WIDTH/ {print \$3\"x\"\$5\"@\"\$7}" /x/lib/systemd/system/lock_cams.service 2>/dev/null)"
 if [ -n "$det" ] && [ "$det" = "$lock" ]; then ok "detector and lock_cams.sh both run at $det"
 else fail "detector mode \"$det\" and lock_cams mode \"$lock\" differ"; fi
+
+# #1801: the unit starts the detector with --autocams and a log file per start, and the
+# package carries the rule that prunes them. testers/i1801_unit_log_check.sh runs both.
+if awk "/^ExecStart=/ {on=1} on {print} on && !/\\\\\$/ {exit}" "$f" | awk "/--autocams/ {a=1} /--log-file/ {l=1} /--cams / {c=1} END {exit !(a && l && !c)}"; then
+  ok "opendartboard.service starts the detector with --autocams and --log-file, and no --cams"
+else fail "opendartboard.service does not start the detector with --autocams and --log-file"; fi
+if awk "/^e .*\/var\/lib\/opendartboard\/logs / {e=1} /^x .*\/var\/lib\/opendartboard\/logs\/current\$/ {x=1} END {exit !(e && x)}" /x/usr/lib/tmpfiles.d/opendartboard.conf 2>/dev/null; then
+  ok "tmpfiles.d/opendartboard.conf ages logs/ and excludes logs/current/"
+else fail "tmpfiles.d/opendartboard.conf does not age logs/ with logs/current/ excluded"; fi
 
 echo "## install, with /score_token and /channel.json where a pre-#1660 unit left them"
 printf "old-token\n" > /score_token; printf "{}\n" > /channel.json

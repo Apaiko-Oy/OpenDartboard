@@ -22,8 +22,40 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/opendartboard \
-    --cams /dev/video0,/dev/video1,/dev/video2 \
+# ---- #1801: HOW A PACKAGED BOARD STARTS ----
+#
+# --autocams, not a fixed camera list. A USB camera may expose two video nodes, the even one
+# capturing and the odd one metadata (three Realtek 0bda:5844 on a Pi 5 are /dev/video0, 2
+# and 4), so the fixed list this line carried until #1801 faulted that board on its first
+# boot. --autocams opens whichever three negotiate MJPG. --cams is still there for an
+# operator who writes a drop-in (`systemctl edit opendartboard`: an empty ExecStart= and
+# their own), which replaces this line whole, as drop-ins do.
+#
+# The log file, one per start. The #1787 upload runs only for a board that writes a log,
+# and the server keys what it holds by the file's leaf name and a byte offset in it, so a
+# file rotated under a constant name would hand it bytes at offsets it already holds. Each
+# start therefore names a new file by its UTC start time,
+#
+#   /var/lib/opendartboard/logs/current/opendartboard-20261011T201500Z.log
+#
+# and says which in the journal. The shell does only that: it moves the previous start's
+# file from current/ up to logs/, picks the name, and execs the detector, so the detector
+# is still this unit's main process (NotifyAccess=main below) and the flags after the
+# quoted script are the detector's own, handed through as "$@". `$$` and `%%` are systemd's
+# escapes for a literal dollar and percent sign. Nothing in it can stop the detector
+# starting: the housekeeping is joined by `;`, and a log directory that cannot be made
+# turns the detector's file logging off (logging.hpp), never the board.
+#
+# The pruning is /usr/lib/tmpfiles.d/opendartboard.conf (distributions/debian_arm64/
+# tmpfiles.conf): files in logs/ older than seven days go, and logs/current/ is excluded,
+# so the newest file -- this start's, or the last start's on a board that has not come up
+# since -- is never pruned, whatever the clock says.
+ExecStart=/bin/sh -c 'logs=/var/lib/opendartboard/logs; mkdir -p "$$logs/current"; \
+    for old in "$$logs"/current/*.log; do [ ! -e "$$old" ] || mv -f "$$old" "$$logs/"; done; \
+    file="$$logs/current/opendartboard-$$(date -u +%%Y%%m%%dT%%H%%M%%SZ).log"; \
+    echo "opendartboard: this start logs to $$file"; \
+    exec /usr/local/bin/opendartboard "$$@" --log-file "$$file"' opendartboard \
+    --autocams \
     --width ${WIDTH} --height ${HEIGHT} --fps ${FPS} \
     --model /usr/local/share/opendartboard/models/dart.param
 Restart=always

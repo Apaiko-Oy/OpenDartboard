@@ -273,7 +273,10 @@ exist yet, and a deployment without a route answers 404, which the board takes a
 here" once and says once.
 
 **The log upload.** A board started with `--log-file <path>` (or `--debug`, which sets one)
-posts the lines written since its last post at every END, and the rest at shutdown:
+posts the lines written since its last post at every END, and the rest at shutdown. The
+packaged arm64 unit starts every board with one (#1801): a new file per start, named
+`opendartboard-<UTC start>.log`, so each start's leaf name is new to the server and its
+first post is at offset 0.
 
 ```
 POST /api/v1/autoscorer/log            (a club board; /api/v1/casual/log on a Contest)
