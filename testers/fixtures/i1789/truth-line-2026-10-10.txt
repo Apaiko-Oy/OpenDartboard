@@ -1,0 +1,77 @@
+# turnaus#1789 fixture: the 2026-10-10 live session (build 2b56b48, same rig) as a Turnaus
+# truth line, HAND-WRITTEN from what turnaus#1707, #1773, #1781, #1782 and #1783 record. No
+# export of that session exists: 2b56b48 predates the per-dart account (#1787) and the
+# server's export (#1786), so this is the line a board posting the account would have
+# produced for the darts the issues describe -- 25 of the session's darts, not all of them.
+#
+# What is recorded and what is not:
+#   * published, the thrower's call, the path, the camera, agreeing, radius, angle and the
+#     LONE-WIRE / solve figures are the issues' own, in Turnaus's spelling (#821: MISS is
+#     None, OUTER is 25, BULL is Bull) and with cameras numbered from 1 as the log numbers
+#     them (an issue's "camera 1 (0-based)" is camera 2 here).
+#   * ring_wire_mm is #1773's arithmetic (radius x 170 mm against 6.35/15.9/99/107/162/170)
+#     on the recorded radius; for #1773's three darts it is docs/rig.md's measured 3.06,
+#     2.26 and 0.53 mm. 2b56b48 measured no ring wire; a build that posts the account does.
+#   * flagged and alternative are what 2b56b48 PUBLISHED, not what a later build would.
+#   * corrected is the thrower's call wherever it differs from what was published, and
+#     picked is what Turnaus's DartCorrections::picked decides from it; the two phantoms of
+#     #1781 ("the thrower confirms the D11 and the S2 were not darts") are removals.
+#   * NOT recorded, so written `-`: candidates (except #1782's dart), degraded where the
+#     issue does not say the geometry refused, and the angle of every vote dart but #1773's
+#     two. A real export never carries a radius without its angle (docs/api.md, "both or
+#     neither"); nothing here reads a vote dart's angle.
+#   * INVENTED, and only these: the board (device/1), the references other than #1781's
+#     three prefixes (01M4JZRX4Y, 01M4JZS12A, 01M4JZS2R1; each is padded to 26 characters
+#     and every other reference ends in the dart's local HHMMSS), and posted_at's seconds
+#     beyond what the issue gives (local time minus 3 h, EEST).
+#   * The 16:49:14 dart is a FALSE FLAG on purpose: #1782 records it flagged 'S1 or S20' and
+#     thrown S1, so its published score stood.
+#
+# The expected census. The four counts per path, then each corrected dart's fault class:
+# expect count geometry posted=3 corrected=2 alternative=1 candidate=1 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=3 false_flag=1
+# expect count vote posted=22 corrected=11 alternative=0 candidate=0 typed=0 unflagged=9 removed=2 turn=0 undone=0 flagged=0 false_flag=0
+# expect count unknown posted=0 corrected=0 alternative=0 candidate=0 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=0 false_flag=0
+# expect count total posted=25 corrected=13 alternative=1 candidate=1 typed=0 unflagged=9 removed=2 turn=0 undone=0 flagged=3 false_flag=1
+# expect class 01M4JFX0000000000000153923 rim-one-tip
+# expect class 01M4JFX0000000000000155149 ring-wire
+# expect class 01M4JFX0000000000000160625 ring-wire
+# expect class 01M4JFX0000000000000162006 rim-one-tip
+# expect class 01M4JFX0000000000000162111 rim-one-tip
+# expect class 01M4JZRX4Y0000000000162424 unclassified
+# expect class 01M4JZS12A0000000000162428 phantom-takeout
+# expect class 01M4JZS2R10000000000162430 phantom-takeout
+# expect class 01M4JFX0000000000000162835 rim-one-tip
+# expect class 01M4JFX0000000000000162837 rim-one-tip
+# expect class 01M4JFX0000000000000163853 corner
+# expect class 01M4JFX0000000000000164722 ring-wire
+# expect class 01M4JFX0000000000000164915 two-line-wire
+# The 15:39:23 dart's lines are left OUT of the log excerpt on purpose, so the census has
+# a corrected dart to name as absent rather than drop:
+# expect absent 01M4JFX0000000000000153923
+# turnaus truth line v1 board=device/1 day=2026-10-10 zone=Europe/Helsinki
+# reference published alternative corrected picked path flagged degraded candidates cameras crossing_deg sigma_mm margin_mm wire_kind agreeing lone_wire_mm ring_wire_mm radius angle bounced outcome corrections posted_at
+01M4JFX0000000000000153250 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T12:32:50Z
+01M4JFX0000000000000153252 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T12:32:52Z
+01M4JFX0000000000000153919 S20 - - - vote 0 1 - 1 - - - - 1 12.7 4.58 0.926 - 0 COUNTED 0 2026-10-10T12:39:19Z
+01M4JFX0000000000000153923 S20 - None typed vote 0 1 - 1 - - - - 1 12 3.46 0.562 - 0 COUNTED 1 2026-10-10T12:39:23Z
+01M4JFX0000000000000155149 T19 - S19 typed vote 0 1 - 2 - - - - 1 14.4 3.06 0.6004 198.876 0 COUNTED 1 2026-10-10T12:51:49Z
+01M4JFX0000000000000160625 25 - S1 typed vote 0 1 - 1 - - - - 1 - 2.26 0.0507 195.4884 0 COUNTED 1 2026-10-10T13:06:25Z
+01M4JFX0000000000000162006 D16 - S16 typed vote 0 1 - 2 - - - - 1 8.7 1.46 0.9615 - 0 COUNTED 1 2026-10-10T13:20:06Z
+01M4JFX0000000000000162111 D3 - None typed vote 0 1 - 3 - - - - 1 - 0.34 0.998 - 0 COUNTED 1 2026-10-10T13:21:11Z
+01M4JFX0000000000000162113 S3 - - - vote 0 - - - - - - - 1 - 10.36 0.892 - 0 COUNTED 0 2026-10-10T13:21:13Z
+01M4JZRX4Y0000000000162424 None - S3 typed vote 0 1 - - - - - - - - - - - 0 COUNTED 1 2026-10-10T13:24:24Z
+01M4JZS12A0000000000162428 D11 - - removed vote 0 1 - 1 - - - - 1 4.3 1.37 0.961 - 0 COUNTED 1 2026-10-10T13:24:28Z
+01M4JZS2R10000000000162430 S2 - - removed vote 0 1 - 2 - - - - 1 - 4.35 0.655 - 0 COUNTED 1 2026-10-10T13:24:30Z
+01M4JFX0000000000000162835 D18 - None typed vote 0 1 - 1 - - - - 1 - 0.2 0.9988 - 0 COUNTED 1 2026-10-10T13:28:35Z
+01M4JFX0000000000000162837 D18 - None typed vote 0 1 - 1 - - - - 1 - 1.63 0.9904 - 0 COUNTED 1 2026-10-10T13:28:37Z
+01M4JFX0000000000000162838 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:28:38Z
+01M4JFX0000000000000163853 T3 S3 S19 candidate geometry 1 0 S3,S19,T19 2,3 48.3 5.3 0.6 ring - - - 0.6346 188.03 0 COUNTED 1 2026-10-10T13:38:53Z
+01M4JFX0000000000000164330 D19 - - - vote 0 - - - - - - - 1 - 2.21 0.987 - 0 COUNTED 0 2026-10-10T13:43:30Z
+01M4JFX0000000000000164333 D7 - - - vote 0 - - - - - - - 1 - 2.38 0.986 - 0 COUNTED 0 2026-10-10T13:43:33Z
+01M4JFX0000000000000164722 25 - Bull typed vote 0 1 - - - - - - 2 - 0.53 0.0405 - 0 COUNTED 1 2026-10-10T13:47:22Z
+01M4JFX0000000000000164912 D20 - - - vote 0 - - - - - - - 1 - 3.92 0.976 - 0 COUNTED 0 2026-10-10T13:49:12Z
+01M4JFX0000000000000164914 S1 S20 - - geometry 1 0 - 2,3 88 5.4 5 wedge - - - - - 0 COUNTED 0 2026-10-10T13:49:14Z
+01M4JFX0000000000000164915 S1 S20 S20 alternative geometry 1 0 - 2,3 88 5.1 2.1 wedge - - - - - 0 COUNTED 1 2026-10-10T13:49:15Z
+01M4JFX0000000000000165136 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:36Z
+01M4JFX0000000000000165147 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:47Z
+01M4JFX0000000000000165154 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:54Z

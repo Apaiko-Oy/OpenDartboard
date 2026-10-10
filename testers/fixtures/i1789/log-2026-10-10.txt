@@ -1,0 +1,111 @@
+turnaus#1789 fixture: a LOG EXCERPT matching truth-line-2026-10-10.txt, HAND-WRITTEN from the
+lines turnaus#1707, #1773, #1781, #1782 and #1783 quote. The live logs
+(darts-log-2b56b48.txt, then darts-log-2b56b48-spike006.txt, on the maintainer's box) are
+not on this machine, so this is two "files" joined the way Turnaus's /log joins a day's,
+each opening with the logger's session banner. Where an issue quotes a sentence it is
+written as quoted; where it quotes part of one the rest is "[...]"; SCORE and TURNAUS lines
+are written in scorer.cpp's and turnaus_client.cpp's formats with the unrecorded Position
+and Processing figures as "?". Milliseconds are the issues' where given (#1781's and
+#1783's) and otherwise only order lines within a second. Module names are illustrative.
+The 15:39:23 dart (miss published S20, #1707) is deliberately left out: the census must
+name a corrected dart it cannot find, not drop it.
+
+========== OpenDartboard Session Started ==========
+[15:32:50.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[15:32:50.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000153250","sector":"None"}
+[15:32:52.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[15:32:52.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000153252","sector":"None"}
+[15:39:19.050][INFO][DartProcessing] - I1707 RIM CARRIED: 3 camera(s) moved up and 1 of them cleared the floor in the scoring area, under the quorum of 2 -- the rim-only votes carried this dart, so it is at or beyond the double ring (#1707)
+[15:39:19.080][INFO][ScoreProcessing] - No consensus, using single camera score: S20 from camera 0
+[15:39:19.100][INFO][Scorer] - SCORE: S20 | Position: (?,?) | Confidence: 0.700000 | Camera: 0 | Processing: ?ms
+[15:39:19.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000153919","sector":"S20"}
+[15:51:49.040][INFO][ScoreProcessing] - No consensus, using single camera score: T19 from camera 1
+[15:51:49.050][INFO][ScoreProcessing] - LONE-WIRE: camera 1's T19 is 14.4 mm from a wedge wire, clear of the 5 mm sigma
+[15:51:49.060][INFO][ScoreProcessing] - BOARD: wedge measured | ring=triple | segment=19 | radius=0.600382 | angle=198.876022
+[15:51:49.100][INFO][Scorer] - SCORE: T19 | Position: (?,?) | Confidence: 0.700000 | Camera: 1 | Processing: ?ms
+[15:51:49.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000155149","sector":"T19"}
+
+========== OpenDartboard Session Started ==========
+[16:06:25.040][INFO][ScoreProcessing] - No consensus, using single camera score: OUTER from camera 0
+[16:06:25.060][INFO][ScoreProcessing] - BOARD: wedge not in this reading | ring=outer | segment=-1 | radius=0.050671 | angle=195.488434
+[16:06:25.100][INFO][Scorer] - SCORE: OUTER | Position: (?,?) | Confidence: 0.900000 | Camera: 0 | Processing: ?ms
+[16:06:25.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000160625","sector":"25"}
+[16:20:06.030][INFO][DartProcessing] - I1707 RIM CARRIED: [...] (cameras 1 and 3 rim only, 1 usable constraint)
+[16:20:06.040][INFO][ScoreProcessing] - No consensus, using single camera score: D16 from camera 1
+[16:20:06.050][INFO][ScoreProcessing] - LONE-WIRE: camera 1's D16 is 8.7 mm from a wedge wire, clear of the 5 mm sigma
+[16:20:06.060][INFO][ScoreProcessing] - BOARD: [...] | ring=double | segment=16 | radius=0.961545 | angle=[...]
+[16:20:06.100][INFO][Scorer] - SCORE: D16 | Position: (?,?) | Confidence: 0.700000 | Camera: 1 | Processing: ?ms
+[16:20:06.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000162006","sector":"D16"}
+[16:21:11.030][INFO][DartProcessing] - I1707 RIM CARRIED: [...] (cameras 1 and 2 rim only)
+[16:21:11.040][INFO][ScoreProcessing] - No consensus, using single camera score: D3 from camera 2
+[16:21:11.060][INFO][ScoreProcessing] - BOARD: [...] | ring=double | segment=3 | radius=0.998028 | angle=[...]
+[16:21:11.100][INFO][Scorer] - SCORE: D3 | Position: (?,?) | Confidence: 0.700000 | Camera: 2 | Processing: ?ms
+[16:21:11.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000162111","sector":"D3"}
+[16:21:13.060][INFO][ScoreProcessing] - BOARD: [...] | radius=0.892 [...]
+[16:21:13.100][INFO][Scorer] - SCORE: S3 | Position: (?,?) | Confidence: 0.700000 | Camera: ? | Processing: ?ms
+[16:21:13.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000162113","sector":"S3"}
+[16:24:24.300][INFO][DartProcessing] - [...] cam 1 rim only, cams 2 and 3 not straight (15.14 / 12.93 px RMS), 0 usable, no reading
+[16:24:24.350][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[16:24:24.390][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JZRX4Y0000000000162424","sector":"None"}
+[16:24:28.300][INFO][ScoreProcessing] - No consensus, using single camera score: D11 from camera 0
+[16:24:28.310][INFO][ScoreProcessing] - LONE-WIRE: camera 0's D11 is 4.3 mm from a wedge wire, inside the sigma, and no other camera read a different score clear of every wedge wire, so it stands
+[16:24:28.320][INFO][ScoreProcessing] - BOARD: [...] | radius=0.961 [...] (wedge 11)
+[16:24:28.362][INFO][Scorer] - SCORE: D11 | Position: (?,?) | Confidence: 0.700000 | Camera: 0 | Processing: ?ms
+[16:24:28.400][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JZS12A0000000000162428","sector":"D11"}
+[16:24:29.100][INFO][DartProcessing] - CLEAN BY REVERSION: camera 1 [...] 25495 -> 11319 [...]
+[16:24:29.101][INFO][DartProcessing] - CLEAN BY REVERSION: camera 2 [...] 69193 -> 36506 [...]
+[16:24:29.102][INFO][DartProcessing] - CLEAN BY REVERSION: camera 3 [...] 53832 -> 41961 [...]
+[16:24:29.103][INFO][DartProcessing] - CLEAN REFERENCE ADOPTED: the board reconciled CLEAN, so camera(s) [...]
+[16:24:29.105][INFO][Scorer] - SCORE: END | Position: (?,?) | Confidence: 1.000000 | Camera: -1 | Processing: ?ms
+[16:24:30.040][INFO][ScoreProcessing] - No consensus, using single camera score: S2 from camera 1
+[16:24:30.060][INFO][ScoreProcessing] - BOARD: [...] | radius=0.655 [...] (wedge 2)
+[16:24:30.081][INFO][Scorer] - SCORE: S2 | Position: (?,?) | Confidence: 0.700000 | Camera: 1 | Processing: ?ms
+[16:24:30.120][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JZS2R10000000000162430","sector":"S2"}
+[16:28:35.030][INFO][DartProcessing] - I1707 RIM CARRIED: [...] (0 usable constraints)
+[16:28:35.040][INFO][ScoreProcessing] - No consensus, using single camera score: D18 from camera 0
+[16:28:35.060][INFO][ScoreProcessing] - BOARD: [...] | ring=double | segment=18 | radius=0.998816 | angle=[...]
+[16:28:35.100][INFO][Scorer] - SCORE: D18 | Position: (?,?) | Confidence: 0.700000 | Camera: 0 | Processing: ?ms
+[16:28:35.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000162835","sector":"D18"}
+[16:28:37.030][INFO][DartProcessing] - I1707 RIM CARRIED: [...] (0 usable constraints)
+[16:28:37.040][INFO][ScoreProcessing] - No consensus, using single camera score: D18 from camera 0
+[16:28:37.060][INFO][ScoreProcessing] - BOARD: [...] | ring=double | segment=18 | radius=0.990399 | angle=[...]
+[16:28:37.100][INFO][Scorer] - SCORE: D18 | Position: (?,?) | Confidence: 0.700000 | Camera: 0 | Processing: ?ms
+[16:28:37.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000162837","sector":"D18"}
+[16:28:38.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[16:28:38.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000162838","sector":"None"}
+[16:38:53.030][INFO][ScoreProcessing] - Geometric score: T3 from 2 intersecting constraint(s) of 3 cameras, read through camera [...]
+[16:38:53.040][INFO][ScoreProcessing] - UNCERTAINTY: T3 or S3 -- the nearest ring wire is 0.6 mm across a 5.3 mm one-sigma, so T3 publishes now as the more probable candidate and is flagged; a tap affirms it or appends the other [...]
+[16:38:53.050][INFO][ScoreProcessing] - LONE-WIRE: camera 1's S19 is 5.5 mm from a wedge wire, clear of the 5 mm sigma
+[16:38:53.060][INFO][ScoreProcessing] - BOARD: wedge from the solved entry | ring=triple | segment=3 | radius=0.6346 | angle=188.03
+[16:38:53.100][INFO][Scorer] - SCORE: T3 | Position: (?,?) | Confidence: 0.700000 | Camera: ? | Processing: ?ms
+[16:38:53.140][INFO][TurnausClient] - TURNAUS: COUNTED {"alternative":"S3","bounced_out":false,"candidates":["S3","S19","T19"],"reference":"01M4JFX0000000000000163853","sector":"T3"}
+[16:47:22.040][INFO][ScoreProcessing] - Consensus score: OUTER from 2 cameras
+[16:47:22.060][INFO][ScoreProcessing] - BOARD: [...] | ring=outer | segment=-1 | radius=0.040479 [...]
+[16:47:22.100][INFO][Scorer] - SCORE: OUTER | Position: (?,?) | Confidence: 0.900000 | Camera: ? | Processing: ?ms
+[16:47:22.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000164722","sector":"25"}
+[16:49:14.030][INFO][ScoreProcessing] - Geometric score: S1 from 2 intersecting constraint(s) of 3 cameras, read through camera [...]
+[16:49:14.040][INFO][ScoreProcessing] - UNCERTAINTY: S1 or S20 -- the nearest wedge wire is 5.0 mm across a 5.4 mm one-sigma, so S1 publishes now as the more probable candidate and is flagged; a tap affirms it or appends the other [...]
+[16:49:14.050][INFO][ScoreProcessing] - LONE-WIRE: camera 0's S20 is 1.5 mm from a wedge wire, inside the sigma [...]
+[16:49:14.100][INFO][Scorer] - SCORE: S1 | Position: (?,?) | Confidence: 0.700000 | Camera: ? | Processing: ?ms
+[16:49:14.140][INFO][TurnausClient] - TURNAUS: COUNTED {"alternative":"S20","bounced_out":false,"reference":"01M4JFX0000000000000164914","sector":"S1"}
+[16:49:15.030][INFO][ScoreProcessing] - Geometric score: S1 from 2 intersecting constraint(s) of 3 cameras, read through camera [...]
+[16:49:15.040][INFO][ScoreProcessing] - UNCERTAINTY: S1 or S20 -- the nearest wedge wire is 2.1 mm across a 5.1 mm one-sigma, so S1 publishes now as the more probable candidate and is flagged; a tap affirms it or appends the other [...]
+[16:49:15.050][INFO][ScoreProcessing] - LONE-WIRE: camera 0's S20 is 2.9 mm from a wedge wire, inside the sigma [...]
+[16:49:15.100][INFO][Scorer] - SCORE: S1 | Position: (?,?) | Confidence: 0.700000 | Camera: ? | Processing: ?ms
+[16:49:15.140][INFO][TurnausClient] - TURNAUS: COUNTED {"alternative":"S20","bounced_out":false,"reference":"01M4JFX0000000000000164915","sector":"S1"}
+[16:51:36.050][INFO][DartProcessing] - I1707 RIM CARRIED: [...]
+[16:51:36.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[16:51:36.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000165136","sector":"None"}
+[16:51:47.040][INFO][DartProcessing] - CLEAN BY REVERSION: camera 2 [...] 10079 -> 6524 [...]
+[16:51:47.050][INFO][DartProcessing] - I1707 RIM CARRIED: [...]
+[16:51:47.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[16:51:47.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000165147","sector":"None"}
+[16:51:54.050][INFO][DartProcessing] - I1707 RIM CARRIED: [...]
+[16:51:54.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
+[16:51:54.140][INFO][TurnausClient] - TURNAUS: COUNTED {"bounced_out":false,"reference":"01M4JFX0000000000000165154","sector":"None"}
+[16:51:56.000][INFO][DartProcessing] - STATE VOTE: 0 moved up and 0 read CLEAN [...] stays DART_3: camera 1 [...] 9343 px inside its own board, camera 2 [...] 32153 px, camera 3 [...] 5894 px
+[16:52:12.300][INFO][DartProcessing] - CLEAN BY REVERSION: camera 1 [...] 9343 -> 6523 [...]
+[16:52:12.301][INFO][DartProcessing] - CLEAN BY REVERSION: camera 2 [...] 32153 -> 6527 [...]
+[16:52:12.302][INFO][DartProcessing] - CLEAN BY REVERSION: camera 3 [...] 5894 -> 3060 [...]
+[16:52:12.303][INFO][DartProcessing] - CLEAN REFERENCE ADOPTED: the board reconciled CLEAN, so camera(s) [...]
+[16:52:12.390][INFO][Scorer] - SCORE: END | Position: (?,?) | Confidence: 1.000000 | Camera: -1 | Processing: ?ms
