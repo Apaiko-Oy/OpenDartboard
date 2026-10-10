@@ -753,10 +753,41 @@ four assertions: a single at 95.2 mm was measured against the double's inner wir
 because the single's two bands were split at the 25-ring/treble midpoint; the split is
 the treble's middle, 103 mm.
 
-**The fixture count (`testers/i1773_census.py` over the bakeoff's seven logs).** NOT YET MEASURED: the bakeoff on this binary was in flight (runs 1 and 2, rig-20260918 dev and opening, read 19/20 and 19/20 with 0 phantoms, the documented baseline) when this section was written; the census is to be run over `runs-od-wt-1773/1555/r*.txt` and the count, the wrong-today count and `score_moved=0` recorded here.
+**The fixture count (`testers/i1773_census.py` over the bakeoff's seven logs, 2026-10-10).**
+Of 154 matched darts the vote published 53; 48 of those measured a radius (the five
+without one are the no-winner MISSes). **20 are inside the 5 mm sigma of a ring wire,
+and the rule flags all 20** (none unnameable: no fixture OUTER sits near the 25 ring's
+wire). 19 of the 20 are right today and keep their score with the ring across as the
+alternative at 0.7; the one wrong is the vote pin's v1.1 (rig-20260918, `OD_SCORE_PATH=vote`),
+S13 for a thrown T13 at 96.5 mm, 2.5 mm inside the treble's inner wire, whose alternative
+T13 IS the throw. On the six default runs every near reading is right (15 of 30 checked,
+half). `score_moved=0` on all seven runs: the published score equals the vote's string on
+every vote dart. Five vote darts are wrong and clear of every ring wire -- all five are
+wedge errors (the pin's v2.1 and v4.1, rig-20260922 dev v7.2 at 0.8 mm from the 3/19
+wire, rig-20260929 v10.3 in both windows at 1.8 mm from a wedge wire), #1628's ground
+and not this issue's. The twenty, with margins (per window; both windows read alike):
+rig-20260918 v6.2 S7 at 4.6-4.8 mm inside the double's inner wire (alt D7);
+rig-20260922 v3.2 D20 at 3.5 mm from the outer wire (alt MISS) and v4.1 S7 at 4.9 mm
+from the double's inner wire (alt D7, its wedge wire 2.0-2.5 mm and nearer); rig-20260929
+v2.2 T14 at 2.8 mm from the treble's inner wire (alt S14, wedge wire 1.1-1.3 mm and
+nearer), v2.3 T11 at 3.9 mm from its outer wire (alt S11), v6.2 D5 at 1.1 mm from the
+outer wire (alt MISS), v7.3 S12 from two cameras agreeing at 4.7 mm from the double's inner
+wire (alt D12, 0.9 -> 0.7) and opening v9.3 T19 at 4.0 mm from the treble's outer wire
+(alt S19); the pin adds v1.1 above, v2.2 T14 at 0.5 mm, v3.3 T20 from two cameras at
+2.9 mm (wedge wire 0.9 mm and nearer) and v5.1 S15 at 1.0 mm. The two darts #1707's
+opt-in flagged (rig-20260922 v3.2's D20, rig-20260929 v6.2's D5, each with MISS) are
+now flagged by default by this rule, and the rest of #1707 is unchanged.
 
-
-**Bakeoff on the new binary (capture clock, `testers/i1555_run.sh`, 2026-10-10).** Runs 1 and 2 identical to the baseline (19/20, 19/20, 0 phantoms); runs 3-7 were still in flight -- to be recorded against the baseline of 135..143/158, r18+r22 82/86, 0 phantoms.
+**Bakeoff on the new binary (capture clock, `testers/i1555_run.sh`, 2026-10-10).**
+rig-20260918 19/20 and 19/20, rig-20260922 21/23 and 23/23, the vote pin 17/20,
+rig-20260929 26..30/36 and 27..31/36; pooled 135..143/158 (85.4%), r18+r22 82/86
+(95.3%), 0 phantoms -- every figure the documented baseline's. `testers/run_all.sh
+1628-lonefix` passes in 400 s on the same binary (dev v7.2: near=5, reselected 0 by
+default and 1 under the pin, as recorded), and its LONE-WIRE line for v7.2 now reads
+`camera 0's S19 is 0.8 mm from a wedge wire and 5.7 mm from the 25 ring's wire (the
+wedge wire is nearer), inside the sigma; ...the reselection is off..., so it stands`,
+with `RING-WIRE: camera 0's S19 (alone) sits 5.7 mm from the 25 ring's wire by its own
+ruler, 21.6 mm from the bull, clear of the 5 mm sigma` beside it.
 
 
 ## Real-time replay (turnaus#1683)
