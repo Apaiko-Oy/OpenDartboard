@@ -663,6 +663,20 @@ is the third camera (#1748, landed) and the axis loss on stacked darts (#1684, p
 a two-line solve on this wedge of this rig cannot resolve the 3/19 wire better than
 +-12-16 mm, and now says so.
 
+**Bakeoff, switch-first on one binary (2026-10-10, the dev build of 8406446 -- built
+before the sentence above landed, which changes no score; the sentence is held by the
+pure check and has not yet been seen in a replay -- capture clock,
+`testers/i1555_run.sh`).** Before (the default): rig-20260918 19/20 and 19/20,
+rig-20260922 21/23 and 23/23, the vote pin 17/20, rig-20260929 26..30/36 and 27..31/36;
+pooled 135..143/158 (85.4%), r18+r22 82/86 (95.3%), 0 phantoms, rc 0. After
+(`OD_SOLVE_CONTROL=on`): every figure the same, and `I1681CONTROL ... refused=1` on 0
+solves of the six logs -- the one refusal #1681 measured on 2026-09-29 (rig-20260929
+window 22, MISS -> D5) is gone, because after #1748 that window is a two-line solve of
+cameras 1+3 with two placed tips within 15 mm. So on this tree the switch is a no-op on
+every fixture, both ways, and the documented baseline holds with it off and on.
+`i1766_census.py` over both runs reads the same 30 two-line rows: pair 33.5-88.6 deg,
+across-wire sigma 5.0-9.3 mm, formula residual 0.2%, refused 0, vote differs on 6.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never
