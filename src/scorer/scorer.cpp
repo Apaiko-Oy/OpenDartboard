@@ -195,6 +195,44 @@ namespace
         return v;
     }
 
+    // #1797: whether this board stops itself at 06:00 local so the launcher can look for an
+    // update (src/utils/scheduled_stop.hpp has the rule). ON unless OD_SCHEDULED_RESTART is
+    // exactly "off" -- the pin for a rig under a replay and for a tester with a long clock,
+    // the ONLY way to keep a board from stopping at six. Anything else keeps the default,
+    // so a typo keeps the board updating. Read once, like the other pins here.
+    inline bool scheduledRestartIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = getenv("OD_SCHEDULED_RESTART");
+            return !(e != nullptr && string(e) == "off");
+        }();
+        return v;
+    }
+
+    // #1797: the clock the schedule reads, unix seconds, which scheduled_stop.hpp turns
+    // into local time through the same localtime the log's timestamps use.
+    //
+    // OD_SCHEDULED_CLOCK=<unix seconds> is TEST-ONLY and is an injected clock, not a pin on
+    // the rule: the schedule then starts at that instant and advances with the steady
+    // clock, so a replay can meet "06:00" ten seconds in (testers/i1797_replay.sh does).
+    // Nothing else reads it -- the log's own timestamps stay the machine's -- so a replay
+    // under it shows both clocks side by side, and a board at a venue never sets it.
+    inline long long scheduleClock()
+    {
+        static const long long forced = []
+        {
+            const char *e = getenv("OD_SCHEDULED_CLOCK");
+            return e != nullptr ? atoll(e) : 0LL;
+        }();
+        static const chrono::steady_clock::time_point began = chrono::steady_clock::now();
+        if (forced <= 0)
+        {
+            return static_cast<long long>(time(nullptr));
+        }
+        return forced + chrono::duration_cast<chrono::seconds>(chrono::steady_clock::now() - began).count();
+    }
+
     // Flat, and NOT the doubling backoff the `Unreadable` path uses. That backoff exists
     // because a camera that will not open may not open for hours and the board must not
     // spend the night in a hot loop; this is the opposite state -- the cameras are open,
@@ -333,6 +371,29 @@ void Scorer::attachTurnaus(std::unique_ptr<TurnausClient> client)
     turnaus_ = std::move(client);
 }
 
+// #1797: one poll of the schedule. Pure in the header; this is the one place it meets the
+// clock, the facts and the log. It says the postponement each time the guard fires (once
+// per mark, because the due instant moves) and the stop sentence once, and then the
+// caller leaves by #825's flag, so the shutdown is exactly SIGTERM's but for the number.
+bool Scorer::scheduledStopIsDue()
+{
+    const long long now = scheduleClock();
+    const scheduled_stop::Outcome due = schedule_.poll(now, schedule_facts_);
+    switch (due.verdict)
+    {
+    case scheduled_stop::Verdict::Postponed:
+        log_info(scheduled_stop::postponedSentence(due));
+        return false;
+    case scheduled_stop::Verdict::Stop:
+        log_info(scheduled_stop::stopSentence(now));
+        stopped_on_schedule_ = true;
+        return true;
+    case scheduled_stop::Verdict::NotYet:
+    default:
+        return false;
+    }
+}
+
 void Scorer::sendResult(const DetectorResult &result)
 {
     // Push to queue for WebSocket broadcasting
@@ -363,6 +424,19 @@ void Scorer::sendResult(const DetectorResult &result)
         // #1186: the board-frame fields are logged by score_processing on their own BOARD
         // line, with whether the wedge was measured, so the SCORE line above stays
         // byte-for-byte what every control in the research chain was extracted from.
+
+        // #1797: the two facts the scheduled stop's one guard reads, beside the line they
+        // are facts about. END is the takeout and closes the round; every other publish --
+        // a score, a MISS -- is a dart, timed by the schedule's own clock, and opens it.
+        if (result.score == "END")
+        {
+            schedule_facts_.round_open = false;
+        }
+        else
+        {
+            schedule_facts_.last_dart_at = scheduleClock();
+            schedule_facts_.round_open = true;
+        }
     }
 
     if (debug_display && result.motion_detected)
@@ -415,6 +489,22 @@ void Scorer::run()
     // #1274: the condition is canSee(), because main asks the same question before it
     // announces the board. Two spellings of it could drift apart, and the failure that
     // drift makes is a board announced on the network with nothing listening.
+    // ---- #1797: the scheduled stop, armed here so a blind board's vigil has it too. ----
+    // Said once, so a reader of tomorrow's log knows when the board meant to stop; the
+    // pin says itself, so a replay under it cannot be read as a board that forgot.
+    schedule_ = scheduled_stop::Schedule(scheduledRestartIsOn(), scheduleClock());
+    if (schedule_.enabled())
+    {
+        log_info("I1797 SCHEDULED RESTART armed: due at " + scheduled_stop::dateClockText(schedule_.dueAt()) +
+                 " local, the first 06:00 after this start; a dart in the last 10 minutes or a round not "
+                 "taken out postpones it by 10 minutes");
+    }
+    else
+    {
+        log_warning("OD_SCHEDULED_RESTART=off is set: this board does not stop itself at 06:00 for the "
+                    "launcher to look for an update (#1797)");
+    }
+
     if (!canSee())
     {
         log_error("Detector not initialized - cannot run");
@@ -524,6 +614,13 @@ void Scorer::run()
         {
             log_warning("Received signal " + to_string(sig) +
                         ", finishing the cycle in flight and shutting down...");
+            running = false;
+            break;
+        }
+        // #1797: the scheduled stop, by the same flag and the same exit path, polled once a
+        // cycle after the signal so a SIGTERM that lands at 06:00 is reported as what it was.
+        if (scheduledStopIsDue())
+        {
             running = false;
             break;
         }
@@ -896,6 +993,14 @@ void Scorer::runFaultVigil()
         {
             log_warning("Received signal " + to_string(sig) +
                         ", shutting down a faulted board...");
+            running = false;
+            break;
+        }
+        // #1797: a blind board is still a board running at 06:00, and a stop here is the
+        // one thing that lets the launcher look for the release that might give it its
+        // sight back. No darts, so the guard never fires; the vigil is otherwise #895's.
+        if (scheduledStopIsDue())
+        {
             running = false;
             break;
         }

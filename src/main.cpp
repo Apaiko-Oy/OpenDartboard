@@ -549,5 +549,13 @@ int main(int argc, char **argv)
   // scoring budget, the end of the footage, SIGINT, SIGTERM, a vigil a signal left --
   // returns 0 exactly as before. Taken after the withdrawal above, so the announcement
   // is gone whatever this answers.
-  return scorer.endedBlindOnTheBudget() ? Scorer::kCouldNotSee : 0;
+  //
+  // #1797: and the one other status that is not 0. A run that stopped ITSELF at 06:00 local
+  // left by the very same unwind -- the flag the loop reads, the withdrawal above, ~Scorer
+  // below -- and differs in nothing but this number, which the launcher reads as the word
+  // "scheduled": not a fault, and the one ending it follows with a look for an update and
+  // another start. See Scorer::kScheduledStop.
+  if (scorer.endedBlindOnTheBudget())
+    return Scorer::kCouldNotSee;
+  return scorer.stoppedOnSchedule() ? Scorer::kScheduledStop : 0;
 }

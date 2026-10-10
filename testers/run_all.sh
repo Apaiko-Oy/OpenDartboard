@@ -940,6 +940,11 @@ tester 891-unreachable    "bash '$T/i891_run.sh' unreachable '$T/phases891/unrea
 tester 1282-footage       "bash '$T/i1282_run.sh'"
 tester 1303-launcher      "bash '$T/i1303_check.sh'"
 tester 1306-install      "bash '$T/i1306_check.sh'"
+# #1797: the detector stops itself at 06:00 local with an ending of its own, the launcher
+# looks for an update after it and starts the detector again. Two pure checks and a
+# re-carry against a real stub in one container, each mutation proof inside the harness
+# (--mutate-clock, --mutate-ending); no detector binary, so OD_SKIP_BUILD changes nothing.
+tester 1797-scheduled     "bash '$T/i1797_check.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
 # #1383: a blind board given a cycle budget ends, and a blind board says so where a
 # supervisor can read it. Six detector runs on #892's blind fixture and the shipped
