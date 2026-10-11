@@ -42,12 +42,15 @@ fi
 
 echo
 echo "=== how far apart two cameras place one dart, in millimetres ==================="
+# Three outcomes, not two (#1758): until then any non-zero status read as "nothing was
+# placed", and a TypeError on dart 4's surround reading was reported as an empty census.
 python3 "$SRC/testers/i1490_spread.py" /run1490/rows.txt
-if [ $? -eq 0 ]; then
-  say "OK   darts were placed on the board by two or more cameras, so there is a spread to read" ok
-else
-  say "FAIL no dart in the whole clip was placed on the board by two cameras, so this census compared nothing" no
-fi
+SPREAD_RC=$?
+case "$SPREAD_RC" in
+  0) say "OK   darts were placed on the board by two or more cameras, so there is a spread to read" ok ;;
+  3) say "FAIL no dart in the whole clip was placed on the board by two cameras, so this census compared nothing" no ;;
+  *) say "FAIL the reader crashed (i1490_spread.py exited $SPREAD_RC) -- the census was not read, so nothing is known about what it placed" no ;;
+esac
 
 echo
 echo "=== the replay is the detector's own pipeline, and this is the control ========="

@@ -18,6 +18,19 @@
 # were asked about. The matched population -- both cameras with the tip on the board -- is
 # therefore printed FIRST and is the comparison the issue asks for; the wider one is
 # printed after it, named for what it really contains.
+#
+# ON THE BOARD MEANS THE RULER GAVE BOTH ANSWERS, NOT THAT IT GAVE A RADIUS (#1758). Since
+# #1505 scorePoint keeps the ruler's radius on a MISS whose tip is on the surround -- so a
+# published MISS's BOARD line can say how far off the board it was -- and sets no angle
+# there. This script was written before that, read `bpR is not None` as "on the board",
+# and on rig-20260918 dart 4 camera 2 (`score=MISS bpR=1.2530 bpPhase=none`) formatted the
+# missing angle as a number and died. A reading is on the board when it has a radius of at
+# most 1 AND an angle; a radius past 1 is printed as the surround reading it is.
+#
+# EXIT STATUS. 0: there is a spread to read. 3: the census compared nothing -- no dart was
+# placed on the board by two cameras. Anything else, Python's own 1 for an uncaught
+# exception included, is THIS SCRIPT failing, and the harness says so in those words
+# rather than reporting a crash as an empty census, which is what it did until #1758.
 import math
 import sys
 
@@ -37,6 +50,15 @@ for line in open(sys.argv[1]):
 def num(f, k):
     v = f.get(k, "none")
     return None if v == "none" else float(v)
+
+
+def ruler(f):
+    """(radius, in-sector angle) where the shipped BoardPosition put this tip ON the board,
+    else None. A surround MISS keeps a radius past 1 and has no angle (#1505)."""
+    r, p = num(f, "bpR"), num(f, "bpPhase")
+    if r is None or p is None or r > 1.0:
+        return None
+    return r, p
 
 
 def sector_gap(a, b):
@@ -81,7 +103,7 @@ darts_two_tips = 0
 for d in sorted(darts):
     fs = darts[d]
     tips = [f for f in fs if num(f, "plR") is not None]
-    board = [f for f in fs if num(f, "bpR") is not None]
+    board = [f for f in fs if ruler(f) is not None]
     if len(tips) >= 2:
         darts_two_tips += 1
     if len(board) >= 2:
@@ -90,21 +112,24 @@ for d in sorted(darts):
     print("  dart %2d (cycle %s, %s): %d camera(s) reported a tip, %d of them on the board"
           % (d, fs[0]["cycle"], fs[0]["state"], len(tips), len(board)))
     for f in fs:
-        plR, bpR = num(f, "plR"), num(f, "bpR")
+        plR, on = num(f, "plR"), ruler(f)
         if plR is None:
             print("      camera %s  no tip in this window" % f["cam"])
             continue
         gap = ""
-        if bpR is not None:
-            g = abs(plR - bpR) * MM
+        if on is not None:
+            g = abs(plR - on[0]) * MM
             mapping_gap.append(g)
             gap = "   the two mappings differ by %5.1f mm on this one reading" % g
+            said = "%6.1f mm @ %5.2f deg" % (on[0] * MM, on[1])
+        elif num(f, "bpR") is not None:
+            said = "   off the board, on the surround at %.1f mm, so it gives no angle" % (num(f, "bpR") * MM)
+        else:
+            said = "   off the board, so it says nothing"
         print("      camera %s  tip=(%s) %-5s  plane %6.1f mm @ %5.2f deg   ruler %s%s"
               % (f["cam"], f["tip"], f.get("score", "-"), plR * MM,
                  num(f, "plPhase") if num(f, "plPhase") is not None else float("nan"),
-                 ("%6.1f mm @ %5.2f deg" % (bpR * MM, num(f, "bpPhase")))
-                 if bpR is not None else "   off the board, so it says nothing",
-                 gap))
+                 said, gap))
 
     for i in range(len(tips)):
         for j in range(i + 1, len(tips)):
@@ -118,12 +143,11 @@ for d in sorted(darts):
             tan = abs(dt) * math.pi / 180.0 * rmean
             sep = math.hypot(dr, tan)
 
-            both_on_board = num(a, "bpR") is not None and num(b, "bpR") is not None
+            both_on_board = ruler(a) is not None and ruler(b) is not None
             line = ("      cameras %s  PLANE radial %6.1f mm | in-sector %5.2f deg = %5.1f mm "
                     "across | apart >= %6.1f mm" % (pair, dr, dt, tan, sep))
             if both_on_board:
-                rra, rrb = num(a, "bpR"), num(b, "bpR")
-                rpa, rpb = num(a, "bpPhase"), num(b, "bpPhase")
+                (rra, rpa), (rrb, rpb) = ruler(a), ruler(b)
                 rdr = abs(rra - rrb) * MM
                 rdt = sector_gap(rpa, rpb)
                 rmean2 = 0.5 * (rra + rrb) * MM
@@ -198,5 +222,6 @@ print("    already in the board disagrees by millimetres that no plane caused. W
 print("    clean is the COMPARISON -- both mappings are handed the same tip, so the two")
 print("    columns differ only by the mapping, whatever the tips are worth.")
 
-# The instrument, not the finding.
-sys.exit(0 if matched["r"] else 1)
+# The instrument, not the finding. 3 and not 1, because 1 is what Python exits with when
+# this script itself raises, and the harness has to tell those two apart (#1758).
+sys.exit(0 if matched["r"] else 3)
