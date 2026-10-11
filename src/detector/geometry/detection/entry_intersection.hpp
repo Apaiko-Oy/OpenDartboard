@@ -807,6 +807,25 @@ namespace entry_intersection
 
     namespace detail
     {
+        /** Every camera that offered no line to the solve, or whose line the solver
+         *  excluded, in the words its exclusion was named with: "cam N: <exclusion>",
+         *  "; "-joined. The TOO-FEW story and the solved story both end on this list,
+         *  and #1779's INFO line reuses it, so the three can never word a camera twice. */
+        inline std::string exclusionsListed(const std::vector<Constraint> &constraints)
+        {
+            std::string s;
+            for (const Constraint &con : constraints)
+            {
+                if (con.usable && !con.excluded)
+                {
+                    continue;
+                }
+                s += (s.empty() ? "" : "; ") + std::string("cam ") +
+                     std::to_string(con.camera + 1) + ": " + con.exclusion;
+            }
+            return s;
+        }
+
         /** sigmaPerp at a point: floored direction sigma over the lever, plus the
          *  lateral floor, in quadrature. */
         inline void weighAt(Constraint &con, const cv::Point2f &at, const Params &p)
@@ -911,17 +930,7 @@ namespace entry_intersection
 
         auto exclusionsListed = [&]() -> std::string
         {
-            std::string s;
-            for (const Constraint &con : out.constraints)
-            {
-                if (con.usable && !con.excluded)
-                {
-                    continue;
-                }
-                s += (s.empty() ? "" : "; ") + std::string("cam ") +
-                     std::to_string(con.camera + 1) + ": " + con.exclusion;
-            }
-            return s;
+            return detail::exclusionsListed(out.constraints);
         };
 
         if ((int)usable.size() < 2)
@@ -1575,6 +1584,35 @@ namespace entry_intersection
         return "a solve whose camera " + std::to_string(sol.leastControlledCamera) +
                " line has redundancy " + detail::fmt("%.2f", sol.minRedundancy) +
                ": the other lines cannot see it displaced, so nothing checks this sigma (#1766)";
+    }
+
+    /**
+     * turnaus#1779: WHICH CAMERA OFFERED NO LINE, AT INFO. A geometric publish from fewer
+     * lines than cameras offered says which camera is missing and why, in the exclusion's
+     * own words -- the list the DEGRADED story ends on (`cam 2: no usable axis: not a
+     * shaft: ...`, `cam 3: inconsistent with the other cameras: ...`). Before this the
+     * reason was printed only on the DEGRADED path and in the debug-only I1512CAM census,
+     * and live on 2026-10-10 16:17:44 a lone S10 solved from cameras 1 and 3 at 24.6 deg
+     * and published S6 with nothing at INFO to say whether camera 2 failed the elongation
+     * gate, the straightness gate, the floor, or the solver's consistency check.
+     *
+     * Empty -- and so nothing printed -- on an unsolved dart and on a solve that used every
+     * offered camera's line. The caller asks it only on the geometric path.
+     */
+    inline std::string missingLinesAccount(const EntrySolution &sol)
+    {
+        if (!sol.solved || sol.usableConstraints >= sol.offeredConstraints)
+        {
+            return std::string();
+        }
+        const std::string listed = detail::exclusionsListed(sol.constraints);
+        if (listed.empty())
+        {
+            return std::string();
+        }
+        return "LINES: " + std::to_string(sol.usableConstraints) + " of " +
+               std::to_string(sol.offeredConstraints) +
+               " cameras' lines solved this dart (" + listed + ")";
     }
 
     /** One line per offered camera; exclusion words last. */

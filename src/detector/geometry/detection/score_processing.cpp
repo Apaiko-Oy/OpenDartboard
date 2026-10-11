@@ -1197,6 +1197,18 @@ namespace score_processing
                 log_info(crossing.account);
             }
 
+            // turnaus#1779: a solve from fewer lines than cameras says which camera offered
+            // none and why, at INFO. Here, before "Geometric score", and never between it and
+            // its BOARD line: i1766_census.py reads the BOARD line as the very next one.
+            if (decision.path == ScorePath::Geometry)
+            {
+                const string missing = entry_intersection::missingLinesAccount(solution);
+                if (!missing.empty())
+                {
+                    log_info(missing);
+                }
+            }
+
             if (decision.path == ScorePath::Geometry)
             {
                 const int reference = solution.scoredThroughCamera;
