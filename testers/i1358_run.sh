@@ -6,9 +6,10 @@
 #
 #   testers/i1358_run.sh [container-bash-script-file]
 #
-# It runs the detector three times over sixty seconds of footage apiece -- the rig, the
-# shipped mocks, and the rig again with #1358's falsification switch -- so it is one of
-# the slower testers in this directory; OD_TESTER_TIMEOUT is what run_all.sh gives it.
+# It runs the detector four times over sixty seconds of footage apiece -- the rig, the
+# shipped mocks, and the rig twice more with #1358's falsification switch, once in the
+# shipped board count and once in the scoring-area count #1345 measured in (#1827) -- so
+# it is one of the slower testers in this directory; OD_TESTER_TIMEOUT is what run_all.sh gives it.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
 SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1358/1358-window.sh}"
