@@ -718,6 +718,17 @@ tester 1773-ringwire      "bash '$T/i1773_check.sh'"
 # detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the
 # 4-core box at load ~6-11, rc=0: 33 s wall.
 tester 1781-body          "bash '$T/i1781_check.sh'"
+# turnaus#1793: after "there was no dart there", the visit's real third dart is pushed.
+# OD_PAST_THREE (off by default) lets a board at DART_3 vote, score and push an arrival like
+# any dart; Turnaus counts it where a withdrawal left room and answers DROPPED otherwise
+# (#1281), and the client says a DROPPED once per round. The pure half: a round (a phantom
+# the player removes, then three real darts) replayed through the vote's own decisions in
+# dart_processing.hpp with Turnaus's rule played beside it -- the real third dart pushed and
+# written with the switch on, not with it off -- one compile of the tree plus five of a
+# mutated scratch copy, each predicted to turn named assertions red. No detector binary;
+# OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
+# ~17 with a bakeoff alongside, rc=0: 71 s wall.
+tester 1793-pastthree     "bash '$T/i1793_check.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked

@@ -473,6 +473,79 @@ namespace dart_processing
     }
 
     /**
+     * turnaus#1793: a dart that lands after the board has counted three.
+     *
+     * The board counts arrivals itself, CLEAN -> DART_1 -> DART_2 -> DART_3, and before
+     * #1793 a camera at DART_3 STAYED at DART_3 whatever arrived: its candidate equalled
+     * the board's state, so the vote counted it as a stay and the window published
+     * nothing. When the board had counted a dart nobody threw (a phantom, a knock) and the
+     * player removed it in Turnaus ("There was no dart there", turnaus#1723), the round
+     * had room again and the visit's real third dart was never pushed.
+     *
+     * Under OD_PAST_THREE=on a camera at DART_3 whose fresh figure clears the floor (or
+     * the rim floor, #1689) votes an arrival past three, the vote counts it as an up vote,
+     * and a quorum calls a dart: the board stays DART_3 (there is no fourth state, and the
+     * takeout still reconciles from it) and the window publishes like any advance. Turnaus
+     * decides whether the round has room: it counts the dart when a withdrawal left room
+     * and answers DROPPED to a fourth dart into a full round (turnaus#1281).
+     *
+     * Pure and inline (#1338's reason): testers/i1793_round_check.cpp replays a round on
+     * these without building the detector.
+     */
+    inline bool votesArrivalPastThree(DartBoardState camera_previous, bool fresh_arrival, bool switch_on)
+    {
+        return switch_on && fresh_arrival && camera_previous == DartBoardState::DART_3;
+    }
+
+    /** turnaus#1793: whether a camera's vote is an up vote against the board's state. */
+    inline bool votesUp(DartBoardState detected, DartBoardState board, bool arrived_past_three)
+    {
+        return detected > board || (arrived_past_three && board == DartBoardState::DART_3);
+    }
+
+    /**
+     * turnaus#1793: the vote's three rules, as dart_processing.cpp applies them. Returns the
+     * reconciled state; `past_three` is set when a quorum called an arrival on a board
+     * already at DART_3 -- the one called dart that leaves the state where it was.
+     */
+    inline DartBoardState reconcileVote(DartBoardState board, int goes_clean, int moves_up, int quorum,
+                                        bool &past_three)
+    {
+        past_three = false;
+        if (goes_clean >= quorum)
+        {
+            return DartBoardState::CLEAN; // Rule 3: a quorum thinks CLEAN
+        }
+        const bool quorum_moves = moves_up >= quorum;
+        if (quorum_moves)
+        {
+            if (board == DartBoardState::DART_3)
+            {
+                past_three = true; // reachable only through votesUp's past-three clause
+                return board;
+            }
+            return static_cast<DartBoardState>(static_cast<int>(board) + 1); // Rule 1: a quorum moves up
+        }
+        return board; // Rule 2: stay put
+    }
+
+    /**
+     * turnaus#1793: whether the vote called a dart in this window -- an advance, or an
+     * arrival past three. What follows a called dart (the working backgrounds, the reported
+     * tips, the reversion memory, the kept frames) reads this rather than `final > previous`.
+     */
+    inline bool windowCalledADart(DartBoardState previous, DartBoardState current, bool past_three)
+    {
+        return current > previous || (past_three && current == DartBoardState::DART_3);
+    }
+
+    /** turnaus#1793: whether score_processing publishes this window (an END, or a dart). */
+    inline bool windowPublishes(DartBoardState previous, DartBoardState current, bool past_three)
+    {
+        return previous != current || windowCalledADart(previous, current, past_three);
+    }
+
+    /**
      * turnaus#1781: the share of a camera's board above which a voting camera's FRESH
      * change is a body (the thrower's arm at a takeout), not a dart.
      *
@@ -769,6 +842,9 @@ namespace dart_processing
         // #1689: this camera's fresh change cleared the floor only out to the rim, so it
         // voted the arrival and offered no tip or axis ("rim only").
         bool rim_only = false;
+        // turnaus#1793: this camera was at DART_3 and its fresh figure cleared the floor
+        // (OD_PAST_THREE=on only): an up vote although its candidate equals the board's.
+        bool arrived_past_three = false;
     };
 
     // Result of dart state detection
@@ -783,6 +859,9 @@ namespace dart_processing
         // cleared the floor in the scoring area were fewer than the quorum. Such a dart is
         // at or beyond the double ring on every camera but the ones that carried it.
         bool rim_carried = false;
+        // turnaus#1793: the vote called a dart on a board already at DART_3, so
+        // current_state == previous_state and the window still publishes (windowPublishes).
+        bool past_three = false;
     };
 
     // get name of ENUM. Inline here since #1350, so the window account below -- and the

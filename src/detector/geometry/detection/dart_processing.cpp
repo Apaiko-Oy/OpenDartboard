@@ -459,6 +459,24 @@ namespace dart_processing
         return v;
     }
 
+    // turnaus#1793: whether a camera at DART_3 whose fresh figure clears the floor votes an
+    // arrival past three (votesArrivalPastThree in dart_processing.hpp). Off by default: a
+    // board at DART_3 stays there whatever arrives, as it always has, and the visit's real
+    // third dart after a phantom the player removed in Turnaus is never pushed.
+    static bool pastThreeOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_PAST_THREE");
+            const bool on = e && string(e) == "on";
+            if (on)
+                log_info("OD_PAST_THREE=on: an arrival on a board at DART_3 is voted, scored and pushed like "
+                         "any dart; Turnaus decides whether the round has room (turnaus#1793)");
+            return on;
+        }();
+        return v;
+    }
+
     static bool bodyCensusOn()
     {
         static const bool v = []
@@ -1840,6 +1858,8 @@ namespace dart_processing
                     candidate_state = previous_states[i] == DartBoardState::CLEAN   ? DartBoardState::DART_1
                                       : previous_states[i] == DartBoardState::DART_1 ? DartBoardState::DART_2
                                                                                      : DartBoardState::DART_3;
+                    result.camera_results[i].arrived_past_three =
+                        votesArrivalPastThree(previous_states[i], true, pastThreeOn()); // turnaus#1793
                     if (advanceResetIsPerCamera())
                     {
                         working_backgrounds[i] = averaged_frame.clone();
@@ -1867,6 +1887,9 @@ namespace dart_processing
                     else if (previous_states[i] == DartBoardState::DART_3)
                     {
                         candidate_state = DartBoardState::DART_3; // Stay in DART_3
+                        // turnaus#1793: and under OD_PAST_THREE=on, vote the arrival anyway
+                        result.camera_results[i].arrived_past_three =
+                            votesArrivalPastThree(previous_states[i], true, pastThreeOn());
                     }
 
                     // #1495: the reference moves when a dart was CALLED, and a camera
@@ -2174,7 +2197,8 @@ namespace dart_processing
                     any_reversion_vote = true;
                 }
             }
-            else if (result.camera_results[i].detected_state > best_previous_state)
+            else if (votesUp(result.camera_results[i].detected_state, best_previous_state,
+                             result.camera_results[i].arrived_past_three)) // turnaus#1793
             {
                 moves_up++;
                 if (!result.camera_results[i].rim_only)
@@ -2252,19 +2276,11 @@ namespace dart_processing
         }
 
         // Pick the winner
-        DartBoardState final_state;
-        if (goes_clean >= quorum)
-        {
-            final_state = DartBoardState::CLEAN; // Rule 3: a quorum thinks CLEAN
-        }
-        else if (moves_up >= quorum)
-        {
-            final_state = static_cast<DartBoardState>(static_cast<int>(best_previous_state) + 1); // Rule 1: a quorum moves up
-        }
-        else
-        {
-            final_state = best_previous_state; // Rule 2: Stay put
-        }
+        // turnaus#1793: reconcileVote is the three rules as they were; `past_three` is the
+        // one called dart that leaves the state where it was, reachable only when a camera
+        // voted an arrival past three (OD_PAST_THREE=on).
+        bool past_three = false;
+        DartBoardState final_state = reconcileVote(best_previous_state, goes_clean, moves_up, quorum, past_three);
 
         // turnaus#1781: the takeout's arm, voted to the board as a dart. Live on 2b56b48 a
         // phantom D11 0.7 s before the END and a phantom S2 1.0 s after it each reached the
@@ -2283,7 +2299,7 @@ namespace dart_processing
             {
                 const CameraDetectionResult &r = result.camera_results[i];
                 if (!r.frame_available || r.abstained_no_board || voted_clean[i] ||
-                    r.detected_state <= best_previous_state)
+                    !votesUp(r.detected_state, best_previous_state, r.arrived_past_three))
                     continue; // only a camera that voted the arrival
                 const double share =
                     r.board_pixels > 0 ? 100.0 * (double)r.fresh_board_pixels / (double)r.board_pixels : 0.0;
@@ -2296,7 +2312,7 @@ namespace dart_processing
                     largest_cam = (int)i + 1;
                 }
             }
-            const bool advances = final_state > best_previous_state;
+            const bool advances = windowCalledADart(best_previous_state, final_state, past_three);
             const bool body = largest_cam > 0;
             const bool soon = best_previous_state == DartBoardState::CLEAN && arrivalFollowsTakeoutTooSoon(since_end);
             const int mode = bodyWindowMode();
@@ -2322,6 +2338,7 @@ namespace dart_processing
                          getDartBoardStateName(final_state) + " refused, because " + why +
                          " -- an arm at a takeout, not a dart (turnaus#1781)");
                 final_state = best_previous_state;
+                past_three = false;
             }
             if (final_state == DartBoardState::CLEAN && best_previous_state != DartBoardState::CLEAN &&
                 any_reversion_vote)
@@ -2332,12 +2349,21 @@ namespace dart_processing
 
         // #1707: an advance the scoring-area counts alone would have held. The scorer reads
         // it (score_processing, rimCarriedFallback): the dart is at or beyond the double.
-        result.rim_carried = final_state > best_previous_state && moves_up_in_scoring < quorum;
+        // turnaus#1793: a dart is called by an advance or, under OD_PAST_THREE=on, by an arrival
+        // past three; with the switch off this is `final_state > best_previous_state` exactly.
+        const bool called_a_dart = windowCalledADart(best_previous_state, final_state, past_three);
+        if (past_three)
+        {
+            log_info("I1793 PAST THREE: " + to_string(moves_up) + " camera(s) voted an arrival on a board already "
+                     "at DART_3 (quorum " + to_string(quorum) + "), so it is scored and pushed; Turnaus decides "
+                     "whether the round has room (turnaus#1793)");
+        }
+        result.rim_carried = called_a_dart && moves_up_in_scoring < quorum;
         // #1787: the board gained a dart, so this window's settled frames are the pictures
         // of it. A no-op (one static bool) unless OD_KEEP_FRAMES is set; otherwise one
         // clone per camera into frame_keep's pending slot, committed under the dart's
         // reference when the Turnaus client mints it.
-        if (final_state > best_previous_state)
+        if (called_a_dart)
         {
             frame_keep::deposit(window_serial, window_frames);
         }
@@ -2376,7 +2402,7 @@ namespace dart_processing
         // A camera that brought no frame to this window has no average to move to, and is
         // left alone: it abstained, and the frame it last saw is still the best reference
         // it has.
-        if (!advanceResetIsPerCamera() && final_state > best_previous_state)
+        if (!advanceResetIsPerCamera() && called_a_dart)
         {
             for (size_t i = 0; i < working_backgrounds.size() && i < window_frames.size(); i++)
             {
@@ -2400,7 +2426,7 @@ namespace dart_processing
         // dart arrives in that next window instead, its figure carries the ghost -- the
         // harm the switch removes for a refused dart, no worse. Without the switch the
         // transient costs nothing; with it, a refused dart costs nothing.
-        if (heldVoteRebases() && moves_up >= 1 && final_state == best_previous_state &&
+        if (heldVoteRebases() && moves_up >= 1 && final_state == best_previous_state && !past_three &&
             final_state != DartBoardState::CLEAN)
         {
             string rebased;
@@ -2424,7 +2450,7 @@ namespace dart_processing
         // calls a dart, and a tip from a window the vote refused was never reported to
         // anybody. Recorded whatever the OD_TIP_IDENTITY and OD_ADVANCE_RESET pins say,
         // so a pinned run measures the rule against the same memory the tree rule holds.
-        if (final_state > best_previous_state)
+        if (called_a_dart)
         {
             for (size_t i = 0; i < result.camera_results.size() && i < reported_tips.size(); i++)
             {
@@ -2456,7 +2482,7 @@ namespace dart_processing
                     any_tip_found = true;
                 }
             }
-            const bool board_advanced = final_state > best_previous_state;
+            const bool board_advanced = called_a_dart;
             if (final_state == DartBoardState::CLEAN ||
                 (board_advanced && advanceClearsReversionMemory(any_tip_found)))
             {
@@ -2492,7 +2518,7 @@ namespace dart_processing
         // slot, abstentions included, because a coverage/refusal census with only the
         // cameras that produced plausible lines has measured nothing (the acceptance
         // says so in as many words). Both are pins; an ordinary run prints neither.
-        if ((shaftCensusOn() || !shaftProbeDir().empty()) && final_state > best_previous_state)
+        if ((shaftCensusOn() || !shaftProbeDir().empty()) && called_a_dart)
         {
             for (size_t i = 0; i < result.camera_results.size(); i++)
             {
@@ -2625,6 +2651,7 @@ namespace dart_processing
         // set new best previous state
         result.current_state = final_state;
         result.previous_state = best_previous_state;
+        result.past_three = past_three;
         best_previous_state = final_state;
 
         if (windowCensus())
@@ -2689,8 +2716,9 @@ namespace dart_processing
         // output and this issue promises not to move it.
         // #1348: `voting`, not `params` -- the sentence must name the quorum the vote just
         // used, and under the falsification switch that is the absolute count.
-        const string refusal = refusedWindowAccount(result.camera_results, result.previous_state,
-                                                    result.current_state, moves_up, goes_clean, voting);
+        const string refusal = past_three ? string()
+                                          : refusedWindowAccount(result.camera_results, result.previous_state,
+                                                                 result.current_state, moves_up, goes_clean, voting);
         if (!refusal.empty())
         {
             log_info(refusal);
