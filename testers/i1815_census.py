@@ -22,8 +22,11 @@ there) are AMBIGUOUS and counted apart -- neither side may claim them.
 
     I1815 RECOMPUTE agree= disagree=        the recomputed flag against the board's `flagged`
     I1815 RULE <rule> false= true= ambiguous=
-    I1815 SWEEP k= flags= cut_false= cut_true= cut_ambiguous= false_rate=
-                                            the geometric flag at z <= k; the vote's unchanged
+    I1815 SET-ASIDE flagged= turn= removed=  the flagged darts claimed by neither side
+    I1815 SWEEP k= flags= cut_false= cut_true= cut_ambiguous= set_aside= false_rate=
+          false_rate_incl_ambiguous=        the geometric flag at z <= k; the vote's unchanged.
+                                            false_rate is false / (false + true), the set-aside
+                                            out of both; the second is the issue's own figure
     I1815 CHANGED k= <posted_at> <published> <alternative> z= verdict=
                                             every flag the first --k clears, by name
     I1815 UNFLAGGED-WRONG path= published= corrected= picked= ...
@@ -152,14 +155,20 @@ def truth_mode(path, ks):
     for name in sorted(rules):
         c = rules[name]
         print("I1815 RULE %-24s false=%d true=%d ambiguous=%d" % (name, c["false"], c["true"], c["ambiguous"]))
+    aside = collections.Counter(r["picked"] for r in flagged if verdict(r) == "ambiguous")
+    print("I1815 SET-ASIDE flagged=%d turn=%d removed=%d (neither false nor true: turnaus#1819)" % (
+        len(flagged), aside["turn"], aside["removed"]))
     for k in sorted(set([1.0] + ks), reverse=True):
         c = collections.Counter()
         for r in flagged:
             kept = r["path"] != "geometry" or z_of(r) <= k
             c[("kept_" if kept else "cut_") + verdict(r)] += 1
         kept = c["kept_false"] + c["kept_true"] + c["kept_ambiguous"]
-        print("I1815 SWEEP k=%.2f flags=%d cut_false=%d cut_true=%d cut_ambiguous=%d false_rate=%.3f" % (
-            k, kept, c["cut_false"], c["cut_true"], c["cut_ambiguous"], c["kept_false"] / kept if kept else 0.0))
+        decided = c["kept_false"] + c["kept_true"]
+        print("I1815 SWEEP k=%.2f flags=%d cut_false=%d cut_true=%d cut_ambiguous=%d set_aside=%d "
+              "false_rate=%.3f false_rate_incl_ambiguous=%.3f" % (
+                  k, kept, c["cut_false"], c["cut_true"], c["cut_ambiguous"], c["kept_ambiguous"],
+                  c["kept_false"] / decided if decided else 0.0, c["kept_false"] / kept if kept else 0.0))
     if ks:
         k = ks[0]
         for r in flagged:
