@@ -47,6 +47,14 @@
 # blanks them in place so nothing else about the file moves. It costs 2.5 s: this check
 # was 18.4 s over 144 files and is 20.9 s, against run_all.sh's 1200 s budget for it.
 #
+# That 20.9 s did not stay true (#1829). At 390 files on main (b2d6fa7) the census took
+# 257 s wall (load 3.6 at the start, 5.4 at the end), and 214 s of it was the reachability
+# fixpoint -- a grep per unreached file per reached file per round. Stripping took 3.6 s,
+# the marker answers 1.5 s and the docker-pin half 2.5 s. With reachability made one awk
+# pass over an index of the names each file writes, the same tree takes 8.4 s wall at
+# load 3.1, and 9.6-10.2 s at load 5.2-5.5: strip 3.6 s, reach 1.0-1.2 s, answers
+# 1.5-2.0 s, docker pin 3.1-3.4 s. Output byte-identical before and after.
+#
 # Three things that decision does, two of them on purpose and one of them a price:
 #
 #   A name held in a variable or assembled from parts STILL COUNTS, which is the half a
@@ -285,23 +293,56 @@ for f in "${PROGS[@]}"; do
   od_code "$T/$f" > "$CODE/$f"
 done
 
-# ---- what the root reaches, transitively ------------------------------------------------
-REACH=" $ROOT "
-changed=1
-while [ "$changed" = 1 ]; do
-  changed=0
-  for f in "${PROGS[@]}"; do
-    case "$REACH" in *" $f "*) continue ;; esac
-    base="${f##*/}"
-    for r in $REACH; do
-      if grep -qF -e "$base" "$CODE/$r" 2>/dev/null; then
-        REACH="$REACH$f "
-        changed=1
-        break
-      fi
-    done
-  done
-done
+# ---- what the root reaches, transitively (#1829) ----------------------------------------
+#
+# The rule is unchanged: a file reaches a program when the program's basename appears, as a
+# fixed string, anywhere in the file's stripped code -- a substring, exactly what `grep -F`
+# found, so i822_run.sh is still named by any code that writes i1822_run.sh.
+#
+# What changed is how often that is asked. Until #1829 it was a fixpoint in the shell: every
+# round grepped every unreached file's name against every file reached so far, one process
+# per pair, until a round added nothing. At 390 files that was 214 s of a 221 s census
+# (#1829, measured on main at b2d6fa7), and it grows with the square of the population
+# times the depth of the chain. Now each file's code is read ONCE, in one awk, and the names
+# it writes are recorded as an index; the closure from run_all.sh is then a walk over that
+# index that reads no file at all. LC_ALL=C makes the search a byte search, which is what
+# `grep -F` did with an ASCII name.
+OD_REACH_AWK='
+{ P[++n] = $0 }
+END {
+  for (i = 1; i <= n; i++) {
+    B[i] = P[i]; sub(/.*\//, "", B[i])
+    if (P[i] == root) { r = i }
+  }
+  for (i = 1; i <= n; i++) {
+    path = code "/" P[i]; text = ""
+    while ((getline line < path) > 0) { text = text line "\n" }
+    close(path)
+    for (j = 1; j <= n; j++) {
+      if (index(text, B[j])) { NAMES[i] = NAMES[i] " " j }
+    }
+  }
+  if (!r) { exit }
+  SEEN[r] = 1; Q[q = 1] = r
+  for (h = 1; h <= q; h++) {
+    m = split(NAMES[Q[h]], to, " ")
+    for (k = 1; k <= m; k++) {
+      if (!(to[k] in SEEN)) { SEEN[to[k]] = 1; Q[++q] = to[k] }
+    }
+  }
+  for (h = 1; h <= q; h++) { print P[Q[h]] }
+}
+'
+REACH=" "
+while IFS= read -r f; do
+  REACH="$REACH$f "
+done < <(printf '%s\n' "${PROGS[@]}" | LC_ALL=C awk -v code="$CODE" -v root="$ROOT" "$OD_REACH_AWK")
+case "$REACH" in
+  *" $ROOT "*) ;;
+  *)
+    echo "FAIL census: the reachability index did not reach $ROOT itself, so it answered nothing" >&2
+    exit 2 ;;
+esac
 
 # ---- the three answers ------------------------------------------------------------------
 UNNAMED=()
