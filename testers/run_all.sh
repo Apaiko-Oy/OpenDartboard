@@ -98,8 +98,10 @@ tester 1789-truth         "bash '$T/i1789_check.sh'"
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
 # (#1371). Then the pure checks -- a compile and a few milliseconds each, so they are the
-# cheapest place for a reader to learn the build is broken.
-tester census             "bash '$T/census.sh'"
+# cheapest place for a reader to learn the build is broken. MEASURED 2026-10-11 on the
+# 4-core box at 390 programs, rc=0: 8.4 s wall at load 3.1, 9.6-10.2 s at load 5.2-5.5
+# (#1829; it was 257 s before reachability became one indexed pass). No `slow`.
+tester census            "bash '$T/census.sh'"
 # Then the leak check, for the same reason and with the same cost: it starts containers but
 # every one of them is `sleep`, and what it measures -- that a killed harness leaves nothing
 # behind -- is a property of every tester below it (#1341).
