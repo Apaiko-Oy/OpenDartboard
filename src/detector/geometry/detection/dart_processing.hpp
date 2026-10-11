@@ -971,6 +971,9 @@ namespace dart_processing
         // #1689: this camera's fresh change cleared the floor only out to the rim, so it
         // voted the arrival and offered no tip or axis ("rim only").
         bool rim_only = false;
+        // turnaus#1821: this camera voted the arrival and was counted toward the scoring-area
+        // quorum (#1707's moves_up_in_scoring), by its own figure or as a #1678 corroborator.
+        bool cleared_scoring_floor = false;
         // turnaus#1793: this camera was at DART_3 and its fresh figure cleared the floor
         // (OD_PAST_THREE=on only): an up vote although its candidate equals the board's.
         bool arrived_past_three = false;

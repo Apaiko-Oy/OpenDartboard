@@ -1289,6 +1289,78 @@ memory and mutates each figure and clause: radius 5 and 60 px, horizon 4,000 and
 arming on any END, no disarming, comparing across cameras. All seven fail exactly the
 assertions predicted beforehand.
 
+## A dart in the board published as an unflagged MISS by the rim-only carry (turnaus#1821), opt-in
+
+**Live on casual board 20** (2026-10-11 00:59:28, build 0.1.13-1798, `OD_LONE_CAMERA=on`; the
+session in `sessions/2026-10-10-11/`, kept off GitHub) the third dart of a visit was thrown into
+**single 13** and published `MISS` at 0.5, unflagged, `agreeing` 0; the thrower typed S13. The
+window: `I1707 RIM CARRIED: 3 camera(s) moved up and 1 of them cleared the floor in the scoring
+area`, then `TOO-FEW-CONSTRAINTS: 1 usable constraint(s) of 3 cameras` with cameras 1 and 2
+`rim only`, then `SCORE: MISS | Camera: -1` with no `LONE-WIRE` and no `single camera score`
+line.
+
+**What it says, against the code that wrote it.** Camera 3 is the camera that cleared the
+scoring floor and its line was the one usable constraint; one line cannot place an entry, so the
+string vote published. The vote had **no reading at all**: the MISS is the no-winner MISS
+(`State changed but no valid scores found`), so camera 3 either found no tip or found one that
+read MISS (`aVoteIsCast` refuses a MISS a vote). #1707's carry decided only that the advance
+stands; it did not decide MISS, but its sentence "at or beyond the double ring" is why the MISS
+read as plausible. The log does not say whether camera 3 had a tip or where; the kept frames for
+`01M4KX818T...` would.
+
+**The one live figure that separates it from #1802's phantoms** is the usable line: 01:02:06 and
+01:02:10 also had one camera clearing the floor, and that camera was `not straight` (3.90 and
+10.06 px RMS against a 2.5 px gate), 0 usable; 01:02:08 had none clearing. On board 20 the
+other rim-carried no-reading windows with one camera clearing on a usable line are 01:00:22,
+01:13:01 and 01:15:22, all published None and not corrected (misses, or unconfirmed).
+
+`OD_RIM_OFFER=on` (`score_processing.cpp`; the pure rule in `rim_offer.hpp`): on a rim-carried
+dart the vote publishes as the no-reading MISS, where **exactly one** camera cleared the scoring
+floor, that camera's constraint was **usable**, it found a **tip**, and its own angular ruler
+**reads the wedge** at the tip (an unanchored camera's asserted 20 is refused), the MISS
+publishes **flagged** with that wedge's single (`S<n>`) as the alternative. The score stays MISS
+at 0.5, so no window it touches can publish a scoring dart. `I1821 RIM OFFER` says so at INFO.
+`OD_RIM_OFFER_CENSUS=1` prints an `I1821RIM` line on every rim-carried dart, on and off alike,
+with each camera's state, its tip's reading and radius, and the wedge at its tip.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+OD_RIM_OFFER_CENSUS=1`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_RIM_OFFER=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+Every `I1555 ACCURACY`, `PAIR` and `POOLED` row is identical, and every replay's `SCORE` lines
+(score, position, confidence, camera) are identical in order. What changes is the flag and the
+#1721 candidates on five windows (the empty list becomes `S14` or `S1`), below. 1,315 s off,
+1,093 s on, at load ~13. (`I1556PUBLISH` still says `flagged=0` on those windows: it reports
+the solver's crossing, not the published flag.)
+
+**Every row the switch touches is a real miss.** The census fires on two fixture darts, in five
+of the seven replays:
+
+| dart | thrown | window | scoring camera's tip | wedge | on |
+|---|---|---|---|---|---|
+| rig-20260918 v4.3 (dev, opening, pin) | MISS | 15 | camera 1, MISS on the surround, radius 1.112-1.116 | 14 | MISS flagged `S14` |
+| rig-20260929 v7.1 (dev, opening) | MISS | 25 | camera 2, MISS on the surround, radius 1.030-1.032 | 1 | MISS flagged `S1` |
+
+Both are #1707's own shape (one camera clearing the scoring floor on a usable line, the other two
+`rim only`), and the fixtures hold no dart in the board that the carry published as MISS. So on
+the fixtures the switch gains nothing and adds two false flags to real misses; on board 20 it
+would flag the S13 (if camera 3's tip was in the 13) and up to three uncorrected Nones. The flag
+moves no score, which is why it is behind a switch rather than refused, and the default stays
+off. What would decide it: the kept frames of `01M4KX818T...` (did camera 3 find a tip, at what
+radius: v4.3 and v7.1 read 1.03-1.12), and a live session with the switch on and a truth line.
+
+`testers/run_all.sh 1821-rimoffer` (24 s at load ~10-13) holds `rim_offer::decide` on board
+20's windows and mutates each clause: the usable line (both phantoms offered), the count (two
+clearing cameras offered), the vote's reading, the carry, the ring (`D` for `S`), the switch,
+the read wedge and the tip; all eight fail as predicted.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while
