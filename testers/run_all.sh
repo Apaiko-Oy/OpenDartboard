@@ -751,6 +751,16 @@ tester 1783-region        "bash '$T/i1783_check.sh'"
 # predicted to turn named assertions red. No detector binary; OD_SKIP_BUILD changes nothing
 # about it. MEASURED 2026-10-11 on the 4-core box at load ~16-22, rc=0: 152 s wall.
 tester 1820-reread        "bash '$T/i1820_check.sh'"
+# turnaus#1821: a dart in the board published as an unflagged MISS by the rim-only carry (live on
+# casual board 20, 2026-10-11 00:59:28: thrown S13, `RIM CARRIED` with 1 of 3 cameras clearing the
+# scoring floor, 1 usable constraint, no camera's reading in the vote). OD_RIM_OFFER (off by
+# default) flags that MISS with the single of the wedge the one scoring-area camera's tip is in,
+# where that camera offered a usable line; #1802's phantoms (not straight, 0 usable) are refused.
+# The pure half: rim_offer::decide on board 20's windows, one compile of the tree plus eight of a
+# mutated scratch copy of rim_offer.hpp, each predicted to turn named assertions red. No detector
+# binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
+# ~10-13 with a bakeoff alongside, rc=0: 24 s wall.
+tester 1821-rimoffer      "bash '$T/i1821_check.sh'"
 # turnaus#1782: a flagged solve within its sigma of a ring wire AND a wedge wire (a corner)
 # offered only the nearest wire's alternative -- live on 2b56b48 a thrown S19 published T3
 # flagged "T3 or S3", 0.6 mm from the treble wire and 1.8 mm from the 3/19 wire. The flag now
