@@ -2344,6 +2344,9 @@ namespace dart_processing
                 any_reversion_vote)
             {
                 last_reversion_clean_ms = vote_ms;
+                // turnaus#1820: and the scorer's caller is told, so it can recognise this
+                // visit's darts being pulled after the END (RereadMemory).
+                result.reversion_end = true;
             }
         }
 
@@ -2738,5 +2741,23 @@ namespace dart_processing
         }
 
         return result;
+    }
+
+    // turnaus#1820: see dart_processing.hpp. Called by the scorer's caller, after the vote
+    // committed the advance and before the next window opens.
+    void withdrawCalledDart(const DartStateResult &called)
+    {
+        best_previous_state = called.previous_state;
+        for (size_t i = 0; i < previous_states.size(); i++)
+        {
+            previous_states[i] = called.previous_state;
+        }
+        for (size_t i = 0; i < called.camera_results.size() && i < reported_tips.size(); i++)
+        {
+            if (called.camera_results[i].tip_found && !reported_tips[i].empty())
+            {
+                reported_tips[i].pop_back();
+            }
+        }
     }
 }
