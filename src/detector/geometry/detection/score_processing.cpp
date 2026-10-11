@@ -1181,13 +1181,19 @@ namespace score_processing
             // `geometryPublished == false`, which is how a degraded dart stays silent
             // about a millimetre uncertainty nothing measured.
             const string provenance = entry_intersection::sigmaProvenance(solution);
-            const BoundaryCall nearest_crossing = decideBoundaryCall(
+            const BoundaryCall default_crossing = decideBoundaryCall(
                 decision.path == ScorePath::Geometry, solution.uncertaintyCrossesWire,
                 solution.score.valid ? solution.score.score : string(),
                 solution.alternativeScore, solution.boundaryKind,
                 solution.boundaryAcrossMm, solution.sigmaAcrossMm,
                 // #1766: on an uncontrolled solve the sentence says whose sigma it is.
                 provenance);
+            // turnaus#1815: under OD_FLAG_SIGMAS=<K> a flag whose solve is further than K
+            // of its sigmas from the wire publishes clear. Off, this is default_crossing.
+            bool flag_tightened = false;
+            const BoundaryCall nearest_crossing =
+                tightenBoundaryCall(default_crossing, solution.crossingSigmas, flagCrossingSigmas(),
+                                    provenance, &flag_tightened);
             // #1782: and where the solve sits within its sigma of a ring wire AND a wedge
             // wire, the flag offers the corner -- the three other cells by the solve's own
             // covariance, an unused camera's clear reading of one of them first. The
@@ -1251,7 +1257,8 @@ namespace score_processing
                 result.score = solution.score.score;
                 result.confidence =
                     geometricConfidence(solution.outcome ==
-                                        entry_intersection::Outcome::UncertainAcrossWire);
+                                            entry_intersection::Outcome::UncertainAcrossWire &&
+                                        !flag_tightened); // #1815: a cleared flag is a clear call
                 result.camera_index = reference;
                 result.valid = true;
                 result.ring = solution.score.ringWord;
@@ -1568,6 +1575,9 @@ namespace score_processing
                 // landed in the flagged set.
                 log_info(flagCensusLine(window, crossing, result.confidence,
                                         result.from_geometry, result.score));
+                // turnaus#1815: the threshold in force, beside what #1556's 1.0 decided.
+                log_info(flagThresholdCensusLine(window, default_crossing, crossing, solution.crossingSigmas,
+                                                 flagCrossingSigmas()));
                 // #1782: the corner, beside the flag it widened.
                 log_info(cornerCensusLine(window, nearest_crossing, crossing, corner_cells, camera_readings,
                                           entry_intersection::Params().crossingSigmas));
