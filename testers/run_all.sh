@@ -748,6 +748,13 @@ tester 1783-region        "bash '$T/i1783_check.sh'"
 # exactly one named set of assertions red. No detector binary. MEASURED 2026-10-11 on the
 # 4-core box at load ~15, rc=0: 50 s wall.
 tester 1782-corner        "bash '$T/i1782_check.sh'"
+# turnaus#1779: a geometric publish from fewer lines than cameras names, at INFO, each camera
+# that offered no line and its exclusion, in the words the DEGRADED story ends on ("LINES: 2
+# of 3 cameras' lines solved this dart (cam 2: no usable axis: not a shaft: ...)"); nothing
+# on a three-line solve or a refusal. Pure: the tree and three predicted mutations of a
+# scratch copy of entry_intersection.hpp, four compiles and no footage or build/. MEASURED
+# 2026-10-11 on the 4-core box at load 12-14 beside another agent's work, rc=0: 104 s.
+tester 1779-lines         "bash '$T/i1779_check.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
