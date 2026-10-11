@@ -77,7 +77,9 @@ tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
 # binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-10 on the 4-core box,
 # to completion, rc=0: 204 s wall with another checkout's replay container alongside --
 # nearly all of it the three -O1 compiles of turnaus_client.cpp; the assertions run in
-# milliseconds. No `slow`: well inside the default 1200.
+# milliseconds. No `slow`: well inside the default 1200. Re-measured ALONE 2026-10-11 on
+# the same box (#1828, after the loop came to name its three sources whole so census.sh
+# sees the upload and frames checks reached): 116 s wall, rc=0.
 tester 1787-account       "bash '$T/i1787_check.sh'"
 # turnaus#1789: what #1787 posts and turnaus#1786 exports, read back here -- a session's
 # truth line recounted into Turnaus's four counts per path, each corrected dart joined to
