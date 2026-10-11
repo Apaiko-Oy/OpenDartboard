@@ -12,8 +12,8 @@
 #   3. wrong camera      the list numbers cameras 0-based (`con.camera` for `con.camera + 1`)
 #                        -- PREDICTION: exactly 3 FAILs, `live:`, `solver:` and `too-few:` (the
 #                        TOO-FEW story shares the list, which is what the hoist promises)
-#   4. the liar unsaid   the list skips a line the solver excluded (`con.usable` for
-#                        `con.usable && !con.excluded`) -- PREDICTION: exactly 1 FAIL,
+#   4. the liar unsaid   the list drops a line the solver excluded before it is listed
+#                        -- PREDICTION: exactly 1 FAIL,
 #                        `solver:` (the list comes back empty and nothing is printed)
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
@@ -70,15 +70,11 @@ PY
     "        if (sol.usableConstraints >= sol.offeredConstraints)" "unsolved:" "too-few:" || BAD=1
   run_mutation wrongcam "                     std::to_string(con.camera + 1) + \": \" + con.exclusion;" \
     "                     std::to_string(con.camera) + \": \" + con.exclusion;" "live:" "solver:" "too-few:" || BAD=1
-  run_mutation liar "                if (con.usable && !con.excluded)
-                {
-                    continue;
-                }
-                s += " "                if (con.usable)
-                {
-                    continue;
-                }
-                s += " "solver:" || BAD=1
+  # One line, because grep -c counts LINES and a multi-line needle matches each of its lines.
+  run_mutation liar "        inline std::string exclusionsListed(const std::vector<Constraint> &constraints)" \
+    "        inline std::string exclusionsListedOf(const std::vector<Constraint> &constraints);
+        inline std::string exclusionsListed(const std::vector<Constraint> &all) { std::vector<Constraint> kept; for (const Constraint &c : all) { if (!c.excluded) { kept.push_back(c); } } return exclusionsListedOf(kept); }
+        inline std::string exclusionsListedOf(const std::vector<Constraint> &constraints)" "solver:" || BAD=1
   [ $BAD -eq 0 ] || exit 1
   echo "ALL FOUR HELD"
   exit 0
