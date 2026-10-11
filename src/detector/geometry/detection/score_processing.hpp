@@ -308,7 +308,7 @@ namespace score_processing
     // a false-alarm rate of 0.865 and 0.849. Recomputed from the truth lines' own fields
     // (the geometric flag is `margin_mm <= sigma_mm`, #1556's z <= Params::crossingSigmas;
     // that reproduces the boards' verdict on 819 of 820 darts, the one a 5.00/5.00 rounding
-    // tie), every flagged geometric dart a marker corrected -- 14 through the flag, one
+    // tie), every flagged geometric dart a marker corrected -- 13 through the flag, one
     // typed -- sat at z <= 0.52, and 117 of the 288 false geometric flags sat above 0.6.
     // The fixtures' bakeoff (rig-20260918/22/29, six default runs, 71 flagged geometric
     // darts) has its nearest true flag at z = 0.57 (rig-20260929 dev v9.3, S19 published
@@ -326,7 +326,7 @@ namespace score_processing
     // OD_FLAG_SIGMAS=<K>, 0 < K < 1, turns it on; unset, empty, unparseable or outside that
     // range is #1556's 1.0, byte for byte. docs/rig.md records the measurement and the value
     // it proposes (0.7: the fixtures' 0.57 with 0.13 sigma to spare). A figure read off
-    // fifteen session darts and five fixture ones is why it is not the default.
+    // fourteen session darts and five fixture ones is why it is not the default.
 
     /** turnaus#1815: the switch's value from its text, pure; 1.0 (#1556's) unless a K in (0, 1). */
     inline double flagSigmasFrom(const char *text)

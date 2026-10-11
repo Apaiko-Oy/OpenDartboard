@@ -748,6 +748,16 @@ tester 1783-region        "bash '$T/i1783_check.sh'"
 # exactly one named set of assertions red. No detector binary. MEASURED 2026-10-11 on the
 # 4-core box at load ~15, rc=0: 50 s wall.
 tester 1782-corner        "bash '$T/i1782_check.sh'"
+# turnaus#1815: on the first two real sessions (casual boards 17 and 20, 820 darts) 340 of 396
+# flagged darts stood as published. OD_FLAG_SIGMAS=<K> (0 < K < 1, off by default) keeps a
+# geometric flag only within K of the solve's own across-wire sigmas of the wire; the rest
+# publish clear at 0.9 and say what #1556's 1.0 would have offered; no score moves. The pure
+# half: the 14 session darts a marker corrected through a flag and the bakeoff's 5 wrong
+# flagged darts (all kept at 0.7), 9 flags that stood (cleared), one compile of the tree plus
+# three of a mutated scratch copy of score_processing.hpp, each predicted to turn exactly one
+# named set red. No detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED
+# 2026-10-11 on the 4-core box at load ~20 with a bakeoff alongside, rc=0: 59 s wall.
+tester 1815-flagsigmas    "bash '$T/i1815_check.sh'"
 # turnaus#1779: a geometric publish from fewer lines than cameras names, at INFO, each camera
 # that offered no line and its exclusion, in the words the DEGRADED story ends on ("LINES: 2
 # of 3 cameras' lines solved this dart (cam 2: no usable axis: not a shaft: ...)"); nothing
