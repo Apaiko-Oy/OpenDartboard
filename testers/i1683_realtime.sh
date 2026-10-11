@@ -21,6 +21,8 @@
 # to stand in for a slower board). The load before and after, and the
 # per-cycle processing time the replay measured, are printed with the result, because a
 # real-time run's result belongs to them.
+#
+# window-unit-own: a real-time replay is the live board's condition, and the live board's windows are milliseconds; pass OD_WINDOW_UNIT=cycles as a VAR=value to pin them (#1826).
 set -u
 TREE=${1:?tree}
 OUT=${2:?outdir}
