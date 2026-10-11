@@ -1,3 +1,4 @@
+# unrun-tester: a reporter over the #1555 bakeoff's logs (#1782), run by hand on a run directory; it asserts nothing and needs seven whole-clip replays as input. docs/rig.md records its count.
 """#1782: every flagged geometric dart, whether it was a CORNER, and what the corner offered.
 
     python3 i1782_census.py --log <run.txt> --truth <table.md> --annotations <fixture.csv> \
