@@ -59,6 +59,10 @@ namespace motion_processing
         int region_pixels = 0;        // #1339: the area that ratio is a fraction of
         bool measured = false;        // #1339: this camera produced a figure at all
         double board_level = -1.0;    // #1646: mean grey level inside the region, this cycle
+        // turnaus#1783's census (OD_MOTION_REGION_CENSUS=1): the same diff counted the OTHER
+        // way -- to the rim when the figure above is the double's, and the reverse -- as a
+        // share of the same denominator. -1 when the census is off.
+        double other_ratio = -1.0;
     };
 
     /**
@@ -270,6 +274,67 @@ namespace motion_processing
                    std::to_string(camera_slots - cameras_that_can_spike) + " answer";
         }
         return "";
+    }
+
+    /**
+     * turnaus#1783: where a camera's motion figure is COUNTED, and what it is a share of.
+     *
+     * Live on 2b56b48 (2026-10-10 16:51) a visit of three misses on the surround published
+     * three MISSes (#1689's rim count carried each one), and the takeout that pulled them
+     * opened no event: no window, no vote, nothing in the log for 16 s, until a second
+     * takeout's window reverted all three cameras. The motion figure is counted inside the
+     * double's outer ellipse (BoardExtent::edge), the dart counts since #1689 out to the
+     * physical rim. A hand gripping three darts between the double and the rim changes the
+     * frame where the dart counts look and not where the motion figure does, and the same
+     * shape is #1537's: a dart that lands there opens nothing either.
+     *
+     * `OD_MOTION_REGION=rim` counts the motion figure out to the rim -- the ellipse
+     * dart_processing's Region::tip_mask is, the double's scaled by the board's own
+     * 225.5/170 -- and keeps the DENOMINATOR the double's area, so every ratio in
+     * MotionParams keeps its units (#1689's choice for the dart counts, for the same
+     * reason). Off (the default): counted inside the double, as before.
+     *
+     * Pure and inline (#1338's reason): testers/i1783_region_check.cpp holds the masks
+     * and the share without building the detector.
+     */
+    inline double rimOverDouble()
+    {
+        return 225.5 / 170.0;
+    }
+
+    struct MotionMasks
+    {
+        cv::Mat count;       // where a changed pixel is counted
+        int denominator = 0; // what the count is a share of: the double's area, always
+    };
+
+    inline MotionMasks motionMasks(cv::Size frame, const cv::RotatedRect &double_edge, bool to_rim)
+    {
+        MotionMasks m;
+        cv::Mat board = cv::Mat::zeros(frame, CV_8UC1);
+        cv::ellipse(board, double_edge, cv::Scalar(255), cv::FILLED);
+        m.denominator = cv::countNonZero(board);
+        if (!to_rim)
+        {
+            m.count = board;
+            return m;
+        }
+        cv::RotatedRect rim = double_edge;
+        rim.size.width *= (float)rimOverDouble();
+        rim.size.height *= (float)rimOverDouble();
+        m.count = cv::Mat::zeros(frame, CV_8UC1);
+        cv::ellipse(m.count, rim, cv::Scalar(255), cv::FILLED);
+        return m;
+    }
+
+    // The share of the board a thresholded diff changed, counted where `masks` says.
+    inline double boardShare(const cv::Mat &thresh, const MotionMasks &masks)
+    {
+        if (masks.denominator <= 0 || thresh.size() != masks.count.size())
+            return 0.0;
+        cv::Mat inside;
+        cv::bitwise_and(thresh, masks.count, inside);
+        return (double)cv::countNonZero(inside) / (double)masks.denominator;
     }
 
 } // namespace motion_processing

@@ -729,6 +729,15 @@ tester 1781-body          "bash '$T/i1781_check.sh'"
 # OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
 # ~17 with a bakeoff alongside, rc=0: 71 s wall.
 tester 1793-pastthree     "bash '$T/i1793_check.sh'"
+# turnaus#1783: a takeout of three surround misses opened no event (live on 2b56b48, 16:51: the
+# visit's END came 18 s and one takeout late). The motion figure is counted inside the double,
+# the dart counts since #1689 to the rim. OD_MOTION_REGION=rim (off by default) counts the motion
+# figure to the rim as a share of the double's area. The pure half: the masks and the share on
+# rig-20260929's camera-2 ellipse, one compile of the tree plus four of a mutated scratch copy of
+# motion_processing.hpp, each predicted to turn exactly one named assertion red. No detector
+# binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
+# ~15-17 with a bakeoff and a build alongside, rc=0: 45 s wall.
+tester 1783-region        "bash '$T/i1783_check.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked
