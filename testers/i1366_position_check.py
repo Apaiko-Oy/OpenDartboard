@@ -39,8 +39,16 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 # What score_processing prints for every result it publishes, once each. `to_string(float)`
 # gives six places; a body carries the four the columns keep, so the comparison rounds.
+#
+# FOUR SPELLINGS, ONE LINE (#1758). The vote path says how its winning camera read the
+# wedge -- `wedge measured`, `wedge by default`, or since #1489 `wedge not in this
+# reading` -- and the geometric path, which publishes by default since #1555 (8cb996b),
+# says `wedge from the solved entry`. This pattern knew only the first two, so on
+# rig-20260918 it counted the vote's 4 BOARD lines against 18 scored pushes and refused a
+# sequence that was whole (14 solved + 4 voted = 18).
 BOARD_LINE = re.compile(
-    r"BOARD: (?P<wedge>wedge measured|wedge by default) \| ring=(?P<ring>[^|]*)\| "
+    r"BOARD: (?P<wedge>wedge measured|wedge by default|wedge not in this reading"
+    r"|wedge from the solved entry) \| ring=(?P<ring>[^|]*)\| "
     r"segment=(?P<segment>-?\d+) \| radius=(?P<radius>none|-?[0-9.]+) \| angle=(?P<angle>none|-?[0-9.]+)")
 
 # The four decimal places #1365 keeps, in the one spelling this file uses for both sides.
@@ -288,6 +296,9 @@ def case_rig():
     body at four places, an unknown one reaches it as NO KEY AT ALL rather than as a
     nought, half a position is never sent, and a miss carries none.
 
+    (#1758: the paragraph below is the 2026-09 vote-path footage; on main it reads 18 BOARD
+    lines against 19 pushes, 14 of them solved entries, and no half position.)
+
     This footage is a better fixture for that than it looks. Of its nine scored darts,
     THREE have an angle and no radius -- the radial ruler finds no outer mark along that
     ray, and score_processing sets `has_radius` alone. Sent as half a position those three
@@ -343,9 +354,17 @@ def case_rig():
                   % (event["sector"], "the angle" if line["radius"] == "none" else "the radius", got))
             absent += 1
 
-    check(matched > 0 and absent > 0,
-          "rig: this footage really exercises both halves of the rule -- %d whole positions "
-          "and %d half ones it had to refuse to send" % (matched, absent))
+    # #1758: on main this footage no longer holds a half position. The three darts with an
+    # angle and no radius were vote readings whose radial ruler found no outer mark; since
+    # #1555 (8cb996b) the geometric solve publishes by default and gives both, so on
+    # d8cfa64 the rig reads 18 whole positions and 0 half ones. The half rule is not
+    # dropped -- the seam case holds it both ways round with its needle ("a bull that knows
+    # its radius and has no measured wedge sends NEITHER key", "an angle without a radius
+    # is the same refusal"), and the check below still refuses any half position that
+    # reaches a body. What the rig is asked is that real footage reaches the body whole.
+    check(matched > 0,
+          "rig: this footage carries whole positions to the body -- %d whole and %d half ones "
+          "it had to refuse to send (the half rule is the seam's, both ways round)" % (matched, absent))
     check(all(position_in(e["body"]) != "half" for e in counted),
           "rig: nothing at all was pushed with half a position, which the door refuses with 422")
     check(missed and all(position_in(e["body"]) is None for e in missed),

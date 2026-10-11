@@ -17,6 +17,12 @@
 #
 # Green on the tree: 201 s, load_at_end 5.87.
 set -u
+# #1758: the detection windows are pinned to CYCLES. Since ece438d they default to
+# milliseconds of the motion clock, which here is the wall clock, so a replay on a loaded
+# box cuts different windows from the same footage: 1494-figure's shipping arm and
+# 1492-tips' base run -- one binary, one clip, minutes apart -- read the worst on-board
+# dart as 108.2 mm and 19.5 mm. A figure this tester asserts must be the tree's, not the box's.
+export OD_WINDOW_UNIT=cycles
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
