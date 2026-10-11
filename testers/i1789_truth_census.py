@@ -49,7 +49,24 @@ WHAT IT PRINTS.
         that dart's log window: its SCORE line and the UNCERTAINTY / Geometric score /
         Consensus / No consensus / LONE-WIRE / RING-WIRE / BOARD / I1707 RIM CARRIED lines
         between the previous SCORE line and its push, and its push line; or
-    I1789 ABSENT ref=  the reference is not in the log. Never silently dropped.
+    I1789 ABSENT ref= where=<...> posted=<clock> log=<first>..<last> mentioned=<n> ...
+        no push line names the reference. Never silently dropped, and never a bare "not in
+        the log" (#1817): that sentence was false for 7 of board 20's 14 absences on
+        2026-10-11, whose references are in the log on a `TURNAUS: frames for <ref> are
+        gone` line, and it sent an issue looking for a lookup that misses push lines. There
+        was none: on boards 17, 20 and 21 every truth reference a push line names is found
+        and nothing else is. So an absence says what the log DOES hold. `mentioned` counts
+        the lines naming the reference anyway and the first is quoted; `where` places the
+        dart's `posted_at`, in the header's zone and counted from the header's day, against
+        the log's own clock, split into its files at the session banner:
+          before-the-log / after-the-log  the board logged nothing then: an upload that does
+                                          not cover the dart, not a dart the log lost
+          between-files                   in the gap between two joined files, same reading
+          within-a-file                   the board was logging and no push names the dart:
+                                          the one case that is a loss, or a lookup miss
+          posted-unread                   no posted_at, zone or day to place it with
+        posted_at is the server's clock and the log is the board's, so a dart a second or
+        two from a file's edge is the reader's call; both clocks are printed for that.
     I1789 PICK-DISAGREES ref=  `picked` is not what Turnaus's `DartCorrections::picked`
         would decide from `published`, `alternative`, `candidates` and `corrected`.
     I1789 CLASS <class>=<n> ...  the fault-class tally.
@@ -85,6 +102,12 @@ import argparse
 import math
 import re
 import sys
+from datetime import datetime, timezone
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover -- 3.9+ has it; a missing tz database is caught below
+    ZoneInfo = None
 
 # ---- the format, from Turnaus main ------------------------------------------------------
 HEADER_PREFIX = "# turnaus truth line v"
@@ -346,6 +369,66 @@ def window_of(log, reference, published):
     return log[score][0], shown
 
 
+def files_of(log):
+    """[(first, last)] second of each file in the joined log, split at the session banner
+    the way window_of reads a file's start."""
+    spans, cur = [], []
+    for t, msg in log:
+        if "Session Started" in msg:
+            if cur:
+                spans.append((cur[0], cur[-1]))
+            cur = []
+        elif t is not None:
+            cur.append(t)
+    if cur:
+        spans.append((cur[0], cur[-1]))
+    return spans
+
+
+def posted_second(row, meta):
+    """The dart's posted_at as the log counts it -- local seconds from the header day's
+    midnight in the header's zone -- or None when it cannot be placed."""
+    posted, zone, day = row.get("posted_at", "-"), meta.get("zone"), meta.get("day")
+    if posted == "-" or not zone or not day or ZoneInfo is None:
+        return None
+    try:
+        tz = ZoneInfo(zone)
+        utc = datetime.strptime(posted, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        local = utc.astimezone(tz).replace(tzinfo=None)
+        return (local - datetime.strptime(day, "%Y-%m-%d")).total_seconds()
+    except Exception:  # an unreadable posted_at, day or zone, or no tz database: unplaced
+        return None
+
+
+def where_in_log(second, spans):
+    if second is None:
+        return "posted-unread"
+    if not spans:
+        return "before-the-log"
+    if second < spans[0][0]:
+        return "before-the-log"
+    if second > spans[-1][1]:
+        return "after-the-log"
+    if any(a <= second <= b for a, b in spans):
+        return "within-a-file"
+    return "between-files"
+
+
+def absence_of(log, row, meta):
+    """(where, line) for a dart no push line names: where its posted_at falls against the
+    log's files, and what the log does say about the reference."""
+    spans = files_of(log)
+    second = posted_second(row, meta)
+    mentions = [msg for _, msg in log if row["reference"] in msg]
+    where = where_in_log(second, spans)
+    line = "where=%s posted=%s log=%s mentioned=%d no push line names the reference" % (
+        where, clock(second) if second is not None else "-",
+        "%s..%s" % (clock(spans[0][0]), clock(spans[-1][1])) if spans else "-", len(mentions))
+    if mentions:
+        line += "; first mention: %s" % mentions[0][:160]
+    return where, len(mentions), line
+
+
 def clock(t):
     t %= 24 * 3600
     return "%02d:%02d:%06.3f" % (t // 3600, (t % 3600) // 60, t % 60)
@@ -366,8 +449,8 @@ def census(truth_text, log_text, out):
     log = read_log(log_text) if log_text is not None else None
     ends = ends_of(log) if log else []
     if log is not None:
-        out("I1789 LOG lines=%d ends=%d" % (len(log), len(ends)))
-    classes, absent = {}, []
+        out("I1789 LOG lines=%d ends=%d files=%d" % (len(log), len(ends), len(files_of(log))))
+    classes, absent = {}, {}
     for row in rows:
         disagrees = pick_disagrees(row)
         if disagrees:
@@ -385,9 +468,13 @@ def census(truth_text, log_text, out):
             for t, msg in found[1]:
                 out("    %s %s" % (clock(t) if t is not None else "--:--:--.---", msg))
         else:
-            absent.append(row["reference"])
-            out("I1789 ABSENT ref=%s %s" % (row["reference"], "no log was given" if log is None
-                                             else "the reference is not in the log"))
+            if log is None:
+                absent[row["reference"]] = {}
+                out("I1789 ABSENT ref=%s no log was given" % row["reference"])
+            else:
+                where, mentioned, line = absence_of(log, row, meta)
+                absent[row["reference"]] = {"where": where, "mentioned": str(mentioned)}
+                out("I1789 ABSENT ref=%s %s" % (row["reference"], line))
     out("I1789 CLASS " + " ".join("%s=%d" % (k, sum(1 for v in classes.values() if v == k))
                                   for k, _ in CLASSES))
     return tally, classes, absent, expectations
@@ -413,6 +500,13 @@ def check(tally, classes, absent, expectations, out):
             if e[1] not in absent:
                 bad += 1
                 out("I1789 MISMATCH absent %s expected absent from the log, was found" % e[1])
+                continue
+            for kv in e[2:]:  # `where=<...>` / `mentioned=<n>`, as the ABSENT line prints them
+                key, want = kv.split("=", 1)
+                got = absent[e[1]].get(key, "-")
+                if got != want:
+                    bad += 1
+                    out("I1789 MISMATCH absent %s.%s expected %s got %s" % (e[1], key, want, got))
         else:
             bad += 1
             out("I1789 MISMATCH an expectation this script cannot read: %s" % " ".join(e))

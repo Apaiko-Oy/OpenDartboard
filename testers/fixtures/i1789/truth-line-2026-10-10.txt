@@ -24,14 +24,23 @@
 #     three prefixes (01M4JZRX4Y, 01M4JZS12A, 01M4JZS2R1; each is padded to 26 characters
 #     and every other reference ends in the dart's local HHMMSS), and posted_at's seconds
 #     beyond what the issue gives (local time minus 3 h, EEST).
+#   * TWO ROWS ARE REAL, the last two (#1817): copied verbatim from Turnaus's export for
+#     casual/20 on 2026-10-11, the first session read back through #1786/#1789. They are
+#     not this session's darts and their posted_at is that night's (00:43 and 01:27 local,
+#     so past this header's midnight); the census counts both from this file's day, as it
+#     counts the log. 01M4KYTXNWXP184NBAJ0TMKNNW's push line and the four lines of its
+#     window are the log's last lines, copied as the board wrote them. 01M4KWAS5RTFSTE99GK40DGPVH
+#     was posted before that board's log began; the log names it once, on the
+#     `frames for ... are gone` line copied with them, and on no push line. That line is
+#     why #1817 was filed: the census used to say "the reference is not in the log".
 #   * The 16:49:14 dart is a FALSE FLAG on purpose: #1782 records it flagged 'S1 or S20' and
 #     thrown S1, so its published score stood.
 #
 # The expected census. The four counts per path, then each corrected dart's fault class:
-# expect count geometry posted=3 corrected=2 alternative=1 candidate=1 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=3 false_flag=1
-# expect count vote posted=22 corrected=11 alternative=0 candidate=0 typed=0 unflagged=9 removed=2 turn=0 undone=0 flagged=0 false_flag=0
+# expect count geometry posted=4 corrected=3 alternative=2 candidate=1 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=4 false_flag=1
+# expect count vote posted=23 corrected=12 alternative=0 candidate=0 typed=0 unflagged=9 removed=3 turn=0 undone=0 flagged=0 false_flag=0
 # expect count unknown posted=0 corrected=0 alternative=0 candidate=0 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=0 false_flag=0
-# expect count total posted=25 corrected=13 alternative=1 candidate=1 typed=0 unflagged=9 removed=2 turn=0 undone=0 flagged=3 false_flag=1
+# expect count total posted=27 corrected=15 alternative=2 candidate=1 typed=0 unflagged=9 removed=3 turn=0 undone=0 flagged=4 false_flag=1
 # expect class 01M4JFX0000000000000153923 rim-one-tip
 # expect class 01M4JFX0000000000000155149 ring-wire
 # expect class 01M4JFX0000000000000160625 ring-wire
@@ -45,9 +54,15 @@
 # expect class 01M4JFX0000000000000163853 corner
 # expect class 01M4JFX0000000000000164722 ring-wire
 # expect class 01M4JFX0000000000000164915 two-line-wire
+# expect class 01M4KWAS5RTFSTE99GK40DGPVH lone-wedge-wire
+# expect class 01M4KYTXNWXP184NBAJ0TMKNNW two-line-wire
 # The 15:39:23 dart's lines are left OUT of the log excerpt on purpose, so the census has
-# a corrected dart to name as absent rather than drop:
-# expect absent 01M4JFX0000000000000153923
+# a corrected dart to name as absent rather than drop. It was cut from inside a file, so the
+# census places it there -- the one placement that reads as a loss:
+# expect absent 01M4JFX0000000000000153923 where=within-a-file mentioned=0
+# The real board-20 absence falls between this excerpt's second file and its third, and
+# the log mentions it once without a push (#1817):
+# expect absent 01M4KWAS5RTFSTE99GK40DGPVH where=between-files mentioned=1
 # turnaus truth line v1 board=device/1 day=2026-10-10 zone=Europe/Helsinki
 # reference published alternative corrected picked path flagged degraded candidates cameras crossing_deg sigma_mm margin_mm wire_kind agreeing lone_wire_mm ring_wire_mm radius angle bounced outcome corrections posted_at
 01M4JFX0000000000000153250 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T12:32:50Z
@@ -75,3 +90,5 @@
 01M4JFX0000000000000165136 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:36Z
 01M4JFX0000000000000165147 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:47Z
 01M4JFX0000000000000165154 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:54Z
+01M4KWAS5RTFSTE99GK40DGPVH S15 - - removed vote 0 1 S18,S2,S10 1 - - - - 1 4.62 35.42 0.3019 129.83 0 COUNTED 1 2026-10-10T21:43:30Z
+01M4KYTXNWXP184NBAJ0TMKNNW S19 S3 S3 alternative geometry 1 0 S3,T19,S7 1,2 60.36 5.43 0.99 wedge - - - 0.4511 189.737 0 COUNTED 1 2026-10-10T22:27:16Z
