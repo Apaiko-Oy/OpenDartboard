@@ -75,10 +75,21 @@ echo "=== 4. the detector itself, over the whole of mocks/rig-20260918 =========
 # 10.4x too large. So the fixture is played BOTH ways here: OD_RINGS=asfitted is #1485's
 # own falsifier and puts those eight back, which is the state #1489 was measured in, and
 # the plain run is the tree as it scores today.
+#
+# ALL THREE ON THE VOTE PATH (#1758). #1489 is about the vote: which bucket a camera's
+# ring-only reading lands in. Since #1555 (8cb996b) the geometric solve publishes by
+# default and scores from the board plane, not from the ring ellipses, so OD_RINGS=asfitted
+# no longer reaches a published score through it -- on 0fb2ca3 (#1758's measurement) the falsifier
+# published no 25 at all and this section measured nothing. OD_SCORE_PATH=vote is the
+# switch #1555 left for exactly that, and the windows are pinned to cycles so a loaded box
+# replays the clip the same way an idle one does. And the number reader (number_anchor.cpp) anchors
+# this rig: with the vote path alone, on d8cfa64, all three runs read MEASURED=18 of 19
+# darts and OUTER=0 -- the unanchored rig this section is about no longer exists by
+# default. OD_NUMBER_ANCHOR=off is the number reader's own switch back to it.
 run_detector() { # $1 tag, rest: env
   local tag="$1"; shift
   rm -rf "/run1489/$tag"; mkdir -p "/run1489/$tag"; cd "/run1489/$tag"
-  env "$@" OD_MAX_CYCLES=6000 /app/build/opendartboard \
+  env "$@" OD_SCORE_PATH=vote OD_NUMBER_ANCHOR=off OD_WINDOW_UNIT=cycles OD_MAX_CYCLES=6000 /app/build/opendartboard \
     --cams /app/mocks/rig-20260918/cam_1.mp4,/app/mocks/rig-20260918/cam_2.mp4,/app/mocks/rig-20260918/cam_3.mp4 \
     --width 1280 --height 720 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "/run1489/$tag.log"
   cd /
