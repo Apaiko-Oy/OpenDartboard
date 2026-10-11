@@ -920,6 +920,82 @@ DROPPED with the written turn unchanged; a lone camera held; the takeout after i
 and mutates each decision with its prediction stated first. It stays opt-in: the fixtures
 cannot show the case it is for, and only a live session can.
 
+## A takeout of surround darts (turnaus#1783), opt-in
+
+**Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:51) a visit of
+three misses on the surround published three MISSes (`I1707 RIM CARRIED`, cameras `rim only`),
+and the takeout that pulled them opened nothing: the log is silent from the post-dart window at
+16:51:56 (`stays DART_3`, 9,343 / 32,153 / 5,894 px) to a second takeout's `CLEAN BY REVERSION`
+END at 16:52:12, two further off-board darts later. The live log is not on this machine, so what
+follows is read from the code and the figures the issue records.
+
+**What the code says.** An event opens on one camera's frame-to-frame motion figure crossing the
+entry (`processMotion`, IDLE and the cooldown's arm), and that figure is counted inside the
+double's outer ellipse (`BoardExtent::edge`), while since #1689 the dart counts reach the rim.
+The board was not stuck in an event: an event in `SPIKE_DETECTED` past 10 s logs a warning, a
+settle that cannot finish is broken only by a quiet cycle (and the default, `OD_MOTION_FIX`
+unset, finishes on the first one), and the 16 s include two throws from the oche, when nothing
+is between a camera and the board. So the board was IDLE and **no camera's figure inside the
+double crossed 0.006 while the darts were pulled**: a hand gripping darts between the double and
+the rim is outside every figure that opens an event. 32,153 px on camera 2 needs no thrower: it
+is three side-on darts at the size of that camera's largest fixture darts (12,692 px, #1781).
+
+**The fixtures show the same thing.** `OD_MOTION_REGION_CENSUS=1` prints `I1783REGION`, both
+counts, on every IDLE or cooldown cycle where either crosses the entry. rig-20260929's visit 12
+(`miss d14 miss`) has its two misses as figures counted to the rim and not to the double: cycle
+5039 (camera 1 0.0111 to the rim, 0.0001 to the double) and 5154 (camera 1 0.0335 against
+0.0001). Neither opened an event, so those misses never published (#1537's shape, and why that
+visit is AMBIGUOUS in the census). That visit's takeout opened because the hand reached the D14
+inside the double (cycle 5233, 0.0631), one cycle after the hand first crossed the entry in the
+surround (5232: 0.0304 to the rim, 0.0000 to the double).
+
+`OD_MOTION_REGION=rim` (`motion_processing.cpp`; the masks and the share are pure in
+`motion_processing.hpp`, `motionMasks` and `boardShare`) counts the motion figure out to the
+rim, the ellipse `Region::tip_mask` is (the double's x 225.5/170), and keeps it a share of the
+**double's** area, so the entry, the settle and every other ratio keep their units (#1689's
+choice for the dart counts). Unset or anything else: counted inside the double, as before. The
+board level the exposure hold reads (#1646) stays on the double. `I1783 OD_MOTION_REGION=rim`
+says the switch at start-up.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_MOTION_REGION_CENSUS=1 OD_WINDOW_CENSUS=1`, 2026-10-11, one binary,
+switch off then on).**
+
+| | off | `OD_MOTION_REGION=rim` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | **67/72** |
+| pooled | 143..149/158 | **149/158** |
+| r18+r22 | 82/86 | 82/86 |
+
+- **Every END closes on the same cycle** in all seven replays (`WINDOW CENSUS` closed cycles,
+  6 / 6 / 7 / 8 / 6 / 12 / 12 ENDs), and every rig-20260918 and rig-20260922 census row is
+  identical. No window is added there.
+- **rig-20260929 gains two windows per run**, visit 12's misses: `CLEAN -> DART_1` (camera 1
+  1,961 px, 3 up) and `DART_2 -> DART_3` (3 up), both published MISS, and the visit reads
+  `MISS D14 MISS` exactly in both windows where it published D14 alone. Its END now closes
+  from DART_3, on the same cycle.
+- **No new phantom**, and no visit publishes more than was thrown.
+- Of the rim-only crossings the census prints with the switch off (7 / 7 / 8 / 9 / 7 / 30 / 31
+  per run), all but one per rig-20260918 run and three per rig-20260929 run are the cycle
+  before a crossing of the double: the same event, one cycle earlier.
+
+**Beside the other takeout switches.** `OD_PAST_THREE` (#1793) acts on a window at DART_3 that
+does not reconcile CLEAN; neither run has one (every `DART_3 ->` window is an END), so it has
+nothing to act on here. Live, it is the switch to watch with this one: a takeout of surround
+darts now opens windows, and one read while the hand is still in the surround, counted to the
+rim, could vote an arrival past three; Turnaus answers `DROPPED` into a full round. `OD_BODY_WINDOW`
+(#1781) does not contradict it: this switch opens windows and that one refuses arrivals in them,
+and the END this one restores is what its `after` clause counts from. The two new windows bring
+fresh figures under 1% of a board, 5 s after the END.
+
+`testers/run_all.sh 1783-region` (45 s) holds the masks on rig-20260929's camera-2 ellipse with
+a patch in the surround, one past the rim and one on the board, and mutates the rim scale both
+ways, the default's mask and the denominator, each predicted to turn exactly one named
+assertion red. It stays opt-in: the fixtures hold no takeout of surround darts only, and the
+live visit's own motion figures are not in its log.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while

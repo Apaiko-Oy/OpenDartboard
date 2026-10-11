@@ -36,8 +36,47 @@ namespace motion_processing
         // bounding box, padded by more than the blur and the close can reach, so every
         // pixel inside the mask reads what it would on the whole frame.
         Rect area;
+        // turnaus#1783: where a changed pixel is COUNTED -- `mask` itself (the double)
+        // by default, the ellipse out to the rim under OD_MOTION_REGION=rim -- and, under
+        // OD_MOTION_REGION_CENSUS=1, the other of the two. `pixels` stays the double's
+        // area either way, and `mask` stays what the board level is read on (#1646).
+        Mat count;
+        Mat other;
     };
     static vector<Region> regions;
+
+    /**
+     * turnaus#1783: `OD_MOTION_REGION=rim` counts the motion figure out to the physical rim
+     * (motionMasks, motion_processing.hpp); unset or anything else counts it inside the
+     * double, as before. Said once, at the first region built, so a replay under it cannot
+     * be read as the default's.
+     */
+    static bool motionCountsToRim()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_MOTION_REGION");
+            const bool rim = e && std::string(e) == "rim";
+            if (rim)
+                log_info("I1783 OD_MOTION_REGION=rim: the motion figure is counted out to the board's rim "
+                         "(the double's ellipse x 225.5/170) as a share of the double's area, so a hand or "
+                         "a dart between the double and the rim can open an event (turnaus#1783)");
+            return rim;
+        }();
+        return v;
+    }
+
+    // turnaus#1783's census: the motion figure counted the other way too, on every camera,
+    // and an I1783 line for every cycle on which the two disagree about opening an event.
+    static bool motionRegionCensus()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_MOTION_REGION_CENSUS");
+            return e && std::string(e) == "1";
+        }();
+        return v;
+    }
 
     // #1686: the motion diff over the board's own area, from the previous frame's blurred
     // grey kept rather than recomputed. A cycle spent most of its time here -- two BGR->grey
@@ -335,13 +374,20 @@ namespace motion_processing
                         "abstains from the motion figure rather than being measured against the frame");
             return r;
         }
-        r.mask = Mat::zeros(frame, CV_8UC1);
-        ellipse(r.mask, r.edge, Scalar(255), FILLED);
-        r.pixels = countNonZero(r.mask);
+        {
+            // turnaus#1783: motionMasks is the one place the two ellipses are drawn.
+            const MotionMasks double_masks = motionMasks(frame, r.edge, false);
+            r.mask = double_masks.count;
+            r.pixels = double_masks.denominator;
+            r.count = motionCountsToRim() ? motionMasks(frame, r.edge, true).count : r.mask;
+            if (motionRegionCensus())
+                r.other = motionCountsToRim() ? r.mask : motionMasks(frame, r.edge, true).count;
+        }
         {
             // #1686: blur radius plus twice the close's kernel, and a margin.
+            // turnaus#1783: around every mask a figure is counted on, so the rim's too.
             const int pad = params.blur_kernel_size + 2 * params.morph_kernel_size + 8;
-            const Rect bb = boundingRect(r.mask);
+            const Rect bb = boundingRect(r.other.empty() ? r.count : Mat(r.count | r.other));
             r.area = Rect(bb.x - pad, bb.y - pad, bb.width + 2 * pad, bb.height + 2 * pad) &
                      Rect(0, 0, frame.width, frame.height);
         }
@@ -357,6 +403,7 @@ namespace motion_processing
                  " px ellipse at (" + to_string((int)lround(r.edge.center.x)) + "," +
                  to_string((int)lround(r.edge.center.y)) + ") turned " + to_string((int)lround(r.edge.angle)) +
                  " degrees: " +
+                 (motionCountsToRim() ? string("counted out to the rim, ") : string("")) +
                  to_string(r.pixels) + " px of a " + to_string(frame_pixels) + " px frame (" +
                  to_string((int)lround(100.0 * r.pixels / frame_pixels)) + "%); a ratio of " +
                  to_string(params.spike_threshold) + " is " +
@@ -513,9 +560,14 @@ namespace motion_processing
                 if (!region.known)
                     continue; // this camera has no scale, so it says nothing
                 Mat inside;
-                bitwise_and(thresh, region.mask, inside);
+                bitwise_and(thresh, region.count, inside); // turnaus#1783: where it is counted
                 motion_pixels = countNonZero(inside);
                 region_pixels = region.pixels;
+                if (!region.other.empty())
+                {
+                    bitwise_and(thresh, region.other, inside);
+                    motion_data[i].other_ratio = (double)countNonZero(inside) / region.pixels;
+                }
                 // #1646: the board's own grey level, what exposure drift moves.
                 motion_data[i].board_level = mean(curr_gray, region.mask)[0];
             }
@@ -615,9 +667,14 @@ namespace motion_processing
                             {
                                 const Mat mask = region->mask(area);
                                 Mat inside;
-                                bitwise_and(thresh, mask, inside);
+                                bitwise_and(thresh, region->count(area), inside); // turnaus#1783
                                 motion_pixels = countNonZero(inside);
                                 region_pixels = region->pixels;
+                                if (!region->other.empty())
+                                {
+                                    bitwise_and(thresh, region->other(area), inside);
+                                    cropped[i].other_ratio = (double)countNonZero(inside) / region->pixels;
+                                }
                                 cropped[i].board_level = mean(curr_grey, mask)[0];
                             }
                             const double motion_ratio = region_pixels > 0 ? (double)motion_pixels / region_pixels : 0.0;
@@ -731,6 +788,45 @@ namespace motion_processing
             if (motion_data[i].measured && motion_data[i].motion_ratio > peak_intensity)
             {
                 peak_intensity = motion_data[i].motion_ratio;
+            }
+        }
+
+        // turnaus#1783's census: on every cycle whose entry test either count would pass --
+        // IDLE's, and the cooldown's arm -- both figures, so a fixture says how many events
+        // the rim count opens that the double's does not, and which. Printed whatever the
+        // switch; it decides nothing.
+        if (motionRegionCensus() && (current_state == DartEventState::IDLE || current_state == DartEventState::COOLDOWN) &&
+            !settleTrigger() && !measuredAgainstTheFrame())
+        {
+            double peak_other = 0.0;
+            for (size_t i = 0; i < motion_data.size(); i++)
+            {
+                if (motion_data[i].measured && motion_data[i].other_ratio > peak_other)
+                    peak_other = motion_data[i].other_ratio;
+            }
+            const double entry = entryThreshold(params);
+            const bool rim = motionCountsToRim();
+            const double peak_double = rim ? peak_other : peak_intensity;
+            const double peak_rim = rim ? peak_intensity : peak_other;
+            if (peak_double > entry || peak_rim > entry)
+            {
+                string cams;
+                for (size_t i = 0; i < motion_data.size(); i++)
+                {
+                    if (!motion_data[i].measured)
+                        continue;
+                    const double d = rim ? motion_data[i].other_ratio : motion_data[i].motion_ratio;
+                    const double r = rim ? motion_data[i].motion_ratio : motion_data[i].other_ratio;
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), " cam%zu=%.4f/%.4f", i + 1, d, r);
+                    cams += buf;
+                }
+                char head[200];
+                snprintf(head, sizeof(head), "I1783REGION cycle=%lld state=%s double=%.4f rim=%.4f entry=%.4f opens=%s counted=%s",
+                         (long long)od_clock::cycles().load(), current_state == DartEventState::IDLE ? "IDLE" : "COOLDOWN",
+                         peak_double, peak_rim, entry,
+                         peak_double > entry ? "both" : "rim-only", rim ? "rim" : "double");
+                log_info(string(head) + cams);
             }
         }
 
