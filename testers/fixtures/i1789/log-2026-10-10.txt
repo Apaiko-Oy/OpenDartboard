@@ -1,7 +1,7 @@
 turnaus#1789 fixture: a LOG EXCERPT matching truth-line-2026-10-10.txt, HAND-WRITTEN from the
 lines turnaus#1707, #1773, #1781, #1782 and #1783 quote. The live logs
 (darts-log-2b56b48.txt, then darts-log-2b56b48-spike006.txt, on the maintainer's box) are
-not on this machine, so this is two "files" joined the way Turnaus's /log joins a day's,
+not on this machine, so this is three "files" joined the way Turnaus's /log joins a day's,
 each opening with the logger's session banner. Where an issue quotes a sentence it is
 written as quoted; where it quotes part of one the rest is "[...]"; SCORE and TURNAUS lines
 are written in scorer.cpp's and turnaus_client.cpp's formats with the unrecorded Position
@@ -9,6 +9,10 @@ and Processing figures as "?". Milliseconds are the issues' where given (#1781's
 #1783's) and otherwise only order lines within a second. Module names are illustrative.
 The 15:39:23 dart (miss published S20, #1707) is deliberately left out: the census must
 name a corrected dart it cannot find, not drop it.
+The third "file" is REAL (#1817): six lines copied verbatim from casual/20's uploaded log
+of 2026-10-11, the first session read back -- one `frames for <ref> are gone` line naming a
+dart the board posted before that log began, and one corrected dart's push line with the
+four lines of its window. Nothing else from that log is here.
 
 ========== OpenDartboard Session Started ==========
 [15:32:50.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
@@ -109,3 +113,10 @@ name a corrected dart it cannot find, not drop it.
 [16:52:12.302][INFO][DartProcessing] - CLEAN BY REVERSION: camera 3 [...] 5894 -> 3060 [...]
 [16:52:12.303][INFO][DartProcessing] - CLEAN REFERENCE ADOPTED: the board reconciled CLEAN, so camera(s) [...]
 [16:52:12.390][INFO][Scorer] - SCORE: END | Position: (?,?) | Confidence: 1.000000 | Camera: -1 | Processing: ?ms
+========== OpenDartboard Session Started ==========
+[00:56:57.409][INFO][TURNAUSCLIENT] - TURNAUS: frames for 01M4KWAS5RTFSTE99GK40DGPVH are gone
+[01:27:16.284][INFO][SCORE_PROCESSING] - UNCERTAINTY: S19 or S3 -- the nearest wedge wire is 1.0 mm across a 5.4 mm one-sigma, so S19 publishes now as the more probable candidate and is flagged; a tap affirms it or appends the other (a two-line solve of cameras 1 and 2 crossing at 60.4 deg: the sigma is that crossing's, and no third line checks it (#1766))
+[01:27:16.284][INFO][SCORE_PROCESSING] - Geometric score: S19 from 2 intersecting constraint(s) of 3 cameras, read through camera 1
+[01:27:16.284][INFO][SCORE_PROCESSING] - BOARD: wedge from the solved entry | ring=single | segment=19 | radius=0.451094 | angle=189.736618
+[01:27:16.284][INFO][SCORER] - SCORE: S19 | Position: (572,305) | Confidence: 0.700000 | Camera: 0 | Processing: 64ms
+[01:27:16.489][INFO][TURNAUSCLIENT] - TURNAUS: COUNTED {"alternative":"S3","board_angle":189.7366,"board_radius":0.4511,"bounced_out":false,"cameras_used":[1,2],"candidates":["S3","T19","S7"],"confidence":0.7,"crossing_deg":60.36,"degraded":false,"flagged":true,"margin_mm":0.99,"path":"geometry","reference":"01M4KYTXNWXP184NBAJ0TMKNNW","sector":"S19","sigma_mm":5.43,"wire_kind":"wedge"}
