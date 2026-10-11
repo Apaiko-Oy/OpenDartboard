@@ -501,6 +501,28 @@ namespace entry_intersection
         // cannot count a dart whose second candidate is unnamed.
         std::string alternativeScore;
         std::string alternativeRefusal;
+        // #1782: A CORNER -- the solve within its across-wire sigma of a ring wire AND a
+        // wedge wire at once. #1556 measured the crossing to the NEAREST wire only, in
+        // sigmas, and named the one cell across it; live on 2026-10-10 a T3 0.6 mm from
+        // the treble's outer wire and 1.8 mm from the 3/19 wire, both inside a 5.3 mm
+        // sigma, offered S3 while the thrower's S19 was the diagonal. The four cells of
+        // the corner are the published one, the one across each wire and the one across
+        // both, each named by re-scoring through the same fit (`alternativeAcross`'s
+        // rule, #1512's), and the covariance is kept as the two across-wire sigmas and
+        // their correlation so score_processing can rank the three by probability
+        // without linking this header. Named on every solve where both wires can flip
+        // the call; `corner` is true where all of it could be named, and whether the solve
+        // is INSIDE both sigmas is decided by score_processing::decideCornerCall.
+        bool corner = false;
+        std::string cornerRingAlt;   // across the ring wire only
+        std::string cornerWedgeAlt;  // across the wedge wire only
+        std::string cornerDiagonal;  // across both; may repeat one of the two, or be empty
+        double cornerRingMm = -1.0;  // distance to the ring wire
+        double cornerWedgeMm = -1.0; // distance to the wedge wire
+        // The correlation of the solve's position error measured TOWARD the ring wire
+        // with its error measured TOWARD the wedge wire, from the unfloored covariance
+        // (the floor is on the two sigmas, which are sigmaRadialMm and sigmaTangentMm).
+        double cornerRho = 0.0;
         // The verdict. A dart is flagged only where a SECOND CANDIDATE COULD BE NAMED: a
         // demotion that cannot say what the other answer is has nothing for a consumer to
         // ask about, and #1557's decision is that the flag names both candidates.
@@ -670,8 +692,16 @@ namespace entry_intersection
                                          const board_model::BoardFit &fit,
                                          const board_model::ModelAnchor &anchor,
                                          const cv::Point2f &entry, double distanceMm,
-                                         bool radial, const std::string &published)
+                                         bool radial, const std::string &published,
+                                         // #1782: which way the wire lay, +1 outward or
+                                         // anticlockwise in the canonical frame (increasing
+                                         // phi), -1 the other way; 0 where nothing was named.
+                                         int *side = nullptr)
     {
+        if (side != nullptr)
+        {
+            *side = 0;
+        }
         const double r = std::sqrt((double)entry.x * entry.x + (double)entry.y * entry.y);
         if (!(r > 0.0) || !(distanceMm >= 0.0))
         {
@@ -700,10 +730,46 @@ namespace entry_intersection
             const std::string word = detail::scoreAtCanonical(profile, fit, anchor, probe);
             if (!word.empty() && word != published)
             {
+                if (side != nullptr)
+                {
+                    *side = s;
+                }
                 return word;
             }
         }
         return std::string();
+    }
+
+    /**
+     * #1782: the cell across BOTH wires of a corner -- the entry moved past the ring wire
+     * radially and past the wedge wire along the arc, each on the side `alternativeAcross`
+     * found it, and the board asked what it reads there through the same fit and anchor.
+     * Empty where it cannot be read.
+     */
+    inline std::string diagonalAcross(const board_model::BoardProfile &profile,
+                                      const board_model::BoardFit &fit,
+                                      const board_model::ModelAnchor &anchor,
+                                      const cv::Point2f &entry, double ringMm, int ringSide,
+                                      double wedgeMm, int wedgeSide)
+    {
+        const double r = std::sqrt((double)entry.x * entry.x + (double)entry.y * entry.y);
+        if (!(r > 0.0) || ringSide == 0 || wedgeSide == 0)
+        {
+            return std::string();
+        }
+        const double rr = r + ringSide * (ringMm + kCrossingNudgeMm);
+        if (!(rr > 0.0))
+        {
+            return std::string();
+        }
+        // The arc step is the one `alternativeAcross` took at the solved radius, so the
+        // probe crosses the same wedge wire it measured to.
+        const double d = wedgeSide * (wedgeMm + kCrossingNudgeMm) / r;
+        const double c = std::cos(d), sn = std::sin(d);
+        const cv::Point2f radial((float)(entry.x * rr / r), (float)(entry.y * rr / r));
+        const cv::Point2f probe((float)(radial.x * c - radial.y * sn),
+                                (float)(radial.x * sn + radial.y * c));
+        return detail::scoreAtCanonical(profile, fit, anchor, probe);
     }
 
     /**
@@ -1426,6 +1492,43 @@ namespace entry_intersection
             out.uncertaintyCrossesWire = !out.boundaryKind.empty() &&
                                          out.crossingSigmas <= params.crossingSigmas &&
                                          !out.alternativeScore.empty();
+
+            // #1782: BOTH wires inside the sigma. Measured on every such solve, flagged
+            // or not; score_processing decides what the flag offers from it.
+            //
+            // Named wherever BOTH wires can flip the call, inside the sigma or not:
+            // whether it is a corner is score_processing::decideCornerCall's question, so
+            // the threshold lives in the pure rule its check holds. Three more probes of a
+            // board model per solve.
+            if (refFit != nullptr && zRing >= 0.0 && zWedge >= 0.0)
+            {
+                int ringSide = 0, wedgeSide = 0;
+                out.cornerRingAlt = alternativeAcross(profile, *refFit, refAnchor, X,
+                                                      out.score.ringBoundaryMm, true,
+                                                      out.score.score, &ringSide);
+                out.cornerWedgeAlt = alternativeAcross(profile, *refFit, refAnchor, X,
+                                                       out.score.wedgeBoundaryMm, false,
+                                                       out.score.score, &wedgeSide);
+                out.cornerDiagonal = diagonalAcross(profile, *refFit, refAnchor, X,
+                                                    out.score.ringBoundaryMm, ringSide,
+                                                    out.score.wedgeBoundaryMm, wedgeSide);
+                out.cornerRingMm = out.score.ringBoundaryMm;
+                out.cornerWedgeMm = out.score.wedgeBoundaryMm;
+                // The covariance in the radial/tangential frame at the solved angle: with
+                // a = phi - theta, cov_rt = -(s1^2 - s2^2) sin a cos a, and the variances
+                // are what sigmaAlongDeg reads. Signed by the side each wire lies on, so
+                // rho is about the offsets TOWARD the two wires.
+                const double a = (out.phiDeg - out.sigmaThetaDeg) * CV_PI / 180.0;
+                const double s1 = out.sigmaMajorMm * out.sigmaMajorMm;
+                const double s2 = out.sigmaMinorMm * out.sigmaMinorMm;
+                const double vr = s1 * std::cos(a) * std::cos(a) + s2 * std::sin(a) * std::sin(a);
+                const double vt = s1 * std::sin(a) * std::sin(a) + s2 * std::cos(a) * std::cos(a);
+                const double crt = -(s1 - s2) * std::sin(a) * std::cos(a);
+                out.cornerRho = (vr > 0.0 && vt > 0.0) ? ringSide * wedgeSide * crt / std::sqrt(vr * vt)
+                                                       : 0.0;
+                out.corner = !out.cornerRingAlt.empty() && !out.cornerWedgeAlt.empty() &&
+                             ringSide != 0 && wedgeSide != 0;
+            }
         }
         out.outcome = (crudeWireTestIsPinned() ? out.crudeWireClose : out.uncertaintyCrossesWire)
                           ? Outcome::UncertainAcrossWire
