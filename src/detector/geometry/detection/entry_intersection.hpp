@@ -510,8 +510,9 @@ namespace entry_intersection
         // both, each named by re-scoring through the same fit (`alternativeAcross`'s
         // rule, #1512's), and the covariance is kept as the two across-wire sigmas and
         // their correlation so score_processing can rank the three by probability
-        // without linking this header. Filled on every solve where both z <= the flag's
-        // threshold; `corner` false everywhere else.
+        // without linking this header. Named on every solve where both wires can flip
+        // the call; `corner` is true where all of it could be named, and whether the solve
+        // is INSIDE both sigmas is decided by score_processing::decideCornerCall.
         bool corner = false;
         std::string cornerRingAlt;   // across the ring wire only
         std::string cornerWedgeAlt;  // across the wedge wire only
@@ -1485,8 +1486,12 @@ namespace entry_intersection
 
             // #1782: BOTH wires inside the sigma. Measured on every such solve, flagged
             // or not; score_processing decides what the flag offers from it.
-            if (refFit != nullptr && zRing >= 0.0 && zWedge >= 0.0 &&
-                zRing <= params.crossingSigmas && zWedge <= params.crossingSigmas)
+            //
+            // Named wherever BOTH wires can flip the call, inside the sigma or not:
+            // whether it is a corner is score_processing::decideCornerCall's question, so
+            // the threshold lives in the pure rule its check holds. Three more probes of a
+            // board model per solve.
+            if (refFit != nullptr && zRing >= 0.0 && zWedge >= 0.0)
             {
                 int ringSide = 0, wedgeSide = 0;
                 out.cornerRingAlt = alternativeAcross(profile, *refFit, refAnchor, X,

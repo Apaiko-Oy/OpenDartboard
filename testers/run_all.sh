@@ -718,6 +718,16 @@ tester 1773-ringwire      "bash '$T/i1773_check.sh'"
 # detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the
 # 4-core box at load ~6-11, rc=0: 33 s wall.
 tester 1781-body          "bash '$T/i1781_check.sh'"
+# turnaus#1782: a flagged solve within its sigma of a ring wire AND a wedge wire (a corner)
+# offered only the nearest wire's alternative -- live on 2b56b48 a thrown S19 published T3
+# flagged "T3 or S3", 0.6 mm from the treble wire and 1.8 mm from the 3/19 wire. The flag now
+# offers the corner's three other cells by the solve's own covariance, an unused camera's clear
+# reading of one first; the published score never moves (OD_CORNER_FLAG=nearest restores #1556's
+# one alternative). The pure half: one compile of the tree plus three of a mutated scratch copy
+# of score_processing.hpp (the threshold, the promotion, the diagonal), each predicted to turn
+# exactly one named set of assertions red. No detector binary. MEASURED 2026-10-11 on the
+# 4-core box at load ~15, rc=0: 50 s wall.
+tester 1782-corner        "bash '$T/i1782_check.sh'"
 # #1627: with #1605's budget and #1618's alignment on (the default since #1631), rig-20260922's visit-7
 # takeout lost its motion event to a camera-3 blip while it settled (case STABILIZING went
 # to IDLE on a spike), and v8.1's own window then read the fall as the takeout and baked

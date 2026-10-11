@@ -1342,7 +1342,7 @@ namespace score_processing
     /** #1782: a corner, as the solver measured it, in primitives. */
     struct CornerCells
     {
-        bool corner = false;
+        bool corner = false; // all three other cells' names could be read
         std::string ringAlt, wedgeAlt, diagonal;
         double ringMm = -1.0, wedgeMm = -1.0;           // to each wire
         double sigmaRingMm = -1.0, sigmaWedgeMm = -1.0; // floored, across each wire
@@ -1377,6 +1377,18 @@ namespace score_processing
      * most probable first. The published cell's own probability is returned in
      * `publishedProbability`. Empty where `cells.corner` is false.
      */
+    /**
+     * #1782: whether the solve is within `k` of its own across-wire sigma of BOTH wires --
+     * #1556's threshold, Params::crossingSigmas, passed by the caller so this header
+     * stays clear of entry_intersection.hpp.
+     */
+    inline bool insideBothSigmas(const CornerCells &cells, double k)
+    {
+        return cells.corner && cells.sigmaRingMm > 0.0 && cells.sigmaWedgeMm > 0.0 &&
+               cells.ringMm >= 0.0 && cells.wedgeMm >= 0.0 &&
+               cells.ringMm / cells.sigmaRingMm <= k && cells.wedgeMm / cells.sigmaWedgeMm <= k;
+    }
+
     inline std::vector<CornerCell> rankCornerCells(const CornerCells &cells,
                                                    const std::string &published,
                                                    double *publishedProbability = nullptr)
@@ -1428,10 +1440,11 @@ namespace score_processing
                                          const std::vector<CameraReading> &readings,
                                          // #1766's sentence tail, as decideBoundaryCall had it
                                          const std::string &sigmaProvenance = std::string(),
+                                         double crossingSigmas = 1.0,
                                          bool on = cornerFlagIsOn(),
                                          float sigmaMm = kLoneReadingSigmaMm)
     {
-        if (!nearest.flagged || !cells.corner)
+        if (!nearest.flagged || !insideBothSigmas(cells, crossingSigmas))
         {
             return nearest;
         }
@@ -1534,7 +1547,7 @@ namespace score_processing
      */
     inline std::string cornerCensusLine(long window, const BoundaryCall &nearest, const BoundaryCall &corner,
                                         const CornerCells &cells, const std::vector<CameraReading> &readings,
-                                        float sigmaMm = kLoneReadingSigmaMm)
+                                        double crossingSigmas = 1.0, float sigmaMm = kLoneReadingSigmaMm)
     {
         double pPublished = 0.0;
         const std::vector<CornerCell> ranked = rankCornerCells(cells, nearest.published, &pPublished);
@@ -1563,7 +1576,7 @@ namespace score_processing
                  "I1782CORNER window=%ld flagged=%d corner=%d score=%s nearest_alt=%s offered=%s "
                  "ring_mm=%.2f wedge_mm=%.2f sigma_ring=%.2f sigma_wedge=%.2f rho=%.3f p_published=%.3f "
                  "cells=%s",
-                 window, nearest.flagged ? 1 : 0, cells.corner ? 1 : 0,
+                 window, nearest.flagged ? 1 : 0, insideBothSigmas(cells, crossingSigmas) ? 1 : 0,
                  nearest.published.empty() ? "-" : nearest.published.c_str(),
                  nearest.alternative.empty() ? "-" : nearest.alternative.c_str(),
                  offered.empty() ? "-" : offered.c_str(), cells.ringMm, cells.wedgeMm, cells.sigmaRingMm,

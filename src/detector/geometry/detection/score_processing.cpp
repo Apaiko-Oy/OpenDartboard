@@ -1218,7 +1218,8 @@ namespace score_processing
                 camera_readings.push_back(reading);
             }
             const BoundaryCall crossing =
-                decideCornerCall(nearest_crossing, corner_cells, camera_readings, provenance);
+                decideCornerCall(nearest_crossing, corner_cells, camera_readings, provenance,
+                                 entry_intersection::Params().crossingSigmas);
             result.boundary_flagged = crossing.flagged;
             result.alternative_score = crossing.alternative;
             result.boundary_kind = crossing.kind;
@@ -1553,7 +1554,8 @@ namespace score_processing
                 log_info(flagCensusLine(window, crossing, result.confidence,
                                         result.from_geometry, result.score));
                 // #1782: the corner, beside the flag it widened.
-                log_info(cornerCensusLine(window, nearest_crossing, crossing, corner_cells, camera_readings));
+                log_info(cornerCensusLine(window, nearest_crossing, crossing, corner_cells, camera_readings,
+                                          entry_intersection::Params().crossingSigmas));
                 // #1721: what the fix row would be offered, beside what published.
                 string ranked;
                 for (const string &c : result.candidates)
