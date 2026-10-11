@@ -1206,6 +1206,89 @@ ways, the default's mask and the denominator, each predicted to turn exactly one
 assertion red. It stays opt-in: the fixtures hold no takeout of surround darts only, and the
 live visit's own motion figures are not in its log.
 
+## A takeout that leaves darts in the board, re-read as they are pulled (turnaus#1820), opt-in
+
+**Live on casual board 20** (2026-10-11, the session in `sessions/2026-10-10-11/`, kept off
+GitHub) a visit S7 (568,266), T10 (744,396), S4 (750,299) was taken out, and the END at
+00:57:20.921 reconciled `CLEAN BY REVERSION` on all three cameras with **10,468 / 9,461 /
+11,124 px** still over the reference (ceilings 183 / 213 / 217). A reversion reads a *fall*
+of at least a dart from the previous window, not a board under its ceiling: the T10 had been
+pulled (a fall of 7,459 / 3,692 / 1,665 px), and the S7 and the S4 had not. #1518 then adopted
+those frames as clean on every camera, so pulling the S7 and the S4 afterwards was a change
+against the new reference *at their own pixels*, and the vote read each as an arrival there:
+an **S7 0.0 px** from the S7 (+2.41 s) and an **S13 9.2 px** from the S4 (+4.49 s; the S4 was
+first solved from two lines at 15.6 mm sigma, re-solved from three). Both removed by the
+thrower. They took two of the next visit's three slots, so its later real darts met a board
+at DART_3 (00:58:04 `stays DART_3`; that turn was corrected).
+
+The proof that the adopted reference held both darts is the next END: 00:58:20 left
+**10,461 / 9,464 / 11,126 px**, the 00:57:20 residue to within 10 px: the same two
+silhouettes, once present against a clean reference and once absent against one holding them.
+The same shape at 01:00:39 (9,551 / 13,600 / 9,237 px left) re-read an S16 and a T4 at
+**0.0 px** (+2.17 s, +4.29 s), not corrected in the truth.
+
+**Why not "an END that does not adopt"** (#1691's direction): refusing the adoption leaves a
+partial takeout's reference at the scene before it, and an END that does not reconcile wedges
+the board at DART_3, which #1518 exists to prevent. The darts' positions are on the record,
+and only a reversion END can adopt a reference with darts in it, so the rule is on the
+published position.
+
+`OD_REREAD_HOLD=on` (`geometry_detector.cpp`; pure rule and memory in `dart_processing.hpp`):
+a dart published from CLEAN, before anything else in the visit, within **6,000 ms** of an END
+that reconciled with a reversion vote, and within **12 px** through the same camera of a dart
+of the visit that END closed, is not published; the advance is withdrawn
+(`withdrawCalledDart`: the state goes back to CLEAN and its #1535 tips come off the record),
+and the working backgrounds stay on that window, as #1690's held re-base leaves them, so the
+pull is not the next dart's fresh figure. A held dart leaves the hold armed for the next pull;
+the first dart published disarms it. `I1820 REREAD HELD` says so at INFO. `OD_REREAD_CENSUS=1`
+prints an `I1820REREAD` line for every dart published while the hold is armed.
+
+**The figures, from board 20's whole log** (truth line beside each):
+
+| repeat | after | distance | since END | truth | rule |
+|---|---|---|---|---|---|
+| 00:57:23 S7 | reversion END | 0.0 px | 2,410 ms | removed | held |
+| 00:57:25 S13 | reversion END | 9.2 px | 4,494 ms | removed | held |
+| 01:00:42 S16 | reversion END | 0.0 px | 2,174 ms | not corrected | held |
+| 01:00:44 T4 | reversion END | 0.0 px | 4,292 ms | not corrected | held |
+| 00:56:04 T13 | reversion END | 8.5 px | 7,276 ms | typed S7 | stands |
+| 00:59:20 D20 | reversion END | 4.2 px | 7,840 ms | corrected to a miss | stands |
+| ten darts, 1.4..11.7 px | ENDs under the ceiling | | | the thrower's grouping on 20/1 | stand (not armed) |
+
+12 px is the census's `REREAD_PX` (#1819), so the census and the hold name the same darts; it
+is not what separates a re-read from a grouped throw (ten of those are within it), the
+reversion END is. The nearest real first dart inside the horizon of a reversion END is
+01:23:06's S5 at 50.6 px. **6,000 ms** sits between the latest pure pull (4,494 ms) and the
+earliest window where a late pull and the next throw were one window (7,276 ms): holding
+those would lose the throw where publishing it costs a correction. Six points, one thrower.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_REREAD_CENSUS=1`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_REREAD_HOLD=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+**No changed row**: every `I1555 PAIR`, phantom and accuracy row of all seven censuses is
+identical, and every replay's `SCORE` lines (score, position, confidence, camera) are
+identical in order with timestamps taken out: the same 6/6/6/7/8/12/12 ENDs and
+20/20/20/21/22/34/34 darts (r18 dev, open, pin; r22 dev, open; r29 dev, open).
+No dart is held (no `I1820 REREAD HELD`). The census armed once in seven replays: rig-20260922
+opening, an S12 4,433 ms after a reversion END with no dart of the closed visit published
+through its camera (`nearestPx=-1`, `reread=0`). The fixtures' takeouts pull every dart
+before the END reconciles, so none holds this fault; the live log is the only evidence.
+(The on run printed no startup line for the switch; it was forwarded (`I1555 FORWARD
+OD_REREAD_HOLD=on`), and the line is now said at the first scored window.)
+
+`testers/run_all.sh 1820-reread` (152 s at load ~16-22) replays board 20's visits through the
+memory and mutates each figure and clause: radius 5 and 60 px, horizon 4,000 and 8,000 ms,
+arming on any END, no disarming, comparing across cameras. All seven fail exactly the
+assertions predicted beforehand.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while

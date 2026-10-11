@@ -741,6 +741,16 @@ tester 1793-pastthree     "bash '$T/i1793_check.sh'"
 # binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
 # ~15-17 with a bakeoff and a build alongside, rc=0: 45 s wall.
 tester 1783-region        "bash '$T/i1783_check.sh'"
+# turnaus#1820: a takeout reconciled CLEAN BY REVERSION with darts still in the board, #1518
+# adopted those frames as clean, and the darts were published again as they were pulled (live
+# on casual board 20, 2026-10-11 00:57: an S7 0.0 px and an S13 9.2 px from the visit before).
+# OD_REREAD_HOLD (off by default) holds a first dart within 6000 ms of a reversion END that is
+# within 12 px, through the same camera, of a dart of the visit that END closed, and withdraws
+# its advance. The pure half: the rule and the memory replayed over board 20's live visits, one
+# compile of the tree plus seven of a mutated scratch copy of dart_processing.hpp, each
+# predicted to turn named assertions red. No detector binary; OD_SKIP_BUILD changes nothing
+# about it. MEASURED 2026-10-11 on the 4-core box at load ~16-22, rc=0: 152 s wall.
+tester 1820-reread        "bash '$T/i1820_check.sh'"
 # turnaus#1782: a flagged solve within its sigma of a ring wire AND a wedge wire (a corner)
 # offered only the nearest wire's alternative -- live on 2b56b48 a thrown S19 published T3
 # flagged "T3 or S3", 0.6 mm from the treble wire and 1.8 mm from the 3/19 wire. The flag now
