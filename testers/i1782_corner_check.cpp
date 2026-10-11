@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "detector/geometry/detection/dart_candidates.hpp"
 #include "detector/geometry/detection/score_processing.hpp"
 
 using namespace score_processing;
@@ -260,6 +261,31 @@ int main()
         std::cout << "  rho 0.9: " << c.account << std::endl;
         say(order.size() == 3 && at("S19") < at("T19") && at("S19") < at("S3"),
             "diag: at rho 0.9 toward both wires the diagonal is the first alternative");
+    }
+
+    {
+        // dart_candidates (#1721's ranking) on the corner, built by hand so no mutation of
+        // score_processing.hpp reaches it: a corner cell another camera READ comes straight
+        // after the alternative, then the corner's rest, then the other readings.
+        dart_candidates::Evidence e;
+        e.published = "T3";
+        e.ring = "triple";
+        e.segment = 3;
+        e.wedge_read = true;
+        e.radius_known = true;
+        e.radius = 0.6346f;
+        e.angle_known = true;
+        e.angle = 188.03f;
+        e.alternative = "S3";
+        e.corner = {"T19", "S19"};
+        e.others = {{"S19", false}, {"T3", false}};
+        const std::vector<std::string> withRead = dart_candidates::rank(e);
+        say(withRead.size() >= 3 && withRead[0] == "S3" && withRead[1] == "S19" && withRead[2] == "T19",
+            "pure: candidates on the live corner with a camera reading S19: S3, S19, T19 (Turnaus's live order kept)");
+        e.others = {{"S17", false}};
+        const std::vector<std::string> unread = dart_candidates::rank(e);
+        say(unread.size() >= 4 && unread[0] == "S3" && unread[1] == "T19" && unread[2] == "S19" && unread[3] == "S17",
+            "pure: with no camera reading a corner cell: S3, T19, S19, then the other reading");
     }
 
     std::cout << "SENSITIVE reach=" << counts[0] << " clear=" << counts[1] << " diag=" << counts[2]
