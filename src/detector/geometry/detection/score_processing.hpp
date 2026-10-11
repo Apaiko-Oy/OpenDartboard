@@ -301,6 +301,112 @@ namespace score_processing
         return line;
     }
 
+    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED BEHIND A SWITCH ------------------
+    //
+    // The first two real sessions (casual boards 17 and 20, 2026-10-10/11, 820 darts, read
+    // back through turnaus#1786/#1789) flagged 396 darts and 340 of them stood as published:
+    // a false-alarm rate of 0.865 and 0.849. Recomputed from the truth lines' own fields
+    // (the geometric flag is `margin_mm <= sigma_mm`, #1556's z <= Params::crossingSigmas;
+    // that reproduces the boards' verdict on 819 of 820 darts, the one a 5.00/5.00 rounding
+    // tie), every flagged geometric dart a marker corrected -- 13 through the flag, one
+    // typed -- sat at z <= 0.52, and 117 of the 288 false geometric flags sat above 0.6.
+    // The fixtures' bakeoff (rig-20260918/22/29, six default runs, 71 flagged geometric
+    // darts) has its nearest true flag at z = 0.57 (rig-20260929 dev v9.3, S19 published
+    // for a thrown T19, T19 offered).
+    //
+    // So the tightening keeps a geometric flag only where the solve is within K of its own
+    // across-wire sigmas of the wire, K < 1, and publishes the rest as the clear call they
+    // are at that threshold -- unflagged, at 0.9, with a sentence saying which threshold
+    // cleared it and what the default would have offered. THE PUBLISHED SCORE NEVER MOVES:
+    // only `flagged`, `alternative`, the corner's `others` and the demoted confidence do.
+    // The vote path's flags (#1773's ring wire, #1707's rim) are not touched: their false
+    // flags spread over every margin with the true ones among them (1.3 to 4.8 mm), and
+    // nothing in the sessions separates them.
+    //
+    // OD_FLAG_SIGMAS=<K>, 0 < K < 1, turns it on; unset, empty, unparseable or outside that
+    // range is #1556's 1.0, byte for byte. docs/rig.md records the measurement and the value
+    // it proposes (0.7: the fixtures' 0.57 with 0.13 sigma to spare). A figure read off
+    // fourteen session darts and five fixture ones is why it is not the default.
+
+    /** turnaus#1815: the switch's value from its text, pure; 1.0 (#1556's) unless a K in (0, 1). */
+    inline double flagSigmasFrom(const char *text)
+    {
+        if (text == nullptr || *text == '\0')
+        {
+            return 1.0;
+        }
+        char *end = nullptr;
+        const double k = std::strtod(text, &end);
+        if (end == text || *end != '\0' || !(k > 0.0) || !(k < 1.0))
+        {
+            return 1.0;
+        }
+        return k;
+    }
+
+    /** turnaus#1815: OD_FLAG_SIGMAS, read once. */
+    inline double flagCrossingSigmas()
+    {
+        static const double v = flagSigmasFrom(std::getenv("OD_FLAG_SIGMAS"));
+        return v;
+    }
+
+    /**
+     * turnaus#1815: #1556's call, re-asked at the tightened threshold. `crossingSigmas` is
+     * the solve's own z (EntrySolution::crossingSigmas: boundaryAcrossMm / sigmaAcrossMm,
+     * -1 undefined) and `k` the switch's value. Returns `call` untouched unless it is
+     * flagged, k < 1 and z > k; then the same call unflagged, with the sentence a clear
+     * call prints and what the default would have offered. `*tightened` says which.
+     */
+    inline BoundaryCall tightenBoundaryCall(const BoundaryCall &call, double crossingSigmas, double k,
+                                            const std::string &sigmaProvenance = std::string(),
+                                            bool *tightened = nullptr)
+    {
+        if (tightened != nullptr)
+        {
+            *tightened = false;
+        }
+        if (!call.flagged || !(k < 1.0) || crossingSigmas < 0.0 || crossingSigmas <= k)
+        {
+            return call;
+        }
+        BoundaryCall out = call;
+        out.flagged = false;
+        out.alternative.clear();
+        out.others.clear();
+        char margin[240];
+        snprintf(margin, sizeof(margin),
+                 " wire -- %.1f mm away across a %.1f mm one-sigma (%.2f sigma), outside the flag's "
+                 "%.2f (OD_FLAG_SIGMAS, #1815); #1556's 1.0 would have flagged it with %s",
+                 call.boundaryMm, call.uncertaintyMm, crossingSigmas, k, call.alternative.c_str());
+        out.account = "UNCERTAINTY: " + call.published + " clears its nearest " +
+                      (call.kind.empty() ? std::string("scoring") : call.kind) + margin +
+                      (sigmaProvenance.empty() ? std::string() : " (" + sigmaProvenance + ")");
+        if (tightened != nullptr)
+        {
+            *tightened = true;
+        }
+        return out;
+    }
+
+    /**
+     * turnaus#1815's census line, one per called dart under the census pin: the solve's z,
+     * the threshold in force, what #1556's 1.0 decided and what published. Read by
+     * testers/i1815_census.py beside the truth tables.
+     */
+    inline std::string flagThresholdCensusLine(long window, const BoundaryCall &byDefault,
+                                               const BoundaryCall &published, double crossingSigmas, double k)
+    {
+        char line[320];
+        snprintf(line, sizeof(line),
+                 "I1815FLAG window=%ld z=%.3f k=%.2f default=%d flagged=%d score=%s alt=%s kind=%s",
+                 window, crossingSigmas, k, byDefault.flagged ? 1 : 0, published.flagged ? 1 : 0,
+                 byDefault.published.empty() ? "-" : byDefault.published.c_str(),
+                 byDefault.alternative.empty() ? "-" : byDefault.alternative.c_str(),
+                 byDefault.kind.empty() ? "-" : byDefault.kind.c_str());
+        return line;
+    }
+
     /**
      * #1346: what the vote chose, and what the choice is worth.
      *

@@ -878,6 +878,127 @@ wall at load 8-22). Every ACCURACY figure, every `I1721CANDIDATES` line and ever
 `I1782CORNER` decision field (flagged, corner, nearest, offered, cameras) is identical
 between the two; only the measurement fields a non-corner now carries differ.
 
+## The flag's threshold (turnaus#1815), opt-in
+
+**What the sessions said.** The first two real sessions read back through turnaus#1786/#1789
+-- casual board 17 on 2026-10-10 (526 darts) and board 20 on 2026-10-11 (294) -- flagged 237
+and 159 darts, and 205 and 135 of those stood as published: a false-alarm rate of **0.865
+and 0.849**. A flag that is usually wrong teaches the marker to ignore it. Both sessions ran
+builds from before #1782, so their geometric flags are the single-alternative ones.
+
+**Which rule raised each flag** (`testers/i1815_census.py --truth-line`). The decision is
+recomputed from the truth line's own fields, never from the log: a geometric publish is
+flagged where `margin_mm <= sigma_mm` (#1556's z <= `Params::crossingSigmas`, 1.0), a vote
+publish where its ring-wire margin is under 5 mm (#1773; `ring_wire_mm` where the build
+wrote it, otherwise recomputed from `radius` x 170 mm against the spec's wires as
+`ringWireMarginMm` does). That reproduces the boards' own `flagged` on **819 of 820** darts;
+the one is a 5.00 / 5.00 rounding tie. TRUE is `picked` alternative / candidate / typed (the
+score was wrong); FALSE is `-` / `published`; `turn` (a Casual total naming no dart) and
+`removed` are AMBIGUOUS and claimed by neither side.
+
+| rule | board 17 false / true / ambiguous | board 20 | both |
+|---|---|---|---|
+| geometric, ring wire, two-line solve | 44 / 0 / 1 | 38 / 4 / 6 | 82 / 4 / 7 |
+| geometric, ring wire, three-line | 24 / 1 / 6 | 17 / 0 / 0 | 41 / 1 / 6 |
+| geometric, wedge wire, two-line | 49 / 6 / 5 | 28 / 2 / 2 | 77 / 8 / 7 |
+| geometric, wedge wire, three-line | 55 / 0 / 3 | 33 / 1 / 4 | 88 / 1 / 7 |
+| vote, ring wire (#1773), lone | 24 / 4 / 4 | 16 / 4 / 1 | 40 / 8 / 5 |
+| vote, ring wire (#1773), consensus | 9 / 0 / 2 | 3 / 0 / 0 | 12 / 0 / 2 |
+
+No #1707 rim flag fired (it is opt-in). Every flagged dart in both sessions is one of these
+six. The vote rows are not a threshold question: their true flags sit at 1.3-4.8 mm from the
+ring wire with false ones on both sides, and 22 of the 52 false ones are a double offered
+`None` at the outer wire, of which one (board 20, D20 -> None at 1.6 mm) was true.
+
+**The geometric flag is.** Every geometric flag a marker acted on -- 13 corrected through the
+flag, one typed -- sat at **z <= 0.52**, z being the solve's margin in its own across-wire
+sigmas; false flags are spread over the whole band (19 to 38 per tenth of a sigma, both
+sessions pooled). The fixtures agree: of the bakeoff's 71 flagged geometric darts (six
+default runs, #1782's binary) the five wrong ones sit at z 0.01-0.31 and **0.57**
+(rig-20260929 dev v9.3, S19 published for a thrown T19, T19 offered). So the true flags
+crowd the wire and the false ones do not, which is what an honest sigma predicts, and the
+part of #1556's band beyond about 0.6 sigma has caught nothing anywhere.
+
+**The rule** (`score_processing::tightenBoundaryCall`, pure, after `decideBoundaryCall` and
+before #1782's corner): under **`OD_FLAG_SIGMAS=<K>`, 0 < K < 1**, a geometric flag whose
+solve is further than K of its own sigmas from the wire publishes as a clear call: no
+alternative, no corner cells, confidence 0.9, and the sentence
+`UNCERTAINTY: S5 clears its nearest wedge wire -- 4.7 mm away across a 5.0 mm one-sigma
+(0.94 sigma), outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815); #1556's 1.0 would have
+flagged it with S20`. **The published score never moves**; the vote path's flags are not
+touched. Unset, empty, a word, 0, a negative or anything >= 1 is #1556's 1.0, byte for byte
+(a K above 1 would loosen the flag and is refused). Census line `I1815FLAG window= z= k=
+default= flagged= score= alt= kind=` under `OD_GEO_SCORE=on`; `testers/i1555_run.sh`
+forwards the switch.
+
+**The value it proposes is 0.7, and it stays opt-in.** 0.7 is the fixtures' 0.57 with 0.13
+sigma to spare (0.6 would leave 0.03); it is read off fourteen session darts and five fixture
+ones, which is #1556's own reason for refusing k = 0.5 on two, so a live session decides the
+default and not this table.
+
+`turn` darts (a Casual total corrected after the takeout, naming no dart; turnaus#1819) and
+`removed` ones are set aside from both tallies: 19 + 2 of board 17's flags and 12 + 1 of
+board 20's. The false-alarm rate below is false / (false + true) with them out; the issue's
+own figure, which counts them as false, is beside it.
+
+| | flags | false cut | true lost | set-aside cut | set aside, kept | false-alarm rate | issue's figure |
+|---|---|---|---|---|---|---|---|
+| board 17, K = 1.0 (today) | 237 | - | - | - | 21 | 0.949 | 0.865 |
+| board 17, K = 0.7 | 177 | 58 | **0** | 2 | 19 | 0.930 | 0.831 |
+| board 17, K = 0.6 | 162 | 72 | 0 | 3 | 18 | 0.924 | 0.821 |
+| board 20, K = 1.0 (today) | 159 | - | - | - | 13 | 0.925 | 0.849 |
+| board 20, K = 0.7 | 123 | 34 | **0** | 2 | 11 | 0.902 | 0.821 |
+| board 20, K = 0.6 | 110 | 45 | 0 | 4 | 9 | 0.891 | 0.818 |
+| board 20, K = 0.5 | 98 | 55 | **1** | 5 | 8 | 0.889 | 0.816 |
+
+**What it does and does not buy.** A quarter of the prompts go (60 of 237, 36 of 159) and not
+one corrected dart loses its flag. The false-alarm RATE barely moves, 0.949 -> 0.930 and
+0.925 -> 0.902 with the `turn` darts set aside, because even at z < 0.1 the sessions' geometric flags are 27 false to 3
+true: most darts that close to a wire were right as published. No threshold makes this flag
+mostly right; it can only make it rarer. The four ambiguous darts it clears -- three `turn`
+corrections (board 17 19:31:43Z S19/T19 at z 0.81 and 19:36:39Z S20/S1 at 0.73, board 20
+21:43:47Z S20/S1 at 0.78) and one `removed` (board 20 21:57:25Z S13/S6 at 0.79), all
+three-line solves -- cannot be called either way from the line.
+
+**The fixtures, replayed with the switch** (`OD_FLAG_SIGMAS=0.7 OD_WINDOW_UNIT=cycles
+testers/i1555_run.sh`, capture clock, 1894 s at load ~20, 2026-10-11; `i1815_census.py --log`
+joined to #1782's run of the same windows). Every ACCURACY figure is the documented
+baseline's -- rig-20260918 19/20 and 19/20, rig-20260922 21/23 and 23/23, the vote pin
+17/20, rig-20260929 26..30/36 and 27..31/36, pooled 135..143/158, r18+r22 82/86 -- and the
+published score of every window of all seven runs is byte-identical to #1782's run. Of the
+**71** geometric darts #1556's 1.0 flags, **52 stay flagged and 19 publish clear at 0.90**,
+exactly the 19 the recomputation from #1782's logs named: 16 right as published (r18 dev
+v3.2 S7, v3.3 T20; r18 opening v2.3 S5, v3.3 T20; r22 dev v4.2 T15, v6.2 S18; r22 opening
+v6.2 S18, v8.3 BULL; r29 dev v4.3 S2, v7.2 S20; r29 opening v1.1 S5, v2.1 T9, v3.3 S2, v4.3
+S2, v7.2 S20, v8.1 T20) and three UNCLAIMED second detections of one throw (r29 dev window 18
+S15 at z 0.71, window 41 S3 at 0.95 in both windows), which no alternative could have
+helped. Every wrongly-scored flagged dart keeps its flag: r18 v5.1 T15 for S15 (0.30, 0.31),
+r29 v3.1 S6 for S13 (0.06, 0.005), r29 dev v9.3 S19 for T19 (**0.569**, the nearest of all).
+
+**The pure check** (`testers/i1815_check.sh`, registered as `1815-flagsigmas`, 59 s at load
+~20). `i1815_flag_check.cpp` holds the rule on the real darts: the 14 session darts a marker
+corrected through a geometric flag and the bakeoff's five wrong flagged ones, all still
+flagged at K = 0.7; nine flags that stood (six session, three fixture), all cleared with
+nothing offered; a corner beyond K offering neither its alternative nor its rest; the
+sentence; the switch's parse; and, at every K and on every dart, the same published score,
+with K = 1.0 returning #1556's call byte for byte. **Mutation proof, predictions printed
+before each run and met exactly:** (A) the keep comparison read as `z <= k - 0.2` fails the
+2 `edge:` assertions only -- board 20's S20/T20 at 0.524 and rig-20260929 dev v9.3 at 0.569,
+the two real true flags between 0.5 and 0.7; (B) a flag beyond K left flagged fails the 11
+`cut:` assertions only; (C) the parse's upper bound removed fails the one `parse:` assertion
+that reads 1.5 and no other, since `tightenBoundaryCall` still leaves K >= 1 alone.
+
+**Board 17's vote fields.** Board 17's build posted no `lone_wire_mm` or `ring_wire_mm`, so
+its vote flags are recomputed from `radius` and the published ring on the 170 mm model; that
+reproduces all 526 of its `flagged` fields. #1816 (the unflagged errors) is closed by
+turnaus#1819's census: one real unflagged geometric error in both sessions.
+
+**What only a live session can prove.** That a marker shown a quarter fewer prompts acts on
+the ones left; that no dart between z 0.7 and 1.0 is wrong on another rig or another
+thrower (both sessions are one rig, casual play, with 56 `turn` darts whose outcome is unknown);
+and that the default can move. The corner (#1782) interaction is measured only on the
+fixtures: both sessions predate it.
+
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
 **Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:24) the
