@@ -645,6 +645,8 @@ static dart_processing::RereadMemory reread_memory;
 static bool rereadIsHeld(const dart_processing::DartStateResult &dart_result,
                          const score_processing::ScoreResult &score_result)
 {
+    // Asked first, so the switch's startup line is said on a run where nothing is held.
+    const bool hold_on = rereadHoldOn();
     const long long now_ms = od_clock::now_ms();
     if (score_result.score == "END")
     {
@@ -656,7 +658,7 @@ static bool rereadIsHeld(const dart_processing::DartStateResult &dart_result,
     const bool armed = reread_memory.armed;
     const bool reread =
         dart_processing::isARereadAfterTakeout(reread_memory, dart_result.previous_state, camera, at, now_ms);
-    const bool hold = reread && rereadHoldOn();
+    const bool hold = reread && hold_on;
     if (rereadCensusOn() && armed)
     {
         char buf[240];
