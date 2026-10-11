@@ -423,8 +423,8 @@ for f in "${PROGS[@]}"; do
   fi
 done
 if [ "$WRC" = 0 ]; then
-  echo "every container is pinned to cycle windows: $PINNED harnesses start one through"
-  echo "tester_paths.sh's docker function, which passed the pin when run"
+  echo "every container is pinned to cycle windows: tester_paths.sh's docker function passed the"
+  echo "pin when run, and the $PINNED files that call \`docker run\` themselves all go through it"
 fi
 [ "$WRC" = 0 ] || RC=1
 # The harness must exit on what it measured: run_all.sh reads the exit code and
