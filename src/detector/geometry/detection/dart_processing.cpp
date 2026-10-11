@@ -2204,6 +2204,7 @@ namespace dart_processing
                 if (!result.camera_results[i].rim_only)
                 {
                     moves_up_in_scoring++; // #1707
+                    result.camera_results[i].cleared_scoring_floor = true; // turnaus#1821
                 }
             }
             else
@@ -2271,6 +2272,7 @@ namespace dart_processing
                     r.axis = std::move(promoted);
                     r.tip_position = r.sub_floor_tip;
                     r.tip_found = true;
+                    r.cleared_scoring_floor = true; // turnaus#1821: counted in moves_up_in_scoring above
                 }
             }
         }
