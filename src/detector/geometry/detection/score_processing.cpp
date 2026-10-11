@@ -1180,13 +1180,49 @@ namespace score_processing
             // measured the numbers it is given, and a vote publish hands it
             // `geometryPublished == false`, which is how a degraded dart stays silent
             // about a millimetre uncertainty nothing measured.
-            const BoundaryCall crossing = decideBoundaryCall(
+            const string provenance = entry_intersection::sigmaProvenance(solution);
+            const BoundaryCall nearest_crossing = decideBoundaryCall(
                 decision.path == ScorePath::Geometry, solution.uncertaintyCrossesWire,
                 solution.score.valid ? solution.score.score : string(),
                 solution.alternativeScore, solution.boundaryKind,
                 solution.boundaryAcrossMm, solution.sigmaAcrossMm,
                 // #1766: on an uncontrolled solve the sentence says whose sigma it is.
-                entry_intersection::sigmaProvenance(solution));
+                provenance);
+            // #1782: and where the solve sits within its sigma of a ring wire AND a wedge
+            // wire, the flag offers the corner -- the three other cells by the solve's own
+            // covariance, an unused camera's clear reading of one of them first. The
+            // published score is nearest_crossing's, untouched; only what is offered moves.
+            CornerCells corner_cells;
+            corner_cells.corner = solution.corner;
+            corner_cells.ringAlt = solution.cornerRingAlt;
+            corner_cells.wedgeAlt = solution.cornerWedgeAlt;
+            corner_cells.diagonal = solution.cornerDiagonal;
+            corner_cells.ringMm = solution.cornerRingMm;
+            corner_cells.wedgeMm = solution.cornerWedgeMm;
+            corner_cells.sigmaRingMm = solution.sigmaRadialMm;
+            corner_cells.sigmaWedgeMm = solution.sigmaTangentMm;
+            corner_cells.rho = solution.cornerRho;
+            vector<CameraReading> camera_readings;
+            for (size_t i = 0; i < point_scores.size() && i < may_vote.size(); i++)
+            {
+                if (!may_vote[i])
+                {
+                    continue;
+                }
+                CameraReading reading;
+                reading.camera = (int)i;
+                reading.score = point_scores[i].score;
+                reading.wedgeMarginMm = wedgeWireMarginMm(point_scores[i]);
+                reading.ringMarginMm = ringWireMarginMm(point_scores[i]).marginMm;
+                for (const entry_intersection::Constraint &con : solution.constraints)
+                {
+                    reading.used = reading.used || (con.camera == (int)i && con.usable && !con.excluded);
+                }
+                camera_readings.push_back(reading);
+            }
+            const BoundaryCall crossing =
+                decideCornerCall(nearest_crossing, corner_cells, camera_readings, provenance,
+                                 entry_intersection::Params().crossingSigmas);
             result.boundary_flagged = crossing.flagged;
             result.alternative_score = crossing.alternative;
             result.boundary_kind = crossing.kind;
@@ -1466,6 +1502,11 @@ namespace score_processing
                 evidence.angle_known = result.board.has_angle;
                 evidence.angle = result.board.angle;
                 evidence.alternative = result.boundary_flagged ? result.alternative_score : string();
+                // #1782: a corner's remaining cells, straight after the alternative.
+                if (result.boundary_flagged && result.from_geometry)
+                {
+                    evidence.corner = crossing.others;
+                }
                 for (size_t i = 0; i < point_scores.size() && i < may_vote.size(); i++)
                 {
                     if (may_vote[i])
@@ -1515,6 +1556,9 @@ namespace score_processing
                 // landed in the flagged set.
                 log_info(flagCensusLine(window, crossing, result.confidence,
                                         result.from_geometry, result.score));
+                // #1782: the corner, beside the flag it widened.
+                log_info(cornerCensusLine(window, nearest_crossing, crossing, corner_cells, camera_readings,
+                                          entry_intersection::Params().crossingSigmas));
                 // #1721: what the fix row would be offered, beside what published.
                 string ranked;
                 for (const string &c : result.candidates)

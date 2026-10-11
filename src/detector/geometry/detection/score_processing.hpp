@@ -182,6 +182,10 @@ namespace score_processing
         float boundaryMm = -1.0f;
         float uncertaintyMm = -1.0f;
         std::string account; // the one sentence the SCORE log prints about the crossing
+        // #1782: on a corner, the corner's remaining cells after `alternative`, best
+        // first. Empty on every other call. dart_candidates ranks them straight after the
+        // alternative, so the door's three carry the corner before anything else.
+        std::vector<std::string> others;
     };
 
     /**
@@ -1261,6 +1265,323 @@ namespace score_processing
                  call.checked ? 1 : 0, call.near_wire ? 1 : 0, call.flagged ? 1 : 0,
                  call.alternative.empty() ? "-" : call.alternative.c_str(), call.confidence);
         return line;
+    }
+
+    // ---- #1782: A CORNER OFFERS THE CORNER ------------------------------------------------
+    //
+    // Live on 2026-10-10 16:38:53 (build 2b56b48) a thrown S19 published T3 from a two-line
+    // solve at 188.03 deg and radius 0.6346, 5.3 mm sigma: 0.6 mm inside the treble's outer
+    // wire and 1.8 mm on the 3 side of the 3/19 wire. #1556 measures the crossing to the
+    // NEAREST wire in sigmas and names the one cell across it, so the flag said "T3 or S3"
+    // -- and the four cells of that corner are T3, S3, T19 and S19, all within one sigma.
+    //
+    // THE RULE. Where the solve is within the flag's threshold (Params::crossingSigmas, 1.0)
+    // of a ring wire AND a wedge wire, and the cell across each can be named:
+    //   1. the three other cells are ranked by their probability under the solve's own
+    //      covariance -- a bivariate normal over the offsets toward the two wires, with the
+    //      two floored across-wire sigmas and the unfloored correlation between them. The
+    //      ellipse is anisotropic and generally tilted to the radial frame, so the cell
+    //      across the nearer wire in mm is not necessarily the likelier one;
+    //   2. where a camera the solve did NOT use read one of those cells with its own
+    //      reading clear of every wire -- its wedge margin and its ring margin both at
+    //      least #1628's 5 mm (kLoneReadingSigmaMm) -- that cell goes first (#1675's shape:
+    //      a camera with a clear view of a cell is a measurement, not a coin). Where two
+    //      such cameras disagree, the one with the larger smaller margin wins;
+    //   3. the first is the flag's `alternative` (Turnaus's `alternative` field); the rest
+    //      are `others`, and dart_candidates puts them next.
+    // THE PUBLISHED SCORE NEVER MOVES: it stays the cell the solve is in, whatever the
+    // ranking says about the other three. Nothing that is not flagged becomes flagged:
+    // a corner is inside the nearest wire's sigma by construction, so the flagged set is
+    // #1556's. OD_CORNER_FLAG=nearest restores #1556's one alternative on the same binary.
+    inline bool cornerFlagIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_CORNER_FLAG");
+            return !(e != nullptr && std::string(e) == "nearest");
+        }();
+        return v;
+    }
+
+    /** #1782: the standard normal CDF. */
+    inline double normalCdf(double x)
+    {
+        return 0.5 * std::erfc(-x / std::sqrt(2.0));
+    }
+
+    /**
+     * #1782: P(X < a, Y < b) for a standard bivariate normal with correlation rho, by
+     * Simpson's rule over x of phi(x) Phi((b - rho x) / sqrt(1 - rho^2)). Accurate to
+     * ~1e-6 at 400 panels, which is far finer than any ranking here needs.
+     */
+    inline double bivariateNormalCdf(double a, double b, double rho)
+    {
+        rho = std::max(-0.999, std::min(0.999, rho));
+        if (std::fabs(rho) < 1e-9)
+        {
+            return normalCdf(a) * normalCdf(b);
+        }
+        const double lo = -9.0;
+        if (a <= lo)
+        {
+            return 0.0;
+        }
+        const double s = std::sqrt(1.0 - rho * rho);
+        const int n = 400; // even
+        const double h = (a - lo) / n;
+        auto f = [&](double x)
+        { return std::exp(-0.5 * x * x) / std::sqrt(2.0 * CV_PI) * normalCdf((b - rho * x) / s); };
+        double sum = f(lo) + f(a);
+        for (int i = 1; i < n; i++)
+        {
+            sum += f(lo + i * h) * (i % 2 == 1 ? 4.0 : 2.0);
+        }
+        return sum * h / 3.0;
+    }
+
+    /** #1782: a corner, as the solver measured it, in primitives. */
+    struct CornerCells
+    {
+        bool corner = false; // all three other cells' names could be read
+        std::string ringAlt, wedgeAlt, diagonal;
+        double ringMm = -1.0, wedgeMm = -1.0;           // to each wire
+        double sigmaRingMm = -1.0, sigmaWedgeMm = -1.0; // floored, across each wire
+        double rho = 0.0; // correlation of the offsets toward the two wires
+    };
+
+    /** #1782: another camera's own reading, for rule 2. */
+    struct CameraReading
+    {
+        int camera = -1;          // 0-based, as LONE-WIRE numbers cameras
+        bool used = false;        // its line was in the solve
+        std::string score;
+        float wedgeMarginMm = -1.0f; // #1628's
+        float ringMarginMm = -1.0f;  // #1773's
+    };
+
+    inline bool readingIsClear(const CameraReading &r, float sigmaMm)
+    {
+        return r.wedgeMarginMm >= sigmaMm && r.ringMarginMm >= sigmaMm;
+    }
+
+    /** #1782: one ranked cell. */
+    struct CornerCell
+    {
+        std::string score;
+        double probability = 0.0;
+    };
+
+    /**
+     * #1782: the three other cells of a corner and their probabilities, merged where two
+     * name the same score (a single beside the 25 ring: the diagonal is OUTER again),
+     * most probable first. The published cell's own probability is returned in
+     * `publishedProbability`. Empty where `cells.corner` is false.
+     */
+    /**
+     * #1782: whether the solve is within `k` of its own across-wire sigma of BOTH wires --
+     * #1556's threshold, Params::crossingSigmas, passed by the caller so this header
+     * stays clear of entry_intersection.hpp.
+     */
+    inline bool insideBothSigmas(const CornerCells &cells, double k)
+    {
+        return cells.corner && cells.sigmaRingMm > 0.0 && cells.sigmaWedgeMm > 0.0 &&
+               cells.ringMm >= 0.0 && cells.wedgeMm >= 0.0 &&
+               cells.ringMm / cells.sigmaRingMm <= k && cells.wedgeMm / cells.sigmaWedgeMm <= k;
+    }
+
+    inline std::vector<CornerCell> rankCornerCells(const CornerCells &cells,
+                                                   const std::string &published,
+                                                   double *publishedProbability = nullptr)
+    {
+        std::vector<CornerCell> out;
+        if (!cells.corner || !(cells.sigmaRingMm > 0.0) || !(cells.sigmaWedgeMm > 0.0))
+        {
+            return out;
+        }
+        const double a = cells.ringMm / cells.sigmaRingMm;
+        const double b = cells.wedgeMm / cells.sigmaWedgeMm;
+        const double both = bivariateNormalCdf(a, b, cells.rho); // stays in the cell
+        const double pa = normalCdf(a), pb = normalCdf(b);
+        if (publishedProbability != nullptr)
+        {
+            *publishedProbability = both;
+        }
+        const CornerCell raw[3] = {{cells.ringAlt, pb - both},
+                                   {cells.wedgeAlt, pa - both},
+                                   {cells.diagonal, 1.0 - pa - pb + both}};
+        for (const CornerCell &c : raw)
+        {
+            if (c.score.empty() || c.score == published)
+            {
+                continue;
+            }
+            auto it = std::find_if(out.begin(), out.end(),
+                                   [&](const CornerCell &o) { return o.score == c.score; });
+            if (it == out.end())
+            {
+                out.push_back(c);
+            }
+            else
+            {
+                it->probability += c.probability;
+            }
+        }
+        std::stable_sort(out.begin(), out.end(), [](const CornerCell &x, const CornerCell &y)
+                         { return x.probability > y.probability; });
+        return out;
+    }
+
+    /**
+     * #1782: the rule above, applied to #1556's call. `nearest` is decideBoundaryCall's
+     * answer; this returns it unchanged unless it is flagged, the solve is a corner and
+     * the switch is on. `readings` is every voting camera's own reading.
+     */
+    inline BoundaryCall decideCornerCall(const BoundaryCall &nearest, const CornerCells &cells,
+                                         const std::vector<CameraReading> &readings,
+                                         // #1766's sentence tail, as decideBoundaryCall had it
+                                         const std::string &sigmaProvenance = std::string(),
+                                         double crossingSigmas = 1.0,
+                                         bool on = cornerFlagIsOn(),
+                                         float sigmaMm = kLoneReadingSigmaMm)
+    {
+        if (!nearest.flagged || !insideBothSigmas(cells, crossingSigmas))
+        {
+            return nearest;
+        }
+        double pPublished = 0.0;
+        std::vector<CornerCell> ranked = rankCornerCells(cells, nearest.published, &pPublished);
+        if (ranked.empty())
+        {
+            return nearest;
+        }
+        // Rule 2: an unused camera's clear reading of a corner cell goes first.
+        int clearCamera = -1;
+        float clearMargin = -1.0f;
+        size_t clearAt = 0;
+        for (const CameraReading &r : readings)
+        {
+            if (r.used || !readingIsClear(r, sigmaMm))
+            {
+                continue;
+            }
+            for (size_t i = 0; i < ranked.size(); i++)
+            {
+                const float m = std::min(r.wedgeMarginMm, r.ringMarginMm);
+                if (ranked[i].score == r.score && m > clearMargin)
+                {
+                    clearCamera = r.camera;
+                    clearMargin = m;
+                    clearAt = i;
+                }
+            }
+        }
+        std::vector<CornerCell> order = ranked;
+        if (clearCamera >= 0 && clearAt > 0)
+        {
+            const CornerCell first = order[clearAt];
+            order.erase(order.begin() + (long)clearAt);
+            order.insert(order.begin(), first);
+        }
+
+        auto pct = [](double p)
+        {
+            char b[16];
+            snprintf(b, sizeof(b), "%.0f%%", 100.0 * p);
+            return std::string(b);
+        };
+        std::string names, probs;
+        for (const CornerCell &c : order)
+        {
+            names += (names.empty() ? "" : ", ") + c.score;
+        }
+        for (const CornerCell &c : ranked)
+        {
+            probs += (probs.empty() ? "" : ", ") + c.score + " " + pct(c.probability);
+        }
+        char wires[160];
+        snprintf(wires, sizeof(wires),
+                 "a ring wire %.1f mm across a %.1f mm one-sigma and a wedge wire %.1f mm across a "
+                 "%.1f mm one-sigma",
+                 cells.ringMm, cells.sigmaRingMm, cells.wedgeMm, cells.sigmaWedgeMm);
+        std::string why;
+        if (clearCamera >= 0)
+        {
+            char c[200];
+            snprintf(c, sizeof(c),
+                     "; camera %d, which the solve did not use, read %s %.1f mm clear of every wire, so it "
+                     "is offered first",
+                     clearCamera, order.front().score.c_str(), clearMargin);
+            why = c;
+        }
+
+        if (!on)
+        {
+            BoundaryCall out = nearest;
+            out.account += " [a corner: " + std::string(wires) + "; OD_CORNER_FLAG=nearest offers only " +
+                           nearest.alternative + ", where the corner would offer " + names + "]";
+            return out;
+        }
+        BoundaryCall out = nearest;
+        out.alternative = order.front().score;
+        out.others.clear();
+        for (size_t i = 1; i < order.size(); i++)
+        {
+            out.others.push_back(order[i].score);
+        }
+        // The sentence keeps #1556's opening ("UNCERTAINTY: <published> or <alternative>")
+        // so every reader of that shape still finds the pair; the rest is the corner's.
+        const std::string provenance =
+            sigmaProvenance.empty() ? std::string() : " (" + sigmaProvenance + ")";
+        out.account = "UNCERTAINTY: " + nearest.published + " or " + names + " -- a corner, " + wires +
+                      ", so " + nearest.published + " publishes now as the most probable cell (" +
+                      pct(pPublished) + ") and is flagged; by the solve's covariance " + probs + why +
+                      "; a tap affirms it or appends another" + provenance;
+        return out;
+    }
+
+    /**
+     * #1782's census line, one per called dart under the census pin: whether the solve
+     * was a corner, its cells and probabilities, #1556's nearest alternative and what the
+     * corner offers, and every voting camera's own reading with whether the solve used it
+     * and whether it was clear. Parsed by testers/i1782_census.py.
+     */
+    inline std::string cornerCensusLine(long window, const BoundaryCall &nearest, const BoundaryCall &corner,
+                                        const CornerCells &cells, const std::vector<CameraReading> &readings,
+                                        double crossingSigmas = 1.0, float sigmaMm = kLoneReadingSigmaMm)
+    {
+        double pPublished = 0.0;
+        const std::vector<CornerCell> ranked = rankCornerCells(cells, nearest.published, &pPublished);
+        std::string cellText;
+        for (const CornerCell &c : ranked)
+        {
+            char b[48];
+            snprintf(b, sizeof(b), "%s%s:%.3f", cellText.empty() ? "" : ",", c.score.c_str(), c.probability);
+            cellText += b;
+        }
+        std::string offered = corner.alternative;
+        for (const std::string &o : corner.others)
+        {
+            offered += "," + o;
+        }
+        std::string cams;
+        for (const CameraReading &r : readings)
+        {
+            char b[96];
+            snprintf(b, sizeof(b), " cam%d=%s/%d/%.2f/%.2f/%d", r.camera + 1, r.score.c_str(), r.used ? 1 : 0,
+                     r.wedgeMarginMm, r.ringMarginMm, readingIsClear(r, sigmaMm) ? 1 : 0);
+            cams += b;
+        }
+        char line[512];
+        snprintf(line, sizeof(line),
+                 "I1782CORNER window=%ld flagged=%d corner=%d score=%s nearest_alt=%s offered=%s "
+                 "ring_mm=%.2f wedge_mm=%.2f sigma_ring=%.2f sigma_wedge=%.2f rho=%.3f p_published=%.3f "
+                 "cells=%s",
+                 window, nearest.flagged ? 1 : 0, insideBothSigmas(cells, crossingSigmas) ? 1 : 0,
+                 nearest.published.empty() ? "-" : nearest.published.c_str(),
+                 nearest.alternative.empty() ? "-" : nearest.alternative.c_str(),
+                 offered.empty() ? "-" : offered.c_str(), cells.ringMm, cells.wedgeMm, cells.sigmaRingMm,
+                 cells.sigmaWedgeMm, cells.rho, pPublished, cellText.empty() ? "-" : cellText.c_str());
+        return std::string(line) + cams;
     }
 
     /** #1628: what the wire check did to the vote's choice. */
