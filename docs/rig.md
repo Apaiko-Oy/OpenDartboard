@@ -1262,7 +1262,27 @@ reversion END is. The nearest real first dart inside the horizon of a reversion 
 earliest window where a late pull and the next throw were one window (7,276 ms): holding
 those would lose the throw where publishing it costs a correction. Six points, one thrower.
 
-BAKEOFF_1820
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_REREAD_CENSUS=1`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_REREAD_HOLD=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+**No changed row**: every `I1555 PAIR`, phantom and accuracy row of all seven censuses is
+identical, and every replay's `SCORE` lines (score, position, confidence, camera) are
+identical in order with timestamps taken out: the same 6/6/6/7/8/12/12 ENDs and
+20/20/20/21/22/34/34 darts (r18 dev, open, pin; r22 dev, open; r29 dev, open).
+No dart is held (no `I1820 REREAD HELD`). The census armed once in seven replays: rig-20260922
+opening, an S12 4,433 ms after a reversion END with no dart of the closed visit published
+through its camera (`nearestPx=-1`, `reread=0`). The fixtures' takeouts pull every dart
+before the END reconciles, so none holds this fault; the live log is the only evidence.
+(The on run printed no startup line for the switch; it was forwarded (`I1555 FORWARD
+OD_REREAD_HOLD=on`), and the line is now said at the first scored window.)
 
 `testers/run_all.sh 1820-reread` (152 s at load ~16-22) replays board 20's visits through the
 memory and mutates each figure and clause: radius 5 and 60 px, horizon 4,000 and 8,000 ms,
