@@ -872,6 +872,11 @@ wire, and were used). Over all 71 flagged darts the unused cameras read 8 times,
 clear (r18 v2.3's S5, the published score and the truth), so rule 2 is unexercised by the
 fixtures and stands on the live argument alone. The live corner is the rig's 3/19 wire
 under a two-line solve, which no fixture reproduces.
+Run twice: on 78faa2f (the cells named only inside both sigmas) and on 7be8f4a (named
+wherever both wires can flip the call, the threshold in the pure rule; 1238 s and 1665 s
+wall at load 8-22). Every ACCURACY figure, every `I1721CANDIDATES` line and every
+`I1782CORNER` decision field (flagged, corner, nearest, offered, cameras) is identical
+between the two; only the measurement fields a non-corner now carries differ.
 
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
