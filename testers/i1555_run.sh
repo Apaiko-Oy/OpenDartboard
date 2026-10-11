@@ -26,6 +26,10 @@
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+# #1826: tester_paths.sh pins every container's windows to cycles; this harness decides the
+# unit itself (forwarded below when the host sets it, the detector's default when not), so
+# the bakeoff stays byte-identical to the runs #1781-#1815 recorded.
+OD_WINDOWS_OWNED=1
 
 RUN="$OD_RUNS_BASE/1555"
 if [ -d "$RUN" ]; then

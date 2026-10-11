@@ -353,6 +353,80 @@ done
 if [ "$RC" = 0 ]; then
   echo "every tester program is run by something, or says why not"
 fi
+
+# ---- every container a harness starts counts its windows in cycles (#1826) ---------------
+#
+# Since ece438d a replay's detection windows are milliseconds of the wall clock unless
+# OD_WINDOW_UNIT=cycles reaches the container, so a figure a replaying tester asserts moved
+# with the box's load (#1758). tester_paths.sh's `docker` function pins the unit for every
+# `docker run` a harness makes; this asks the three things that keep that true:
+#
+#   1. the function really passes the pin. Asked by RUNNING it, in a subshell, against a
+#      stand-in docker on PATH that prints its arguments -- a grep for the string would
+#      pass a function that names the pin and never reaches it.
+#   2. every file whose CODE starts a container (`docker run`, comments stripped as above)
+#      sources tester_paths.sh, so the function is the docker it calls -- or says why not
+#      with a 'window-unit-own: <why>' comment. And nothing but the function itself calls
+#      round it: `command docker`, `\docker` or a path to the binary skips the pin silently.
+#   3. a harness that turns the pin off (OD_WINDOWS_OWNED=1) names OD_WINDOW_UNIT in its
+#      code, so the unit is decided somewhere rather than dropped.
+#
+# This half runs whatever the reachability half found: the two are separate questions, and
+# a census red for a known unreached file must still say whether the pin holds.
+#
+# A replay is not told apart from any other container, deliberately: which containers run
+# the detector on footage is a question about inside scripts several files away, and the
+# pin costs nothing in a container that never reads it.
+WMARK='window-unit-own:'
+WRC=0
+STAND="$(mktemp -d "${TMPDIR:-/tmp}/od-census-docker.XXXXXX")" || {
+  echo "FAIL census: no temporary directory for the stand-in docker" >&2
+  exit 2
+}
+trap 'rm -rf "$CODE" "$STAND"' EXIT
+printf '#!/bin/sh\necho "$@"\n' > "$STAND/docker"
+chmod +x "$STAND/docker"
+ARGS="$(env -u OD_WINDOW_UNIT -u OD_WINDOWS_OWNED PATH="$STAND:$PATH" bash -c \
+  '. "$1"; docker run --rm img true' _ "$T/tester_paths.sh" 2>&1)"
+case " $ARGS " in
+  *" -e OD_WINDOW_UNIT=cycles "*) ;;
+  *)
+    echo "FAIL census: tester_paths.sh's docker function did not pin the windows; a container"
+    echo "             it started was given: docker $ARGS"
+    echo "             Every replay would then cut its windows by the wall clock (#1758, #1826)."
+    WRC=1 ;;
+esac
+
+PINNED=0
+for f in "${PROGS[@]}"; do
+  [ "$f" = "tester_paths.sh" ] && continue
+  c="$CODE/$f"
+  if grep -qE '(command[[:space:]]+docker|\\docker|/docker)[[:space:]]+(run|create)' "$c"; then
+    echo "FAIL census: testers/$f starts a container round tester_paths.sh's docker function,"
+    echo "             so the window pin never reaches it. Call plain \`docker run\`."
+    WRC=1
+  fi
+  if grep -qE '(^|[^[:alnum:]_/\\-])docker[[:space:]]+(run|create)' "$c"; then
+    if grep -qF 'tester_paths.sh' "$c"; then
+      PINNED=$((PINNED + 1))
+    elif ! grep -qF -e "$WMARK" "$T/$f"; then
+      echo "FAIL census: testers/$f starts a container and does not source tester_paths.sh,"
+      echo "             so its detector cuts its windows by the wall clock (#1826). Source it,"
+      echo "             or write '$WMARK <why>' in it as a comment."
+      WRC=1
+    fi
+  fi
+  if grep -qE 'OD_WINDOWS_OWNED=1' "$c" && ! grep -qF 'OD_WINDOW_UNIT' "$c"; then
+    echo "FAIL census: testers/$f turns the window pin off and never names OD_WINDOW_UNIT,"
+    echo "             so nothing decides its unit. Forward or set it, or leave the pin on."
+    WRC=1
+  fi
+done
+if [ "$WRC" = 0 ]; then
+  echo "every container is pinned to cycle windows: $PINNED harnesses start one through"
+  echo "tester_paths.sh's docker function, which passed the pin when run"
+fi
+[ "$WRC" = 0 ] || RC=1
 # The harness must exit on what it measured: run_all.sh reads the exit code and
 # nothing else, and an echo returns 0 whatever it printed (#1335).
 exit $RC
