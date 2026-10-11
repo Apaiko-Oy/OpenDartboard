@@ -25,6 +25,10 @@
 //   diag:  depends on the cell across BOTH wires being a cell at all;
 //   pure:  none of those three (the probability arithmetic, the switch, what publishes).
 // Each assertion carries exactly one prefix, so a mutation's prediction is a count.
+//
+// The fixture half is testers/i1782_census.py over the #1555 bakeoff's logs (I1782CORNER
+// lines): how many flagged darts are corners, where the truth sits, and how often a camera
+// the solve did not use read a corner cell. docs/rig.md records the count.
 
 #include <cmath>
 #include <iostream>

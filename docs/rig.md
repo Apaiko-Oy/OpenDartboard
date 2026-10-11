@@ -789,6 +789,90 @@ wedge wire is nearer), inside the sigma; ...the reselection is off..., so it sta
 with `RING-WIRE: camera 0's S19 (alone) sits 5.7 mm from the 25 ring's wire by its own
 ruler, 21.6 mm from the bull, clear of the 5 mm sigma` beside it.
 
+## A corner offers the corner (turnaus#1782), default
+
+**The live dart.** 2026-10-10 16:38:53, build 2b56b48 (`OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`): a thrown **S19** published **T3**, flagged `T3 or S3`. A two-line
+solve crossing at 48.3 deg, 5.3 mm sigma, at 188.03 deg and radius 0.6346: on the fitted
+model 0.6 mm inside the treble's outer wire, and 0.6346 x 170 x sin(0.97 deg) = **1.8 mm**
+on the 3 side of the 3/19 wire (189 deg). Both wires inside one sigma: the four cells are
+T3, S3 (across the ring wire), T19 (across the wedge wire) and S19 (across both).
+`decideBoundaryCall` measured the crossing to the NEAREST wire in sigmas and named the
+one cell across it; Turnaus received `"alternative":"S3","candidates":["S3","S19","T19"]`,
+the S19 there because a camera read it (#1721's runner-up), not because the flag offered it.
+
+**The rule** (`score_processing::decideCornerCall`, pure, after `decideBoundaryCall`):
+where the solve is within #1556's threshold (`Params::crossingSigmas`, 1.0) of a ring wire
+AND a wedge wire and every cell can be named (the solver re-scores each side and the
+diagonal through the same fit, `alternativeAcross` and `diagonalAcross`):
+
+1. the three other cells are ranked by the solve's own covariance -- a bivariate normal
+   over the offsets toward the two wires, with the floored across-wire sigmas
+   (`sigmaRadialMm`, `sigmaTangentMm`) and the unfloored correlation between them; two
+   cells naming one score (a single beside the 25 ring: the diagonal is OUTER again) are
+   merged and their probabilities summed;
+2. where a camera the solve did NOT use read one of those cells clear of every wire (its
+   #1628 wedge margin and #1773 ring margin both at least 5 mm), that cell goes first.
+   A reading inside its own sigma is another coin (#1782's 16:49 counter-case: 1 for 2);
+3. the first is the flag's `alternative`; the rest are `BoundaryCall::others`, which
+   `dart_candidates` ranks straight after it -- a corner cell some voting camera read
+   first, then the rest in the flag's order, then the other readings and neighbours.
+
+The published score never moves and the flagged set is #1556's (a corner is inside the
+nearest wire's sigma by construction). The sentence keeps #1556's opening:
+`UNCERTAINTY: T3 or S3, T19, S19 -- a corner, a ring wire 0.6 mm across a 5.3 mm one-sigma
+and a wedge wire 1.8 mm across a 5.3 mm one-sigma, so T3 publishes now as the most
+probable cell (34%) and is flagged; by the solve's covariance S3 29%, T19 20%, S19 17%; a
+tap affirms it or appends another`. `OD_CORNER_FLAG=nearest` restores the one alternative
+on the same binary and appends what the corner would have offered. Census line:
+`I1782CORNER` (under `OD_GEO_SCORE=on`), counted by `testers/i1782_census.py`.
+
+**What the live dart now offers depends on a camera number the issue text cannot settle.**
+`LONE-WIRE: camera 1's S19 is 5.5 mm from a wedge wire` numbers cameras from 0 (it prints
+`choice.camera`), while the solve's cameras "2 and 3" are 1-based since #1748. Read that way
+the camera that read S19 is the solve's camera 2 -- USED -- and rule 2 does not fire: the
+flag offers **S3, T19, S19** (alternative S3, as before; S19 now in the flag, and
+candidates S3, S19, T19 as before because a camera read S19). If instead the S19 camera was
+the one the solve left out, rule 2 fires and the flag offers **S19, S3, T19** with S19 as
+Turnaus's `alternative`. The live log is on the maintainer's box; its `I1512ENTRY` story
+(or, from #1787 on, `cameras_used`) says which.
+
+**Measured (`testers/run_all.sh 1782-corner`, 50 s at load ~15).** The pure check holds the
+live shape at every wedge sigma 5.0-9.3 mm (#1766's fixture two-line range) and rho
+-0.6..0.6: S19 is offered in all 25; by covariance alone at rho 0 the order is S3, T19,
+S19 (T3 34%, 29/20/17%); an unused camera's clear S19 goes first; a used camera's, one
+2.9 mm from its wedge wire or 1.2 mm from its ring wire, does not; the same T3 8 mm from the
+wedge wire is not a corner and its flag is #1556's byte for byte. Predictions stated first
+and met exactly: doubling the wedge half of the threshold fails the 3 `reach:` assertions
+only; disabling the promotion fails the 3 `clear:` only; dropping the diagonal fails the 6
+`diag:` and the 3 `clear:` (the promoted S19 was the diagonal) and no `reach:` or `pure:`.
+
+**The fixture count (`i1782_census.py` over the bakeoff, capture clock, `OD_WINDOW_UNIT=cycles`,
+2026-10-11).** Every ACCURACY figure is the documented baseline's: rig-20260918 19/20 and
+19/20, rig-20260922 21/23 and 23/23, the vote pin 17/20, rig-20260929 26..30/36 and
+27..31/36; pooled 135..143/158, r18+r22 82/86; `score_moved=0` on all seven runs. Of 135
+matched darts on the six default runs, **71 are flagged geometric publishes, 10 of them
+corners** -- five darts, each a corner in both windows:
+
+| dart | published | thrown | #1556 offered | the corner offers |
+|---|---|---|---|---|
+| r18 v1.1 | T13 | T13 | T6 | T6, S13, S6 |
+| r22 v2.3 | T8 | T8 | S8 (dev) / T11 (opening) | S8, T11, S11 / T11, S8, S11 |
+| r22 v5.1 | S4 | S4 | S13 | OUTER, S13 (OUTER is ring + diagonal merged) |
+| r22 v8.1 | T1 | T1 | S1 | S1, T18, S18 |
+| r29 v3.1 | S6 | S13 | S13 | S13, T6, T13 |
+
+8 of the 10 publish right; the 2 wrong (r29 v3.1) have the truth across the wire #1556
+named, and the corner keeps it first. **None has the truth across the wire the flag did
+not name**, so on the fixtures the corner moves no right answer out of first place and
+gains none; the first alternative changes on one dart (r22 v5.1, S13 -> OUTER, published
+right). **A camera the solve did not use read nothing on any corner**: in all 10 every
+voting camera's line was in the solve (r29 v3.1's two cameras both read S13 clear of every
+wire, and were used). Over all 71 flagged darts the unused cameras read 8 times, 2 of them
+clear (r18 v2.3's S5, the published score and the truth), so rule 2 is unexercised by the
+fixtures and stands on the live argument alone. The live corner is the rig's 3/19 wire
+under a two-line solve, which no fixture reproduces.
+
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
 **Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:24) the
