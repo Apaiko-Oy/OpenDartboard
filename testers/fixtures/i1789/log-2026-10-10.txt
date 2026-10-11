@@ -12,7 +12,11 @@ name a corrected dart it cannot find, not drop it.
 The third "file" is REAL (#1817): six lines copied verbatim from casual/20's uploaded log
 of 2026-10-11, the first session read back -- one `frames for <ref> are gone` line naming a
 dart the board posted before that log began, and one corrected dart's push line with the
-four lines of its window. Nothing else from that log is here.
+four lines of its window. #1819 added twenty more lines of the same log, verbatim and in
+place: the takeout at 00:57:20.921 with the three SCOREs of the visit it closed and the two
+re-read darts after it (each SCORE line and push), the 00:59:28 miss with its RIM CARRIED and
+PATH lines, the 01:01:18 miss of a corrected turn, and the 01:07:36 three-line wire call.
+Nothing else from that log is here.
 
 ========== OpenDartboard Session Started ==========
 [15:32:50.100][INFO][Scorer] - SCORE: MISS | Position: (?,?) | Confidence: 0.000000 | Camera: -1 | Processing: ?ms
@@ -115,6 +119,26 @@ four lines of its window. Nothing else from that log is here.
 [16:52:12.390][INFO][Scorer] - SCORE: END | Position: (?,?) | Confidence: 1.000000 | Camera: -1 | Processing: ?ms
 ========== OpenDartboard Session Started ==========
 [00:56:57.409][INFO][TURNAUSCLIENT] - TURNAUS: frames for 01M4KWAS5RTFSTE99GK40DGPVH are gone
+[00:57:03.664][INFO][SCORER] - SCORE: S7 | Position: (568,266) | Confidence: 0.900000 | Camera: 0 | Processing: 63ms
+[00:57:07.614][INFO][SCORER] - SCORE: T10 | Position: (744,396) | Confidence: 0.700000 | Camera: 0 | Processing: 80ms
+[00:57:09.748][INFO][SCORER] - SCORE: S4 | Position: (750,299) | Confidence: 0.700000 | Camera: 0 | Processing: 82ms
+[00:57:20.921][INFO][SCORER] - SCORE: END | Position: (-1,-1) | Confidence: 1.000000 | Camera: -1 | Processing: 54ms
+[00:57:23.331][INFO][SCORER] - SCORE: S7 | Position: (568,266) | Confidence: 0.900000 | Camera: 0 | Processing: 64ms
+[00:57:23.551][INFO][TURNAUSCLIENT] - TURNAUS: COUNTED {"board_angle":218.4372,"board_radius":0.4822,"bounced_out":false,"cameras_used":[1,2,3],"candidates":["S16","S19","T7"],"confidence":0.9,"degraded":false,"flagged":false,"margin_mm":9.39,"path":"geometry","reference":"01M4KX46R330AQBC5VJTWK8KQQ","sector":"S7","sigma_mm":5.0,"wire_kind":"wedge"}
+[00:57:25.415][INFO][SCORER] - SCORE: S13 | Position: (743,305) | Confidence: 0.700000 | Camera: 0 | Processing: 84ms
+[00:57:25.613][INFO][TURNAUSCLIENT] - TURNAUS: COUNTED {"alternative":"S6","board_angle":72.3411,"board_radius":0.192,"bounced_out":false,"cameras_used":[1,2,3],"candidates":["S6","S4","25"],"confidence":0.7,"degraded":false,"flagged":true,"margin_mm":4.93,"path":"geometry","reference":"01M4KX48S7SZ2BW27TZ92CTHSA","sector":"S13","sigma_mm":6.21,"wire_kind":"wedge"}
+[00:59:28.793][INFO][DART_PROCESSING] - I1707 RIM CARRIED: 3 camera(s) moved up and 1 of them cleared the floor in the scoring area, under the quorum of 2 -- the rim-only votes carried this dart, so it is at or beyond the double ring (#1707)
+[00:59:28.794][INFO][SCORE_PROCESSING] - PATH: DEGRADED -- no geometric entry (TOO-FEW-CONSTRAINTS: no entry: 1 usable constraint(s) of 3 cameras, and one line is anywhere along itself (cam 1: no usable axis: rim only: this camera's fresh change clears the floor out to the rim but not in the scoring area, so it votes the arrival and offers no figure to fit (#1689); cam 2: no usable axis: rim only: this camera's fresh change clears the floor out to the rim but not in the scoring area, so it votes the arrival and offers no figure to fit (#1689))), so the string vote publishes this dart; it is one camera's reading and not a triangulated position
+[00:59:28.794][INFO][SCORER] - SCORE: MISS | Position: (-1,-1) | Confidence: 0.500000 | Camera: -1 | Processing: 76ms
+[00:59:29.012][INFO][TURNAUSCLIENT] - TURNAUS: COUNTED {"agreeing":0,"bounced_out":false,"confidence":0.5,"degraded":true,"flagged":false,"path":"vote","reference":"01M4KX818TV6WX6B9CJR1WMK1Z","sector":"None"}
+[01:01:18.204][INFO][SCORE_PROCESSING] - PATH: DEGRADED -- no geometric entry (TOO-FEW-CONSTRAINTS: no entry: 1 usable constraint(s) of 3 cameras, and one line is anywhere along itself (cam 1: no usable axis: rim only: this camera's fresh change clears the floor out to the rim but not in the scoring area, so it votes the arrival and offers no figure to fit (#1689); cam 2: no usable axis: not straight: the kept centreline scatters 51.87 px RMS about the line against a 2.5 px gate -- a bent silhouette, a shadow lobe, or two objects one line does not explain)), so the string vote publishes this dart; it is one camera's reading and not a triangulated position
+[01:01:18.204][INFO][SCORER] - SCORE: MISS | Position: (-1,-1) | Confidence: 0.500000 | Camera: -1 | Processing: 64ms
+[01:01:18.450][INFO][TURNAUSCLIENT] - TURNAUS: COUNTED {"agreeing":0,"bounced_out":false,"confidence":0.5,"degraded":true,"flagged":false,"path":"vote","reference":"01M4KXBC3W9SNDKD8W1P4113TY","sector":"None"}
+[01:07:36.297][INFO][SCORE_PROCESSING] - UNCERTAINTY: S4 or S18 -- the nearest wedge wire is 1.1 mm across a 5.0 mm one-sigma, so S4 publishes now as the more probable candidate and is flagged; a tap affirms it or appends the other (a solve whose camera 3 line has redundancy 0.00: the other lines cannot see it displaced, so nothing checks this sigma (#1766))
+[01:07:36.297][INFO][SCORE_PROCESSING] - Geometric score: S4 from 3 intersecting constraint(s) of 3 cameras, read through camera 1
+[01:07:36.297][INFO][SCORE_PROCESSING] - BOARD: wedge from the solved entry | ring=single | segment=4 | radius=0.784442 | angle=45.488747
+[01:07:36.297][INFO][SCORER] - SCORE: S4 | Position: (934,325) | Confidence: 0.700000 | Camera: 0 | Processing: 64ms
+[01:07:36.551][INFO][TURNAUSCLIENT] - TURNAUS: COUNTED {"alternative":"S18","board_angle":45.4887,"board_radius":0.7844,"bounced_out":false,"cameras_used":[1,2,3],"candidates":["S18","T4","D4"],"confidence":0.7,"degraded":false,"flagged":true,"margin_mm":1.14,"path":"geometry","reference":"01M4KXPXB93EMSJZJDR1BHEJBF","sector":"S4","sigma_mm":5.0,"wire_kind":"wedge"}
 [01:27:16.284][INFO][SCORE_PROCESSING] - UNCERTAINTY: S19 or S3 -- the nearest wedge wire is 1.0 mm across a 5.4 mm one-sigma, so S19 publishes now as the more probable candidate and is flagged; a tap affirms it or appends the other (a two-line solve of cameras 1 and 2 crossing at 60.4 deg: the sigma is that crossing's, and no third line checks it (#1766))
 [01:27:16.284][INFO][SCORE_PROCESSING] - Geometric score: S19 from 2 intersecting constraint(s) of 3 cameras, read through camera 1
 [01:27:16.284][INFO][SCORE_PROCESSING] - BOARD: wedge from the solved entry | ring=single | segment=19 | radius=0.451094 | angle=189.736618

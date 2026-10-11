@@ -45,7 +45,8 @@ WHAT IT PRINTS.
         published score stood: `picked` is `-` or `published`. The server's counts are the
         authority; this is the detector side's independent recount, to be compared.
     I1789 DART ref= published= corrected= picked= path= flagged= class=<class> why=<...>
-        one per dart with a correction standing (picked is not `-` / `published`), then
+        one per dart with a correction standing (picked is not `-` / `published`; a dart
+        of a corrected Casual turn is printed too, as class turn-total), then
         that dart's log window: its SCORE line and the UNCERTAINTY / Geometric score /
         Consensus / No consensus / LONE-WIRE / RING-WIRE / BOARD / I1707 RIM CARRIED lines
         between the previous SCORE line and its push, and its push line; or
@@ -72,11 +73,26 @@ WHAT IT PRINTS.
     I1789 CLASS <class>=<n> ...  the fault-class tally.
 
 THE FAULT CLASSES, decided from the account (the truth line's own fields) in this order,
-the first that holds winning; the one class that needs the log is the takeout's, because
-the truth line carries no END:
+the first that holds winning; the classes that need the log are the takeout's and the
+re-read's, because the truth line carries no END and no pixel position:
 
+  turn-total        #1786  `picked` turn: a Casual turn's TOTAL was corrected, which names
+                           no dart (Turnaus's Pick::Turn: "it says nothing about which of the
+                           board's darts was wrong"). Not a fault class: decided first so no
+                           dart nobody corrected lands in one. The `why` says what the account
+                           alone would have called it (#1819: 56 of the first two real
+                           sessions' 93 DART lines were these, 34 of them inside fault classes)
   phantom-takeout   #1781  the dart's SCORE line is within PHANTOM_S of a `SCORE: END` in
                            the log (live 2026-10-10: D11 0.74 s before, S2 0.98 s after)
+  reread-after-takeout #1820 a removed dart whose SCORE Position is within REREAD_PX of a
+                           dart of the visit the END before it closed, with no END between:
+                           a dart still in the board, published again (live casual/20
+                           00:57:23 and :25, 0.0 and 9.2 px, 2.41 and 4.49 s after the END)
+  phantom-unplaced    -    any other removed dart: it was never there, and nothing here says
+                           why -- usually because the log does not cover it (#1818). A
+                           removed dart is never put in a wire class: it was not misread
+  miss-for-a-dart   #1821  published a miss and corrected to a sector (live casual/20 S13 by
+                           the rim-only carry, casual/17 D20, 2026-10-10 16:24:24 S3)
   rim-one-tip       #1707  a lone vote reading (agreeing 1) that published a double, or was
                            corrected to a miss (`None`): one camera's tip on a rim dart,
                            at the rim or the barrel over the board (live 2026-10-10: D16,
@@ -86,12 +102,24 @@ the truth line carries no END:
                            16:38:53: T3 for S19, 0.6 mm and 1.8 mm across 5.3 mm)
   two-line-wire     #1766  a two-camera geometric solve within its own sigma of the wire
                            it names (live 16:49:15: S1 for S20, 2.1 mm across 5.1 mm)
+  three-line-wire     -    the same with three or more cameras: the sigma covered the wire,
+                           the flag fired and offered the answer (live casual/20 01:07:36:
+                           S4 for S18, 1.1 mm across 5.0 mm). The flag's own case, no fault
+  lone-beyond-sigma #1822  a lone vote reading corrected across a wire it was more than
+                           SIGMA_VOTE_MM clear of: no wire check could have flagged it for
+                           that wire (live casual/17: S3 for S19 9.4 mm off, S3 for T3 21.3)
   ring-wire         #1773  a vote reading within SIGMA_VOTE_MM of a ring wire, lone or
                            consensus (live: T19 at 3.1 mm, OUTER at 2.3 and 0.5 mm)
   lone-wedge-wire   #1628  a lone vote reading within SIGMA_VOTE_MM of a wedge wire (the
                            nearer of the two margins decides between this and ring-wire)
   unflagged-geometric #1556 a geometric solve that was not flagged and was corrected
   unclassified             the honest default
+
+The vote classes read `ring_wire_mm` and `lone_wire_mm` where the board posted them and
+otherwise the same margins from `radius` and `angle` on the 170 mm model, marked `(model)`
+in the `why` (#1819: casual/17's build posted neither for any of its darts, so before this
+#1773 and #1628 could not hold there). Which wire a correction crossed is read from the
+two sectors: the number changed is a wedge wire, the ring letter a ring wire.
 
 Stdlib only; it runs in $OD_IMAGE's python 3.11 (the box that runs the suite has no host
 python3). Exit 0 when it ran (and, with --expect, every expectation held), 1 when an
@@ -130,11 +158,21 @@ SCORING_RADIUS_MM = 170.0  # radius 1.0 is the double's outer wire (docs/rig.md,
 RING_WIRES_MM = (6.35, 15.9, 99.0, 107.0, 162.0, 170.0)  # the spec #1773 static_asserts
 WEDGE_WIRE_FIRST_DEG, WEDGE_WIRE_STEP_DEG = 9.0, 18.0     # wedge wires at 9 + 18k degrees
 
+REREAD_PX = 12.0         # #1819: casual/20's two re-reads sat 0.0 and 9.2 px from the darts
+                         # they repeated; a dart's own Position is the scorer's pixel
+SECTOR = re.compile(r"^([SsDT])(\d{1,2})$")  # a sector on a numbered wedge (#821's grammar)
+
 CLASSES = (
+    ("turn-total", "#1786"),
     ("phantom-takeout", "#1781"),
+    ("reread-after-takeout", "#1820"),
+    ("phantom-unplaced", "-"),
+    ("miss-for-a-dart", "#1821"),
     ("rim-one-tip", "#1707"),
     ("corner", "#1782"),
     ("two-line-wire", "#1766"),
+    ("three-line-wire", "-"),
+    ("lone-beyond-sigma", "#1822"),
     ("ring-wire", "#1773"),
     ("lone-wedge-wire", "#1628"),
     ("unflagged-geometric", "#1556"),
@@ -145,6 +183,7 @@ ISSUE = dict(CLASSES)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 LOG_LINE = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\.(\d{3})\]\[[^\]]*\]\[[^\]]*\] - (.*)$")
 SCORE_LINE = re.compile(r"^SCORE: (\S+)")
+POSITION = re.compile(r"\| Position: \((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)")
 SHOWN = ("SCORE: ", "UNCERTAINTY", "Geometric score", "Consensus score", "No consensus",
          "LONE-WIRE", "RING-WIRE", "BOARD: ", "I1707 RIM CARRIED")
 # The detector's words for three sectors #821's grammar spells otherwise (postableSector).
@@ -283,13 +322,57 @@ def nearest_wedge_wire_mm(radius, angle):
     return r * math.sin(math.radians(deg))
 
 
-def classify(row, dart_time, ends):
+def vote_margins(row):
+    """(ring_mm, wedge_mm, source) for a vote reading: the account's own `ring_wire_mm` and
+    `lone_wire_mm` where it posted them, else the same figure from `radius`/`angle` on the
+    170 mm model (#1819: casual/17's build posted neither, for any of its 526 darts, so
+    #1773's and #1628's rules could never hold there). `lone_wire_mm` is a lone reading's
+    measure; the model's wedge figure is used for a lone reading only, as the account's is,
+    and never inside the 25's wire, where there is no wedge wire to be near."""
+    ring, wedge = num(row, "ring_wire_mm"), num(row, "lone_wire_mm")
+    radius, angle = num(row, "radius"), num(row, "angle")
+    source = "account"
+    if ring is None and radius is not None:
+        ring, source = nearest_ring_wire_mm(radius), "model"
+    if (wedge is None and radius is not None and angle is not None
+            and radius * SCORING_RADIUS_MM > RING_WIRES_MM[1]):  # no wedge wire inside the 25
+        wedge, source = nearest_wedge_wire_mm(radius, angle), "model"
+    return ring, wedge, source
+
+
+def crossed_wires(published, corrected):
+    """Which wires a correction crossed, between two sectors on numbered wedges: `wedge`
+    when the number changed, `ring` when the ring did; None when either is not one (a miss,
+    25, Bull). Case-blind, as Turnaus's DartCorrections::picked is."""
+    a, b = SECTOR.match(published), SECTOR.match(corrected)
+    if not a or not b:
+        return None
+    crossed = []
+    if a.group(2) != b.group(2):
+        crossed.append("wedge")
+    if a.group(1).upper() != b.group(1).upper():
+        crossed.append("ring")
+    return crossed or None
+
+
+def classify(row, dart_time, ends, reread=None):
     """(class, why) for a corrected dart. `dart_time` is its SCORE line's second of the day,
-    or None when it is not in the log; `ends` every END's."""
+    or None when it is not in the log; `ends` every END's; `reread` the earlier dart its
+    SCORE Position repeats across the END before it, when one does (`reread_of`)."""
+    if row["picked"] == "turn":
+        k, why = classify(dict(row, picked="typed"), dart_time, ends, reread)
+        return "turn-total", "a Casual turn's total was corrected, naming no dart; on its account alone it would be %s" % k
     if dart_time is not None and ends:
         nearest = min(ends, key=lambda e: abs(e - dart_time))
         if abs(nearest - dart_time) <= PHANTOM_S:
             return "phantom-takeout", "%+.3f s from an END" % (dart_time - nearest)
+    if row["picked"] == "removed":
+        if reread:
+            return "reread-after-takeout", reread
+        return "phantom-unplaced", ("removed, and no END within %.1f s of it" % PHANTOM_S if dart_time is not None
+                                    else "removed, and the log does not hold its window")
+    if row["published"] == MISS and row["corrected"] not in ("-", MISS):
+        return "miss-for-a-dart", "published a miss, corrected to %s (agreeing %s)" % (row["corrected"], row["agreeing"])
     path = row["path"]
     agreeing = num(row, "agreeing")
     sigma, margin = num(row, "sigma_mm"), num(row, "margin_mm")
@@ -299,6 +382,7 @@ def classify(row, dart_time, ends):
             return "rim-one-tip", "a lone reading published %s at radius %s" % (row["published"], row["radius"])
         if row["corrected"] == MISS:
             return "rim-one-tip", "a lone reading published %s at radius %s for a miss" % (row["published"], row["radius"])
+    cameras = [] if row["cameras"] == "-" else row["cameras"].split(",")
     if path == "geometry" and sigma is not None and margin is not None and margin <= sigma:
         if radius is not None and angle is not None and radius * SCORING_RADIUS_MM > RING_WIRES_MM[1]:
             other = (nearest_wedge_wire_mm(radius, angle) if row["wire_kind"] == "ring"
@@ -306,18 +390,27 @@ def classify(row, dart_time, ends):
             if other is not None and other <= sigma:
                 return "corner", "%s wire %.1f mm and the other %.1f mm, both inside %.1f mm" % (
                     row["wire_kind"], margin, other, sigma)
-        cameras = [] if row["cameras"] == "-" else row["cameras"].split(",")
         if len(cameras) == 2:
             return "two-line-wire", "cameras %s, %s wire %.1f mm across a %.1f mm sigma" % (
                 row["cameras"], row["wire_kind"], margin, sigma)
+        if len(cameras) >= 3:
+            return "three-line-wire", "cameras %s, %s wire %.1f mm across a %.1f mm sigma, flagged=%s" % (
+                row["cameras"], row["wire_kind"], margin, sigma, row["flagged"])
     if path == "vote":
-        ring, wedge = num(row, "ring_wire_mm"), num(row, "lone_wire_mm") if agreeing == 1 else None
+        ring, wedge, source = vote_margins(row)
+        if agreeing != 1:
+            wedge = None
+        crossed = crossed_wires(row["published"], row["corrected"]) if agreeing == 1 else None
+        known = [m for m in ((ring if w == "ring" else wedge) for w in crossed or ()) if m is not None]
+        if known and min(known) > SIGMA_VOTE_MM:
+            return "lone-beyond-sigma", "corrected across the %s wire, %.1f mm off it (%s), beyond the %.0f mm sigma" % (
+                "/".join(crossed), min(known), source, SIGMA_VOTE_MM)
         near = [(m, k) for m, k in ((ring, "ring-wire"), (wedge, "lone-wedge-wire"))
                 if m is not None and m <= SIGMA_VOTE_MM]
         if near:
             m, k = min(near)
-            return k, "%s %.1f mm inside the %.0f mm sigma (agreeing %s)" % (
-                "ring wire" if k == "ring-wire" else "wedge wire", m, SIGMA_VOTE_MM, row["agreeing"])
+            return k, "%s %.1f mm (%s) inside the %.0f mm sigma (agreeing %s)" % (
+                "ring wire" if k == "ring-wire" else "wedge wire", m, source, SIGMA_VOTE_MM, row["agreeing"])
     if path == "geometry" and row["flagged"] == "0":
         return "unflagged-geometric", "a solve published unflagged and corrected"
     return "unclassified", "no class's figures hold"
@@ -345,20 +438,64 @@ def ends_of(log):
     return [t for t, msg in log if t is not None and re.match(r"SCORE: END\b", msg)]
 
 
-def window_of(log, reference, published):
-    """(dart_time, [lines]) for the dart whose push names `reference`, or None."""
+def lines_of(log, reference, published):
+    """(push, score) indices for the dart whose push names `reference`: (None, None) when no
+    push does, score None when no SCORE line before the push publishes `published`."""
     needle = '"reference":"%s"' % reference
     push = next((i for i, (_, msg) in enumerate(log) if msg.startswith("TURNAUS: ") and needle in msg), None)
     if push is None:
-        return None
-    score = None
+        return None, None
     for i in range(push - 1, -1, -1):
         m = SCORE_LINE.match(log[i][1])
         if m and POSTABLE.get(m.group(1), m.group(1)) == published:
-            score = i
+            return push, i
+    return push, None
+
+
+def position_of(msg):
+    m = POSITION.search(msg)
+    return (float(m.group(1)), float(m.group(2))) if m and m.group(1) != "-1" else None
+
+
+def reread_of(log, score):
+    """The `why` of a re-read (#1819) for the SCORE line at `score`, or None: its Position
+    is within REREAD_PX of a dart the visit before it published -- the darts between the
+    END before it and the END (or file start) before that -- with no END between. That is
+    a dart still in the board, published again after a takeout that left it there."""
+    here = position_of(log[score][1])
+    if here is None:
+        return None
+    end = None
+    for i in range(score - 1, -1, -1):
+        msg = log[i][1]
+        if "Session Started" in msg:
+            return None
+        if re.match(r"SCORE: END\b", msg):
+            end = i
             break
+    if end is None:
+        return None
+    for i in range(end - 1, -1, -1):
+        msg = log[i][1]
+        if "Session Started" in msg or re.match(r"SCORE: END\b", msg):
+            return None
+        m = SCORE_LINE.match(msg)
+        there = position_of(msg) if m else None
+        if there is not None:
+            d = math.hypot(here[0] - there[0], here[1] - there[1])
+            if d <= REREAD_PX:
+                return "%.1f px from the %s published at %s, before the END this dart follows by %.3f s" % (
+                    d, m.group(1), clock(log[i][0]), log[score][0] - log[end][0])
+    return None
+
+
+def window_of(log, reference, published):
+    """(dart_time, [lines], score) for the dart whose push names `reference`, or None."""
+    push, score = lines_of(log, reference, published)
+    if push is None:
+        return None
     if score is None:
-        return log[push][0], [log[push]]
+        return log[push][0], [log[push]], None
     start = 0
     for i in range(score - 1, -1, -1):
         if SCORE_LINE.match(log[i][1]) or "Session Started" in log[i][1]:
@@ -366,7 +503,7 @@ def window_of(log, reference, published):
             break
     shown = [log[i] for i in range(start, push + 1)
              if i == push or log[i][1].startswith(SHOWN)]
-    return log[score][0], shown
+    return log[score][0], shown, score
 
 
 def files_of(log):
@@ -459,7 +596,8 @@ def census(truth_text, log_text, out):
             continue
         found = window_of(log, row["reference"], row["published"]) if log else None
         dart_time = found[0] if found else None
-        k, why = classify(row, dart_time, ends)
+        reread = reread_of(log, found[2]) if found and found[2] is not None else None
+        k, why = classify(row, dart_time, ends, reread)
         classes[row["reference"]] = k
         out("I1789 DART ref=%s published=%s corrected=%s picked=%s path=%s flagged=%s class=%s issue=%s why=%s"
             % (row["reference"], row["published"], row["corrected"], row["picked"], row["path"],
@@ -549,7 +687,44 @@ def self_test(out):
         ("two-line inside its sigma", row(path="geometry", flagged="1", published="S1", cameras="2,3",
                                           sigma_mm="5.1", margin_mm="2.1", wire_kind="wedge"), None, [], "two-line-wire"),
         ("three-line inside its sigma", row(path="geometry", flagged="1", published="S1", cameras="1,2,3",
-                                            sigma_mm="5.1", margin_mm="2.1", wire_kind="wedge"), None, [], "unclassified"),
+                                            sigma_mm="5.1", margin_mm="2.1", wire_kind="wedge"), None, [], "three-line-wire"),
+        ("three-line just outside its sigma", row(path="geometry", flagged="1", published="S1", cameras="1,2,3",
+                                                  sigma_mm="5.1", margin_mm="5.2", wire_kind="wedge"), None, [],
+         "unclassified"),
+        # #1819's classes. A turn is decided before everything, even an END beside it.
+        ("a turn's dart, beside an END", row(path="vote", published="S2", picked="turn", agreeing="1"), 10.0, [11.0],
+         "turn-total"),
+        ("removed, nothing places it", row(path="geometry", flagged="1", published="S20", picked="removed",
+                                           cameras="2,3", sigma_mm="5", margin_mm="2.27", wire_kind="wedge"),
+         None, [], "phantom-unplaced"),
+        ("removed, repeating a dart across an END", row(path="geometry", published="S7", picked="removed"),
+         20.0, [17.6], "reread-after-takeout"),
+        ("a miss corrected to a score", row(path="vote", published="None", corrected="S13", agreeing="0"),
+         None, [], "miss-for-a-dart"),
+        ("a miss corrected to a miss is not one", row(path="vote", published="None", corrected="None", picked="published",
+                                                       agreeing="0"), None, [], "unclassified"),
+        ("lone, across a wedge wire 9.4 mm off (model)", row(path="vote", published="S3", corrected="S19", picked="candidate",
+                                                             flagged="1", agreeing="1", radius="0.5746", angle="183.503"),
+         None, [], "lone-beyond-sigma"),
+        ("lone, across the treble wire 2.5 mm off (model)", row(path="vote", published="S19", corrected="T19",
+                                                                picked="alternative", flagged="1", agreeing="1",
+                                                                radius="0.6442", angle="193.145"),
+         None, [], "ring-wire"),
+        ("lone, across a wedge wire 1.8 mm off (model)", row(path="vote", published="S11", corrected="S8", agreeing="1",
+                                                             radius="0.2798", angle="263.117"),
+         None, [], "lone-wedge-wire"),
+        ("lone, across the ring wire 21.3 mm off (model)", row(path="vote", published="S3", corrected="T3", agreeing="1",
+                                                               radius="0.755", angle="186.075"),
+         None, [], "lone-beyond-sigma"),
+        ("a lone OUTER has no wedge wire (model)", row(path="vote", published="25", corrected="S1", agreeing="1",
+                                                       ring_wire_mm="2.26", radius="0.0507", angle="195.4884"),
+         None, [], "ring-wire"),
+        ("lone, across a wedge wire at 5.0 mm is inside", row(path="vote", published="S11", corrected="S8", agreeing="1",
+                                                              lone_wire_mm="5.0", ring_wire_mm="30"),
+         None, [], "lone-wedge-wire"),
+        ("lone, across a wedge wire at 5.1 mm is beyond", row(path="vote", published="S11", corrected="S8", agreeing="1",
+                                                              lone_wire_mm="5.1", ring_wire_mm="30"),
+         None, [], "lone-beyond-sigma"),
         ("vote ring wire", row(path="vote", published="T19", agreeing="1", lone_wire_mm="14.4", ring_wire_mm="3.06"),
          None, [], "ring-wire"),
         ("consensus ring wire", row(path="vote", published="25", agreeing="2", ring_wire_mm="0.53"), None, [], "ring-wire"),
@@ -566,11 +741,29 @@ def self_test(out):
     ]
     bad = 0
     for name, r, t, ends, want in cases:
-        got, why = classify(r, t, ends)
+        reread = "0.0 px from the S7 (self-test)" if name.startswith("removed, repeating") else None
+        got, why = classify(r, t, ends, reread)
         ok = got == want
         bad += not ok
         out("%s self: %s -> %s (%s)%s" % ("PASS" if ok else "FAIL", name, got, why,
                                           "" if ok else " expected " + want))
+    # #1819's re-read, on a three-line log: a dart, an END, the same dart again -- and moved
+    # one pixel past REREAD_PX, and with the END struck.
+    def score(t, sector, x, y):
+        return "[00:57:%06.3f][INFO][SCORER] - SCORE: %s | Position: (%d,%d) | Confidence: 0.9" % (t, sector, x, y)
+    end = "[00:57:20.921][INFO][SCORER] - SCORE: END | Position: (-1,-1) | Confidence: 1.0"
+    for name, lines, want in [
+        ("re-read at 0 px", [score(3.664, "S7", 568, 266), end, score(23.331, "S7", 568, 266)], True),
+        ("re-read at 12 px", [score(3.664, "S7", 568, 266), end, score(23.331, "S7", 580, 266)], True),
+        ("13 px is a new dart", [score(3.664, "S7", 568, 266), end, score(23.331, "S7", 581, 266)], False),
+        ("no END between", [score(3.664, "S7", 568, 266), score(23.331, "S7", 568, 266)], False),
+    ]:
+        log = read_log("\n".join(lines))
+        got = reread_of(log, len(log) - 1)
+        ok = (got is not None) == want
+        bad += not ok
+        out("%s self: %s -> %s" % ("PASS" if ok else "FAIL", name, got))
+    cases += [None] * 4
     # The two loud refusals the format promises, on a two-line export.
     for name, text in [
         ("a column the script needs is gone",

@@ -33,20 +33,26 @@
 #     was posted before that board's log began; the log names it once, on the
 #     `frames for ... are gone` line copied with them, and on no push line. That line is
 #     why #1817 was filed: the census used to say "the reference is not in the log".
+#   * TEN MORE ROWS ARE REAL, the last ten (#1819): copied verbatim from Turnaus's exports,
+#     five of casual/17 for 2026-10-10 and five of casual/20 for 2026-10-11, one or two for
+#     each class #1819 named or widened. casual/17's build posted no lone_wire_mm or
+#     ring_wire_mm for any dart, so its two vote classes are decided on the 170 mm model from
+#     radius and angle; its log does not cover these darts, so they are absent. casual/20's
+#     five are found in the third file of the log, whose added lines are copied with them.
 #   * The 16:49:14 dart is a FALSE FLAG on purpose: #1782 records it flagged 'S1 or S20' and
 #     thrown S1, so its published score stood.
 #
 # The expected census. The four counts per path, then each corrected dart's fault class:
-# expect count geometry posted=4 corrected=3 alternative=2 candidate=1 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=4 false_flag=1
-# expect count vote posted=23 corrected=12 alternative=0 candidate=0 typed=0 unflagged=9 removed=3 turn=0 undone=0 flagged=0 false_flag=0
+# expect count geometry posted=7 corrected=6 alternative=3 candidate=1 typed=0 unflagged=0 removed=2 turn=0 undone=0 flagged=6 false_flag=1
+# expect count vote posted=30 corrected=18 alternative=1 candidate=1 typed=0 unflagged=13 removed=3 turn=1 undone=0 flagged=2 false_flag=0
 # expect count unknown posted=0 corrected=0 alternative=0 candidate=0 typed=0 unflagged=0 removed=0 turn=0 undone=0 flagged=0 false_flag=0
-# expect count total posted=27 corrected=15 alternative=2 candidate=1 typed=0 unflagged=9 removed=3 turn=0 undone=0 flagged=4 false_flag=1
+# expect count total posted=37 corrected=24 alternative=4 candidate=2 typed=0 unflagged=13 removed=5 turn=1 undone=0 flagged=8 false_flag=1
 # expect class 01M4JFX0000000000000153923 rim-one-tip
 # expect class 01M4JFX0000000000000155149 ring-wire
 # expect class 01M4JFX0000000000000160625 ring-wire
 # expect class 01M4JFX0000000000000162006 rim-one-tip
 # expect class 01M4JFX0000000000000162111 rim-one-tip
-# expect class 01M4JZRX4Y0000000000162424 unclassified
+# expect class 01M4JZRX4Y0000000000162424 miss-for-a-dart
 # expect class 01M4JZS12A0000000000162428 phantom-takeout
 # expect class 01M4JZS2R10000000000162430 phantom-takeout
 # expect class 01M4JFX0000000000000162835 rim-one-tip
@@ -54,8 +60,19 @@
 # expect class 01M4JFX0000000000000163853 corner
 # expect class 01M4JFX0000000000000164722 ring-wire
 # expect class 01M4JFX0000000000000164915 two-line-wire
-# expect class 01M4KWAS5RTFSTE99GK40DGPVH lone-wedge-wire
+# expect class 01M4KWAS5RTFSTE99GK40DGPVH phantom-unplaced
 # expect class 01M4KYTXNWXP184NBAJ0TMKNNW two-line-wire
+# #1819's ten real rows, one class each (two for the two new classes that need two):
+# expect class 01M4KJF3DRWCV51S05RR7K35FD lone-beyond-sigma
+# expect class 01M4KN6RGE535FXAG290F9THMQ lone-beyond-sigma
+# expect class 01M4KJNQMJXPZ2717T008R0DPM miss-for-a-dart
+# expect class 01M4KX818TV6WX6B9CJR1WMK1Z miss-for-a-dart
+# expect class 01M4KKY6G3RET0ZJF917H5SWK0 ring-wire
+# expect class 01M4KN5KRE7YXEKBR3TS3G78P8 lone-wedge-wire
+# expect class 01M4KX46R330AQBC5VJTWK8KQQ reread-after-takeout
+# expect class 01M4KX48S7SZ2BW27TZ92CTHSA reread-after-takeout
+# expect class 01M4KXBC3W9SNDKD8W1P4113TY turn-total
+# expect class 01M4KXPXB93EMSJZJDR1BHEJBF three-line-wire
 # The 15:39:23 dart's lines are left OUT of the log excerpt on purpose, so the census has
 # a corrected dart to name as absent rather than drop. It was cut from inside a file, so the
 # census places it there -- the one placement that reads as a loss:
@@ -63,6 +80,13 @@
 # The real board-20 absence falls between this excerpt's second file and its third, and
 # the log mentions it once without a push (#1817):
 # expect absent 01M4KWAS5RTFSTE99GK40DGPVH where=between-files mentioned=1
+# Board 17's five were posted before its log began (#1818); here they fall between this
+# excerpt's second file and its third, and the log names none of them:
+# expect absent 01M4KJF3DRWCV51S05RR7K35FD where=between-files mentioned=0
+# expect absent 01M4KJNQMJXPZ2717T008R0DPM where=between-files mentioned=0
+# expect absent 01M4KKY6G3RET0ZJF917H5SWK0 where=between-files mentioned=0
+# expect absent 01M4KN5KRE7YXEKBR3TS3G78P8 where=between-files mentioned=0
+# expect absent 01M4KN6RGE535FXAG290F9THMQ where=between-files mentioned=0
 # turnaus truth line v1 board=device/1 day=2026-10-10 zone=Europe/Helsinki
 # reference published alternative corrected picked path flagged degraded candidates cameras crossing_deg sigma_mm margin_mm wire_kind agreeing lone_wire_mm ring_wire_mm radius angle bounced outcome corrections posted_at
 01M4JFX0000000000000153250 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T12:32:50Z
@@ -92,3 +116,13 @@
 01M4JFX0000000000000165154 None - - - vote 0 1 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:51:54Z
 01M4KWAS5RTFSTE99GK40DGPVH S15 - - removed vote 0 1 S18,S2,S10 1 - - - - 1 4.62 35.42 0.3019 129.83 0 COUNTED 1 2026-10-10T21:43:30Z
 01M4KYTXNWXP184NBAJ0TMKNNW S19 S3 S3 alternative geometry 1 0 S3,T19,S7 1,2 60.36 5.43 0.99 wedge - - - 0.4511 189.737 0 COUNTED 1 2026-10-10T22:27:16Z
+01M4KJF3DRWCV51S05RR7K35FD S3 T3 S19 candidate vote 1 - T3,S19,S17 2 - - - ring 1 - - 0.5746 183.503 0 COUNTED 1 2026-10-10T18:51:08Z
+01M4KJNQMJXPZ2717T008R0DPM None - D20 typed vote 0 - - - - - - - 0 - - - - 0 COUNTED 1 2026-10-10T18:54:46Z
+01M4KKY6G3RET0ZJF917H5SWK0 S19 T19 T19 alternative vote 1 - T19,S3,S7 2 - - - ring 1 - - 0.6442 193.145 0 COUNTED 1 2026-10-10T19:16:52Z
+01M4KN5KRE7YXEKBR3TS3G78P8 S11 - S8 candidate vote 0 - S8,S14,25 1 - - - - 1 - - 0.2798 263.117 0 COUNTED 1 2026-10-10T19:38:23Z
+01M4KN6RGE535FXAG290F9THMQ S3 - T3 candidate vote 0 - T3,S19,S17 1 - - - - 1 - - 0.755 186.075 0 COUNTED 1 2026-10-10T19:39:01Z
+01M4KX46R330AQBC5VJTWK8KQQ S7 - - removed geometry 0 0 S16,S19,T7 1,2,3 - 5 9.39 wedge - - - 0.4822 218.437 0 COUNTED 1 2026-10-10T21:57:23Z
+01M4KX48S7SZ2BW27TZ92CTHSA S13 S6 - removed geometry 1 0 S6,S4,25 1,2,3 - 6.21 4.93 wedge - - - 0.192 72.341 0 COUNTED 1 2026-10-10T21:57:25Z
+01M4KX818TV6WX6B9CJR1WMK1Z None - S13 typed vote 0 1 - - - - - - 0 - - - - 0 COUNTED 1 2026-10-10T21:59:28Z
+01M4KXBC3W9SNDKD8W1P4113TY None - - turn vote 0 1 - - - - - - 0 - - - - 0 COUNTED 0 2026-10-10T22:01:18Z
+01M4KXPXB93EMSJZJDR1BHEJBF S4 S18 S18 alternative geometry 1 0 S18,T4,D4 1,2,3 - 5 1.14 wedge - - - 0.7844 45.489 0 COUNTED 1 2026-10-10T22:07:36Z

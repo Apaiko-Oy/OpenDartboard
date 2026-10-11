@@ -12,8 +12,9 @@
 #                           excerpt; every '# expect' line in its header must hold
 #   3. mutation A: a pick   the 16:49:15 dart's `picked` alternative -> typed. PREDICTION:
 #                           rc 1 with exactly 4 count mismatches -- geometry.alternative
-#                           2->1 (the other is #1817's real dart), geometry.typed 0->1, and
-#                           the same two in total -- no class mismatch, and one
+#                           3->2 (the others are #1817's and #1819's real darts),
+#                           geometry.typed 0->1, total.alternative 4->3 and total.typed
+#                           0->1 -- no class mismatch, and one
 #                           PICK-DISAGREES naming that dart, because the
 #                           sectors (S1 published, S20 offered, S20 corrected) say alternative
 #   4. mutation B: header   `degraded` struck from the columns line only, the drift a v1
@@ -22,8 +23,9 @@
 #                           not one COUNT line printed: refused, never miscounted
 #   5. mutation C: the END  the 16:24:29.105 `SCORE: END` struck from the log. PREDICTION:
 #                           rc 1 with exactly 2 class mismatches and no count mismatch: the
-#                           D11 falls to rim-one-tip (a lone double) and the S2 to ring-wire
-#                           (4.35 mm), which is why the takeout's class is decided first
+#                           D11 and the S2 fall to phantom-unplaced -- removed, and no END
+#                           near them -- and to no wire class, because a dart that was never
+#                           there was not misread across a wire (#1819)
 #   6. the real lines       #1817: casual/20's 2026-10-11 push line for 01M4KYTXNW... is
 #                           found with its whole window, and 01M4KWAS5R..., which that log
 #                           names only on a `frames ... are gone` line, is ABSENT placed
@@ -36,6 +38,15 @@
 #   8. mutation E: mention  the `frames ... are gone` line struck. PREDICTION: rc 1 with
 #                           exactly 1 mismatch, `absent 01M4KWAS5R....mentioned expected 1
 #                           got 0`; `where` stays between-files
+#   9. mutation F: the      #1819: casual/20's real 00:57:20.921 `SCORE: END` struck. PREDICTION:
+#      re-read's END        rc 1 with exactly 2 mismatches, both class: 01M4KX46R3... and
+#                           01M4KX48S7... expected reread-after-takeout got phantom-unplaced,
+#                           because a position repeated with no END between is the same
+#                           visit, not a re-read; no count moves
+#  10. mutation G: 13 px    #1819: the 00:57:23.331 re-read's Position moved from (568,266)
+#                           to (581,266), one pixel past REREAD_PX's 12. PREDICTION: rc 1 with
+#                           exactly 1 mismatch, 01M4KX46R3... got phantom-unplaced; the
+#                           00:57:25.415 re-read stays (9.2 px from the S4)
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
@@ -61,9 +72,10 @@ od_run "1789-check" --network none \
   [ $RC -eq 0 ] || no "the fixture did not census to its header (rc=$RC)"
   grep -q "^I1789 EXPECT HELD" /tmp/fixture.out || no "the fixture printed no EXPECT HELD"
   # Every corrected dart is printed: a DART line for each standing correction, and each
-  # either followed by its window or named ABSENT. 15 corrections stand in the fixture.
+  # either followed by its window or named ABSENT. 25 corrections stand in the fixture.
   DARTS=$(grep -c "^I1789 DART " /tmp/fixture.out)
-  [ "$DARTS" -eq 15 ] || no "the fixture printed $DARTS DART lines where 15 corrections stand"
+  [ "$DARTS" -eq 25 ] || no "the fixture printed $DARTS DART lines where 25 corrections stand"
+  grep -q "^I1789 CLASS .* unclassified=0$" /tmp/fixture.out || no "the fixture left a dart unclassified"
 
   echo "==== 3. mutation A: the 16:49:15 dart picked typed, not alternative ============"
   echo "PREDICTION: rc 1, exactly 4 count mismatches (geometry.alternative, geometry.typed,"
@@ -75,7 +87,7 @@ od_run "1789-check" --network none \
   grep -E "^I1789 (MISMATCH|PICK-DISAGREES|EXPECT)" /tmp/mutA.out
   A_COUNT=$(grep -c "^I1789 MISMATCH count " /tmp/mutA.out)
   A_CLASS=$(grep -c "^I1789 MISMATCH class " /tmp/mutA.out)
-  A_NAMED=$(grep -cE "^I1789 MISMATCH count (geometry|total)\.(alternative expected 2 got 1|typed expected 0 got 1)$" /tmp/mutA.out)
+  A_NAMED=$(grep -cE "^I1789 MISMATCH count (geometry\.alternative expected 3 got 2|total\.alternative expected 4 got 3|(geometry|total)\.typed expected 0 got 1)$" /tmp/mutA.out)
   A_PICK=$(grep -c "^I1789 PICK-DISAGREES ref=01M4JFX0000000000000164915 " /tmp/mutA.out)
   echo "mutA rc=$RC_A count=$A_COUNT named=$A_NAMED class=$A_CLASS pick=$A_PICK"
   [ $RC_A -eq 1 ] && [ "$A_COUNT" -eq 4 ] && [ "$A_NAMED" -eq 4 ] && [ "$A_CLASS" -eq 0 ] && [ "$A_PICK" -eq 1 ] \
@@ -95,16 +107,16 @@ od_run "1789-check" --network none \
   ! grep -q "^I1789 COUNT " /tmp/mutB.out || no "mutation B printed a count from a misread export"
 
   echo "==== 5. mutation C: the 16:24:29.105 END struck from the log ==================="
-  echo "PREDICTION: rc 1, exactly 2 class mismatches -- 01M4JZS12A... got rim-one-tip,"
-  echo "            01M4JZS2R1... got ring-wire -- and no count mismatch."
+  echo "PREDICTION: rc 1, exactly 2 class mismatches -- 01M4JZS12A... and 01M4JZS2R1..."
+  echo "            got phantom-unplaced -- and no count mismatch."
   grep -v "^\[16:24:29.105\]" $LOG > /tmp/mutC.txt
   [ "$(diff $LOG /tmp/mutC.txt | grep -c "^<")" -eq 1 ] || no "mutation C did not strike exactly one line"
   $PY --truth $TRUTH --log /tmp/mutC.txt --expect > /tmp/mutC.out; RC_C=$?
   grep -E "^I1789 (MISMATCH|EXPECT)" /tmp/mutC.out
   C_CLASS=$(grep -c "^I1789 MISMATCH class " /tmp/mutC.out)
   C_COUNT=$(grep -c "^I1789 MISMATCH count " /tmp/mutC.out)
-  C_D11=$(grep -c "^I1789 MISMATCH class 01M4JZS12A0000000000162428 expected phantom-takeout got rim-one-tip$" /tmp/mutC.out)
-  C_S2=$(grep -c "^I1789 MISMATCH class 01M4JZS2R10000000000162430 expected phantom-takeout got ring-wire$" /tmp/mutC.out)
+  C_D11=$(grep -c "^I1789 MISMATCH class 01M4JZS12A0000000000162428 expected phantom-takeout got phantom-unplaced$" /tmp/mutC.out)
+  C_S2=$(grep -c "^I1789 MISMATCH class 01M4JZS2R10000000000162430 expected phantom-takeout got phantom-unplaced$" /tmp/mutC.out)
   echo "mutC rc=$RC_C class=$C_CLASS count=$C_COUNT d11=$C_D11 s2=$C_S2"
   [ $RC_C -eq 1 ] && [ "$C_CLASS" -eq 2 ] && [ "$C_COUNT" -eq 0 ] && [ "$C_D11" -eq 1 ] && [ "$C_S2" -eq 1 ] \
     || no "mutation C did not move exactly the two predicted classes"
@@ -152,8 +164,34 @@ od_run "1789-check" --network none \
   [ $RC_E -eq 1 ] && [ "$E_ALL" -eq 1 ] && [ "$E_NAMED" -eq 1 ] && [ "$E_WHERE" -eq 1 ] \
     || no "mutation E did not move exactly the mention"
 
+  echo "==== 9. mutation F: the re-read'"'"'s END struck (#1819) =============================="
+  R1=01M4KX46R330AQBC5VJTWK8KQQ
+  R2=01M4KX48S7SZ2BW27TZ92CTHSA
+  echo "PREDICTION: rc 1, exactly 2 mismatches, both class: $R1 and $R2 expected"
+  echo "            reread-after-takeout got phantom-unplaced; no count moves."
+  grep -v "^\[00:57:20.921\]" $LOG > /tmp/mutF.txt
+  [ "$(diff $LOG /tmp/mutF.txt | grep -c "^<")" -eq 1 ] || no "mutation F did not strike exactly one line"
+  $PY --truth $TRUTH --log /tmp/mutF.txt --expect > /tmp/mutF.out; RC_F=$?
+  grep -E "^I1789 (MISMATCH|EXPECT)" /tmp/mutF.out
+  F_ALL=$(grep -c "^I1789 MISMATCH " /tmp/mutF.out)
+  F_NAMED=$(grep -cE "^I1789 MISMATCH class ($R1|$R2) expected reread-after-takeout got phantom-unplaced$" /tmp/mutF.out)
+  echo "mutF rc=$RC_F mismatches=$F_ALL named=$F_NAMED"
+  [ $RC_F -eq 1 ] && [ "$F_ALL" -eq 2 ] && [ "$F_NAMED" -eq 2 ] || no "mutation F did not move exactly the two re-reads"
+
+  echo "==== 10. mutation G: the first re-read moved 13 px (#1819) ====================="
+  echo "PREDICTION: rc 1, exactly 1 mismatch -- $R1 expected reread-after-takeout got"
+  echo "            phantom-unplaced; $R2 (9.2 px from the S4) stays a re-read."
+  sed "s/^\(\[00:57:23.331\]\[INFO\]\[SCORER\] - SCORE: S7 | Position: (\)568,266)/\1581,266)/" $LOG > /tmp/mutG.txt
+  [ "$(diff $LOG /tmp/mutG.txt | grep -c "^>")" -eq 1 ] || no "mutation G did not change exactly one line"
+  $PY --truth $TRUTH --log /tmp/mutG.txt --expect > /tmp/mutG.out; RC_G=$?
+  grep -E "^I1789 (MISMATCH|EXPECT)" /tmp/mutG.out
+  G_ALL=$(grep -c "^I1789 MISMATCH " /tmp/mutG.out)
+  G_NAMED=$(grep -c "^I1789 MISMATCH class $R1 expected reread-after-takeout got phantom-unplaced$" /tmp/mutG.out)
+  echo "mutG rc=$RC_G mismatches=$G_ALL named=$G_NAMED"
+  [ $RC_G -eq 1 ] && [ "$G_ALL" -eq 1 ] && [ "$G_NAMED" -eq 1 ] || no "mutation G did not move exactly the first re-read"
+
   echo
-  if [ $fails -eq 0 ]; then echo "ALL EIGHT HELD"; exit 0; fi
+  if [ $fails -eq 0 ]; then echo "ALL TEN HELD"; exit 0; fi
   echo "FAILURES: $fails"; exit 1
 ' < /dev/null
 RC=$?
