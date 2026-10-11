@@ -82,12 +82,15 @@ tester 1787-account       "bash '$T/i1787_check.sh'"
 # turnaus#1789: what #1787 posts and turnaus#1786 exports, read back here -- a session's
 # truth line recounted into Turnaus's four counts per path, each corrected dart joined to
 # its log window by reference, and its fault class named (#1781, #1707, #1782, #1766,
-# #1773, #1628, #1556, or unclassified). The fixture is the 2026-10-10 session as the
-# issues record it; three mutations with the prediction printed first: one `picked` moved
-# (exactly the four counts it should), `degraded` struck from the columns line (refused,
-# not miscounted), the takeout's END struck from the log (exactly the two phantoms move).
-# Stdlib python in $OD_IMAGE; no detector binary, so OD_SKIP_BUILD changes nothing about
-# it. MEASURED 2026-10-11 on the 4-core box with #1793's replays alongside, rc=0: 4.4 s.
+# #1773, #1628, #1556, #1820-#1822, a turn total naming no dart, or unclassified; #1819).
+# The fixture is the 2026-10-10 session as the issues record it plus real rows and lines
+# from the first two sessions read back (#1817, #1819); seven mutations with the prediction
+# printed first: one `picked` moved (exactly the four counts it should), `degraded` struck
+# from the columns line (refused, not miscounted), the takeout's END struck (exactly the two
+# phantoms move), a real push and a real mention struck (#1817), the re-read's END struck
+# and its Position moved 13 px (exactly the re-reads move, #1819). Stdlib python in
+# $OD_IMAGE; no detector binary, so OD_SKIP_BUILD changes nothing about it. MEASURED
+# 2026-10-11 on the 4-core box, rc=0: 8.4 s (4.4 s before #1819's two mutations).
 tester 1789-truth         "bash '$T/i1789_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester

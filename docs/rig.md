@@ -1297,17 +1297,45 @@ dropped. `I1789 PICK-DISAGREES` names a dart whose `picked` is not what Turnaus'
 
 | class | issue | holds when |
 |---|---|---|
-| `phantom-takeout` | #1781 | the dart's SCORE line is within 2.0 s of a `SCORE: END` -- the one class that needs the log, because the truth line carries no END |
+| `turn-total` | #1786 | `picked` is `turn`: a Casual turn's total was corrected, which names no dart, so no fault class is claimed; the `why` says what the account alone would have called it |
+| `phantom-takeout` | #1781 | the dart's SCORE line is within 2.0 s of a `SCORE: END` -- needs the log, because the truth line carries no END |
+| `reread-after-takeout` | #1820 | a removed dart whose SCORE `Position` is within 12 px of a dart of the visit the END before it closed, no END between -- needs the log |
+| `phantom-unplaced` | -- | any other removed dart: never there, and nothing here says why; a removed dart is never put in a wire class |
+| `miss-for-a-dart` | #1821 | published a miss (`None`) and corrected to a sector |
 | `rim-one-tip` | #1707 | a lone vote reading (`agreeing` 1) published a double, or was corrected to a miss |
 | `corner` | #1782 | a geometric solve within its own `sigma_mm` of a ring wire AND a wedge wire (the account's margin for one, the other from `radius`/`angle` on the 170 mm model) |
 | `two-line-wire` | #1766 | a two-camera geometric solve within its own `sigma_mm` of the wire it names |
-| `ring-wire` | #1773 | a vote reading, lone or consensus, within 5 mm of a ring wire (`ring_wire_mm`) |
-| `lone-wedge-wire` | #1628 | a lone vote reading within 5 mm of a wedge wire (`lone_wire_mm`); the nearer margin decides against `ring-wire` |
+| `three-line-wire` | -- | the same with three or more cameras: the flag's own case, not a fault |
+| `lone-beyond-sigma` | #1822 | a lone vote reading corrected across a wire it was more than 5 mm clear of |
+| `ring-wire` | #1773 | a vote reading, lone or consensus, within 5 mm of a ring wire |
+| `lone-wedge-wire` | #1628 | a lone vote reading within 5 mm of a wedge wire; the nearer margin decides against `ring-wire` |
 | `unflagged-geometric` | #1556 | a geometric solve published unflagged and corrected |
 | `unclassified` | -- | the honest default |
 
+The vote classes read `ring_wire_mm` / `lone_wire_mm` where the board posted them, and
+otherwise the same margins from `radius`/`angle` on the 170 mm model (no wedge wire inside
+the 25's wire), marked `(model)` in the `why`: casual/17's build posted neither for any of
+its 526 darts. Which wire a correction crossed is read from the two sectors -- the number
+changed is a wedge wire, the ring letter a ring wire.
+
 The 2.0 s is #1789's own figure; #1781's phantoms were 0.74 s before and 0.98 s after their
 END. The 5 mm is #1628's lone-reading sigma, which #1773 reused for ring wires.
+The 12 px is #1819's: casual/20's two re-reads sat 0.0 and 9.2 px from the darts they
+repeated.
+
+**The first two real sessions (#1819).** Before #1819 the census left 33 darts
+`unclassified` (24 on casual/17, 9 on casual/20). Twenty-two were darts of a corrected
+Casual turn -- a correction that names no dart -- and the census had also put 34 more such
+darts into fault classes, 14 of them in `unflagged-geometric`. Four were removed darts
+(and five more removed darts sat in wire classes). Seven were real corrections: two
+`miss-for-a-dart`, two `lone-beyond-sigma`, one `three-line-wire`, and one each for
+`ring-wire` and `lone-wedge-wire` that casual/17's missing margins had hidden. After it:
+
+| board | turn-total | phantom-takeout | reread | phantom-unplaced | miss | rim-one-tip | corner | two-line | three-line | lone-beyond | ring-wire | lone-wedge | unflagged-geo | unclassified |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| casual/17 | 31 | 0 | 0 | 6 | 1 | 2 | 3 | 4 | 0 | 2 | 1 | 1 | 0 | 0 |
+| casual/20 | 25 | 0 | 2 | 1 | 1 | 2 | 2 | 4 | 1 | 0 | 1 | 2 | 1 | 0 |
+
 
 **The reference set: 2026-10-10 (build 2b56b48).** `testers/fixtures/i1789/` holds the
 session as a hand-written truth line of 25 darts and a log excerpt written from the lines
@@ -1341,14 +1369,18 @@ The session has no instance of `lone-wedge-wire` or `unflagged-geometric` (#1773
 every unflagged geometric solve of the day right); the self-test holds those two rules on
 hand-built accounts, not on session data.
 
-**Measured (`testers/run_all.sh 1789-truth`, 4.4 s).** The self-test (18 cases); the
-fixture against its header's 18 expectations; and three mutations, each predicted first:
+**Measured (`testers/run_all.sh 1789-truth`, 8.4 s on 2026-10-11 with #1819).** The
+self-test (35 cases); the fixture, now with ten more real rows from the two sessions and
+twenty more real log lines, against its header's 36 expectations; and five mutations, each
+predicted first (two more are #1817's, below, and two #1819's: casual/20's 00:57:20.921 END
+struck moves exactly the two re-reads to `phantom-unplaced`, and the first re-read's
+Position moved 13 px moves exactly that one):
 the 16:49:15 dart's `picked` moved from `alternative` to `typed` turns exactly
 `geometry.alternative`, `geometry.typed`, `total.alternative` and `total.typed` red and
 `PICK-DISAGREES` names it; `degraded` struck from the columns line is refused on the first
 dart line (23 fields where the columns line names 22) with no count printed; the 16:24:29
-END struck from the log moves exactly the two phantoms, the D11 to `rim-one-tip` and the S2
-to `ring-wire` (4.35 mm), which is why the takeout is decided first.
+END struck from the log moves exactly the two phantoms, to `phantom-unplaced` (before
+#1819, to `rim-one-tip` and `ring-wire`: a removed dart is no longer put in a wire class).
 
 ## Real-time replay (turnaus#1683)
 
