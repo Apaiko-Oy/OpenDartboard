@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -473,6 +474,207 @@ namespace dart_processing
     }
 
     /**
+     * turnaus#1793: a dart that lands after the board has counted three.
+     *
+     * The board counts arrivals itself, CLEAN -> DART_1 -> DART_2 -> DART_3, and before
+     * #1793 a camera at DART_3 STAYED at DART_3 whatever arrived: its candidate equalled
+     * the board's state, so the vote counted it as a stay and the window published
+     * nothing. When the board had counted a dart nobody threw (a phantom, a knock) and the
+     * player removed it in Turnaus ("There was no dart there", turnaus#1723), the round
+     * had room again and the visit's real third dart was never pushed.
+     *
+     * Under OD_PAST_THREE=on a camera at DART_3 whose fresh figure clears the floor (or
+     * the rim floor, #1689) votes an arrival past three, the vote counts it as an up vote,
+     * and a quorum calls a dart: the board stays DART_3 (there is no fourth state, and the
+     * takeout still reconciles from it) and the window publishes like any advance. Turnaus
+     * decides whether the round has room: it counts the dart when a withdrawal left room
+     * and answers DROPPED to a fourth dart into a full round (turnaus#1281).
+     *
+     * Pure and inline (#1338's reason): testers/i1793_round_check.cpp replays a round on
+     * these without building the detector.
+     */
+    inline bool votesArrivalPastThree(DartBoardState camera_previous, bool fresh_arrival, bool switch_on)
+    {
+        return switch_on && fresh_arrival && camera_previous == DartBoardState::DART_3;
+    }
+
+    /** turnaus#1793: whether a camera's vote is an up vote against the board's state. */
+    inline bool votesUp(DartBoardState detected, DartBoardState board, bool arrived_past_three)
+    {
+        return detected > board || (arrived_past_three && board == DartBoardState::DART_3);
+    }
+
+    /**
+     * turnaus#1793: the vote's three rules, as dart_processing.cpp applies them. Returns the
+     * reconciled state; `past_three` is set when a quorum called an arrival on a board
+     * already at DART_3 -- the one called dart that leaves the state where it was.
+     */
+    inline DartBoardState reconcileVote(DartBoardState board, int goes_clean, int moves_up, int quorum,
+                                        bool &past_three)
+    {
+        past_three = false;
+        if (goes_clean >= quorum)
+        {
+            return DartBoardState::CLEAN; // Rule 3: a quorum thinks CLEAN
+        }
+        const bool quorum_moves = moves_up >= quorum;
+        if (quorum_moves)
+        {
+            if (board == DartBoardState::DART_3)
+            {
+                past_three = true; // reachable only through votesUp's past-three clause
+                return board;
+            }
+            return static_cast<DartBoardState>(static_cast<int>(board) + 1); // Rule 1: a quorum moves up
+        }
+        return board; // Rule 2: stay put
+    }
+
+    /**
+     * turnaus#1793: whether the vote called a dart in this window -- an advance, or an
+     * arrival past three. What follows a called dart (the working backgrounds, the reported
+     * tips, the reversion memory, the kept frames) reads this rather than `final > previous`.
+     */
+    inline bool windowCalledADart(DartBoardState previous, DartBoardState current, bool past_three)
+    {
+        return current > previous || (past_three && current == DartBoardState::DART_3);
+    }
+
+    /** turnaus#1793: whether score_processing publishes this window (an END, or a dart). */
+    inline bool windowPublishes(DartBoardState previous, DartBoardState current, bool past_three)
+    {
+        return previous != current || windowCalledADart(previous, current, past_three);
+    }
+
+    /**
+     * turnaus#1820: how close, in the reference camera's pixels, a first dart after a
+     * reversion END must be published to a dart of the visit that END closed to be that
+     * dart, still in the board, read again as it is pulled.
+     *
+     * WHERE THE FIGURE COMES FROM. Live on casual board 20 (2026-10-11 00:57) the two
+     * re-reads were 0.0 px (S7: the same three lines, the same solve) and 9.2 px (the S4,
+     * first solved from two lines at 15.6 mm sigma, re-solved from three) from the darts
+     * they repeated, and 01:00:42/:44's pair were 0.0 and 0.0 px. 12 px is the census's
+     * REREAD_PX (testers/i1789_truth_census.py, #1819), kept so the census and the hold
+     * name the same darts. It is NOT what separates a re-read from a real dart thrown into
+     * the same group: board 20's thrower lands 1.4..11.7 px from the visit before ten
+     * times in the session (same camera), every one after an END that reconciled under the
+     * CLEAN ceiling. The reversion END is that separation (RereadMemory::armed).
+     */
+    inline double rereadRadiusPx()
+    {
+        return 12.0;
+    }
+
+    /**
+     * turnaus#1820: how long after the reversion END a repeat is still a pull rather than a
+     * throw.
+     *
+     * WHERE THE FIGURE COMES FROM. Board 20's log, END to SCORE line. The four windows that
+     * were only a dart being pulled came 2,174 ms (01:00:42 S16), 2,410 ms (00:57:23 S7),
+     * 4,292 ms (01:00:44 T4) and 4,494 ms (00:57:25 S13) after their END. Two more repeats
+     * followed a reversion END and were real throws the thrower corrected, whose windows
+     * also held a late pull: 00:56:04's T13 (8.5 px, 7,276 ms; typed S7) and 00:59:20's
+     * D20 (4.2 px, 7,840 ms; corrected to a miss). Holding those would lose the throw where
+     * publishing them costs a correction, so the horizon sits between 4,494 and 7,276 ms.
+     * Six points, one thrower: the figure is the log's, not a law.
+     */
+    inline long long rereadHorizonMs()
+    {
+        return 6000;
+    }
+
+    /** turnaus#1820: one dart as the board published it -- the reference camera and its pixel. */
+    struct PublishedPixel
+    {
+        int camera = -1;
+        cv::Point2f at = cv::Point2f(-1.0f, -1.0f);
+    };
+
+    /**
+     * turnaus#1820: the distance from `at` to the nearest of `closed` published through
+     * the SAME camera, or -1 when there is none. A position is a pixel in one camera's
+     * image, so a dart published through another camera is not compared at all; a MISS
+     * (camera -1 or a negative pixel) has no position and repeats nothing.
+     */
+    inline double nearestSameCameraPx(int camera, cv::Point2f at, const std::vector<PublishedPixel> &closed)
+    {
+        if (camera < 0 || at.x < 0.0f || at.y < 0.0f)
+            return -1.0;
+        double best = -1.0;
+        for (const PublishedPixel &p : closed)
+        {
+            if (p.camera != camera || p.at.x < 0.0f || p.at.y < 0.0f)
+                continue;
+            const double d = std::hypot((double)(p.at.x - at.x), (double)(p.at.y - at.y));
+            if (best < 0.0 || d < best)
+                best = d;
+        }
+        return best;
+    }
+
+    /**
+     * turnaus#1820: what the board remembers of the visit a takeout closed, to recognise
+     * that visit's darts being pulled after the END.
+     *
+     * A reversion END (#1518) reconciles on a FALL, not on reaching the CLEAN ceiling, so
+     * it can come with darts still in the board, and #1518 then adopts those frames as
+     * the clean reference. Pulling a dart afterwards is a change against that reference
+     * at the dart's own pixels, and the vote reads it as an arrival there. Only a
+     * reversion END can adopt darts, so only a reversion END arms the hold; and a dart
+     * still in the board is pulled before the next throw, so the hold is disarmed by the
+     * first dart the next visit publishes.
+     *
+     *   published(camera, at)      a dart was published (MISS included): it joins this
+     *                              visit, and a first dart after the END disarms the hold
+     *   ended(by_reversion, ms)    an END at `ms`: this visit becomes the closed one, armed
+     *                              or not
+     */
+    struct RereadMemory
+    {
+        std::vector<PublishedPixel> visit;  // the darts the open visit has published
+        std::vector<PublishedPixel> closed; // the darts of the visit the last END closed
+        bool armed = false;                 // that END was a reversion END, and nothing has published since
+        long long ended_ms = -1;            // when it was
+
+        void published(int camera, cv::Point2f at)
+        {
+            PublishedPixel p;
+            p.camera = camera;
+            p.at = at;
+            visit.push_back(p);
+            armed = false;
+        }
+
+        void ended(bool by_reversion, long long now_ms)
+        {
+            closed = visit;
+            visit.clear();
+            armed = by_reversion && !closed.empty();
+            ended_ms = now_ms;
+        }
+    };
+
+    /**
+     * turnaus#1820: the rule. A dart is a re-read, held unpublished, when the hold is armed
+     * (the last END reconciled by reversion and the new visit has published nothing), the
+     * board is advancing from CLEAN, it comes within `horizon_ms` of that END, and it is
+     * within `radius` of a dart of the closed visit through the same camera.
+     */
+    inline bool isARereadAfterTakeout(const RereadMemory &memory, DartBoardState previous, int camera,
+                                      cv::Point2f at, long long now_ms, double radius = rereadRadiusPx(),
+                                      long long horizon_ms = rereadHorizonMs())
+    {
+        if (!memory.armed || previous != DartBoardState::CLEAN || memory.ended_ms < 0)
+            return false;
+        const long long since = now_ms - memory.ended_ms;
+        if (since < 0 || since >= horizon_ms)
+            return false;
+        const double d = nearestSameCameraPx(camera, at, memory.closed);
+        return d >= 0.0 && d <= radius;
+    }
+
+    /**
      * turnaus#1781: the share of a camera's board above which a voting camera's FRESH
      * change is a body (the thrower's arm at a takeout), not a dart.
      *
@@ -769,6 +971,12 @@ namespace dart_processing
         // #1689: this camera's fresh change cleared the floor only out to the rim, so it
         // voted the arrival and offered no tip or axis ("rim only").
         bool rim_only = false;
+        // turnaus#1821: this camera voted the arrival and was counted toward the scoring-area
+        // quorum (#1707's moves_up_in_scoring), by its own figure or as a #1678 corroborator.
+        bool cleared_scoring_floor = false;
+        // turnaus#1793: this camera was at DART_3 and its fresh figure cleared the floor
+        // (OD_PAST_THREE=on only): an up vote although its candidate equals the board's.
+        bool arrived_past_three = false;
     };
 
     // Result of dart state detection
@@ -783,6 +991,13 @@ namespace dart_processing
         // cleared the floor in the scoring area were fewer than the quorum. Such a dart is
         // at or beyond the double ring on every camera but the ones that carried it.
         bool rim_carried = false;
+        // turnaus#1793: the vote called a dart on a board already at DART_3, so
+        // current_state == previous_state and the window still publishes (windowPublishes).
+        bool past_three = false;
+        // turnaus#1820: this window reconciled CLEAN with at least one reversion vote in it
+        // (#1518, or #1552's memory of one): a takeout's END whose cameras were still over
+        // their CLEAN ceiling when #1518 adopted their frames as clean.
+        bool reversion_end = false;
     };
 
     // get name of ENUM. Inline here since #1350, so the window account below -- and the
@@ -931,5 +1146,15 @@ namespace dart_processing
         bool movement_finished = false,
         bool debug_mode = false,
         const DartParams &params = DartParams());
+
+    /**
+     * turnaus#1820: take back the dart `called` advanced the board by, after the scorer
+     * refused to publish it (OD_REREAD_HOLD). The board's state goes back to the state
+     * the window opened on, and the tips the advance recorded for #1535 are taken off the
+     * record. The working backgrounds stay on this window's frames, as #1690's held
+     * re-base leaves them: what the refused window saw is on the board now (here: a dart
+     * that is no longer in it), so it must not be the next dart's fresh figure.
+     */
+    void withdrawCalledDart(const DartStateResult &called);
 
 } // namespace dart_processing

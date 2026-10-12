@@ -1,4 +1,5 @@
 #!/bin/bash
+# unrun-tester: #1797's hand-run proof on real footage, two unbounded replays (~157 s); its control means something only outside 05:xx-06:xx UTC, so a gate on it would answer by the hour of day. i1797_check.sh (1797-scheduled) gates the rule.
 # #1797: the scheduled stop on a real replay of mocks/rig-20260918, twice, by hand.
 #
 # NOT IN run_all.sh, deliberately: it runs the detector unbounded on sixty seconds of

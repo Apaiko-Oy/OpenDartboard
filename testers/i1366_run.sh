@@ -11,7 +11,7 @@ OUT="$OD_RUNS_BASE/1366"
 mkdir -p "$OUT"
 docker run --rm --name "$(od_name "i1366")" --cpus=2 --network none -v "$OD_TREE_ROOT":/app -w /app \
   -e CHECK_WORK=/tmp/i1366-check -e OD_BIN="${OD_BIN:-/app/build/opendartboard}" \
-  -e OD_RIG_CYCLES="${OD_RIG_CYCLES:-2000}" "$OD_IMAGE" \
+  -e OD_RIG_CYCLES="${OD_RIG_CYCLES:-2000}" -e OD_WINDOW_UNIT=cycles "$OD_IMAGE" \
   bash -c 'python3 /app/testers/i1366_position_check.py "$@"; rc=$?; mkdir -p /app/build/i1366-check; cp -r /tmp/i1366-check/. /app/build/i1366-check/ 2>/dev/null; exit $rc' _ "$@"
 RC=$?
 echo "CHECK_RC=$RC"

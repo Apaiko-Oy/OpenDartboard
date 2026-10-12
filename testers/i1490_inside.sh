@@ -4,6 +4,12 @@
 #
 # It never ends on an `echo` (#1463): the last statement is `exit $FAILED`.
 set -u
+# #1758: the detection windows are pinned to CYCLES. Since ece438d they default to
+# milliseconds of the motion clock, which here is the wall clock, so a replay on a loaded
+# box cuts different windows from the same footage: 1494-figure's shipping arm and
+# 1492-tips' base run -- one binary, one clip, minutes apart -- read the worst on-board
+# dart as 108.2 mm and 19.5 mm. A figure this tester asserts must be the tree's, not the box's.
+export OD_WINDOW_UNIT=cycles
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
@@ -42,12 +48,15 @@ fi
 
 echo
 echo "=== how far apart two cameras place one dart, in millimetres ==================="
+# Three outcomes, not two (#1758): until then any non-zero status read as "nothing was
+# placed", and a TypeError on dart 4's surround reading was reported as an empty census.
 python3 "$SRC/testers/i1490_spread.py" /run1490/rows.txt
-if [ $? -eq 0 ]; then
-  say "OK   darts were placed on the board by two or more cameras, so there is a spread to read" ok
-else
-  say "FAIL no dart in the whole clip was placed on the board by two cameras, so this census compared nothing" no
-fi
+SPREAD_RC=$?
+case "$SPREAD_RC" in
+  0) say "OK   darts were placed on the board by two or more cameras, so there is a spread to read" ok ;;
+  3) say "FAIL no dart in the whole clip was placed on the board by two cameras, so this census compared nothing" no ;;
+  *) say "FAIL the reader crashed (i1490_spread.py exited $SPREAD_RC) -- the census was not read, so nothing is known about what it placed" no ;;
+esac
 
 echo
 echo "=== the replay is the detector's own pipeline, and this is the control ========="

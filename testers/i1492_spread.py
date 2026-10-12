@@ -133,10 +133,18 @@ for d in order:
     rows = darts[d]
     sep, pair = worst_pair(rows)
     off = [f for f in rows if f.get("tipFound") == "1" and f.get("score") == "MISS"]
-    (off_darts if off else on_darts).append((sep, d, pair))
+    # #1758: a dart fewer than two cameras found a tip for has no pair, so it has no
+    # disagreement to put in either population. worst_pair answers 0.0 for it, and until
+    # #1758 that 0.0 was counted: on main a dart whose ONE tip was a MISS (dart 12) became
+    # "the best dart with an off-board camera, 0.0 mm" and refused the ordering, and a dart
+    # with no tip at all (dart 20) sat in the on-board half at 0.0. Its readings are still
+    # printed and still counted in TWO below.
+    if pair:
+        (off_darts if off else on_darts).append((sep, d, pair))
     print("  dart %2d (cycle %s, %s)   worst pair %s apart >= %6.1f mm%s"
           % (d, rows[0]["cycle"], rows[0]["state"], pair or "  -", sep,
-             "   <-- a camera is off the board" if off else ""))
+             ("   <-- a camera is off the board" if off else "")
+             + ("" if pair else "   (fewer than two tips: in neither population)")))
     for f in rows:
         fig = figure_for(f)
         if f.get("tipFound") != "1":

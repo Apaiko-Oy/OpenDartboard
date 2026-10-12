@@ -25,6 +25,7 @@
 #include "score_queue.hpp"
 #include "../utils/board_sight.hpp"
 #include "http_transport.hpp"
+#include "push_answer.hpp"
 #include "../detector/detector_interface.hpp"
 #include "../detector/geometry/detection/frame_keep.hpp"
 #include <algorithm>
@@ -806,6 +807,9 @@ private:
     bool said_log_upload_failed_ = false; // a failure is said ONCE in the log, not once per END
     bool log_upload_off_ = false;         // a refusal (401, 403, 404, 422): nothing more this run
     bool frames_route_off_ = false;       // the deployment has no frame-request route: said once
+    // turnaus#1793: a DROPPED answer to a dart has been said at INFO since the last takeout
+    // was delivered (OD_PAST_THREE=on only; droppedAnswerIsSaid). Push thread only.
+    bool dropped_said_this_round_ = false;
 
     std::atomic<uint64_t> queued_{0};
     std::atomic<uint64_t> delivered_{0};

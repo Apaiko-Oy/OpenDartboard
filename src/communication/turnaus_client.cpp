@@ -1211,6 +1211,18 @@ void TurnausClient::compactSpoolIfSettled()
     ledger_.clear();
 }
 
+// turnaus#1793: the detector's switch, read here for the one thing it changes in the client:
+// a DROPPED answer is said once per round (droppedAnswerIsSaid).
+static bool pastThreeOn()
+{
+    static const bool v = []
+    {
+        const char *e = std::getenv("OD_PAST_THREE");
+        return e && std::string(e) == "on";
+    }();
+    return v;
+}
+
 bool TurnausClient::deliver(const OwedPush &item)
 {
     attempts_++;
@@ -1237,9 +1249,26 @@ bool TurnausClient::deliver(const OwedPush &item)
         {
         }
         delivered_++;
+        // turnaus#1793: a takeout has no reference; delivering one ends the round.
+        const bool takeout = item.idempotency_key.empty();
         if (!outcome.empty())
         {
-            log_info("TURNAUS: " + outcome + " " + item.body);
+            if (takeout || droppedAnswerIsSaid(outcome, dropped_said_this_round_, pastThreeOn()))
+            {
+                log_info("TURNAUS: " + outcome + " " + item.body);
+                if (!takeout && outcome == "DROPPED")
+                {
+                    dropped_said_this_round_ = true;
+                }
+            }
+            else
+            {
+                log_debug("TURNAUS: " + outcome + " " + item.body + " (DROPPED already said this round)");
+            }
+        }
+        if (takeout)
+        {
+            dropped_said_this_round_ = false;
         }
         return true;
     }

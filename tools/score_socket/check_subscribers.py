@@ -82,10 +82,19 @@ from check_board_position import RawWebSocket, read_token  # noqa: E402
 
 # The ten messages of the reference control at 1100 cycles - the control envelope's
 # stream, which every earlier document's eight are the 900-cycle prefix of.
+#
+# #1758: re-recorded on main d8cfa64 with OD_WINDOW_UNIT=cycles (the phase script pins
+# it), both runs of one check byte for byte, ensure_calls 3412 in both. The 2026-09-19
+# stream was the asserted-20 era -- S20 (625,356), S20 (828,226), S20 (667,214), END,
+# S20 (408,411), S20 (491,446), D20 (376,447), END, S20 (559,280), S20 (522,458) --
+# before measured wedges read the numbers (#1498), #1555's solve published by default
+# and #1656 moved the bull to sub-pixel. This is a CONTROL for the socket, not a claim
+# that these are the darts thrown: what is asserted is that subscribers, reconnects and
+# a dead reader change nothing the board publishes.
 REFERENCE = [
-    ("S20", 625, 356), ("S20", 828, 226), ("S20", 667, 214), ("END", -1, -1),
-    ("S20", 408, 411), ("S20", 491, 446), ("D20", 376, 447), ("END", -1, -1),
-    ("S20", 559, 280), ("S20", 522, 458),
+    ("S12", 618, 354), ("S7", 477, 238), ("S17", 520, 340), ("END", -1, -1),
+    ("S1", 407, 413), ("S20", 478, 436), ("D20", 410, 459), ("END", -1, -1),
+    ("S13", 553, 274), ("S20", 506, 445),
 ]
 # 1100 cycles read 3411 until #817 (54ef303112d7d3f80072a636fda826948fafe78f), whose
 # commit says: "ensure_calls moves 3411 -> 3412: setFileLogging's one directory call,
@@ -548,8 +557,15 @@ def main():
             print(f"    run {n}: client stopped (queued, delivered, attempts, dropped, still_owed) = {stopped}")
             record(f"run {n}: the board paired with the stub", True, stub.paired)
             record(f"run {n}: what the board pushed is the reference, in order", want_push, pushed[n])
+            # #1758: since #1787 the board posts its log at every END to .../log, a route
+            # turnaus#1786 has not built. The stub answers it 404, as every deployment does
+            # today, and docs/api.md says the board takes that as "not here" once and never
+            # touches the darts for it. So that one path is counted apart, not as a refusal.
+            log_posts = [e for e in events if e.get("event") == "unknown_path" and str(e.get("path", "")).endswith("/log")]
+            print(f"    run {n}: log upload posts the stub answered 404 (the unbuilt turnaus#1786 route): {len(log_posts)}")
             record(f"run {n}: no push was absorbed, refused or sent anywhere unknown", 0,
-                   sum(1 for e in events if e.get("event") in ("absorbed", "answer_lost", "pairing_refused", "unknown_path")))
+                   sum(1 for e in events if e.get("event") in ("absorbed", "answer_lost", "pairing_refused", "unknown_path")
+                       and e not in log_posts))
             record(f"run {n}: every detection carried its own reference", len(counted_refs), len(set(counted_refs)))
             record(f"run {n}: the client dropped nothing and owed nothing at exit", "0 0",
                    f"{stopped[3]} {stopped[4]}" if stopped else "no summary line")

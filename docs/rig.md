@@ -789,6 +789,216 @@ wedge wire is nearer), inside the sigma; ...the reselection is off..., so it sta
 with `RING-WIRE: camera 0's S19 (alone) sits 5.7 mm from the 25 ring's wire by its own
 ruler, 21.6 mm from the bull, clear of the 5 mm sigma` beside it.
 
+## A corner offers the corner (turnaus#1782), default
+
+**The live dart.** 2026-10-10 16:38:53, build 2b56b48 (`OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`): a thrown **S19** published **T3**, flagged `T3 or S3`. A two-line
+solve crossing at 48.3 deg, 5.3 mm sigma, at 188.03 deg and radius 0.6346: on the fitted
+model 0.6 mm inside the treble's outer wire, and 0.6346 x 170 x sin(0.97 deg) = **1.8 mm**
+on the 3 side of the 3/19 wire (189 deg). Both wires inside one sigma: the four cells are
+T3, S3 (across the ring wire), T19 (across the wedge wire) and S19 (across both).
+`decideBoundaryCall` measured the crossing to the NEAREST wire in sigmas and named the
+one cell across it; Turnaus received `"alternative":"S3","candidates":["S3","S19","T19"]`,
+the S19 there because a camera read it (#1721's runner-up), not because the flag offered it.
+
+**The rule** (`score_processing::decideCornerCall`, pure, after `decideBoundaryCall`):
+where the solve is within #1556's threshold (`Params::crossingSigmas`, 1.0) of a ring wire
+AND a wedge wire and every cell can be named (the solver re-scores each side and the
+diagonal through the same fit, `alternativeAcross` and `diagonalAcross`):
+
+1. the three other cells are ranked by the solve's own covariance -- a bivariate normal
+   over the offsets toward the two wires, with the floored across-wire sigmas
+   (`sigmaRadialMm`, `sigmaTangentMm`) and the unfloored correlation between them; two
+   cells naming one score (a single beside the 25 ring: the diagonal is OUTER again) are
+   merged and their probabilities summed;
+2. where a camera the solve did NOT use read one of those cells clear of every wire (its
+   #1628 wedge margin and #1773 ring margin both at least 5 mm), that cell goes first.
+   A reading inside its own sigma is another coin (#1782's 16:49 counter-case: 1 for 2);
+3. the first is the flag's `alternative`; the rest are `BoundaryCall::others`, which
+   `dart_candidates` ranks straight after it -- a corner cell some voting camera read
+   first, then the rest in the flag's order, then the other readings and neighbours.
+
+The published score never moves and the flagged set is #1556's (a corner is inside the
+nearest wire's sigma by construction). The sentence keeps #1556's opening:
+`UNCERTAINTY: T3 or S3, T19, S19 -- a corner, a ring wire 0.6 mm across a 5.3 mm one-sigma
+and a wedge wire 1.8 mm across a 5.3 mm one-sigma, so T3 publishes now as the most
+probable cell (34%) and is flagged; by the solve's covariance S3 29%, T19 20%, S19 17%; a
+tap affirms it or appends another`. `OD_CORNER_FLAG=nearest` restores the one alternative
+on the same binary and appends what the corner would have offered. Census line:
+`I1782CORNER` (under `OD_GEO_SCORE=on`), counted by `testers/i1782_census.py`.
+
+**What the live dart now offers depends on a camera number the issue text cannot settle.**
+`LONE-WIRE: camera 1's S19 is 5.5 mm from a wedge wire` numbers cameras from 0 (it prints
+`choice.camera`), while the solve's cameras "2 and 3" are 1-based since #1748. Read that way
+the camera that read S19 is the solve's camera 2 -- USED -- and rule 2 does not fire: the
+flag offers **S3, T19, S19** (alternative S3, as before; S19 now in the flag, and
+candidates S3, S19, T19 as before because a camera read S19). If instead the S19 camera was
+the one the solve left out, rule 2 fires and the flag offers **S19, S3, T19** with S19 as
+Turnaus's `alternative`. The live log is on the maintainer's box; its `I1512ENTRY` story
+(or, from #1787 on, `cameras_used`) says which.
+
+**Measured (`testers/run_all.sh 1782-corner`, 50 s at load ~15).** The pure check holds the
+live shape at every wedge sigma 5.0-9.3 mm (#1766's fixture two-line range) and rho
+-0.6..0.6: S19 is offered in all 25; by covariance alone at rho 0 the order is S3, T19,
+S19 (T3 34%, 29/20/17%); an unused camera's clear S19 goes first; a used camera's, one
+2.9 mm from its wedge wire or 1.2 mm from its ring wire, does not; the same T3 8 mm from the
+wedge wire is not a corner and its flag is #1556's byte for byte. Predictions stated first
+and met exactly: doubling the wedge half of the threshold fails the 3 `reach:` assertions
+only; disabling the promotion fails the 3 `clear:` only; dropping the diagonal fails the 6
+`diag:` and the 3 `clear:` (the promoted S19 was the diagonal) and no `reach:` or `pure:`.
+
+**The fixture count (`i1782_census.py` over the bakeoff, capture clock, `OD_WINDOW_UNIT=cycles`,
+2026-10-11).** Every ACCURACY figure is the documented baseline's: rig-20260918 19/20 and
+19/20, rig-20260922 21/23 and 23/23, the vote pin 17/20, rig-20260929 26..30/36 and
+27..31/36; pooled 135..143/158, r18+r22 82/86; `score_moved=0` on all seven runs. Of 135
+matched darts on the six default runs, **71 are flagged geometric publishes, 10 of them
+corners** -- five darts, each a corner in both windows:
+
+| dart | published | thrown | #1556 offered | the corner offers |
+|---|---|---|---|---|
+| r18 v1.1 | T13 | T13 | T6 | T6, S13, S6 |
+| r22 v2.3 | T8 | T8 | S8 (dev) / T11 (opening) | S8, T11, S11 / T11, S8, S11 |
+| r22 v5.1 | S4 | S4 | S13 | OUTER, S13 (OUTER is ring + diagonal merged) |
+| r22 v8.1 | T1 | T1 | S1 | S1, T18, S18 |
+| r29 v3.1 | S6 | S13 | S13 | S13, T6, T13 |
+
+8 of the 10 publish right; the 2 wrong (r29 v3.1) have the truth across the wire #1556
+named, and the corner keeps it first. **None has the truth across the wire the flag did
+not name**, so on the fixtures the corner moves no right answer out of first place and
+gains none; the first alternative changes on one dart (r22 v5.1, S13 -> OUTER, published
+right). **A camera the solve did not use read nothing on any corner**: in all 10 every
+voting camera's line was in the solve (r29 v3.1's two cameras both read S13 clear of every
+wire, and were used). Over all 71 flagged darts the unused cameras read 8 times, 2 of them
+clear (r18 v2.3's S5, the published score and the truth), so rule 2 is unexercised by the
+fixtures and stands on the live argument alone. The live corner is the rig's 3/19 wire
+under a two-line solve, which no fixture reproduces.
+Run twice: on 78faa2f (the cells named only inside both sigmas) and on 7be8f4a (named
+wherever both wires can flip the call, the threshold in the pure rule; 1238 s and 1665 s
+wall at load 8-22). Every ACCURACY figure, every `I1721CANDIDATES` line and every
+`I1782CORNER` decision field (flagged, corner, nearest, offered, cameras) is identical
+between the two; only the measurement fields a non-corner now carries differ.
+
+## The flag's threshold (turnaus#1815), opt-in
+
+**What the sessions said.** The first two real sessions read back through turnaus#1786/#1789
+-- casual board 17 on 2026-10-10 (526 darts) and board 20 on 2026-10-11 (294) -- flagged 237
+and 159 darts, and 205 and 135 of those stood as published: a false-alarm rate of **0.865
+and 0.849**. A flag that is usually wrong teaches the marker to ignore it. Both sessions ran
+builds from before #1782, so their geometric flags are the single-alternative ones.
+
+**Which rule raised each flag** (`testers/i1815_census.py --truth-line`). The decision is
+recomputed from the truth line's own fields, never from the log: a geometric publish is
+flagged where `margin_mm <= sigma_mm` (#1556's z <= `Params::crossingSigmas`, 1.0), a vote
+publish where its ring-wire margin is under 5 mm (#1773; `ring_wire_mm` where the build
+wrote it, otherwise recomputed from `radius` x 170 mm against the spec's wires as
+`ringWireMarginMm` does). That reproduces the boards' own `flagged` on **819 of 820** darts;
+the one is a 5.00 / 5.00 rounding tie. TRUE is `picked` alternative / candidate / typed (the
+score was wrong); FALSE is `-` / `published`; `turn` (a Casual total naming no dart) and
+`removed` are AMBIGUOUS and claimed by neither side.
+
+| rule | board 17 false / true / ambiguous | board 20 | both |
+|---|---|---|---|
+| geometric, ring wire, two-line solve | 44 / 0 / 1 | 38 / 4 / 6 | 82 / 4 / 7 |
+| geometric, ring wire, three-line | 24 / 1 / 6 | 17 / 0 / 0 | 41 / 1 / 6 |
+| geometric, wedge wire, two-line | 49 / 6 / 5 | 28 / 2 / 2 | 77 / 8 / 7 |
+| geometric, wedge wire, three-line | 55 / 0 / 3 | 33 / 1 / 4 | 88 / 1 / 7 |
+| vote, ring wire (#1773), lone | 24 / 4 / 4 | 16 / 4 / 1 | 40 / 8 / 5 |
+| vote, ring wire (#1773), consensus | 9 / 0 / 2 | 3 / 0 / 0 | 12 / 0 / 2 |
+
+No #1707 rim flag fired (it is opt-in). Every flagged dart in both sessions is one of these
+six. The vote rows are not a threshold question: their true flags sit at 1.3-4.8 mm from the
+ring wire with false ones on both sides, and 22 of the 52 false ones are a double offered
+`None` at the outer wire, of which one (board 20, D20 -> None at 1.6 mm) was true.
+
+**The geometric flag is.** Every geometric flag a marker acted on -- 13 corrected through the
+flag, one typed -- sat at **z <= 0.52**, z being the solve's margin in its own across-wire
+sigmas; false flags are spread over the whole band (19 to 38 per tenth of a sigma, both
+sessions pooled). The fixtures agree: of the bakeoff's 71 flagged geometric darts (six
+default runs, #1782's binary) the five wrong ones sit at z 0.01-0.31 and **0.57**
+(rig-20260929 dev v9.3, S19 published for a thrown T19, T19 offered). So the true flags
+crowd the wire and the false ones do not, which is what an honest sigma predicts, and the
+part of #1556's band beyond about 0.6 sigma has caught nothing anywhere.
+
+**The rule** (`score_processing::tightenBoundaryCall`, pure, after `decideBoundaryCall` and
+before #1782's corner): under **`OD_FLAG_SIGMAS=<K>`, 0 < K < 1**, a geometric flag whose
+solve is further than K of its own sigmas from the wire publishes as a clear call: no
+alternative, no corner cells, confidence 0.9, and the sentence
+`UNCERTAINTY: S5 clears its nearest wedge wire -- 4.7 mm away across a 5.0 mm one-sigma
+(0.94 sigma), outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815); #1556's 1.0 would have
+flagged it with S20`. **The published score never moves**; the vote path's flags are not
+touched. Unset, empty, a word, 0, a negative or anything >= 1 is #1556's 1.0, byte for byte
+(a K above 1 would loosen the flag and is refused). Census line `I1815FLAG window= z= k=
+default= flagged= score= alt= kind=` under `OD_GEO_SCORE=on`; `testers/i1555_run.sh`
+forwards the switch.
+
+**The value it proposes is 0.7, and it stays opt-in.** 0.7 is the fixtures' 0.57 with 0.13
+sigma to spare (0.6 would leave 0.03); it is read off fourteen session darts and five fixture
+ones, which is #1556's own reason for refusing k = 0.5 on two, so a live session decides the
+default and not this table.
+
+`turn` darts (a Casual total corrected after the takeout, naming no dart; turnaus#1819) and
+`removed` ones are set aside from both tallies: 19 + 2 of board 17's flags and 12 + 1 of
+board 20's. The false-alarm rate below is false / (false + true) with them out; the issue's
+own figure, which counts them as false, is beside it.
+
+| | flags | false cut | true lost | set-aside cut | set aside, kept | false-alarm rate | issue's figure |
+|---|---|---|---|---|---|---|---|
+| board 17, K = 1.0 (today) | 237 | - | - | - | 21 | 0.949 | 0.865 |
+| board 17, K = 0.7 | 177 | 58 | **0** | 2 | 19 | 0.930 | 0.831 |
+| board 17, K = 0.6 | 162 | 72 | 0 | 3 | 18 | 0.924 | 0.821 |
+| board 20, K = 1.0 (today) | 159 | - | - | - | 13 | 0.925 | 0.849 |
+| board 20, K = 0.7 | 123 | 34 | **0** | 2 | 11 | 0.902 | 0.821 |
+| board 20, K = 0.6 | 110 | 45 | 0 | 4 | 9 | 0.891 | 0.818 |
+| board 20, K = 0.5 | 98 | 55 | **1** | 5 | 8 | 0.889 | 0.816 |
+
+**What it does and does not buy.** A quarter of the prompts go (60 of 237, 36 of 159) and not
+one corrected dart loses its flag. The false-alarm RATE barely moves, 0.949 -> 0.930 and
+0.925 -> 0.902 with the `turn` darts set aside, because even at z < 0.1 the sessions' geometric flags are 27 false to 3
+true: most darts that close to a wire were right as published. No threshold makes this flag
+mostly right; it can only make it rarer. The four ambiguous darts it clears -- three `turn`
+corrections (board 17 19:31:43Z S19/T19 at z 0.81 and 19:36:39Z S20/S1 at 0.73, board 20
+21:43:47Z S20/S1 at 0.78) and one `removed` (board 20 21:57:25Z S13/S6 at 0.79), all
+three-line solves -- cannot be called either way from the line.
+
+**The fixtures, replayed with the switch** (`OD_FLAG_SIGMAS=0.7 OD_WINDOW_UNIT=cycles
+testers/i1555_run.sh`, capture clock, 1894 s at load ~20, 2026-10-11; `i1815_census.py --log`
+joined to #1782's run of the same windows). Every ACCURACY figure is the documented
+baseline's -- rig-20260918 19/20 and 19/20, rig-20260922 21/23 and 23/23, the vote pin
+17/20, rig-20260929 26..30/36 and 27..31/36, pooled 135..143/158, r18+r22 82/86 -- and the
+published score of every window of all seven runs is byte-identical to #1782's run. Of the
+**71** geometric darts #1556's 1.0 flags, **52 stay flagged and 19 publish clear at 0.90**,
+exactly the 19 the recomputation from #1782's logs named: 16 right as published (r18 dev
+v3.2 S7, v3.3 T20; r18 opening v2.3 S5, v3.3 T20; r22 dev v4.2 T15, v6.2 S18; r22 opening
+v6.2 S18, v8.3 BULL; r29 dev v4.3 S2, v7.2 S20; r29 opening v1.1 S5, v2.1 T9, v3.3 S2, v4.3
+S2, v7.2 S20, v8.1 T20) and three UNCLAIMED second detections of one throw (r29 dev window 18
+S15 at z 0.71, window 41 S3 at 0.95 in both windows), which no alternative could have
+helped. Every wrongly-scored flagged dart keeps its flag: r18 v5.1 T15 for S15 (0.30, 0.31),
+r29 v3.1 S6 for S13 (0.06, 0.005), r29 dev v9.3 S19 for T19 (**0.569**, the nearest of all).
+
+**The pure check** (`testers/i1815_check.sh`, registered as `1815-flagsigmas`, 59 s at load
+~20). `i1815_flag_check.cpp` holds the rule on the real darts: the 14 session darts a marker
+corrected through a geometric flag and the bakeoff's five wrong flagged ones, all still
+flagged at K = 0.7; nine flags that stood (six session, three fixture), all cleared with
+nothing offered; a corner beyond K offering neither its alternative nor its rest; the
+sentence; the switch's parse; and, at every K and on every dart, the same published score,
+with K = 1.0 returning #1556's call byte for byte. **Mutation proof, predictions printed
+before each run and met exactly:** (A) the keep comparison read as `z <= k - 0.2` fails the
+2 `edge:` assertions only -- board 20's S20/T20 at 0.524 and rig-20260929 dev v9.3 at 0.569,
+the two real true flags between 0.5 and 0.7; (B) a flag beyond K left flagged fails the 11
+`cut:` assertions only; (C) the parse's upper bound removed fails the one `parse:` assertion
+that reads 1.5 and no other, since `tightenBoundaryCall` still leaves K >= 1 alone.
+
+**Board 17's vote fields.** Board 17's build posted no `lone_wire_mm` or `ring_wire_mm`, so
+its vote flags are recomputed from `radius` and the published ring on the 170 mm model; that
+reproduces all 526 of its `flagged` fields. #1816 (the unflagged errors) is closed by
+turnaus#1819's census: one real unflagged geometric error in both sessions.
+
+**What only a live session can prove.** That a marker shown a quarter fewer prompts acts on
+the ones left; that no dart between z 0.7 and 1.0 is wrong on another rig or another
+thrower (both sessions are one rig, casual play, with 56 `turn` darts whose outcome is unknown);
+and that the default can move. The corner (#1782) interaction is measured only on the
+fixtures: both sessions predate it.
+
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
 **Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:24) the
@@ -860,6 +1070,296 @@ live figures and on the fixtures' nearest darts, and mutates each constant both 
 30% and 3%, 900 ms and 5,000 ms each turn exactly one named assertion red, as predicted.
 It stays opt-in: it rests on one live takeout whose log is the only evidence, and no
 fixture holds an arm-sized window.
+
+## A dart past three (turnaus#1793), opt-in
+
+**What the code did** (read, then confirmed on the replays). The board counts arrivals itself,
+CLEAN -> DART_1 -> DART_2 -> DART_3. A camera at DART_3 whose fresh figure cleared the floor
+gave the candidate DART_3 (`Stay in DART_3`, `dart_processing.cpp`), which equals the board's
+state, so the vote counted it as a stay; and `score_processing` publishes only on a state
+change. So a board that had counted a dart nobody threw had no state for the visit's real
+third dart: when the player removed the phantom in Turnaus ("There was no dart there",
+turnaus#1723), the round had room again and nothing was pushed for the dart that filled it.
+The client already treated `DROPPED` as ordinary: a `202`, settled, not retried, counted as
+delivered, and logged once per push.
+
+`OD_PAST_THREE=on` (`dart_processing.cpp`; pure decisions in `dart_processing.hpp`):
+- a camera at DART_3 whose fresh figure clears the floor, or the rim floor (#1689), votes an
+  arrival past three (`votesArrivalPastThree`), and the vote counts it as an up vote
+  (`votesUp`) under the same quorum, the lone-camera rule (#1678) and the body hold (#1781);
+- a quorum calls a dart and the board stays DART_3 (`reconcileVote`); everything that
+  follows a called dart reads `windowCalledADart` instead of `final > previous`: the working
+  backgrounds move (#1495), the tips are recorded (#1535), the reversion memory is cleared
+  (#1552), the frames are kept (#1787), and a held past-three vote re-bases under
+  `OD_HELD_REBASE=on` (#1690) exactly as a held vote does at DART_1/2;
+- `score_processing` publishes it (`windowPublishes`) through the DART_3 case, and the line
+  `I1793 PAST THREE` says so;
+- the client says a `DROPPED` answer once per round at INFO and the rest at DEBUG
+  (`push_answer.hpp`); a delivered takeout ends the round. Off: every answer is said, as before.
+
+Turnaus decides whether the round has room: it counts the dart when a withdrawal left room
+and answers `DROPPED` to a fourth dart into a full round (turnaus#1281). The takeout is
+unchanged: CLEAN wins at quorum before any up vote is counted, from DART_3 as before.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_PAST_THREE=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+**No changed row** in any of the seven censuses, and **no arrival past three pushed** on any
+fixture: no `I1793 PAST THREE` line in any run (the switch's startup line is in all seven).
+The detector logs are identical line for line once the timings and the capture anchors are
+taken out, so no window was even held on a past-three vote (a held one would print a
+`STATE VOTE` line with its up count). No fixture holds a fourth arrival: every window opened
+on a board at DART_3 is the takeout. **No written turn changes** on any fixture.
+rig-20260918's v6 is the phantom's shape (a MISS window where v6.1's unseen miss was) but not
+#1793's: the round holds three windows and nothing arrives after them.
+
+What is not measured: a past-three vote cast by a camera in a window the vote reconciled
+CLEAN prints nothing, so how often the takeout's own motion votes past three on one camera
+before CLEAN wins is not counted. `testers/run_all.sh 1793-pastthree` holds the decisions on
+a replayed round (a phantom the player removes, then three real darts: S1 pushed and written
+with the switch on, not pushed with it off; a fourth arrival into a full round pushed and
+DROPPED with the written turn unchanged; a lone camera held; the takeout after it an END)
+and mutates each decision with its prediction stated first. It stays opt-in: the fixtures
+cannot show the case it is for, and only a live session can.
+
+## A takeout of surround darts (turnaus#1783), opt-in
+
+**Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:51) a visit of
+three misses on the surround published three MISSes (`I1707 RIM CARRIED`, cameras `rim only`),
+and the takeout that pulled them opened nothing: the log is silent from the post-dart window at
+16:51:56 (`stays DART_3`, 9,343 / 32,153 / 5,894 px) to a second takeout's `CLEAN BY REVERSION`
+END at 16:52:12, two further off-board darts later. The live log is not on this machine, so what
+follows is read from the code and the figures the issue records.
+
+**What the code says.** An event opens on one camera's frame-to-frame motion figure crossing the
+entry (`processMotion`, IDLE and the cooldown's arm), and that figure is counted inside the
+double's outer ellipse (`BoardExtent::edge`), while since #1689 the dart counts reach the rim.
+The board was not stuck in an event: an event in `SPIKE_DETECTED` past 10 s logs a warning, a
+settle that cannot finish is broken only by a quiet cycle (and the default, `OD_MOTION_FIX`
+unset, finishes on the first one), and the 16 s include two throws from the oche, when nothing
+is between a camera and the board. So the board was IDLE and **no camera's figure inside the
+double crossed 0.006 while the darts were pulled**: a hand gripping darts between the double and
+the rim is outside every figure that opens an event. 32,153 px on camera 2 needs no thrower: it
+is three side-on darts at the size of that camera's largest fixture darts (12,692 px, #1781).
+
+**The fixtures show the same thing.** `OD_MOTION_REGION_CENSUS=1` prints `I1783REGION`, both
+counts, on every IDLE or cooldown cycle where either crosses the entry. rig-20260929's visit 12
+(`miss d14 miss`) has its two misses as figures counted to the rim and not to the double: cycle
+5039 (camera 1 0.0111 to the rim, 0.0001 to the double) and 5154 (camera 1 0.0335 against
+0.0001). Neither opened an event, so those misses never published (#1537's shape, and why that
+visit is AMBIGUOUS in the census). That visit's takeout opened because the hand reached the D14
+inside the double (cycle 5233, 0.0631), one cycle after the hand first crossed the entry in the
+surround (5232: 0.0304 to the rim, 0.0000 to the double).
+
+`OD_MOTION_REGION=rim` (`motion_processing.cpp`; the masks and the share are pure in
+`motion_processing.hpp`, `motionMasks` and `boardShare`) counts the motion figure out to the
+rim, the ellipse `Region::tip_mask` is (the double's x 225.5/170), and keeps it a share of the
+**double's** area, so the entry, the settle and every other ratio keep their units (#1689's
+choice for the dart counts). Unset or anything else: counted inside the double, as before. The
+board level the exposure hold reads (#1646) stays on the double. `I1783 OD_MOTION_REGION=rim`
+says the switch at start-up.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_MOTION_REGION_CENSUS=1 OD_WINDOW_CENSUS=1`, 2026-10-11, one binary,
+switch off then on).**
+
+| | off | `OD_MOTION_REGION=rim` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | **67/72** |
+| pooled | 143..149/158 | **149/158** |
+| r18+r22 | 82/86 | 82/86 |
+
+- **Every END closes on the same cycle** in all seven replays (`WINDOW CENSUS` closed cycles,
+  6 / 6 / 7 / 8 / 6 / 12 / 12 ENDs), and every rig-20260918 and rig-20260922 census row is
+  identical. No window is added there.
+- **rig-20260929 gains two windows per run**, visit 12's misses: `CLEAN -> DART_1` (camera 1
+  1,961 px, 3 up) and `DART_2 -> DART_3` (3 up), both published MISS, and the visit reads
+  `MISS D14 MISS` exactly in both windows where it published D14 alone. Its END now closes
+  from DART_3, on the same cycle.
+- **No new phantom**, and no visit publishes more than was thrown.
+- Of the rim-only crossings the census prints with the switch off (7 / 7 / 8 / 9 / 7 / 30 / 31
+  per run), all but one per rig-20260918 run and three per rig-20260929 run are the cycle
+  before a crossing of the double: the same event, one cycle earlier.
+
+**Beside the other takeout switches.** `OD_PAST_THREE` (#1793) acts on a window at DART_3 that
+does not reconcile CLEAN; neither run has one (every `DART_3 ->` window is an END), so it has
+nothing to act on here. Live, it is the switch to watch with this one: a takeout of surround
+darts now opens windows, and one read while the hand is still in the surround, counted to the
+rim, could vote an arrival past three; Turnaus answers `DROPPED` into a full round. `OD_BODY_WINDOW`
+(#1781) does not contradict it: this switch opens windows and that one refuses arrivals in them,
+and the END this one restores is what its `after` clause counts from. The two new windows bring
+fresh figures under 1% of a board, 5 s after the END.
+
+`testers/run_all.sh 1783-region` (45 s) holds the masks on rig-20260929's camera-2 ellipse with
+a patch in the surround, one past the rim and one on the board, and mutates the rim scale both
+ways, the default's mask and the denominator, each predicted to turn exactly one named
+assertion red. It stays opt-in: the fixtures hold no takeout of surround darts only, and the
+live visit's own motion figures are not in its log.
+
+## A takeout that leaves darts in the board, re-read as they are pulled (turnaus#1820), opt-in
+
+**Live on casual board 20** (2026-10-11, the session in `sessions/2026-10-10-11/`, kept off
+GitHub) a visit S7 (568,266), T10 (744,396), S4 (750,299) was taken out, and the END at
+00:57:20.921 reconciled `CLEAN BY REVERSION` on all three cameras with **10,468 / 9,461 /
+11,124 px** still over the reference (ceilings 183 / 213 / 217). A reversion reads a *fall*
+of at least a dart from the previous window, not a board under its ceiling: the T10 had been
+pulled (a fall of 7,459 / 3,692 / 1,665 px), and the S7 and the S4 had not. #1518 then adopted
+those frames as clean on every camera, so pulling the S7 and the S4 afterwards was a change
+against the new reference *at their own pixels*, and the vote read each as an arrival there:
+an **S7 0.0 px** from the S7 (+2.41 s) and an **S13 9.2 px** from the S4 (+4.49 s; the S4 was
+first solved from two lines at 15.6 mm sigma, re-solved from three). Both removed by the
+thrower. They took two of the next visit's three slots, so its later real darts met a board
+at DART_3 (00:58:04 `stays DART_3`; that turn was corrected).
+
+The proof that the adopted reference held both darts is the next END: 00:58:20 left
+**10,461 / 9,464 / 11,126 px**, the 00:57:20 residue to within 10 px: the same two
+silhouettes, once present against a clean reference and once absent against one holding them.
+The same shape at 01:00:39 (9,551 / 13,600 / 9,237 px left) re-read an S16 and a T4 at
+**0.0 px** (+2.17 s, +4.29 s), not corrected in the truth.
+
+**Why not "an END that does not adopt"** (#1691's direction): refusing the adoption leaves a
+partial takeout's reference at the scene before it, and an END that does not reconcile wedges
+the board at DART_3, which #1518 exists to prevent. The darts' positions are on the record,
+and only a reversion END can adopt a reference with darts in it, so the rule is on the
+published position.
+
+`OD_REREAD_HOLD=on` (`geometry_detector.cpp`; pure rule and memory in `dart_processing.hpp`):
+a dart published from CLEAN, before anything else in the visit, within **6,000 ms** of an END
+that reconciled with a reversion vote, and within **12 px** through the same camera of a dart
+of the visit that END closed, is not published; the advance is withdrawn
+(`withdrawCalledDart`: the state goes back to CLEAN and its #1535 tips come off the record),
+and the working backgrounds stay on that window, as #1690's held re-base leaves them, so the
+pull is not the next dart's fresh figure. A held dart leaves the hold armed for the next pull;
+the first dart published disarms it. `I1820 REREAD HELD` says so at INFO. `OD_REREAD_CENSUS=1`
+prints an `I1820REREAD` line for every dart published while the hold is armed.
+
+**The figures, from board 20's whole log** (truth line beside each):
+
+| repeat | after | distance | since END | truth | rule |
+|---|---|---|---|---|---|
+| 00:57:23 S7 | reversion END | 0.0 px | 2,410 ms | removed | held |
+| 00:57:25 S13 | reversion END | 9.2 px | 4,494 ms | removed | held |
+| 01:00:42 S16 | reversion END | 0.0 px | 2,174 ms | not corrected | held |
+| 01:00:44 T4 | reversion END | 0.0 px | 4,292 ms | not corrected | held |
+| 00:56:04 T13 | reversion END | 8.5 px | 7,276 ms | typed S7 | stands |
+| 00:59:20 D20 | reversion END | 4.2 px | 7,840 ms | corrected to a miss | stands |
+| ten darts, 1.4..11.7 px | ENDs under the ceiling | | | the thrower's grouping on 20/1 | stand (not armed) |
+
+12 px is the census's `REREAD_PX` (#1819), so the census and the hold name the same darts; it
+is not what separates a re-read from a grouped throw (ten of those are within it), the
+reversion END is. The nearest real first dart inside the horizon of a reversion END is
+01:23:06's S5 at 50.6 px. **6,000 ms** sits between the latest pure pull (4,494 ms) and the
+earliest window where a late pull and the next throw were one window (7,276 ms): holding
+those would lose the throw where publishing it costs a correction. Six points, one thrower.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_REREAD_CENSUS=1`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_REREAD_HOLD=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+**No changed row**: every `I1555 PAIR`, phantom and accuracy row of all seven censuses is
+identical, and every replay's `SCORE` lines (score, position, confidence, camera) are
+identical in order with timestamps taken out: the same 6/6/6/7/8/12/12 ENDs and
+20/20/20/21/22/34/34 darts (r18 dev, open, pin; r22 dev, open; r29 dev, open).
+No dart is held (no `I1820 REREAD HELD`). The census armed once in seven replays: rig-20260922
+opening, an S12 4,433 ms after a reversion END with no dart of the closed visit published
+through its camera (`nearestPx=-1`, `reread=0`). The fixtures' takeouts pull every dart
+before the END reconciles, so none holds this fault; the live log is the only evidence.
+(The on run printed no startup line for the switch; it was forwarded (`I1555 FORWARD
+OD_REREAD_HOLD=on`), and the line is now said at the first scored window.)
+
+`testers/run_all.sh 1820-reread` (152 s at load ~16-22) replays board 20's visits through the
+memory and mutates each figure and clause: radius 5 and 60 px, horizon 4,000 and 8,000 ms,
+arming on any END, no disarming, comparing across cameras. All seven fail exactly the
+assertions predicted beforehand.
+
+## A dart in the board published as an unflagged MISS by the rim-only carry (turnaus#1821), opt-in
+
+**Live on casual board 20** (2026-10-11 00:59:28, build 0.1.13-1798, `OD_LONE_CAMERA=on`; the
+session in `sessions/2026-10-10-11/`, kept off GitHub) the third dart of a visit was thrown into
+**single 13** and published `MISS` at 0.5, unflagged, `agreeing` 0; the thrower typed S13. The
+window: `I1707 RIM CARRIED: 3 camera(s) moved up and 1 of them cleared the floor in the scoring
+area`, then `TOO-FEW-CONSTRAINTS: 1 usable constraint(s) of 3 cameras` with cameras 1 and 2
+`rim only`, then `SCORE: MISS | Camera: -1` with no `LONE-WIRE` and no `single camera score`
+line.
+
+**What it says, against the code that wrote it.** Camera 3 is the camera that cleared the
+scoring floor and its line was the one usable constraint; one line cannot place an entry, so the
+string vote published. The vote had **no reading at all**: the MISS is the no-winner MISS
+(`State changed but no valid scores found`), so camera 3 either found no tip or found one that
+read MISS (`aVoteIsCast` refuses a MISS a vote). #1707's carry decided only that the advance
+stands; it did not decide MISS, but its sentence "at or beyond the double ring" is why the MISS
+read as plausible. The log does not say whether camera 3 had a tip or where; the kept frames for
+`01M4KX818T...` would.
+
+**The one live figure that separates it from #1802's phantoms** is the usable line: 01:02:06 and
+01:02:10 also had one camera clearing the floor, and that camera was `not straight` (3.90 and
+10.06 px RMS against a 2.5 px gate), 0 usable; 01:02:08 had none clearing. On board 20 the
+other rim-carried no-reading windows with one camera clearing on a usable line are 01:00:22,
+01:13:01 and 01:15:22, all published None and not corrected (misses, or unconfirmed).
+
+`OD_RIM_OFFER=on` (`score_processing.cpp`; the pure rule in `rim_offer.hpp`): on a rim-carried
+dart the vote publishes as the no-reading MISS, where **exactly one** camera cleared the scoring
+floor, that camera's constraint was **usable**, it found a **tip**, and its own angular ruler
+**reads the wedge** at the tip (an unanchored camera's asserted 20 is refused), the MISS
+publishes **flagged** with that wedge's single (`S<n>`) as the alternative. The score stays MISS
+at 0.5, so no window it touches can publish a scoring dart. `I1821 RIM OFFER` says so at INFO.
+`OD_RIM_OFFER_CENSUS=1` prints an `I1821RIM` line on every rim-carried dart, on and off alike,
+with each camera's state, its tip's reading and radius, and the wedge at its tip.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+OD_RIM_OFFER_CENSUS=1`, 2026-10-11, one binary, switch off then on).**
+
+| | off | `OD_RIM_OFFER=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (MISS, 0 scoring) | 38/40, phantoms 2 (MISS, 0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+
+Every `I1555 ACCURACY`, `PAIR` and `POOLED` row is identical, and every replay's `SCORE` lines
+(score, position, confidence, camera) are identical in order. What changes is the flag and the
+#1721 candidates on five windows (the empty list becomes `S14` or `S1`), below. 1,315 s off,
+1,093 s on, at load ~13. (`I1556PUBLISH` still says `flagged=0` on those windows: it reports
+the solver's crossing, not the published flag.)
+
+**Every row the switch touches is a real miss.** The census fires on two fixture darts, in five
+of the seven replays:
+
+| dart | thrown | window | scoring camera's tip | wedge | on |
+|---|---|---|---|---|---|
+| rig-20260918 v4.3 (dev, opening, pin) | MISS | 15 | camera 1, MISS on the surround, radius 1.112-1.116 | 14 | MISS flagged `S14` |
+| rig-20260929 v7.1 (dev, opening) | MISS | 25 | camera 2, MISS on the surround, radius 1.030-1.032 | 1 | MISS flagged `S1` |
+
+Both are #1707's own shape (one camera clearing the scoring floor on a usable line, the other two
+`rim only`), and the fixtures hold no dart in the board that the carry published as MISS. So on
+the fixtures the switch gains nothing and adds two false flags to real misses; on board 20 it
+would flag the S13 (if camera 3's tip was in the 13) and up to three uncorrected Nones. The flag
+moves no score, which is why it is behind a switch rather than refused, and the default stays
+off. What would decide it: the kept frames of `01M4KX818T...` (did camera 3 find a tip, at what
+radius: v4.3 and v7.1 read 1.03-1.12), and a live session with the switch on and a truth line.
+
+`testers/run_all.sh 1821-rimoffer` (24 s at load ~10-13) holds `rim_offer::decide` on board
+20's windows and mutates each clause: the usable line (both phantoms offered), the count (two
+clearing cameras offered), the vote's reading, the carry, the ring (`D` for `S`), the switch,
+the read wedge and the tip; all eight fail as predicted.
 
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
@@ -1107,6 +1607,159 @@ which worked" / "Palataan versioon v1.1.0, joka toimi"); `v1.2.0` stopping on sc
 followed by one look and one restart with byte-identical argv; the three config files
 byte-identical throughout. `--mutate` (the suffix dropped on a copy of `src/`) turns the
 pure check and the install red.
+
+## A session read back: the truth line, the log and the fault classes (turnaus#1789)
+
+What the board posts (#1787) Turnaus keeps per dart beside the thrower's corrections and
+exports per board-day as a **truth line** (turnaus#1786), with the day's uploaded log
+beside it. `testers/i1789_truth_census.py` reads both back on this side: it recounts the
+four counts the desk shows, prints every corrected dart with its log window, and names
+each one's fault class. The server's counts are the authority; this is the independent
+recount, so the two can be compared.
+
+**Fetching a session.** A Platform Operator issues an operator token on the Turnaus
+operator desk (turnaus#1790; it holds the one ability `operator:boards.read`). With it,
+for a board's `kind` (`device` or `casual`), its id and the Finnish calendar day:
+
+    TOKEN=...   # the operator token, shown once when it is issued
+    BASE=https://<turnaus host>/api/v1/operator/boards/device/<id>/2026-10-10
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/truth-line" > truth-line.txt
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/log"        > log.txt
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE"            > day.json   # the server's own counts
+    curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE/frames/<reference>/<camera>" > frame.png
+
+Any credential but an operator's answers 404 there and a revoked token 401. The script
+reads files, never the network; run it in the image (no host python3 on the box):
+
+    docker run --rm --network none -v "$PWD":/app:ro -w /app od-amd64:bullseye \
+      python3 testers/i1789_truth_census.py --truth truth-line.txt --log log.txt
+
+**The format it reads is Turnaus main's, and it reads it by name.** The header is
+`# turnaus truth line v1 board=<kind>/<id> day=<day> zone=Europe/Helsinki`, then
+`# <columns>`, then one space-separated line per dart, `-` for anything not said. The
+columns are `BoardSession::COLUMNS`: `reference published alternative corrected picked
+path flagged degraded candidates cameras crossing_deg sigma_mm margin_mm wire_kind agreeing
+lone_wire_mm ring_wire_mm radius angle bounced outcome corrections posted_at`. `degraded`
+was added after `flagged` while the header still said v1, so the field order is taken from
+the export's own columns line and never by position; a column the script needs that is not
+named, a dart line whose field count is not the columns line's, a `picked` that is not one
+of `App\Autoscoring\Pick`'s (`alternative published candidate typed removed turn`) or a
+`path` that is not `geometry`/`vote`/`-` is refused with exit 3, naming the line, and
+nothing is counted. Sectors are #821's grammar (`None` is a miss, `25` and `Bull`).
+
+**What each count means** (`I1789 COUNT path=<geometry|vote|unknown|total>`). A dart is
+counted by its last correction, which is what `picked` carries (Turnaus's
+`BoardSession::countOf`):
+
+| count | the dart | what it says |
+|---|---|---|
+| `alternative` | flagged, corrected to the board's alternative | the flag worked |
+| `candidate` | flagged, corrected to another of its candidates | the flag offered the wrong coin, the payload held the right one (#1782's shape) |
+| `typed` | flagged, corrected to something offered nowhere | the flag offered the wrong coins |
+| `unflagged` | not flagged, corrected to anything | nothing warned |
+| `removed` | the dart was never there | a phantom (#1781); in none of the four |
+| `undone` | the last correction put back what was published | no correction at all |
+| `turn` | a Casual turn's total was corrected | names no dart; in none of the four |
+| `corrected` | any correction at all | the desk's figure |
+| `false_flag` | flagged and its published score stood | `false_flag_rate` is it over `flagged` |
+
+**The join.** The client prints every accepted push as `TURNAUS: <OUTCOME> <body>`, and the
+body carries the dart's `reference`. The dart's window is its `SCORE:` line (the nearest
+before the push whose sector is the published one) back to the previous `SCORE:` line, and
+the script prints its `SCORE`, `UNCERTAINTY`, `Geometric score`, `Consensus score` /
+`No consensus`, `LONE-WIRE`, `RING-WIRE`, `BOARD` and `I1707 RIM CARRIED` lines and the push
+line. A corrected dart whose reference is not in the log is printed `I1789 ABSENT`, never
+dropped. `I1789 PICK-DISAGREES` names a dart whose `picked` is not what Turnaus's
+`DartCorrections::picked` would decide from the sectors.
+
+**The fault classes**, from the account, the first that holds winning:
+
+| class | issue | holds when |
+|---|---|---|
+| `turn-total` | #1786 | `picked` is `turn`: a Casual turn's total was corrected, which names no dart, so no fault class is claimed; the `why` says what the account alone would have called it |
+| `phantom-takeout` | #1781 | the dart's SCORE line is within 2.0 s of a `SCORE: END` -- needs the log, because the truth line carries no END |
+| `reread-after-takeout` | #1820 | a removed dart whose SCORE `Position` is within 12 px of a dart of the visit the END before it closed, no END between -- needs the log |
+| `phantom-unplaced` | -- | any other removed dart: never there, and nothing here says why; a removed dart is never put in a wire class |
+| `miss-for-a-dart` | #1821 | published a miss (`None`) and corrected to a sector |
+| `rim-one-tip` | #1707 | a lone vote reading (`agreeing` 1) published a double, or was corrected to a miss |
+| `corner` | #1782 | a geometric solve within its own `sigma_mm` of a ring wire AND a wedge wire (the account's margin for one, the other from `radius`/`angle` on the 170 mm model) |
+| `two-line-wire` | #1766 | a two-camera geometric solve within its own `sigma_mm` of the wire it names |
+| `three-line-wire` | -- | the same with three or more cameras: the flag's own case, not a fault |
+| `lone-beyond-sigma` | #1822 | a lone vote reading corrected across a wire it was more than 5 mm clear of |
+| `ring-wire` | #1773 | a vote reading, lone or consensus, within 5 mm of a ring wire |
+| `lone-wedge-wire` | #1628 | a lone vote reading within 5 mm of a wedge wire; the nearer margin decides against `ring-wire` |
+| `unflagged-geometric` | #1556 | a geometric solve published unflagged and corrected |
+| `unclassified` | -- | the honest default |
+
+The vote classes read `ring_wire_mm` / `lone_wire_mm` where the board posted them, and
+otherwise the same margins from `radius`/`angle` on the 170 mm model (no wedge wire inside
+the 25's wire), marked `(model)` in the `why`: casual/17's build posted neither for any of
+its 526 darts. Which wire a correction crossed is read from the two sectors -- the number
+changed is a wedge wire, the ring letter a ring wire.
+
+The 2.0 s is #1789's own figure; #1781's phantoms were 0.74 s before and 0.98 s after their
+END. The 5 mm is #1628's lone-reading sigma, which #1773 reused for ring wires.
+The 12 px is #1819's: casual/20's two re-reads sat 0.0 and 9.2 px from the darts they
+repeated.
+
+**The first two real sessions (#1819).** Before #1819 the census left 33 darts
+`unclassified` (24 on casual/17, 9 on casual/20). Twenty-two were darts of a corrected
+Casual turn -- a correction that names no dart -- and the census had also put 34 more such
+darts into fault classes, 14 of them in `unflagged-geometric`. Four were removed darts
+(and five more removed darts sat in wire classes). Seven were real corrections: two
+`miss-for-a-dart`, two `lone-beyond-sigma`, one `three-line-wire`, and one each for
+`ring-wire` and `lone-wedge-wire` that casual/17's missing margins had hidden. After it:
+
+| board | turn-total | phantom-takeout | reread | phantom-unplaced | miss | rim-one-tip | corner | two-line | three-line | lone-beyond | ring-wire | lone-wedge | unflagged-geo | unclassified |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| casual/17 | 31 | 0 | 0 | 6 | 1 | 2 | 3 | 4 | 0 | 2 | 1 | 1 | 0 | 0 |
+| casual/20 | 25 | 0 | 2 | 1 | 1 | 2 | 2 | 4 | 1 | 0 | 1 | 2 | 1 | 0 |
+
+
+**The reference set: 2026-10-10 (build 2b56b48).** `testers/fixtures/i1789/` holds the
+session as a hand-written truth line of 25 darts and a log excerpt written from the lines
+the issues quote: the live logs are not on this machine, and 2b56b48 predates the account,
+so the fixture is what a board posting the account would have exported for the darts
+#1707, #1773, #1781, #1782 and #1783 describe; the header of each file says what is
+recorded, what is computed and what is invented. Its census:
+
+| path | posted | corrected | alternative | candidate | typed | unflagged | removed | flagged | false flags |
+|---|---|---|---|---|---|---|---|---|---|
+| geometry | 3 | 2 | 1 | 1 | 0 | 0 | 0 | 3 | 1 |
+| vote | 22 | 11 | 0 | 0 | 0 | 9 | 2 | 0 | 0 |
+| total | 25 | 13 | 1 | 1 | 0 | 9 | 2 | 3 | 1 |
+
+| time | thrown | published | class |
+|---|---|---|---|
+| 15:39:23 | miss | S20, lone, radius 0.562 (absent from the excerpt on purpose) | rim-one-tip (#1707) |
+| 15:51:49 | S19 | T19, lone, 3.1 mm from the treble's inner wire | ring-wire (#1773) |
+| 16:06:25 | S1 | OUTER, lone, 2.3 mm from the bull's wire | ring-wire (#1773) |
+| 16:20:06 | S16 | D16, lone, radius 0.9615 | rim-one-tip (#1707) |
+| 16:21:11 | miss | D3, lone, radius 0.998 | rim-one-tip (#1707) |
+| 16:24:24 | S3 | MISS, no reading | unclassified (#1781 notes it, one instance) |
+| 16:24:28 | -- | D11, removed, 0.74 s before the END | phantom-takeout (#1781) |
+| 16:24:30 | -- | S2, removed, 0.98 s after the END | phantom-takeout (#1781) |
+| 16:28:35, 16:28:37 | miss, miss | D18, D18, lone, radius 0.999 / 0.990 | rim-one-tip (#1707) |
+| 16:38:53 | S19 | T3 flagged S3, two lines, 0.6 / 1.8 mm across 5.3 mm | corner (#1782) |
+| 16:47:22 | BULL | OUTER, two cameras, 0.5 mm from the bull's wire | ring-wire (#1773) |
+| 16:49:15 | S20 | S1 flagged S20, two lines, 2.1 mm across 5.1 mm | two-line-wire (#1766) |
+
+The session has no instance of `lone-wedge-wire` or `unflagged-geometric` (#1773 records
+every unflagged geometric solve of the day right); the self-test holds those two rules on
+hand-built accounts, not on session data.
+
+**Measured (`testers/run_all.sh 1789-truth`, 8.4 s on 2026-10-11 with #1819).** The
+self-test (35 cases); the fixture, now with ten more real rows from the two sessions and
+twenty more real log lines, against its header's 36 expectations; and five mutations, each
+predicted first (two more are #1817's, below, and two #1819's: casual/20's 00:57:20.921 END
+struck moves exactly the two re-reads to `phantom-unplaced`, and the first re-read's
+Position moved 13 px moves exactly that one):
+the 16:49:15 dart's `picked` moved from `alternative` to `typed` turns exactly
+`geometry.alternative`, `geometry.typed`, `total.alternative` and `total.typed` red and
+`PICK-DISAGREES` names it; `degraded` struck from the columns line is refused on the first
+dart line (23 fields where the columns line names 22) with no count printed; the 16:24:29
+END struck from the log moves exactly the two phantoms, to `phantom-unplaced` (before
+#1819, to `rim-one-tip` and `ring-wire`: a removed dart is no longer put in a wire class).
 
 ## Real-time replay (turnaus#1683)
 

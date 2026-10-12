@@ -14,7 +14,9 @@
 //   1. THE FLAGGED ALTERNATIVE (#1556 / #1707). The solver measured a one-sigma crossing
 //      of a wire and named the other side by re-scoring there (`alternativeAcross`), or
 //      the rim fallback named the ring across the nearer wire. A measured "it may be
-//      this instead" outranks everything else here.
+//      this instead" outranks everything else here. On a CORNER (#1782: within the
+//      sigma of a ring wire and a wedge wire at once) the corner's other cells follow
+//      it: those another voting camera read first, then the rest in the flag's order.
 //   2. THE VOTE'S RUNNERS-UP. What every OTHER voting camera read, most cameras first,
 //      ties by the lowest camera index; a reading whose wedge was ASSERTED (#1346's
 //      default-to-20) goes after every reading that was not, because the constant is
@@ -78,6 +80,10 @@ namespace dart_candidates
         bool angle_known = false;
         float angle = -1.0f;   // degrees clockwise from the middle of the 20
         std::string alternative; // #1556/#1707's flagged other candidate; empty if none
+        // #1782: a flagged corner's remaining cells, best first (score_processing's
+        // decideCornerCall). Ranked straight after `alternative`: they are measured
+        // "it may be this instead" too.
+        std::vector<std::string> corner;
         std::vector<Reading> others; // every OTHER voting camera's reading, camera order
     };
 
@@ -312,7 +318,25 @@ namespace dart_candidates
             }
         };
         add(e.alternative);
-        for (const std::string &s : runnersUp(e))
+        // #1782: a corner's cells next -- first the ones another camera READ, in the
+        // runners-up order, then the rest in the flag's order. A camera's reading of a
+        // corner cell is an observation; the covariance's order is an estimate, and
+        // before #1782 a runner-up already came before every geometric neighbour (live
+        // 2026-10-10: candidates S3, S19, T19 with S19 a camera's; the corner keeps it
+        // second rather than pushing it behind T19).
+        const std::vector<std::string> read = runnersUp(e);
+        for (const std::string &s : read)
+        {
+            if (std::find(e.corner.begin(), e.corner.end(), s) != e.corner.end())
+            {
+                add(s);
+            }
+        }
+        for (const std::string &s : e.corner)
+        {
+            add(s);
+        }
+        for (const std::string &s : read)
         {
             add(s);
         }

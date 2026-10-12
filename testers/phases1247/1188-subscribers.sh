@@ -6,6 +6,12 @@ set -u
 # exits 0 when every check held and 1 when one did not. The other four record, and say so
 # in their own first lines.
 cd /app
+# #1758: the check compares two runs' SCORE lines and positions with each other and with a
+# REFERENCE, so the detector's windows are pinned to CYCLES. Since ece438d they default to
+# milliseconds, and on a loaded box the two runs of one tree then published dart 2 from
+# different cameras -- S7 (477,238) in run 1, S7 (825,230) in run 2 -- with ensure_calls
+# 3413 against 3409: the box's speed measured, not the tree.
+export OD_WINDOW_UNIT=cycles
 python3 tools/score_socket/check_subscribers.py --turnaus-stub \
   --cams mocks/cam_1.mp4,mocks/cam_2.mp4,mocks/cam_3.mp4 --workdir /runs/subs \
   > /runs/subs.out 2> /runs/subs.err
