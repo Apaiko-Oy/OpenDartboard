@@ -23,8 +23,13 @@
 #                   the floor and not about the dart.
 #
 #    A reading that is neither is the algorithm working on a whole, single figure, and
-#    an off-board reading of that kind would be a THIRD mechanism. Assertion TWO is that
+#    an off-board reading of that kind would be a THIRD mechanism. Claim TWO was that
 #    there is none: every off-board reading on this fixture is one of the two above.
+#    #1492 (5ca42c5) measured it true -- the two mechanisms accounted for all fourteen.
+#    It is HISTORICAL since #1823 and printed, not asserted: on main, cycle windows, two
+#    off-board readings are neither on the shipping tree and on the tree #1492 measured
+#    alike (dart 16 cam 1, one 8,429 px figure at 203.7 mm; dart 17 cam 2, #1502's
+#    2,170 px figure), and no switch on main restores the tip stage the claim described.
 #
 # NO THRESHOLD IS FITTED HERE. Both classifications are exact facts about one call, and
 # the split in (1) is an ORDERING -- the worst all-on-board dart against the best dart
@@ -189,11 +194,16 @@ else:
         "question: on=%d off=%d" % (len(on_darts), len(off_darts)), False)
 
 print()
-print("  ==== TWO: what an off-board reading is =========================================")
+print("  ==== TWO: what an off-board reading is -- HISTORICAL (#1824) ====================")
 print("    THE MARKS ARE A MECHANISM CENSUS AND NOT A DIAGNOSIS ON THEIR OWN: a reading")
-print("    that scored can carry either one, and the control below says how often. What")
-print("    is asserted is the narrower thing -- that NO off-board reading came out of a")
-print("    whole, single figure, so there is no third mechanism hiding in this fixture.")
+print("    that scored can carry either one, and the control below says how often. The")
+print("    claim was the narrower thing -- that NO off-board reading came out of a whole,")
+print("    single figure. #1492 (5ca42c5, 2026-09-21, wall-clock windows) measured it true:")
+print("    the two mechanisms accounted for all fourteen. On main with cycle windows two")
+print("    are neither on every tree a switch can restore -- dart 16 cam 1 (one 8,429 px")
+print("    figure, 203.7 mm from centre) and dart 17 cam 2 (#1502's 2,170 px figure) -- and")
+print("    the maintainer retired it as historical on 2026-10-12 (#1824). It is printed")
+print("    below and colours nothing.")
 unclassified = [(d, c) for d, c, fig, marks in offboard_readings if not marks]
 counted = {}
 for d, c, fig, marks in offboard_readings:
@@ -221,10 +231,9 @@ for d in order:
 print("    CONTROL -- the same two marks over the %d readings that DID score:" % control["n"])
 print("      OTHER-PIECE %d, FLOOR-BOUND %d, neither %d"
       % (control["OTHER-PIECE"], control["FLOOR-BOUND"], control["NEITHER"]))
-say("    %s  every off-board reading is OTHER-PIECE or FLOOR-BOUND; %d are neither%s"
-    % ("OK  " if not unclassified else "FAIL", len(unclassified),
-       "" if not unclassified else " -- " + ", ".join("dart %s cam %s" % x for x in unclassified)),
-    not unclassified)
+print("    HIST  off-board readings that are neither OTHER-PIECE nor FLOOR-BOUND: %d%s"
+      % (len(unclassified),
+         "" if not unclassified else " -- " + ", ".join("dart %s cam %s" % x for x in unclassified)))
 
 print()
 print("  ==== the instrument, not the finding ===========================================")

@@ -538,7 +538,9 @@ tester 1490-spread        "bash '$T/i1490_run.sh'"
 # figure, so no third mechanism is hiding in this fixture. It then measures the obvious
 # repair instead of arguing about it: OD_TIP_PIECE_FLOOR=0 on the same binary, which moves
 # readings and does NOT reduce the off-board count (#1322). No detector binary, no cycle
-# cap, mocks/rig-20260918 only (#1478); two full replays of the clip.
+# cap, mocks/rig-20260918 only (#1478); two full replays of the clip. Claim TWO and the
+# floor experiment are HISTORICAL since #1824 -- printed with #1492's figures beside
+# main's and not asserted, because no switch on main restores the stage they measured.
 tester 1492-tips          "bash '$T/i1492_run.sh'"
 # #1493: whether the three board planes compose into camera poses good enough to
 # TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
