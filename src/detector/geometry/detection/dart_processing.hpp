@@ -729,6 +729,76 @@ namespace dart_processing
     }
 
     /**
+     * turnaus#1802: the share of a camera's board at which a fresh figure is a body IN A
+     * WINDOW THE RIM-ONLY VOTES CARRIED WITH NO CAMERA ON A USABLE LINE in the scoring area
+     * (rimCarryIsABody). The measure is #1781's -- freshFigureIsBodySized, a voting camera's
+     * fresh change counted to the rim as a share of its scoring-area board -- and only the
+     * figure differs, because the window does.
+     *
+     * WHERE THE FIGURE COMES FROM. Live on casual board 20 (2026-10-11 01:02, build
+     * 0.1.13-1798) three rim-carried windows published three MISSes nobody threw; the END
+     * after them fell on camera 2 FROM 25,835 px, the cumulative figure of the third window.
+     * From a CLEAN board, and on every window a hold keeps at CLEAN, the working background is
+     * empty and the fresh figure IS the cumulative one (the "nothing has been on this board
+     * since it was last clean" branch of detectDartState), so 25,835 px is the figure this
+     * rule reads there: 11.96% of camera 2's board (215,989 px, rig-20260929's, #1781's
+     * stand-in for the same rig; the live log prints no board size). #1781's 15% does not
+     * reach it, and camera 2's cumulative figure on a real three-dart visit in the same log
+     * is 23,009 px (S20 S1 S20, the END at 01:23:02 falling to 290), so a cumulative figure
+     * read at a visit's third dart does not separate it either. Below it: the largest fresh
+     * figure any camera brought to any called dart on the seven bakeoff replays, 9.96%
+     * (#1781's census: a scoring-area dart read against a calibration picture holding a
+     * parked dart), and a dart in the surround at about 5% (live 2b56b48 16:51, three
+     * surround misses, camera 2 at 32,153 px after the third). 11% is above the largest dart
+     * on record and under the one phantom whose figure was printed. The margins are thin both
+     * ways, and the phantom's first two windows' figures were never printed, which is why it
+     * is opt-in (OD_RIM_BODY).
+     */
+    inline double rimBodySharePercent()
+    {
+        return 11.0;
+    }
+
+    /** turnaus#1802: one voting camera, as rimCarryIsABody reads it. */
+    struct RimVoter
+    {
+        bool voted_up = false;              // it voted the arrival (votesUp), not CLEAN
+        bool cleared_scoring_floor = false; // counted in #1707's moves_up_in_scoring
+        bool axis_usable = false;           // its fitted shaft axis is valid (not "not straight")
+        int fresh_pixels = -1;              // fresh_board_pixels, counted to the rim
+        int board_pixels = 0;               // its scoring-area board
+    };
+
+    /**
+     * turnaus#1802: the rim-only carry's advance is a body, not a dart, when
+     *   - the rim-only votes carried it (#1707's DartStateResult::rim_carried),
+     *   - no voting camera cleared the scoring floor ON A USABLE LINE: live, two of the three
+     *     phantom windows had camera 2 clear the floor with a figure refused `not straight`
+     *     (3.90 and 10.06 px RMS against a 2.5 px gate), and the third had no camera clear it;
+     *     #1821's S13 and the fixtures' surround misses each had one camera clear it on a
+     *     usable line, and they stand,
+     *   - and a voting camera's fresh figure is body-sized by #1781's measure at
+     *     rimBodySharePercent().
+     */
+    inline bool rimCarryIsABody(bool rim_carried, const std::vector<RimVoter> &voters,
+                                double share_percent = rimBodySharePercent())
+    {
+        if (!rim_carried)
+            return false;
+        bool body = false;
+        for (const RimVoter &v : voters)
+        {
+            if (!v.voted_up)
+                continue;
+            if (v.cleared_scoring_floor && v.axis_usable)
+                return false;
+            if (freshFigureIsBodySized(v.fresh_pixels, v.board_pixels, share_percent))
+                body = true;
+        }
+        return body;
+    }
+
+    /**
      * #1535: a camera re-reporting, for a NEW dart, a pixel it already reported for an
      * earlier dart of the same visit is not a second witness.
      *

@@ -477,6 +477,32 @@ namespace dart_processing
         return v;
     }
 
+    /**
+     * turnaus#1802: `OD_RIM_BODY=on` holds an advance the rim-only votes carried when no
+     * voting camera cleared the scoring floor on a usable line and a voting camera's fresh
+     * figure is body-sized at rimBodySharePercent() (rimCarryIsABody). Off by default. Under
+     * `OD_BODY_CENSUS=1` an I1802RIM line reports every rim-carried window's figures, on and
+     * off alike.
+     */
+    static bool rimBodyOn()
+    {
+        static const bool v = []
+        {
+            const char *e = std::getenv("OD_RIM_BODY");
+            const bool on = e && string(e) == "on";
+            if (on)
+            {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "%.1f%%", rimBodySharePercent());
+                log_info(string("OD_RIM_BODY=on: an advance the rim-only votes carried, with no camera clearing the "
+                                "scoring floor on a usable line and a voting camera's fresh figure at ") +
+                         buf + " of its board or more, is held (turnaus#1802)");
+            }
+            return on;
+        }();
+        return v;
+    }
+
     static bool bodyCensusOn()
     {
         static const bool v = []
@@ -2349,6 +2375,65 @@ namespace dart_processing
                 // turnaus#1820: and the scorer's caller is told, so it can recognise this
                 // visit's darts being pulled after the END (RereadMemory).
                 result.reversion_end = true;
+            }
+        }
+
+        // turnaus#1802: a body at the board, carried as a dart by the rim-only votes. Live on
+        // casual board 20 (01:02, 0.1.13-1798) three windows between two takeouts published
+        // three MISSes nobody threw: each `I1707 RIM CARRIED` with no camera clearing the
+        // scoring floor on a usable line (camera 2 `not straight` twice, nobody once), and
+        // camera 2 at 25,835 px when the END fell from it. OD_RIM_BODY holds such an advance
+        // when a voting camera's fresh figure is body-sized (rimCarryIsABody).
+        {
+            const bool would_carry = windowCalledADart(best_previous_state, final_state, past_three) &&
+                                     moves_up_in_scoring < quorum;
+            if (would_carry && (rimBodyOn() || bodyCensusOn()))
+            {
+                vector<RimVoter> rim_voters;
+                string figures;
+                for (size_t i = 0; i < result.camera_results.size(); i++)
+                {
+                    const CameraDetectionResult &r = result.camera_results[i];
+                    if (!r.frame_available || r.abstained_no_board)
+                        continue;
+                    RimVoter v;
+                    v.voted_up = !voted_clean[i] && votesUp(r.detected_state, best_previous_state, r.arrived_past_three);
+                    v.cleared_scoring_floor = r.cleared_scoring_floor;
+                    v.axis_usable = r.axis.valid;
+                    v.fresh_pixels = r.fresh_board_pixels;
+                    v.board_pixels = r.board_pixels;
+                    rim_voters.push_back(v);
+                    if (!v.voted_up)
+                        continue;
+                    const double share =
+                        r.board_pixels > 0 ? 100.0 * (double)r.fresh_board_pixels / (double)r.board_pixels : 0.0;
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), " cam%zu=%d/%d(%.2f%%,%s)", i + 1, r.fresh_board_pixels, r.board_pixels,
+                             share,
+                             r.rim_only ? "rim" : (v.cleared_scoring_floor && v.axis_usable) ? "line" : "noline");
+                    figures += buf;
+                }
+                const bool body = rimCarryIsABody(true, rim_voters);
+                const bool hold = body && rimBodyOn();
+                if (bodyCensusOn())
+                {
+                    log_info("I1802RIM window=" + to_string(window_serial) + " " +
+                             getDartBoardStateName(best_previous_state) + "->" + getDartBoardStateName(final_state) +
+                             " up=" + to_string(moves_up) + " scoring=" + to_string(moves_up_in_scoring) +
+                             " body=" + to_string(body ? 1 : 0) + " held=" + to_string(hold ? 1 : 0) + figures);
+                }
+                if (hold)
+                {
+                    char buf[96];
+                    snprintf(buf, sizeof(buf), "%.1f%%", rimBodySharePercent());
+                    log_info("I1802 RIM BODY HELD: " + getDartBoardStateName(best_previous_state) + " -> " +
+                             getDartBoardStateName(final_state) + " refused, because the rim-only votes carried it, " +
+                             "no camera cleared the scoring floor on a usable line, and a voting camera's fresh " +
+                             "figure is " + buf + " of its board or more -- a body at the board, not a dart " +
+                             "(turnaus#1802)");
+                    final_state = best_previous_state;
+                    past_three = false;
+                }
             }
         }
 
