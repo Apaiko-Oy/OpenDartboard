@@ -9,7 +9,8 @@
 #   0  with no state and a manifest naming the deb's own version, it MAY check (one
 #      request, at /updates/opendartboard/stable-linux-arm64.json), fetches nothing and
 #      starts the deb's detector from /usr/local/bin;
-#   1  with a manifest naming a newer version it fetches the tar.gz, unpacks it with
+#   1  with a manifest naming a newer version it fetches the tar.gz -- through a 302, as a
+#      GitHub release asset answers (the harness's artefact host redirects) -- unpacks it with
 #      /bin/tar, puts the detector under the state directory and a COPY of the deb's in
 #      update/previous, starts the new one, and the state file names both versions -- on
 #      an input nobody answers, without pausing;

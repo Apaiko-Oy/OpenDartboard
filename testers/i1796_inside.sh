@@ -102,7 +102,11 @@ cat > "$STATE/credentials.json" <<JSON
 JSON
 printf '{"version":1,"channel":"stable"}\n' > "$STATE/channel.json"
 printf '{"version": 1, "cameras": ["/dev/video0", "/dev/video2", "/dev/video4"]}\n' > "$STATE/cameras.json"
-fingerprint() { ( cd "$STATE" && find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum ); }
+# Every file at the top of the state directory EXCEPT the one the launcher keeps there on
+# purpose: since #1796 the installed detector is $STATE/opendartboard, beside the board's
+# own files, and its arrival is asserted by digest in phase 1. Measured: the first run of
+# this harness counted it as "a file beside the launcher's own changed".
+fingerprint() { ( cd "$STATE" && find . -maxdepth 1 -type f ! -name opendartboard -print0 | sort -z | xargs -0 sha256sum ); }
 BEFORE=$(fingerprint)
 echo "the state directory holds:"
 echo "$BEFORE" | sed 's/^/     | /'
@@ -110,16 +114,48 @@ echo "$BEFORE" | sed 's/^/     | /'
 # ---- a deployment, on a port of its own ------------------------------------------------------
 ( cd "$WWW" && python3 -m http.server "$PORT" --bind 127.0.0.1 > "$LOG" 2>&1 & echo $! > "$WORK/www.pid" )
 sleep 1
-stop_serving() { [ -f "$WORK/www.pid" ] && kill "$(cat "$WORK/www.pid")" 2> /dev/null; }
+# And the artefact's host REDIRECTS, the way a real release does: a GitHub release asset at
+# github.com/<repo>/releases/download/<tag>/<name> -- the url release.yml signs -- answers
+# 302 to a signed address on another host. WinHTTP follows a redirect by default; httplib
+# does not, so until the launcher asked it to, a Pi's artefact fetch read the 302's empty
+# body and refused it on length. This redirector answers every GET with 302 to the same
+# path on the deployment's port: another host:port, which is the branch GitHub's takes.
+REDIRECT_PORT=8797
+REDIRECT_LOG="$WORK/redirect.log"
+cat > "$WORK/redirect.py" <<'REDIRECTOR'
+import http.server, sys
+port, target, log = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+class Redirect(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(log, "a") as f:
+            f.write("GET %s\n" % self.path)
+        self.send_response(302)
+        self.send_header("Location", "http://127.0.0.1:%s%s" % (target, self.path))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+http.server.HTTPServer(("127.0.0.1", port), Redirect).serve_forever()
+REDIRECTOR
+python3 "$WORK/redirect.py" "$REDIRECT_PORT" "$PORT" "$REDIRECT_LOG" > "$WORK/redirect.out" 2>&1 &
+echo $! > "$WORK/redirect.pid"
+sleep 1
+stop_serving() {
+  [ -f "$WORK/www.pid" ] && kill "$(cat "$WORK/www.pid")" 2> /dev/null
+  [ -f "$WORK/redirect.pid" ] && kill "$(cat "$WORK/redirect.pid")" 2> /dev/null
+  return 0
+}
 trap stop_serving EXIT
 serve() { cp "$FIX/$MANIFEST-$1.json" "$WWW/updates/opendartboard/$MANIFEST.json"; }
 asked() { grep -c "GET /updates/opendartboard/$MANIFEST.json" "$LOG"; }
 fetched() { grep -c "GET /rel/opendartboard-$1-linux-arm64.tar.gz" "$LOG"; }
+redirected() { grep -c "^GET /rel/opendartboard-$1-linux-arm64.tar.gz$" "$REDIRECT_LOG" 2> /dev/null; }
 age_state() { sed -i 's/^last_stopped=.*/last_stopped=1000000/' "$STATE/update/state.txt"; }
 
 # The artefact's host, for a transport with no TLS: apply_update.hpp says why this is a
-# harness pin and not a hole. The manifest is fetched from the credential's base_url.
-export OD_UPDATE_ARTEFACT_BASE="http://127.0.0.1:$PORT"
+# harness pin and not a hole. The manifest is fetched from the credential's base_url; the
+# artefact is asked at the redirector above, which sends it on to the deployment's port.
+export OD_UPDATE_ARTEFACT_BASE="http://127.0.0.1:$REDIRECT_PORT"
 export OD_STUB_BAD="$BAD"
 ARGS=(--autocams --width 1280 --height 720 --fps 30 --model /usr/local/share/opendartboard/models/dart.param --log-file "$WORK/logs/opendartboard-20261011T060000Z.log")
 
@@ -165,7 +201,8 @@ ELAPSED=$(( $(date +%s) - BEGAN ))
 [ "$RC" -eq 0 ]; note $? "the launcher exits 0 in ${ELAPSED} s on an input nobody answers: it never waited at a console"
 ! grep -q "Enter" "$WORK/fresh.out"; note $? "  and it asked nothing"
 [ "$(cat "$WORK/ran.fresh" 2>/dev/null)" = "$B" ]; note $? "$B ran, and only $B"
-[ "$(fetched "$B")" -eq 1 ]; note $? "the tar.gz was fetched once, from the manifest's path on the harness's host"
+[ "$(redirected "$B")" = 1 ] && [ "$(fetched "$B")" -eq 1 ]
+note $? "the tar.gz was asked once at the manifest's path, answered 302, and fetched once where the redirect pointed"
 [ "$(fact "$STATE" detector_version)" = "$B" ] && [ "$(fact "$STATE" previous_version)" = "$A" ]
 note $? "update/state.txt: detector_version=$B previous_version=$A"
 [ "$(sha "$STATE/opendartboard")" = "$(sha "$WORK/stubs/stub-$B")" ]; note $? "$STATE/opendartboard is release $B's detector, byte for byte"

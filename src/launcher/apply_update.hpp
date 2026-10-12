@@ -312,8 +312,9 @@ namespace launcher
             return response;
         }
         // parseUrl puts everything after the host into path_prefix, so the path is already
-        // whole and the second argument adds nothing to it.
-        return odhttp::get(parsed, std::string(), /*connect*/ 10, /*read*/ 600);
+        // whole and the second argument adds nothing to it. #1796: and a redirect is
+        // followed, because a GitHub release asset is one (http_transport.hpp, perform()).
+        return odhttp::get(parsed, std::string(), /*connect*/ 10, /*read*/ 600, /*follow_redirects*/ true);
     }
 
     // ------------------------------------------------------------------ what happened
