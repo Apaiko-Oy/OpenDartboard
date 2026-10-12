@@ -765,6 +765,16 @@ tester 1820-reread        "bash '$T/i1820_check.sh'"
 # binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
 # ~10-13 with a bakeoff alongside, rc=0: 24 s wall.
 tester 1821-rimoffer      "bash '$T/i1821_check.sh'"
+# turnaus#1802: a body at the board carried as three darts by the rim-only votes (live on casual
+# board 20, 2026-10-11 01:02: three `I1707 RIM CARRIED` MISSes between two takeouts, camera 2 at
+# 25,835 px, no camera clearing the scoring floor on a usable line). OD_RIM_BODY (off by default)
+# holds such an advance when a voting camera's fresh figure is 11% of its board or more (#1781's
+# measure, freshFigureIsBodySized). The pure half: rimCarryIsABody on the live windows, the
+# largest fixture dart, a surround dart and #1821's S13, one compile of the tree plus five of a
+# mutated scratch copy of dart_processing.hpp, each predicted to turn named assertions red. No
+# detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-12 on the 4-core box
+# at load ~12-14 with two other agents' gates alongside, rc=0: 45 s wall.
+tester 1802-rimbody       "bash '$T/i1802_check.sh'"
 # turnaus#1782: a flagged solve within its sigma of a ring wire AND a wedge wire (a corner)
 # offered only the nearest wire's alternative -- live on 2b56b48 a thrown S19 published T3
 # flagged "T3 or S3", 0.6 mm from the treble wire and 1.8 mm from the 3/19 wire. The flag now
