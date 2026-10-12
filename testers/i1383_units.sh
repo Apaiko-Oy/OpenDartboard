@@ -34,6 +34,10 @@
 #              $NOTIFY_SOCKET at all: the status must be EMPTY, or the assertion above is
 #              about a manager that would have said anything.
 #
+#   child      #1796: the same probe as a CHILD of a shell that waits for it -- the
+#              detector's place under the launcher -- under the template's own
+#              NotifyAccess= (`all`): kept. Control: under NotifyAccess=main it is dropped.
+#
 #   budget     The shipped template must never name OD_MAX_CYCLES. Since #1383 a cycle
 #              budget ENDS a blind run, and that is a tester's instruction: a board at a
 #              venue must go on waiting for its camera. This is the line that keeps the
@@ -82,8 +86,8 @@ if ! command -v g++ > /dev/null; then
 fi
 
 cleanup() {
-  systemctl --user stop "$TAG-status.service" "$TAG-deaf.service" > /dev/null 2>&1
-  systemctl --user reset-failed "$TAG-status.service" "$TAG-deaf.service" > /dev/null 2>&1
+  systemctl --user stop "$TAG-status.service" "$TAG-deaf.service" "$TAG-child.service" "$TAG-mainonly.service" > /dev/null 2>&1
+  systemctl --user reset-failed "$TAG-status.service" "$TAG-deaf.service" "$TAG-child.service" "$TAG-mainonly.service" > /dev/null 2>&1
   rm -f "$UNITS/$TAG-"*.service
   systemctl --user daemon-reload > /dev/null 2>&1
 }
@@ -101,7 +105,11 @@ if out=$(systemd-analyze verify "$RUN/verify.service" 2>&1) && [ -z "$out" ]; th
 else
   fail "systemd-analyze verify complained: $out"
 fi
-sed 's/^NotifyAccess=main$/NotifyAcess=main/' "$RUN/verify.service" > "$RUN/misspelt.service"
+# #1796: whatever the template says NotifyAccess= is (`all` since the launcher became the
+# main process), one letter out of it. The sed used to name `main` and matched nothing once
+# the template said `all`, which turned this control red for a reason it never measured.
+sed 's/^NotifyAccess=/NotifyAcess=/' "$RUN/verify.service" > "$RUN/misspelt.service"
+cmp -s "$RUN/verify.service" "$RUN/misspelt.service" && fail "control: the template names no NotifyAccess= line to misspell"
 if systemd-analyze verify "$RUN/misspelt.service" 2>&1 | grep -q "Unknown key name 'NotifyAcess'"; then
   ok "control: one letter out of that key is reported, so the verify above can speak"
 else
@@ -131,7 +139,12 @@ fi
 ok "src/utils/od_notify.hpp compiles alone, with no OpenCV and no systemd library"
 
 SENTENCE="ERROR: this board cannot see -- the cameras did not open (tried: /dev/video0)"
-probe_unit() {   # <name> <NotifyAccess=...>
+probe_unit() {   # <name> <NotifyAccess=...> [child]
+  # `child` puts a shell that does NOT exec in front of the probe, so the probe is a child
+  # of the unit's main process -- the detector's place under the launcher since #1796.
+  # The trailing `; true` is what stops a shell exec'ing its last command.
+  local start="$RUN/probe ERROR \"this board cannot see -- the cameras did not open (tried: /dev/video0)\" 20"
+  [ "${3:-}" = child ] && start="/bin/sh -c '$RUN/probe ERROR \"this board cannot see -- the cameras did not open (tried: /dev/video0)\" 20; true'"
   cat > "$UNITS/$TAG-$1.service" <<EOF
 [Unit]
 Description=#1383 notify probe ($1)
@@ -139,7 +152,7 @@ Description=#1383 notify probe ($1)
 [Service]
 Type=simple
 $2
-ExecStart=$RUN/probe ERROR "this board cannot see -- the cameras did not open (tried: /dev/video0)" 20
+ExecStart=$start
 EOF
   systemctl --user daemon-reload
   systemctl --user restart "$TAG-$1.service"
@@ -167,6 +180,31 @@ else
   fail "control: a unit with NotifyAccess=none still showed a status ($DEAF), so the check above measures nothing"
 fi
 systemctl --user stop "$TAG-deaf.service" > /dev/null 2>&1
+
+# ---- #1796: the detector is the launcher's child, and the template's NotifyAccess= ---------
+# Since #1796 the unit's main process is opendartboard-launcher and the detector -- the
+# process that sends STATUS= -- is its child. So the template's own NotifyAccess= must let
+# a CHILD's datagram through, and the control is that `main` (what the template said
+# before) drops it: without that, the switch to `all` would be a claim and not a reason.
+echo
+echo "--- child: the probe behind a shell that waits for it, as the detector is behind the launcher ---"
+ACCESS="$(grep -v '^[[:space:]]*#' "$TEMPLATE" | sed -n 's/^NotifyAccess=//p' | tail -1)"
+echo "     | the template says NotifyAccess=$ACCESS"
+CHILD="$(probe_unit child "NotifyAccess=$ACCESS" child)"
+echo "     | StatusText=$CHILD"
+if [ "$CHILD" = "$SENTENCE" ]; then
+  ok "under the template's NotifyAccess=$ACCESS, systemd kept a child's status byte for byte"
+else
+  fail "under the template's NotifyAccess=$ACCESS a child's status was not kept; behind the launcher the blind board says nothing"
+fi
+systemctl --user stop "$TAG-child.service" > /dev/null 2>&1
+MAINONLY="$(probe_unit mainonly 'NotifyAccess=main' child)"
+if [ -z "$MAINONLY" ]; then
+  ok "control: under NotifyAccess=main the same child's status is dropped, so the template's choice is what keeps it"
+else
+  fail "control: NotifyAccess=main kept a child's status ($MAINONLY), so the check above does not tell the two apart"
+fi
+systemctl --user stop "$TAG-mainonly.service" > /dev/null 2>&1
 
 # ---- what the template must never say ----------------------------------------------------
 echo

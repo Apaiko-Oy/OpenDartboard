@@ -26,7 +26,10 @@
 #              alone in logs/current/ and the two before it moved up to logs/; the stub was
 #              handed --autocams, no --cams, and --log-file naming that start's file; the
 #              journal line names it; and the stub's parent is the manager itself, so the
-#              shell exec'd it and NotifyAccess=main still reaches the detector.
+#              shell exec'd it. Since #1796 the program exec'd is opendartboard-launcher,
+#              which hands the detector these arguments untouched (i1796_check.sh), and the
+#              detector's status reaches systemd as the launcher's child under
+#              NotifyAccess=all (i1383_units.sh, "child").
 #   2 prune    The shipped tmpfiles.d rule, renamed into this run and with its age cut to
 #              2s, through `systemd-tmpfiles --clean` on this box: the old files go, the
 #              newest and both directories stay. Control: the same rule without its `x`
@@ -81,6 +84,11 @@ prev=""; for a in "$@"; do [ "$prev" = "--log-file" ] && echo "[stub] a line" >>
 exit 0
 EOF
 chmod +x "$RUN/bin/opendartboard"
+# #1796: the unit execs opendartboard-launcher, which hands every argument to the detector
+# untouched (src/launcher/command_line.hpp; i1796_check.sh measures that). What this file
+# asks is what the UNIT hands the program it starts, so the same stand-in answers to both
+# names and the exec'd program -- the unit's main process -- is the one recorded.
+cp "$RUN/bin/opendartboard" "$RUN/bin/opendartboard-launcher"
 mkdir -p "$RUN/out"
 
 if [ "$(ps -p 1 -o comm=)" != "systemd" ] || ! systemctl --user is-system-running > /dev/null 2>&1; then
@@ -133,8 +141,8 @@ else
     grep -qx "arg --width" "$s" && grep -qx "arg 1280" "$s" && grep -qx "arg --model" "$s" \
       || fail "start $n: the detector's own flags did not arrive as separate arguments"
     [ "$(awk '$1=="parent" {print $2}' "$s")" = systemd ] \
-      && ok "start $n: the detector's parent is the manager, not the shell: it was exec'd, so it is the main process" \
-      || fail "start $n: the detector's parent was [$(awk '$1=="parent" {print $2}' "$s")], not the manager; the shell did not exec it"
+      && ok "start $n: the started program's parent is the manager, not the shell: it was exec'd, so it is the main process" \
+      || fail "start $n: the started program's parent was [$(awk '$1=="parent" {print $2}' "$s")], not the manager; the shell did not exec it"
     grep -qx "opendartboard: this start logs to $want" "$RUN/unit.out" \
       && ok "start $n: the journal names the file" \
       || fail "start $n: no journal line names $want"
