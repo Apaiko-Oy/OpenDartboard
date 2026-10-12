@@ -1505,6 +1505,37 @@ ran to the end of the footage and exited 0: the guard measured live, the stop no
 overnight restarts at 06:00, the log shows the sentence, `update\state.txt` shows
 `scheduled`, and the new run's first lines name the version Turnaus offered. Not yet done.
 
+## A Raspberry Pi pairs over TLS, and which builds can (turnaus#1798)
+
+**Which builds can pair.** Pairing (`--pair`, `--pair-contest`) and every push go to an
+`https://` Turnaus, so a build pairs only if its outbound transport speaks TLS
+(`src/communication/http_transport.hpp`). `opendartboard --version` says which one it is,
+in one line: `Turnaus transport: httplib (TLS: yes, https:// is accepted)` or
+`(TLS: no, https:// is refused; #1798)`.
+
+| build | transport | TLS | pairs |
+|---|---|---|---|
+| Windows artefact | WinHTTP | yes, in-box | yes |
+| arm64 `.deb` from a release after #1798 | httplib + OpenSSL | yes | yes |
+| a Pi built from source with `libssl-dev` installed | httplib + OpenSSL | yes | yes |
+| any POSIX build where CMake finds no OpenSSL, the gate image `od-amd64:bullseye` among them | httplib | no | no: refuses the `https://` address |
+| arm64 `.deb` 0.1.13 and earlier | httplib | no | no |
+
+CMake decides at configure time and says so once: `opendartboard: TLS transport ON
+(OpenSSL ...)` or `... OFF (no OpenSSL found)`. A build without TLS refuses an `https://`
+address with `this build has no TLS transport (httplib) and will not downgrade an https://
+address to plaintext` and never sends the code or the token in clear. `apt-packages.txt`
+carries `libssl-dev`, so the release's `build-deb` job (debian:12, arm64) links OpenSSL;
+the package `Depends` on `libssl3`.
+
+**Measured on a Pi 5 2 GB, Raspberry Pi OS Bookworm, 2026-10-11.** The 0.1.13 package
+refused `--pair` with the line above. A source build of `issue-1798` reported `TLS: yes`,
+`ldd` showed `libssl.so.3` and `libcrypto.so.3`, `--pair` with a fresh club code paired as
+device 1 and wrote the credential, and the service's next start logged `pushing to
+<host> over httplib (TLS)`. A code forty minutes old was refused with 422, which is the
+server's ten-minute expiry, and shows the request reached Turnaus over TLS. The same board
+reached 84 °C during calibration without a cooler.
+
 ## A session read back: the truth line, the log and the fault classes (turnaus#1789)
 
 What the board posts (#1787) Turnaus keeps per dart beside the thrower's corrections and
