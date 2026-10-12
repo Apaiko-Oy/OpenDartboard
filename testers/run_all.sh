@@ -559,7 +559,9 @@ tester 1493-rays          "bash '$T/i1493_run.sh'"
 # repairs together could not say whether one had been traded for the other. Every claim it
 # makes is a comparison between two arms or an exact fact about one reading; there is no
 # millimetre threshold in it (#1322, #1478). No detector binary; OD_SKIP_BUILD changes
-# nothing. MEASURED on the 4-core box: see the pull request for the recorded line.
+# nothing. MEASURED on the 4-core box: see the pull request for the recorded line. The
+# claim that the worst tipGap falls from AA to BB is HISTORICAL since #1823: on cycle
+# windows every arm reads 172 px on dart 17 camera 3, so it is printed and not asserted.
 tester 1494-figure        "bash '$T/i1494_run.sh'"
 slow 2400
 # #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in
