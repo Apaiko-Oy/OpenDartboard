@@ -326,14 +326,26 @@ if(WIN32)
         target_compile_options(opendartboard-launcher PRIVATE /utf-8 /EHsc /FIod_platform_first.hpp)
     endif()
 else()
-    # httplib by its include directory, the way the detector takes it above, so that
-    # whatever the detector's transport is built with (#1798 adds OpenSSL to it) is one
-    # decision made once and the launcher takes the same header the same way.
+    # httplib by its include directory, the way the detector takes it above.
     target_include_directories(opendartboard-launcher PRIVATE ${httplib_SOURCE_DIR})
     target_link_libraries(opendartboard-launcher PRIVATE
         nlohmann_json::nlohmann_json
         Threads::Threads
     )
+
+    # #1796 over #1798: TLS is a per-TARGET decision, not something the launcher inherits
+    # by taking the same header. #1798's block above defines CPPHTTPLIB_OPENSSL_SUPPORT and
+    # links OpenSSL into `opendartboard` alone, PRIVATE; without the same two lines here the
+    # launcher compiles http_transport.hpp with no TLS and refuses every https:// address
+    # -- the manifest at a real Turnaus and the artefact on GitHub -- with "this build has no
+    # TLS transport", on the Pi whose detector can pair. Same find, same answer, same lines.
+    if(OpenSSL_FOUND)
+        target_compile_definitions(opendartboard-launcher PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_link_libraries(opendartboard-launcher PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        message(STATUS "opendartboard-launcher: TLS transport ON; it can fetch an https:// manifest and artefact")
+    else()
+        message(STATUS "opendartboard-launcher: TLS transport OFF (no OpenSSL found); it will refuse an https:// manifest (#1798)")
+    endif()
 
     # ---- #1796: WHICH PLATFORM'S ARTEFACT A LINUX BUILD INSTALLS ----
     #

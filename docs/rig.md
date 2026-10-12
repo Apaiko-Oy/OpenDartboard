@@ -1590,9 +1590,21 @@ launcher run, so the unit sees one start where it would have seen three.
 **TLS.** The manifest and the artefact are fetched by `src/communication/http_transport.hpp`,
 the detector's own transport; on the base this issue was cut from the POSIX build has no
 TLS (#822's note) and so refuses an https address with "this build has no TLS transport",
-exactly as the detector's `--check-update` does. #1798 adds OpenSSL to that transport; the
-launcher takes the same header and needs nothing of its own. Until #1798 lands a Pi's
-launcher cannot reach a real deployment's manifest, and says so in both languages.
+exactly as the detector's `--check-update` does. #1798 adds OpenSSL to that transport --
+and that sentence used to end "the launcher takes the same header and needs nothing of its
+own", which was false: #1798 defines `CPPHTTPLIB_OPENSSL_SUPPORT` and links OpenSSL into
+the `opendartboard` target alone, PRIVATE, so a launcher built beside it compiled the same
+header without TLS. `CMakeLists.txt` now gives the launcher target the same two lines under
+the same `find_package(OpenSSL)`, and the configure log names both targets' answer.
+
+**A release asset is a redirect.** The url `release.yml` signs into the manifest is
+`https://github.com/<repo>/releases/download/<tag>/<name>`, which answers 302 to a signed
+address on another host. WinHTTP follows that by default; httplib does not, and the first
+container run of `i1796_check.sh` with a redirecting artefact host printed "The release
+could not be fetched: HTTP 302." and installed nothing. The artefact fetch -- and only it --
+now asks the transport to follow (`odhttp::get(..., follow_redirects)`); the bytes are held
+to the signed size and digest wherever they came from (ADR-0077 §6). The harness's artefact
+host redirects since, so a regression is red there.
 
 **Measured in the container, 2026-10-11** (`testers/i1796_check.sh`, the launcher built
 by this tree's `CMakeLists.txt` with `-DOD_UPDATE_PLATFORM=linux-arm64` and the fixture's
