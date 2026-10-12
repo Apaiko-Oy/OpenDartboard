@@ -156,30 +156,22 @@ else
     say "FAIL a run stopped before the end of the footage, so its figures are of an opening and not of this fixture" no
   fi
 
-  # The precondition the whole section rests on: the fixture really holds the reading this
-  # issue is about. #708's rule -- the needle is proved to exist before its absence means
-  # anything -- and it is not hypothetical here, because with the rings HELD there is no
-  # 25 in this clip at all and every assertion below would pass over nothing.
-  if [ "$asfitted_after_OUTER" -gt 0 ]; then
-    say "OK   with OD_RINGS=asfitted the fixture publishes $asfitted_after_OUTER darts as a 25, so there is a ring-only reading here to be counted" ok
-  else
-    say "FAIL OD_RINGS=asfitted publishes no 25 at all, so nothing below is measuring this issue" no
-  fi
-
-  # THE DEFECT, on the same binary, in one line: darts published at 0.7 or 0.9 -- the two
-  # confidences that mean a camera MEASURED A WEDGE -- in a run where no wedge was measured.
-  echo "      before: $asfitted_before_HIGH darts at 0.7 or 0.9, $asfitted_before_HIGH_CLAIMING_A_WEDGE of them by a camera that read no wedge"
-  echo "      after:  $asfitted_after_HIGH darts at 0.7 or 0.9, $asfitted_after_HIGH_CLAIMING_A_WEDGE of them by a camera that read no wedge"
-  if [ "$asfitted_before_HIGH_CLAIMING_A_WEDGE" -gt 0 ]; then
-    say "OK   before #1489 $asfitted_before_HIGH_CLAIMING_A_WEDGE darts at 0.7 or 0.9 carry a board line claiming a wedge nobody read" ok
-  else
-    say "FAIL the falsifier shows no such dart, so the after figure below is a census of nothing" no
-  fi
-  if [ "$asfitted_after_HIGH_CLAIMING_A_WEDGE" = 0 ] && [ "$asfitted_after_HIGH_RINGONLY" -gt 0 ]; then
-    say "OK   after it, all $asfitted_after_HIGH_RINGONLY of them say the wedge was no part of the reading -- and they are still published at 0.7 and 0.9" ok
-  else
-    say "FAIL a dart at 0.7 or 0.9 still claims a wedge, or the ring readings stopped reaching a consensus" no
-  fi
+  # HISTORICAL since #1825, printed and not asserted. These three were the needle: with
+  # OD_RINGS=asfitted the fixture published eight darts as a 25 at 0.7 or 0.9 claiming a
+  # wedge nobody read (#1489, 0e1ad99, 2026-09-21: eight of eighteen), and #1489 took the
+  # claim away. On main the falsifier no longer puts a 25 back -- measured by #1758 on
+  # d8cfa64 with this section's pins, every run DARTS=19 MEASURED=0 BYDEFAULT=18
+  # RINGONLY=0 HIGH=0 OUTER=0, asfitted and held identical -- so the needle is gone with
+  # or without it and the before/after comparison would be a census of nothing. #708's
+  # rule is why they are not left green-by-vacuity either: a sweep with no needle is not a
+  # finding. The maintainer retired them on 2026-10-12. The figures still print, so a
+  # 25 coming back is seen; they colour nothing. Sections 1-3 and 5 hold #1489's decision
+  # on a synthetic board, which is where it is still asserted.
+  echo "      HISTORICAL (#1825) -- #1489 (0e1ad99) measured 8 of 18 darts as a 25 under OD_RINGS=asfitted;"
+  echo "      the falsifier no longer produces one, so the three needle checks are printed, not asserted"
+  echo "      HIST  OD_RINGS=asfitted publishes $asfitted_after_OUTER darts as a 25 (#1489 recorded 8)"
+  echo "      HIST  before: $asfitted_before_HIGH darts at 0.7 or 0.9, $asfitted_before_HIGH_CLAIMING_A_WEDGE of them by a camera that read no wedge"
+  echo "      HIST  after:  $asfitted_after_HIGH darts at 0.7 or 0.9, $asfitted_after_HIGH_CLAIMING_A_WEDGE of them by a camera that read no wedge, $asfitted_after_HIGH_RINGONLY saying the wedge was no part of the reading"
 
   # The issue's own criterion: zero wedges measured, on a fixture where every BOARD line
   # already said so. Asked of all three runs, because it is a fact about the rig (no camera

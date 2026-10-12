@@ -516,7 +516,9 @@ tester 1485-rings         "bash '$T/i1485_run.sh'"
 # read as the anchor improving. Five sections: the vote, the reading on a synthetic board
 # anchored and not, OD_RING_ONLY=counted as the falsifier, three whole-footage detector
 # runs at OD_MAX_CYCLES=6000, and two planted lines that delete the distinction at source.
-# Sections 1-3 and 5 need no detector binary and cost a compile each.
+# Sections 1-3 and 5 need no detector binary and cost a compile each. Section 4's three
+# needle checks are HISTORICAL since #1825: OD_RINGS=asfitted no longer puts a 25 back on
+# this fixture, so its figures are printed and the full-clip and no-wedge checks asserted.
 tester 1489-ringonly      "bash '$T/i1489_run.sh'"
 # #1490: how far apart two cameras place ONE dart, in millimetres, through #1467's
 # planeOf() and through the BoardPosition the scorer already computes, side by side. A
