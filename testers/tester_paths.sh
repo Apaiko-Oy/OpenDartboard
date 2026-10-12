@@ -14,6 +14,7 @@
 #   OD_IMAGE       the image every harness runs in. Override with OD_IMAGE.
 #   od_name        a container name unique to this checkout
 #   od_still       a still JPEG for the phases that hand the detector a frozen frame
+#   docker         `docker run` with the detection windows pinned to cycles (#1826)
 #
 # Sourced, never executed: it defines and sets, and runs nothing.
 
@@ -26,6 +27,44 @@ OD_IMAGE="${OD_IMAGE:-od-amd64:bullseye}"
 # A container name carrying the checkout, so two trees running the same tester at once
 # do not collide on the name each reaps by.
 od_name() { echo "od-$OD_TREE_TAG-$1"; }
+
+# ---- every container counts its detection windows in cycles (#1826) ---------------------
+#
+# Since ece438d (#1685) the detection windows -- the motion settle, the exposure history
+# and hold, the dart window -- default to MILLISECONDS of the motion clock, and a file
+# replay's motion clock is the wall clock. A replay runs as fast as the box lets it, so a
+# millisecond window spans however many cycles the box ran, and a figure read off the
+# replay moves with the box's load. #1758 measured it: two runs of 1188-subscribers put
+# dart 2 at (477,238) and at (825,230), and one binary on one clip read its worst on-board
+# dart as 108.2 mm and as 19.5 mm minutes apart. OD_WINDOW_UNIT=cycles pins the counts.
+#
+# The pin used to be each harness's to remember, and `docker run` passes none of the
+# host's environment, so OD_WINDOW_UNIT=cycles written on run_all.sh's command line reached
+# a container only where its harness forwarded it. So it is made here, once, for every
+# `docker run` a harness sourcing this file makes -- od_run's, and the older harnesses'
+# that still call `docker run` themselves -- and a new tester inherits it instead of having
+# to know. A shell function is how it reaches the raw calls without touching them;
+# `command docker` inside it is the real binary.
+#
+#   OD_WINDOW_UNIT     forwarded when the host sets it, so `OD_WINDOW_UNIT=ms run_all.sh`
+#                      still measures the shipping default on purpose; `cycles` otherwise.
+#   -e on the harness  the pin goes FIRST, and Docker keeps the last -e of a name
+#                      (measured), so a harness naming the unit itself still decides it.
+#   OD_WINDOWS_OWNED=1 set by a harness that decides the unit itself and is not touched at
+#                      all: i1555_run.sh, whose bakeoff forwards OD_WINDOW_UNIT only when
+#                      the host set it, kept byte-identical to the runs #1781-#1815 recorded.
+#
+# The pin does not make a replay deterministic -- which frame a cycle reads still depends
+# on scheduling (docs/rig.md) -- it takes the window lengths off that list. census.sh runs
+# this function against a stand-in docker and fails if the pin is not passed.
+docker() {
+  if [ "${1:-}" = run ] && [ "${OD_WINDOWS_OWNED:-0}" != 1 ]; then
+    shift
+    command docker run -e OD_WINDOW_UNIT="${OD_WINDOW_UNIT:-cycles}" "$@"
+  else
+    command docker "$@"
+  fi
+}
 
 # The blind-camera phases hand the detector a JPEG where a camera should be. The file
 # used to be /tmp/still892.jpg -- which a reboot removes -- and then one run directory's

@@ -48,6 +48,9 @@
 //   judge         did it fail to START, or did it run and then stop? update_moment.hpp
 //   go back       after kAllowedFailedStarts fast bad endings, if a version that worked
 //                 is kept, rename it back and start THAT, saying which and why
+//   go round      (#1797) only after a SCHEDULED ending -- the detector stopped itself
+//                 at 06:00 for exactly this -- say so, then remember, decide, check,
+//                 apply and start again with the same arguments; one look per stop
 //   say           the ending, in both languages, and which versions these were
 //   wait          only where somebody is there to press Enter
 //
@@ -102,9 +105,17 @@ namespace launcher
         bool looked_for_an_update = false;
         bool applied_an_update = false;
         bool rolled_back = false;
-        int starts = 0;
+        int starts = 0; // every start of the detector in this carry, across #1797's rounds
         std::string ran_version;
-        Moment moment = Moment::MayCheck;
+        Moment moment = Moment::MayCheck; // the latest round's decision
+
+        // #1797, for a harness. `looks` counts the times the network door was opened;
+        // `scheduled_stops` the endings that were followed by a look and another start;
+        // `refused_to_follow` is the bound -- a detector that came back `scheduled` inside
+        // a minute of being started again, which the launcher does not follow.
+        int looks = 0;
+        int scheduled_stops = 0;
+        bool refused_to_follow = false;
     };
 
     /**
@@ -203,7 +214,6 @@ namespace launcher
                         bool somebodyIsThere, const Runner &runner, const Surroundings &surroundings)
     {
         Report report;
-        std::vector<Text> before;
 
         State state = readState(surroundings.layout.state_file);
 
@@ -212,112 +222,168 @@ namespace launcher
         const std::function<long long()> clock = surroundings.clock ? surroundings.clock
                                                                     : std::function<long long()>(wallClock);
 
-        // ADR-0077 §7, evaluated. There is no other path from here to the network.
-        const long long started_at = clock();
-        const MomentDecision moment =
-            decideMoment(state, started_at, surroundings.forced, surroundings.quiet_seconds);
-        report.moment = moment.moment;
-        if (moment.may_check)
-        {
-            report.looked_for_an_update = true;
-            lookForAnUpdate(surroundings, state, report, before);
-        }
-        else if (surroundings.forced)
-        {
-            // Unreachable by construction -- forced is always may_check -- and kept so
-            // that a change to decideMoment() which stopped honouring --update-now would
-            // say so on the screen rather than silently.
-            before.push_back(momentText(moment));
-        }
-
-        for (size_t i = 0; i < before.size(); i++)
-        {
-            console.say(before[i]);
-            report.said.push_back(before[i]);
-        }
-
-        // ---- start it, judge what came back, and go back if it will not start ----------
+        // #1797: ONE ROUND IS WHAT THIS FUNCTION WAS. A scheduled stop -- the detector
+        // returning scheduled_stop::kExitCode at 06:00 -- is the one ending that is followed
+        // by another round: the state file now says "scheduled", decideMoment() opens its
+        // fourth door on that word, the launcher looks (installing or rolling back exactly as
+        // #1306), and starts the detector again with the SAME arguments. Every other ending
+        // leaves after its first round, byte for byte as before, which
+        // testers/i1303_launcher_check.cpp measures against real child processes.
+        //
+        // The rounds are bounded by the clock the detector keeps, not by a count: a board
+        // stops once a day, so a launcher that has run for a month has been round thirty
+        // times. What is refused is a detector that comes back `scheduled` again inside
+        // kSettledSeconds of the start that FOLLOWED a scheduled stop -- a stop at 06:00
+        // followed by another at 06:00:30 is a bug in the rule, not a day, and following
+        // it would be a hot loop through the network. The launcher says so and stops.
         Outcome outcome;
-        int attempt = 0;
-        for (attempt = 1; attempt <= kAttemptsInOneCarry; attempt++)
+        long long ran_for = 0;
+        for (int round = 1;; round++)
         {
-            report.starts = attempt;
-            report.ran_version = installedVersion(state, version());
-            state.last_started = clock();
-            state.last_ending.clear();
-            writeState(surroundings.layout.state_file, state);
+            std::vector<Text> before;
 
-            const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
-            outcome = runner(surroundings.layout.detector, arguments);
-            const long long ran_for =
-                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
-
-            const Ending ending = endingOf(outcome);
-            state.last_stopped = clock();
-            state.last_ending = endingWord(ending);
-
-            if (!failedToStart(ending, ran_for))
+            // ADR-0077 §7, evaluated. There is no other path from here to the network.
+            const long long started_at = clock();
+            const MomentDecision moment =
+                decideMoment(state, started_at, surroundings.forced, surroundings.quiet_seconds);
+            report.moment = moment.moment;
+            if (moment.may_check)
             {
-                // It started. Whatever it then did is #1303's business, and a version that
-                // has started is a version with nothing against it.
-                state.failed_starts = 0;
+                report.looked_for_an_update = true;
+                report.looks++;
+                lookForAnUpdate(surroundings, state, report, before);
+            }
+            else if (surroundings.forced)
+            {
+                // Unreachable by construction -- forced is always may_check -- and kept so
+                // that a change to decideMoment() which stopped honouring --update-now would
+                // say so on the screen rather than silently.
+                before.push_back(momentText(moment));
+            }
+
+            for (size_t i = 0; i < before.size(); i++)
+            {
+                console.say(before[i]);
+                report.said.push_back(before[i]);
+            }
+
+            // ---- start it, judge what came back, and go back if it will not start ----------
+            int attempt = 0;
+            for (attempt = 1; attempt <= kAttemptsInOneCarry; attempt++)
+            {
+                report.starts++;
+                report.ran_version = installedVersion(state, version());
+                state.last_started = clock();
+                state.last_ending.clear();
                 writeState(surroundings.layout.state_file, state);
+
+                const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+                outcome = runner(surroundings.layout.detector, arguments);
+                ran_for =
+                    std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - began).count();
+
+                const Ending ending = endingOf(outcome);
+                state.last_stopped = clock();
+                state.last_ending = endingWord(ending);
+
+                if (!failedToStart(ending, ran_for))
+                {
+                    // It started. Whatever it then did is #1303's business, and a version that
+                    // has started is a version with nothing against it.
+                    state.failed_starts = 0;
+                    writeState(surroundings.layout.state_file, state);
+                    break;
+                }
+
+                state.failed_starts++;
+                writeState(surroundings.layout.state_file, state);
+
+                const bool attempts_left = state.failed_starts < kAllowedFailedStarts;
+                const bool can_go_back = hasSomethingToGoBackTo(state) && fileExists(surroundings.layout.previous_exe);
+                if (!attempts_left && !can_go_back)
+                {
+                    break; // nothing to go back to: #1303's report is the whole answer
+                }
+                if (attempt == kAttemptsInOneCarry)
+                {
+                    break; // the bound, so that nothing here can loop
+                }
+
+                const Text tried = {"Versio " + report.ran_version + " ei käynnistynyt (" + std::to_string(ran_for) +
+                                        " s, paluukoodi " + codeAsText(outcome.code) + ").",
+                                    "Version " + report.ran_version + " did not start (" + std::to_string(ran_for) +
+                                        " s, exit code " + codeAsText(outcome.code) + ")."};
+                console.say(tried);
+                report.said.push_back(tried);
+
+                if (attempts_left)
+                {
+                    const Text again = {"Yritetään vielä kerran.", "Trying once more."};
+                    console.say(again);
+                    report.said.push_back(again);
+                    continue;
+                }
+
+                const std::string going_back_to = state.previous_version;
+                if (rollBack(surroundings.layout, state))
+                {
+                    report.rolled_back = true;
+                    writeState(surroundings.layout.state_file, state);
+                    const Text went = {"Palataan versioon " + going_back_to + ", joka toimi. Uusi versio poistettiin "
+                                                                              "käytöstä.",
+                                       "Going back to version " + going_back_to + ", which worked. The new version has "
+                                                                                  "been taken out of use."};
+                    console.say(went);
+                    report.said.push_back(went);
+                    continue;
+                }
+                const Text stuck = {"Edellistä versiota ei saatu palautettua, joten taulu jää tähän versioon.",
+                                    "The previous version could not be restored, so the board stays on this one."};
+                console.say(stuck);
+                report.said.push_back(stuck);
                 break;
             }
 
-            state.failed_starts++;
-            writeState(surroundings.layout.state_file, state);
-
-            const bool attempts_left = state.failed_starts < kAllowedFailedStarts;
-            const bool can_go_back = hasSomethingToGoBackTo(state) && fileExists(surroundings.layout.previous_exe);
-            if (!attempts_left && !can_go_back)
+            // ---- #1797: a scheduled stop is followed; anything else is the end ------------
+            if (endingOf(outcome) != Ending::Scheduled)
             {
-                break; // nothing to go back to: #1303's report is the whole answer
+                break;
             }
-            if (attempt == kAttemptsInOneCarry)
+            if (round > 1 && ran_for < kSettledSeconds)
             {
-                break; // the bound, so that nothing here can loop
+                report.refused_to_follow = true;
+                break; // said below, in place of the ending's own lines
             }
-
-            const Text tried = {"Versio " + report.ran_version + " ei käynnistynyt (" + std::to_string(ran_for) +
-                                    " s, paluukoodi " + codeAsText(outcome.code) + ").",
-                                "Version " + report.ran_version + " did not start (" + std::to_string(ran_for) +
-                                    " s, exit code " + codeAsText(outcome.code) + ")."};
-            console.say(tried);
-            report.said.push_back(tried);
-
-            if (attempts_left)
+            report.scheduled_stops++;
+            const std::vector<Text> scheduled_lines = endingLines(outcome);
+            for (size_t i = 0; i < scheduled_lines.size(); i++)
             {
-                const Text again = {"Yritetään vielä kerran.", "Trying once more."};
-                console.say(again);
-                report.said.push_back(again);
-                continue;
+                console.say(scheduled_lines[i]);
+                report.said.push_back(scheduled_lines[i]);
             }
-
-            const std::string going_back_to = state.previous_version;
-            if (rollBack(surroundings.layout, state))
-            {
-                report.rolled_back = true;
-                writeState(surroundings.layout.state_file, state);
-                const Text went = {"Palataan versioon " + going_back_to + ", joka toimi. Uusi versio poistettiin "
-                                                                          "käytöstä.",
-                                   "Going back to version " + going_back_to + ", which worked. The new version has "
-                                                                              "been taken out of use."};
-                console.say(went);
-                report.said.push_back(went);
-                continue;
-            }
-            const Text stuck = {"Edellistä versiota ei saatu palautettua, joten taulu jää tähän versioon.",
-                                "The previous version could not be restored, so the board stays on this one."};
-            console.say(stuck);
-            report.said.push_back(stuck);
-            break;
+            // The state file already says "scheduled" (written above, where the ending was
+            // judged), so the next round's decideMoment() opens the fourth door.
         }
 
         // ---- and what the ending was (#1303, unchanged) --------------------------------
         report.ending = endingOf(outcome);
         report.exit_code = exitCodeFor(report.ending);
-        const std::vector<Text> ending_lines = endingLines(outcome);
+        std::vector<Text> ending_lines;
+        if (report.refused_to_follow)
+        {
+            ending_lines.push_back({"Ohjelma pysähtyi ajastetusti uudelleen " + std::to_string(ran_for) +
+                                        " s uudelleenkäynnistyksen jälkeen (paluukoodi " + codeAsText(outcome.code) +
+                                        "), mitä ei pitäisi tapahtua. Sitä ei käynnistetä enää uudelleen.",
+                                    "The program stopped on schedule again " + std::to_string(ran_for) +
+                                        " s after being started again (exit code " + codeAsText(outcome.code) +
+                                        "), which should not happen. It is not being started again."});
+            ending_lines.push_back({"Kopioi tämän ikkunan teksti ja kerro mihin aikaan tämä tapahtui.",
+                                    "Copy the text in this window and say what time this happened."});
+        }
+        else
+        {
+            ending_lines = endingLines(outcome);
+        }
         for (size_t i = 0; i < ending_lines.size(); i++)
         {
             console.say(ending_lines[i]);

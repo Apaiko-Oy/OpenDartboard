@@ -8,6 +8,7 @@
 #include "../calibration/wire_processing.hpp"
 #include "entry_intersection.hpp"
 #include "dart_candidates.hpp"
+#include "rim_offer.hpp"
 
 using namespace cv;
 using namespace std;
@@ -443,6 +444,33 @@ namespace score_processing
             out.score = ring_prefix + to_string(number);
         }
         return out;
+    }
+
+    // turnaus#1821: the wedge this camera's own angular ruler reads at a tip, wherever the
+    // tip is -- including past the outer double, where scorePoint returns MISS before it
+    // asks the wedge (a surround MISS carries no angle). The same anchor rule scorePoint
+    // uses: an unanchored camera reads no wedge here, because its 20 would be asserted.
+    // -1 where nothing is read.
+    static int wedgeAtTip(Point2f pixel, const DartboardCalibration &calib,
+                          const orientation_processing::DerivedAnchor &derived)
+    {
+        if (!canScoreAPoint(calib))
+        {
+            return -1;
+        }
+        const bool ownAnchor = orientation_processing::wedgeCanBeRead(calib.orientation);
+        if (!ownAnchor && !derived.trusted)
+        {
+            return -1;
+        }
+        float fraction = 0.0f;
+        const int start = ownAnchor ? calib.orientation.wedge20WireIndex : derived.wedge20WireIndex;
+        const int slot = findWedgeSlot(pixel, calib, start, fraction);
+        if (slot < 0 || slot >= (int)dartboard_numbers.size())
+        {
+            return -1;
+        }
+        return dartboard_numbers[slot];
     }
 
     // ---- #1486: anchors derived from darts every camera saw -----------------------------
@@ -979,7 +1007,10 @@ namespace score_processing
 
         ScoreResult result;
 
-        if (dart_result.previous_state == dart_result.current_state)
+        // turnaus#1793: or no dart called past three (OD_PAST_THREE=on), which publishes from
+        // DART_3 to DART_3 through the DART_3 case below.
+        if (!dart_processing::windowPublishes(dart_result.previous_state, dart_result.current_state,
+                                              dart_result.past_three))
         {
             // No state change, return invalid result
             result.valid = false;
@@ -1177,13 +1208,55 @@ namespace score_processing
             // measured the numbers it is given, and a vote publish hands it
             // `geometryPublished == false`, which is how a degraded dart stays silent
             // about a millimetre uncertainty nothing measured.
-            const BoundaryCall crossing = decideBoundaryCall(
+            const string provenance = entry_intersection::sigmaProvenance(solution);
+            const BoundaryCall default_crossing = decideBoundaryCall(
                 decision.path == ScorePath::Geometry, solution.uncertaintyCrossesWire,
                 solution.score.valid ? solution.score.score : string(),
                 solution.alternativeScore, solution.boundaryKind,
                 solution.boundaryAcrossMm, solution.sigmaAcrossMm,
                 // #1766: on an uncontrolled solve the sentence says whose sigma it is.
-                entry_intersection::sigmaProvenance(solution));
+                provenance);
+            // turnaus#1815: under OD_FLAG_SIGMAS=<K> a flag whose solve is further than K
+            // of its sigmas from the wire publishes clear. Off, this is default_crossing.
+            bool flag_tightened = false;
+            const BoundaryCall nearest_crossing =
+                tightenBoundaryCall(default_crossing, solution.crossingSigmas, flagCrossingSigmas(),
+                                    provenance, &flag_tightened);
+            // #1782: and where the solve sits within its sigma of a ring wire AND a wedge
+            // wire, the flag offers the corner -- the three other cells by the solve's own
+            // covariance, an unused camera's clear reading of one of them first. The
+            // published score is nearest_crossing's, untouched; only what is offered moves.
+            CornerCells corner_cells;
+            corner_cells.corner = solution.corner;
+            corner_cells.ringAlt = solution.cornerRingAlt;
+            corner_cells.wedgeAlt = solution.cornerWedgeAlt;
+            corner_cells.diagonal = solution.cornerDiagonal;
+            corner_cells.ringMm = solution.cornerRingMm;
+            corner_cells.wedgeMm = solution.cornerWedgeMm;
+            corner_cells.sigmaRingMm = solution.sigmaRadialMm;
+            corner_cells.sigmaWedgeMm = solution.sigmaTangentMm;
+            corner_cells.rho = solution.cornerRho;
+            vector<CameraReading> camera_readings;
+            for (size_t i = 0; i < point_scores.size() && i < may_vote.size(); i++)
+            {
+                if (!may_vote[i])
+                {
+                    continue;
+                }
+                CameraReading reading;
+                reading.camera = (int)i;
+                reading.score = point_scores[i].score;
+                reading.wedgeMarginMm = wedgeWireMarginMm(point_scores[i]);
+                reading.ringMarginMm = ringWireMarginMm(point_scores[i]).marginMm;
+                for (const entry_intersection::Constraint &con : solution.constraints)
+                {
+                    reading.used = reading.used || (con.camera == (int)i && con.usable && !con.excluded);
+                }
+                camera_readings.push_back(reading);
+            }
+            const BoundaryCall crossing =
+                decideCornerCall(nearest_crossing, corner_cells, camera_readings, provenance,
+                                 entry_intersection::Params().crossingSigmas);
             result.boundary_flagged = crossing.flagged;
             result.alternative_score = crossing.alternative;
             result.boundary_kind = crossing.kind;
@@ -1194,13 +1267,94 @@ namespace score_processing
                 log_info(crossing.account);
             }
 
+            // turnaus#1779: a solve from fewer lines than cameras says which camera offered
+            // none and why, at INFO. Here, before "Geometric score", and never between it and
+            // its BOARD line: i1766_census.py reads the BOARD line as the very next one.
+            if (decision.path == ScorePath::Geometry)
+            {
+                const string missing = entry_intersection::missingLinesAccount(solution);
+                if (!missing.empty())
+                {
+                    log_info(missing);
+                }
+            }
+
+            // turnaus#1821: a dart the rim-only votes carried, that no camera read, where the
+            // one camera that cleared the scoring floor offered a line and a tip with a read
+            // wedge. rim_offer.hpp holds the rule and the live window it is from; it is
+            // computed for every called dart so the census can say what the switch would do.
+            vector<rim_offer::Witness> rim_witnesses;
+            vector<string> rim_tip_words; // census only: each camera's own reading at its tip
+            for (size_t i = 0; i < dart_result.camera_results.size(); i++)
+            {
+                const dart_processing::CameraDetectionResult &r = dart_result.camera_results[i];
+                rim_offer::Witness w;
+                w.camera = (int)i;
+                w.cleared_scoring = r.cleared_scoring_floor;
+                for (const entry_intersection::Constraint &con : solution.constraints)
+                {
+                    w.usable_line = w.usable_line || (con.camera == (int)i && con.usable && !con.excluded);
+                }
+                w.tip_found = r.tip_found && norm(r.tip_position) > 0;
+                if (w.tip_found && i < calibrations.size())
+                {
+                    w.segment = wedgeAtTip(r.tip_position, calibrations[i], anchorFor(i));
+                    w.wedge_read = w.segment > 0;
+                }
+                rim_witnesses.push_back(w);
+                char word[160];
+                snprintf(word, sizeof(word), " cam%zu=%s%s%s%s/%s/r%.3f/seg%d", i + 1,
+                         r.rim_only ? "rim" : "-", w.cleared_scoring ? "+clr" : "",
+                         w.usable_line ? "+line" : "", w.tip_found ? "+tip" : "",
+                         w.tip_found ? point_scores[i].score.c_str() : "none",
+                         point_scores[i].board.has_radius ? point_scores[i].board.radius : -1.0f, w.segment);
+                rim_tip_words.push_back(word);
+            }
+            const bool vote_read = decision.path == ScorePath::Geometry || choice.camera >= 0;
+            const rim_offer::Offer rim_offered =
+                rim_offer::decide(rim_offer::isOn(), dart_result.rim_carried, vote_read, rim_witnesses);
+            {
+                static bool rim_offer_said = false; // said at the first scored window (turnaus#1820's lesson)
+                if (rim_offer::isOn() && !rim_offer_said)
+                {
+                    rim_offer_said = true;
+                    log_warning("OD_RIM_OFFER=on is set: a rim-carried dart no camera read publishes MISS flagged "
+                                "with the single of the wedge the one scoring-area camera's tip is in, where that "
+                                "camera offered a usable line (turnaus#1821)");
+                }
+            }
+            if (rim_offer::censusOn() && dart_result.rim_carried)
+            {
+                long window = -1;
+                for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+                {
+                    if (r.axis.windowOrdinal >= 0)
+                    {
+                        window = r.axis.windowOrdinal;
+                    }
+                }
+                string cams;
+                for (const string &w : rim_tip_words)
+                {
+                    cams += w;
+                }
+                log_info("I1821RIM window=" + to_string(window) + " vote=" +
+                         (decision.path == ScorePath::Geometry ? string("geometry")
+                                                                : (choice.camera >= 0 ? point_scores[choice.camera].score
+                                                                                      : string("none"))) +
+                         " offer=" + to_string(rim_offered.flag ? 1 : 0) + " alt=" +
+                         (rim_offered.alternative.empty() ? string("-") : rim_offered.alternative) +
+                         " why=" + rim_offered.reason + cams);
+            }
+
             if (decision.path == ScorePath::Geometry)
             {
                 const int reference = solution.scoredThroughCamera;
                 result.score = solution.score.score;
                 result.confidence =
                     geometricConfidence(solution.outcome ==
-                                        entry_intersection::Outcome::UncertainAcrossWire);
+                                            entry_intersection::Outcome::UncertainAcrossWire &&
+                                        !flag_tightened); // #1815: a cleared flag is a clear call
                 result.camera_index = reference;
                 result.valid = true;
                 result.ring = solution.score.ringWord;
@@ -1412,6 +1566,21 @@ namespace score_processing
                 result.camera_index = -1;
                 result.valid = true;
 
+                // turnaus#1821: and where the rim-only carry published it with one camera
+                // seeing the dart in the scoring area, the MISS is flagged with that camera's
+                // wedge (rim_offer.hpp). The score stays MISS at 0.5.
+                if (rim_offered.flag)
+                {
+                    log_info("I1821 RIM OFFER: no camera read this dart and the rim-only votes carried it, but "
+                             "camera " + to_string(rim_offered.camera + 1) + " cleared the floor in the scoring "
+                             "area with a usable line and its tip in the " + rim_offered.alternative.substr(1) +
+                             " wedge, so MISS publishes flagged with " + rim_offered.alternative +
+                             " as the alternative (turnaus#1821)");
+                    result.boundary_flagged = true;
+                    result.alternative_score = rim_offered.alternative;
+                    result.boundary_kind = "ring";
+                }
+
                 if (debug_mode)
                 {
                     log_warning("State changed but no valid scores found!");
@@ -1463,6 +1632,11 @@ namespace score_processing
                 evidence.angle_known = result.board.has_angle;
                 evidence.angle = result.board.angle;
                 evidence.alternative = result.boundary_flagged ? result.alternative_score : string();
+                // #1782: a corner's remaining cells, straight after the alternative.
+                if (result.boundary_flagged && result.from_geometry)
+                {
+                    evidence.corner = crossing.others;
+                }
                 for (size_t i = 0; i < point_scores.size() && i < may_vote.size(); i++)
                 {
                     if (may_vote[i])
@@ -1512,6 +1686,12 @@ namespace score_processing
                 // landed in the flagged set.
                 log_info(flagCensusLine(window, crossing, result.confidence,
                                         result.from_geometry, result.score));
+                // turnaus#1815: the threshold in force, beside what #1556's 1.0 decided.
+                log_info(flagThresholdCensusLine(window, default_crossing, crossing, solution.crossingSigmas,
+                                                 flagCrossingSigmas()));
+                // #1782: the corner, beside the flag it widened.
+                log_info(cornerCensusLine(window, nearest_crossing, crossing, corner_cells, camera_readings,
+                                          entry_intersection::Params().crossingSigmas));
                 // #1721: what the fix row would be offered, beside what published.
                 string ranked;
                 for (const string &c : result.candidates)

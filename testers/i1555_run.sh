@@ -26,6 +26,10 @@
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
+# #1826: tester_paths.sh pins every container's windows to cycles; this harness decides the
+# unit itself (forwarded below when the host sets it, the detector's default when not), so
+# the bakeoff stays byte-identical to the runs #1781-#1815 recorded.
+OD_WINDOWS_OWNED=1
 
 RUN="$OD_RUNS_BASE/1555"
 if [ -d "$RUN" ]; then
@@ -48,6 +52,12 @@ T0=$(date +%s.%N)
 # OD_LONE_CAMERA and its census OD_LONE_CENSUS, #1687 OD_WINDOW_CROP, #1689 OD_BOARD_COUNT,
 # #1690 OD_HELD_REBASE, #1691 OD_CLEAN_ADOPT, #1707 OD_RIM_FALLBACK, #1730 OD_WIRE_REGION and
 # OD_WIRE_REGION_MARGIN -- the wire stage's region, measured on the twenty-fold model).
+# turnaus#1793 added OD_PAST_THREE.
+# turnaus#1815 added OD_FLAG_SIGMAS (the geometric flag's threshold, in its own sigmas).
+# turnaus#1820 added OD_REREAD_HOLD and its census OD_REREAD_CENSUS.
+# turnaus#1821 added OD_RIM_OFFER and its census OD_RIM_OFFER_CENSUS.
+# turnaus#1783 added OD_MOTION_REGION, its census OD_MOTION_REGION_CENSUS, and OD_WINDOW_CENSUS
+# (#1358's per-window line, which carries the cycle every END closed on).
 #
 # #1655: OD_MOTION_CLOCK selects the clock the motion timers (cooldown, spike window,
 # safety timeout) run on. This harness replays one frame per cycle as fast as the box
@@ -63,8 +73,16 @@ T0=$(date +%s.%N)
 # runs-i1650; turnaus#1655 has the four runs).
 # OD_MOTION_CLOCK=wall pins the pre-#1655 instrument; its figures move with the box's load.
 export OD_MOTION_CLOCK="${OD_MOTION_CLOCK:-capture}"
+#
+# #1797: OD_SCHEDULED_RESTART=off keeps the detector from stopping itself at 06:00 in the
+# container's zone (UTC in od-amd64:bullseye, 09:00 in Helsinki). The bakeoff runs
+# unbounded (OD_MAX_CYCLES=0) for twenty minutes and a gate that crosses six o'clock would
+# otherwise measure a replay that stopped at a 10-minute mark; the pin is the only way to
+# keep a board from stopping at six (docs/rig.md), so the bakeoff DEFAULTS to it and
+# forwards it. OD_SCHEDULED_RESTART=on measures the stop instead, which is i1797_replay.sh's.
+export OD_SCHEDULED_RESTART="${OD_SCHEDULED_RESTART:-off}"
 FWD=()
-for v in OD_MOTION_CLOCK OD_WINDOW_UNIT OD_WINDOW_CROP OD_BOARD_COUNT OD_HELD_REBASE OD_CLEAN_ADOPT OD_RIM_FALLBACK OD_WIRE_REGION OD_WIRE_REGION_MARGIN OD_SPIKE_THRESHOLD OD_LONE_CAMERA OD_LONE_CENSUS OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS OD_BULL_SUBPIXEL OD_SOLVE_CONTROL; do
+for v in OD_MOTION_CLOCK OD_SCHEDULED_RESTART OD_RIM_OFFER OD_RIM_OFFER_CENSUS OD_REREAD_HOLD OD_REREAD_CENSUS OD_WINDOW_UNIT OD_MOTION_REGION OD_MOTION_REGION_CENSUS OD_WINDOW_CENSUS OD_PAST_THREE OD_BODY_WINDOW OD_BODY_CENSUS OD_WINDOW_CROP OD_BOARD_COUNT OD_HELD_REBASE OD_CLEAN_ADOPT OD_RIM_FALLBACK OD_WIRE_REGION OD_WIRE_REGION_MARGIN OD_SPIKE_THRESHOLD OD_LONE_CAMERA OD_LONE_CENSUS OD_SETTLE_EXPOSURE OD_TAKEOUT_REREPORT OD_COOLDOWN_EXPIRY OD_AXIS_UNSHIFT OD_MASK_UNSHIFT OD_MASK_SHIFT_CENSUS OD_BULL_SUBPIXEL OD_SOLVE_CONTROL OD_FLAG_SIGMAS; do
   if [ -n "${!v+x}" ]; then FWD+=(-e "$v"); echo "I1555 FORWARD $v=${!v}"; fi
 done
 

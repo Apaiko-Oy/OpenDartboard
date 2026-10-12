@@ -1,3 +1,4 @@
+# unrun-tester: a reporter in i1628_census.py's mould over a #1555 bakeoff's OD_GEO_SCORE=on logs (#1773); it decides nothing about the numbers, exits 0 on any run it can parse, and its input logs are not in the repository.
 """#1773: every vote-path dart's distance to its nearest RING wire, and what the ring flag did.
 
     python3 i1773_census.py --log <run.txt> --truth <table.md> --annotations <fixture.csv> \

@@ -15,6 +15,7 @@
 #include "utils.hpp"
 #include "utils/board_sight.hpp"
 #include "utils/cycle_cost.hpp"
+#include "utils/od_clock.hpp"
 #include "calibration/geometry_agreement.hpp"
 #include "calibration/board_recognition.hpp"
 #include "calibration/number_anchor.hpp"
@@ -588,6 +589,103 @@ GeometryDetector::GeometryDetector(bool debug_mode, int target_width, int target
 {
 }
 
+/**
+ * turnaus#1820: the takeout that reconciled with the darts still in the board.
+ *
+ * Live on casual board 20 (2026-10-11 00:57:20) the END reconciled CLEAN BY REVERSION on all
+ * three cameras with 10,468 / 9,461 / 11,124 px still over the reference (ceilings 183 / 213 /
+ * 217): the T10 had been pulled, the S7 and the S4 had not. #1518 adopted those frames as
+ * clean, so pulling the S7 and the S4 afterwards was a change at their own pixels, and the
+ * next two windows published an S7 0.0 px and an S13 9.2 px from them. They took two of the
+ * next visit's three slots, and its real second dart was held at DART_3. The next END left
+ * 10,461 / 9,464 / 11,126 px: the same two silhouettes, absent now against a reference that
+ * held them.
+ *
+ * `OD_REREAD_HOLD`:
+ *   off (default)  as before
+ *   on             a dart published from CLEAN, before anything else this visit and within
+ *                  rereadHorizonMs() of a reversion END, within rereadRadiusPx() through the
+ *                  same camera of a dart of the visit that END closed, is not published,
+ *                  and the board's advance is withdrawn (dart_processing::withdrawCalledDart):
+ *                  it stays CLEAN
+ * `OD_REREAD_CENSUS=1` prints one I1820REREAD line for every dart published (or held) while
+ * the hold is armed, with the distance it read, whatever the switch.
+ */
+static bool rereadHoldOn()
+{
+    static const bool v = []
+    {
+        const char *e = getenv("OD_REREAD_HOLD");
+        const bool on = e && string(e) == "on";
+        if (on)
+        {
+            log_info("OD_REREAD_HOLD=on: a first dart within " + to_string(dart_processing::rereadHorizonMs()) +
+                     " ms after a reversion END, within " + to_string((int)dart_processing::rereadRadiusPx()) +
+                     " px of a dart the visit that END closed published through the same camera, is that "
+                     "dart being pulled and is held (turnaus#1820)");
+        }
+        return on;
+    }();
+    return v;
+}
+
+static bool rereadCensusOn()
+{
+    static const bool v = []
+    {
+        const char *e = getenv("OD_REREAD_CENSUS");
+        return e && string(e) == "1";
+    }();
+    return v;
+}
+
+// turnaus#1820: what the board published this visit and the last. One board per process.
+static dart_processing::RereadMemory reread_memory;
+
+static bool rereadIsHeld(const dart_processing::DartStateResult &dart_result,
+                         const score_processing::ScoreResult &score_result)
+{
+    // Asked first, so the switch's startup line is said on a run where nothing is held.
+    const bool hold_on = rereadHoldOn();
+    const long long now_ms = od_clock::now_ms();
+    if (score_result.score == "END")
+    {
+        reread_memory.ended(dart_result.reversion_end, now_ms);
+        return false;
+    }
+    const int camera = score_result.camera_index;
+    const cv::Point2f at = score_result.pixel_position;
+    const bool armed = reread_memory.armed;
+    const bool reread =
+        dart_processing::isARereadAfterTakeout(reread_memory, dart_result.previous_state, camera, at, now_ms);
+    const bool hold = reread && hold_on;
+    if (rereadCensusOn() && armed)
+    {
+        char buf[240];
+        snprintf(buf, sizeof(buf),
+                 "I1820REREAD %s->%s score=%s camera=%d at=(%.0f,%.0f) nearestPx=%.1f sinceEndMs=%lld reread=%d held=%d",
+                 dart_processing::getDartBoardStateName(dart_result.previous_state).c_str(),
+                 dart_processing::getDartBoardStateName(dart_result.current_state).c_str(),
+                 score_result.score.c_str(), camera + 1, at.x, at.y,
+                 dart_processing::nearestSameCameraPx(camera, at, reread_memory.closed), now_ms - reread_memory.ended_ms,
+                 reread ? 1 : 0, hold ? 1 : 0);
+        log_info(buf);
+    }
+    if (!hold)
+    {
+        reread_memory.published(camera, at);
+        return false;
+    }
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%.1f px", dart_processing::nearestSameCameraPx(camera, at, reread_memory.closed));
+    log_info("I1820 REREAD HELD: " + score_result.score + " at (" + to_string((int)at.x) + "," + to_string((int)at.y) +
+             ") through camera " + to_string(camera + 1) + " is " + buf + " from a dart the visit before published, " +
+             "and the END that closed it reconciled by reversion with its cameras still over their reference: " +
+             "that dart is being pulled, not thrown, so it is not published and the board stays " +
+             dart_processing::getDartBoardStateName(dart_result.previous_state) + " (turnaus#1820)");
+    return true;
+}
+
 // Main process method - simplified to basic structure
 DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
 {
@@ -639,6 +737,13 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
     cycle_cost::Scope score_timer(cycle_cost::SCORE);
     score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode);
     score_timer.stop();
+
+    // turnaus#1820: a dart of the visit a reversion END closed, read again as it is pulled.
+    if (score_result.valid && rereadIsHeld(dart_result, score_result))
+    {
+        dart_processing::withdrawCalledDart(dart_result);
+        return result;
+    }
 
     // Only return result if scoring system says it's valid (state changed)
     if (score_result.valid)

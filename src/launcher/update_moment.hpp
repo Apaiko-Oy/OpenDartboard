@@ -46,6 +46,18 @@
 // where they are trying to find out what broke, changes the thing they are looking at
 // while they look at it. --update-now is how that person asks for one anyway.
 //
+// A SCHEDULED STOP IS THE FOURTH DOOR (#1797). A board that is online around the clock
+// never starts, so under the three rules above it never updates: the quiet rule refuses
+// every restart that follows a stop by less than fifteen minutes, and the only stops such
+// a board has are the ones somebody makes by hand. So the detector stops ITSELF at 06:00
+// local (src/utils/scheduled_stop.hpp), with an exit code of its own that the launcher
+// writes into the state file as the word "scheduled", and decideMoment() answers MayCheck
+// to that word at ANY gap -- two seconds after the stop, which is what the gap really is.
+// The reason the quiet rule exists -- a machine that was doing something a minute ago --
+// is exactly what a board stopping at six in the morning is not. It is not a bad ending
+// either: endedBadly() does not name it, failedToStart() does not count it, and the
+// launcher follows it with one look and one start (launcher.hpp).
+//
 // ======================== WHAT "FAILED TO START" IS (§1, #895) ========================
 //
 // The third criterion says a new version that fails to start returns to the old one. The
@@ -103,6 +115,7 @@ namespace launcher
         QuickRestart, // the last run stopped less than kQuietSeconds ago
         EndedBadly,   // the last run faulted or never started
         Forced,       // --update-now, said by somebody standing at the machine
+        Scheduled,    // #1797: the last run stopped itself at 06:00 for exactly this: look
     };
 
     struct MomentDecision
@@ -136,6 +149,17 @@ namespace launcher
         if (forced)
         {
             decision.moment = Moment::Forced;
+            decision.may_check = true;
+            return decision;
+        }
+        // #1797: the fourth door. A detector that stopped itself at 06:00 stopped for this
+        // and nothing else, two seconds ago by this clock, so the quiet rule -- which is
+        // about a machine that was DOING something a minute ago -- does not apply: nobody
+        // is playing at six, which is the whole reason it stopped then. endedBadly() is
+        // unchanged and never true of this word; a scheduled stop counts against nothing.
+        if (state.last_ending == "scheduled")
+        {
+            decision.moment = Moment::Scheduled;
             decision.may_check = true;
             return decision;
         }
@@ -175,6 +199,11 @@ namespace launcher
         case Moment::Forced:
             return {"Päivitys katsotaan, koska sitä pyydettiin (--update-now).",
                     "Updates are being looked at because they were asked for (--update-now)."};
+        case Moment::Scheduled:
+            return {"Ohjelma pysähtyi ajastetusti kello 06:00, joten päivitykset katsotaan nyt ennen "
+                    "uudelleenkäynnistystä.",
+                    "The program stopped on schedule at 06:00, so updates are looked at now, before it is "
+                    "started again."};
         case Moment::MayCheck:
         default:
             return {"Päivitykset katsotaan ennen käynnistystä.", "Updates are looked at before starting."};
@@ -207,6 +236,7 @@ namespace launcher
             return seconds_ran < kSettledSeconds;
         case Ending::Killed:
         case Ending::Cleanly:
+        case Ending::Scheduled: // #1797: a board that reached 06:00 started, whenever that was
         default:
             return false;
         }
@@ -223,6 +253,8 @@ namespace launcher
             return "killed";
         case Ending::NeverStarted:
             return "never-started";
+        case Ending::Scheduled:
+            return "scheduled"; // #1797: the word decideMoment() opens its fourth door on
         case Ending::Faulted:
         default:
             return "faulted";

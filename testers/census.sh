@@ -47,6 +47,14 @@
 # blanks them in place so nothing else about the file moves. It costs 2.5 s: this check
 # was 18.4 s over 144 files and is 20.9 s, against run_all.sh's 1200 s budget for it.
 #
+# That 20.9 s did not stay true (#1829). At 390 files on main (b2d6fa7) the census took
+# 257 s wall (load 3.6 at the start, 5.4 at the end), and 214 s of it was the reachability
+# fixpoint -- a grep per unreached file per reached file per round. Stripping took 3.6 s,
+# the marker answers 1.5 s and the docker-pin half 2.5 s. With reachability made one awk
+# pass over an index of the names each file writes, the same tree takes 8.4 s wall at
+# load 3.1, and 9.6-10.2 s at load 5.2-5.5: strip 3.6 s, reach 1.0-1.2 s, answers
+# 1.5-2.0 s, docker pin 3.1-3.4 s. Output byte-identical before and after.
+#
 # Three things that decision does, two of them on purpose and one of them a price:
 #
 #   A name held in a variable or assembled from parts STILL COUNTS, which is the half a
@@ -285,23 +293,56 @@ for f in "${PROGS[@]}"; do
   od_code "$T/$f" > "$CODE/$f"
 done
 
-# ---- what the root reaches, transitively ------------------------------------------------
-REACH=" $ROOT "
-changed=1
-while [ "$changed" = 1 ]; do
-  changed=0
-  for f in "${PROGS[@]}"; do
-    case "$REACH" in *" $f "*) continue ;; esac
-    base="${f##*/}"
-    for r in $REACH; do
-      if grep -qF -e "$base" "$CODE/$r" 2>/dev/null; then
-        REACH="$REACH$f "
-        changed=1
-        break
-      fi
-    done
-  done
-done
+# ---- what the root reaches, transitively (#1829) ----------------------------------------
+#
+# The rule is unchanged: a file reaches a program when the program's basename appears, as a
+# fixed string, anywhere in the file's stripped code -- a substring, exactly what `grep -F`
+# found, so i822_run.sh is still named by any code that writes i1822_run.sh.
+#
+# What changed is how often that is asked. Until #1829 it was a fixpoint in the shell: every
+# round grepped every unreached file's name against every file reached so far, one process
+# per pair, until a round added nothing. At 390 files that was 214 s of a 221 s census
+# (#1829, measured on main at b2d6fa7), and it grows with the square of the population
+# times the depth of the chain. Now each file's code is read ONCE, in one awk, and the names
+# it writes are recorded as an index; the closure from run_all.sh is then a walk over that
+# index that reads no file at all. LC_ALL=C makes the search a byte search, which is what
+# `grep -F` did with an ASCII name.
+OD_REACH_AWK='
+{ P[++n] = $0 }
+END {
+  for (i = 1; i <= n; i++) {
+    B[i] = P[i]; sub(/.*\//, "", B[i])
+    if (P[i] == root) { r = i }
+  }
+  for (i = 1; i <= n; i++) {
+    path = code "/" P[i]; text = ""
+    while ((getline line < path) > 0) { text = text line "\n" }
+    close(path)
+    for (j = 1; j <= n; j++) {
+      if (index(text, B[j])) { NAMES[i] = NAMES[i] " " j }
+    }
+  }
+  if (!r) { exit }
+  SEEN[r] = 1; Q[q = 1] = r
+  for (h = 1; h <= q; h++) {
+    m = split(NAMES[Q[h]], to, " ")
+    for (k = 1; k <= m; k++) {
+      if (!(to[k] in SEEN)) { SEEN[to[k]] = 1; Q[++q] = to[k] }
+    }
+  }
+  for (h = 1; h <= q; h++) { print P[Q[h]] }
+}
+'
+REACH=" "
+while IFS= read -r f; do
+  REACH="$REACH$f "
+done < <(printf '%s\n' "${PROGS[@]}" | LC_ALL=C awk -v code="$CODE" -v root="$ROOT" "$OD_REACH_AWK")
+case "$REACH" in
+  *" $ROOT "*) ;;
+  *)
+    echo "FAIL census: the reachability index did not reach $ROOT itself, so it answered nothing" >&2
+    exit 2 ;;
+esac
 
 # ---- the three answers ------------------------------------------------------------------
 UNNAMED=()
@@ -353,6 +394,80 @@ done
 if [ "$RC" = 0 ]; then
   echo "every tester program is run by something, or says why not"
 fi
+
+# ---- every container a harness starts counts its windows in cycles (#1826) ---------------
+#
+# Since ece438d a replay's detection windows are milliseconds of the wall clock unless
+# OD_WINDOW_UNIT=cycles reaches the container, so a figure a replaying tester asserts moved
+# with the box's load (#1758). tester_paths.sh's `docker` function pins the unit for every
+# `docker run` a harness makes; this asks the three things that keep that true:
+#
+#   1. the function really passes the pin. Asked by RUNNING it, in a subshell, against a
+#      stand-in docker on PATH that prints its arguments -- a grep for the string would
+#      pass a function that names the pin and never reaches it.
+#   2. every file whose CODE starts a container (`docker run`, comments stripped as above)
+#      sources tester_paths.sh, so the function is the docker it calls -- or says why not
+#      with a 'window-unit-own: <why>' comment. And nothing but the function itself calls
+#      round it: `command docker`, `\docker` or a path to the binary skips the pin silently.
+#   3. a harness that turns the pin off (OD_WINDOWS_OWNED=1) names OD_WINDOW_UNIT in its
+#      code, so the unit is decided somewhere rather than dropped.
+#
+# This half runs whatever the reachability half found: the two are separate questions, and
+# a census red for a known unreached file must still say whether the pin holds.
+#
+# A replay is not told apart from any other container, deliberately: which containers run
+# the detector on footage is a question about inside scripts several files away, and the
+# pin costs nothing in a container that never reads it.
+WMARK='window-unit-own:'
+WRC=0
+STAND="$(mktemp -d "${TMPDIR:-/tmp}/od-census-docker.XXXXXX")" || {
+  echo "FAIL census: no temporary directory for the stand-in docker" >&2
+  exit 2
+}
+trap 'rm -rf "$CODE" "$STAND"' EXIT
+printf '#!/bin/sh\necho "$@"\n' > "$STAND/docker"
+chmod +x "$STAND/docker"
+ARGS="$(env -u OD_WINDOW_UNIT -u OD_WINDOWS_OWNED PATH="$STAND:$PATH" bash -c \
+  '. "$1"; docker run --rm img true' _ "$T/tester_paths.sh" 2>&1)"
+case " $ARGS " in
+  *" -e OD_WINDOW_UNIT=cycles "*) ;;
+  *)
+    echo "FAIL census: tester_paths.sh's docker function did not pin the windows; a container"
+    echo "             it started was given: docker $ARGS"
+    echo "             Every replay would then cut its windows by the wall clock (#1758, #1826)."
+    WRC=1 ;;
+esac
+
+PINNED=0
+for f in "${PROGS[@]}"; do
+  [ "$f" = "tester_paths.sh" ] && continue
+  c="$CODE/$f"
+  if grep -qE '(command[[:space:]]+docker|\\docker|/docker)[[:space:]]+(run|create)' "$c"; then
+    echo "FAIL census: testers/$f starts a container round tester_paths.sh's docker function,"
+    echo "             so the window pin never reaches it. Call plain \`docker run\`."
+    WRC=1
+  fi
+  if grep -qE '(^|[^[:alnum:]_/\\-])docker[[:space:]]+(run|create)' "$c"; then
+    if grep -qF 'tester_paths.sh' "$c"; then
+      PINNED=$((PINNED + 1))
+    elif ! grep -qF -e "$WMARK" "$T/$f"; then
+      echo "FAIL census: testers/$f starts a container and does not source tester_paths.sh,"
+      echo "             so its detector cuts its windows by the wall clock (#1826). Source it,"
+      echo "             or write '$WMARK <why>' in it as a comment."
+      WRC=1
+    fi
+  fi
+  if grep -qE 'OD_WINDOWS_OWNED=1' "$c" && ! grep -qF 'OD_WINDOW_UNIT' "$c"; then
+    echo "FAIL census: testers/$f turns the window pin off and never names OD_WINDOW_UNIT,"
+    echo "             so nothing decides its unit. Forward or set it, or leave the pin on."
+    WRC=1
+  fi
+done
+if [ "$WRC" = 0 ]; then
+  echo "every container is pinned to cycle windows: tester_paths.sh's docker function passed the"
+  echo "pin when run, and the $PINNED files that call \`docker run\` themselves all go through it"
+fi
+[ "$WRC" = 0 ] || RC=1
 # The harness must exit on what it measured: run_all.sh reads the exit code and
 # nothing else, and an echo returns 0 whatever it printed (#1335).
 exit $RC

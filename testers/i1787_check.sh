@@ -37,13 +37,17 @@ od_run "1787-check" --network none \
   FLAGS="-std=c++17 -O1 -Wall -Wextra -I src -I src/utils -I build/_deps/nlohmann_json-src/include -I build/_deps/httplib-src"
   LIBS="$(pkg-config --cflags --libs opencv4) -lpthread"
   RC=0
-  for name in body upload frames; do
-    echo "==== i1787_${name}_check ======================================================"
-    g++ $FLAGS -o /tmp/i1787_${name}_check testers/i1787_${name}_check.cpp \
-        src/communication/turnaus_client.cpp $LIBS || { echo "COMPILE_FAILED i1787_${name}_check"; exit 2; }
-    /tmp/i1787_${name}_check < /dev/null
+  # The three sources are named whole, not assembled from body/upload/frames: census.sh
+  # reads a tester as reached only where its file name is in code (#1430), and the
+  # assembled form left the upload and frames checks reading as run by nothing (#1828).
+  for src in i1787_body_check.cpp i1787_upload_check.cpp i1787_frames_check.cpp; do
+    name="${src%.cpp}"
+    echo "==== ${name} ======================================================"
+    g++ $FLAGS -o "/tmp/${name}" "testers/${src}" \
+        src/communication/turnaus_client.cpp $LIBS || { echo "COMPILE_FAILED ${name}"; exit 2; }
+    "/tmp/${name}" < /dev/null
     rc=$?
-    echo "i1787_${name}_check rc=$rc"
+    echo "${name} rc=$rc"
     [ $rc -eq 0 ] || RC=1
   done
   exit $RC

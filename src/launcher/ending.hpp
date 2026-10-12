@@ -15,6 +15,10 @@
 //
 //   cleanly   exit code 0.
 //   killed    STATUS_CONTROL_C_EXIT (0xC000013A) -- Ctrl+C, the window closed, a logoff.
+//   scheduled exit code 60 (#1797, scheduled_stop::kExitCode): the detector stopped
+//             itself at 06:00 local so that this launcher can look for an update and
+//             start it again. Not a fault and not a stop by hand: the one ending the
+//             launcher follows with another start (launcher.hpp).
 //   faulted   everything else.
 //
 // `taskkill /F` leaves 1, and so does a program that returned 1, so a board ended that
@@ -31,6 +35,7 @@
 // endings below are what happens when the detector really did stop.
 
 #include "../utils/console_prompt.hpp"
+#include "../utils/scheduled_stop.hpp"
 
 #include <csignal>
 #include <cstdio>
@@ -44,6 +49,13 @@ namespace launcher
     /** STATUS_CONTROL_C_EXIT. Named here so the pure half needs no Windows header. */
     const unsigned long kControlCExit = 0xC000013AuL;
 
+    /**
+     * #1797: the status a detector returns when it stopped itself at 06:00 local for an
+     * update to be looked for. The same constant the detector returns, from the one
+     * header both programs read, so the two cannot drift apart.
+     */
+    const unsigned long kScheduledStop = static_cast<unsigned long>(scheduled_stop::kExitCode);
+
     /** How one run of the detector ended. */
     enum class Ending
     {
@@ -51,6 +63,7 @@ namespace launcher
         Faulted,      // it stopped on its own and not well
         Killed,       // somebody or something stopped it
         NeverStarted, // the launcher could not start it at all
+        Scheduled,    // #1797: it stopped itself at 06:00 so the launcher can look, then start it again
     };
 
     /**
@@ -110,6 +123,10 @@ namespace launcher
         {
             return Ending::Killed;
         }
+        if (outcome.code == kScheduledStop)
+        {
+            return Ending::Scheduled;
+        }
         return Ending::Faulted;
     }
 
@@ -126,6 +143,13 @@ namespace launcher
     const int kNeverStarted = 40;
     const int kFaulted = 41;
     const int kKilled = 42;
+    /**
+     * #1797: a scheduled stop is normally followed by another start and never reaches
+     * this table. It does when the launcher REFUSED to follow it -- a detector that came
+     * back `scheduled` again inside a minute of being started again is a bug, not a loop
+     * to follow -- and that is its own morning, so its own number.
+     */
+    const int kScheduledNotFollowed = 43;
 
     inline int exitCodeFor(Ending ending)
     {
@@ -137,6 +161,8 @@ namespace launcher
             return kNeverStarted;
         case Ending::Killed:
             return kKilled;
+        case Ending::Scheduled:
+            return kScheduledNotFollowed;
         case Ending::Faulted:
         default:
             return kFaulted;
@@ -264,6 +290,15 @@ namespace launcher
         case Ending::Cleanly:
             lines.push_back({"Ohjelma päättyi normaalisti (paluukoodi 0).",
                              "The program ended cleanly (exit code 0)."});
+            break;
+
+        case Ending::Scheduled:
+            // #1797. Said between the stop and the next start, where a tester who left the
+            // window open overnight reads it in the morning.
+            lines.push_back({"Ohjelma pysähtyi ajastetusti kello 06:00 (paluukoodi " + codeAsText(outcome.code) +
+                                 "), jotta päivitykset voidaan katsoa. Se käynnistetään uudelleen.",
+                             "The program stopped on schedule at 06:00 (exit code " + codeAsText(outcome.code) +
+                                 ") so that updates can be looked at. It is being started again."});
             break;
 
         case Ending::Killed:
