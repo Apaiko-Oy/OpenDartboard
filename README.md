@@ -112,6 +112,11 @@ sudo apt install -y ./opendartboard_0.1.3-1_arm64.deb
 # 4. Nothing to start: the package enables opendartboard.service, which starts the
 #    detector at every boot with --autocams and a log file of its own per start
 systemctl status opendartboard
+
+# 5. Pair it with your Turnaus club (six-digit code from the club's autoscorer page), then restart it.
+#    The arm64 package speaks TLS since #1798; a build without OpenSSL refuses the https:// address.
+sudo opendartboard --pair 123456 --credentials /var/lib/opendartboard/credentials.json
+sudo systemctl restart opendartboard
 ```
 
 **The packaged service logs, and the log reaches Turnaus on its own.** Each start writes a

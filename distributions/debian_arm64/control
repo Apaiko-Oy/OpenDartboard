@@ -4,7 +4,7 @@ Section: misc
 Priority: optional
 Architecture: arm64
 Maintainer: Opendartboard Community <@opendartboard>
-Depends: libopencv-dev, gstreamer1.0-libav, v4l-utils
+Depends: libopencv-dev, gstreamer1.0-libav, v4l-utils, libssl3
 Description:
   OpenDartboard is a headless dartboard scoring system that uses computer vision to detect dart positions and scores.
   It supports multiple cameras for accurate detection and can be used with various dartboards.
