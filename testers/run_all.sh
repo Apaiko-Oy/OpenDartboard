@@ -516,7 +516,9 @@ tester 1485-rings         "bash '$T/i1485_run.sh'"
 # read as the anchor improving. Five sections: the vote, the reading on a synthetic board
 # anchored and not, OD_RING_ONLY=counted as the falsifier, three whole-footage detector
 # runs at OD_MAX_CYCLES=6000, and two planted lines that delete the distinction at source.
-# Sections 1-3 and 5 need no detector binary and cost a compile each.
+# Sections 1-3 and 5 need no detector binary and cost a compile each. Section 4's three
+# needle checks are HISTORICAL since #1825: OD_RINGS=asfitted no longer puts a 25 back on
+# this fixture, so its figures are printed and the full-clip and no-wedge checks asserted.
 tester 1489-ringonly      "bash '$T/i1489_run.sh'"
 # #1490: how far apart two cameras place ONE dart, in millimetres, through #1467's
 # planeOf() and through the BoardPosition the scorer already computes, side by side. A
@@ -538,7 +540,9 @@ tester 1490-spread        "bash '$T/i1490_run.sh'"
 # figure, so no third mechanism is hiding in this fixture. It then measures the obvious
 # repair instead of arguing about it: OD_TIP_PIECE_FLOOR=0 on the same binary, which moves
 # readings and does NOT reduce the off-board count (#1322). No detector binary, no cycle
-# cap, mocks/rig-20260918 only (#1478); two full replays of the clip.
+# cap, mocks/rig-20260918 only (#1478); two full replays of the clip. Claim TWO and the
+# floor experiment are HISTORICAL since #1824 -- printed with #1492's figures beside
+# main's and not asserted, because no switch on main restores the stage they measured.
 tester 1492-tips          "bash '$T/i1492_run.sh'"
 # #1493: whether the three board planes compose into camera poses good enough to
 # TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
@@ -559,7 +563,9 @@ tester 1493-rays          "bash '$T/i1493_run.sh'"
 # repairs together could not say whether one had been traded for the other. Every claim it
 # makes is a comparison between two arms or an exact fact about one reading; there is no
 # millimetre threshold in it (#1322, #1478). No detector binary; OD_SKIP_BUILD changes
-# nothing. MEASURED on the 4-core box: see the pull request for the recorded line.
+# nothing. MEASURED on the 4-core box: see the pull request for the recorded line. The
+# claim that the worst tipGap falls from AA to BB is HISTORICAL since #1823: on cycle
+# windows every arm reads 172 px on dart 17 camera 3, so it is printed and not asserted.
 tester 1494-figure        "bash '$T/i1494_run.sh'"
 slow 2400
 # #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in

@@ -99,16 +99,26 @@ for t in arms[1:]:
         % ("OK  " if moved > 0 else "FAIL", t, moved, len(A[arms[0]]), arms[0]), moved > 0)
 
 print()
-print("  ==== #1495: a second object can no longer win the tip ==========================")
+print("  ==== #1495: a second object can no longer win the tip -- HISTORICAL (#1823) ======")
 print("    The published tip left the contour its centroid was measured from by this far.")
 print("    It is exact, it needs no threshold, and it is the distance #1492 called 'the")
 print("    line crossing empty space'.")
+print()
+print("    RETIRED, NOT ASSERTED. #1494 (7f73d97, 2026-09-21) measured the worst tipGap")
+print("    falling from AA to BB, and #1758's table on 0fb2ca3 still had it, both on")
+print("    wall-clock windows. With the windows pinned to cycles (#1758, #1826) every arm")
+print("    reads the same worst reading -- dart 17 camera 3, cycle 1468, tip (936,435), an")
+print("    OTHER-PIECE tip 172 px from its centroid's contour (pieces 5138;2370) -- so AA")
+print("    172 px against BB 172 px, and no switch on main restores the stage the claim")
+print("    described. The maintainer retired it as historical on 2026-10-12 (#1823); the")
+print("    figures are printed so a change to them is still seen, and they colour nothing.")
 gAA, kAA = worst_gap("AA")
 gBB, kBB = worst_gap("BB")
-say("    %s  the longest stretch of empty space a published line ran across falls from "
-    "%d px (dart %s cam %s) to %d px (dart %s cam %s)"
-    % ("OK  " if gBB < gAA else "FAIL", gAA, kAA[0], kAA[1], gBB, kBB[0], kBB[1]),
-    gBB < gAA)
+print("    HIST  the longest stretch of empty space a published line ran across: "
+      "AA %d px (dart %s cam %s), BB %d px (dart %s cam %s)%s"
+      % (gAA, kAA[0] if kAA else "-", kAA[1] if kAA else "-",
+         gBB, kBB[0] if kBB else "-", kBB[1] if kBB else "-",
+         " -- falls, as #1494 recorded" if gBB < gAA else " -- does not fall"))
 
 print()
 print("  ==== #1494: the dart's own pieces are back in the figure ========================")

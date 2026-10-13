@@ -15,6 +15,10 @@
 #      RED ("moved nothing, so the run below measures the same binary twice") and BOTH
 #      census claims stay GREEN, because the same binary was then measured twice.
 #
+# Since #1824 plant B has nothing left to turn red: the pin's check and claim TWO are
+# historical, printed and not asserted (see the floor section below). What stays
+# asserted is claim ONE and the instrument check in i1492_spread.py.
+#
 # Green on the tree: 201 s, load_at_end 5.87.
 set -u
 # #1758: the detection windows are pinned to CYCLES. Since ece438d they default to
@@ -95,20 +99,21 @@ print(sum(1 for k in a if b.get(k) != a[k]))
 PY
 )
 
+# HISTORICAL since #1824, printed and not asserted. #1492 (5ca42c5, 2026-09-21) measured
+# the floor live and its removal no repair. Since #1494 the shipping figure is the largest
+# contour's group and has no floor at all, so OD_TIP_PIECE_FLOOR=0 moves nothing on it --
+# measured on main with cycle windows: 0 readings moved, 12 off-board at floor 400 and 12
+# at floor 0. The "pin is live" check passed before #1758 only because wall-clock windows
+# made two runs of one binary differ anyway. On the union figure (OD_TIP_FIGURE=union
+# OD_ADVANCE_RESET=per-camera) the pin moves 34 readings and removing the floor takes the
+# off-board readings from 15 to 13, the reverse of #1492's refusal. No switch on main
+# restores the stage the section measured; the maintainer retired it on 2026-10-12.
 echo
+echo "  HISTORICAL (#1824) -- the floor experiment is inert on the shipping figure, and"
+echo "  these figures colour nothing. #1492 (5ca42c5) recorded a live pin and no reduction."
 echo "  readings the pin moved:                 $MOVED"
 echo "  off-board readings, floor 400:          $B_OFF"
 echo "  off-board readings, floor 0:            $F_OFF"
-if [ "${MOVED:-0}" -gt 0 ]; then
-  say "OK   OD_TIP_PIECE_FLOOR is live: the pin really chose the floor this run read" ok
-else
-  say "FAIL OD_TIP_PIECE_FLOOR moved nothing, so the run below measures the same binary twice" no
-fi
-if [ -n "$F_OFF" ] && [ -n "$B_OFF" ] && [ "$F_OFF" -ge "$B_OFF" ]; then
-  say "OK   removing the floor does not reduce the off-board readings, so the floor is not the repair (#1322)" ok
-else
-  say "FAIL removing the floor DID reduce the off-board readings -- the refusal recorded in #1492 no longer holds and the issue must be re-read" no
-fi
 
 echo
 if [ "$FAILED" = 0 ]; then echo "i1492: PASS"; else echo "i1492: FAIL"; fi
