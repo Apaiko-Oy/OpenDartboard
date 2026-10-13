@@ -604,10 +604,14 @@ jobs:
         run: |
           $exe = 'build-win-static\opendartboard.exe'
           if (-not (Test-Path $exe)) { throw "no $exe" }
-          $printed = (& $exe --version | Out-String).Trim()
-          Write-Host $printed
+          # The first line is the version. Since #1798 a second line names the Turnaus
+          # transport, so v0.1.14's tag failed here on an exact match of the whole output.
+          $output = (& $exe --version | Out-String).Trim()
+          Write-Host $output
+          $printed = ($output -split "`r?`n")[0].Trim()
           $expected = "OpenDartboard runtime version: ${{ steps.vars.outputs.VERSION }}"
           if ($printed -ne $expected) { throw "--version printed '$printed', expected '$expected'" }
+          if (-not $output.Contains("Turnaus transport: winhttp (TLS: yes")) { throw "--version did not say the transport accepts https" }
 
       # #1303: ADR-0077 §1 made a board's program two files, and this is the only place
       # both of them exist together on a real Windows. The launcher starts the detector
