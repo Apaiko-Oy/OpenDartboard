@@ -14,8 +14,11 @@
 //            libssl-dev; that image still builds the variant without TLS, which cannot
 //            speak it and says so by name.
 //   Windows  WinHTTP. winhttp.dll is an in-box Windows DLL, so TLS costs the artefact
-//            nothing -- no OpenSSL, no extra file, no redistributable. This is the
-//            transport the deployed board uses and it is the one that can do https.
+//            nothing -- no OpenSSL, no extra file, no redistributable. It always does
+//            https, so every Windows build can pair.
+//
+// Which builds can pair, then: Windows always; POSIX exactly where `--version` prints
+// "TLS: yes". docs/rig.md's Raspberry Pi section has the table.
 //
 // A transport that cannot do TLS refuses an https:// URL rather than downgrading it.
 // That refusal is the point: a bearer token on a plaintext wire is the failure this
