@@ -197,7 +197,7 @@ capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), the default reads 82/
 rig-20260922's opening: v2.1's 12, v3.1's 20 and v5.2's 19 are gained there, and its two
 phantoms are gone. The other three windows publish the same darts either way.
 
-**The entry threshold (#1677), opt-in.** A quiet board starts a motion event when one
+**The entry threshold (#1677), default since turnaus#1682.** A quiet board starts a motion event when one
 camera's board changes by more than `spike_threshold`, 0.011 of that board, frame to
 frame. rig-20260929 throws three darts whose splashes stay under it: v5.3 peaks at
 0.0108, v11.1 at 0.0106 and v12's D14 at 0.0074. No event opens, and the next window
@@ -206,11 +206,13 @@ is the takeout's, which reconciles CLEAN, so each of those darts is lost.
 A running event keeps 0.011. At 0.006, the capture-clock bakeoff reads rig-20260929 at
 18..25/36 per window, up from 16..23, with 0 undetected. r18+r22 stays at 82/86 with 0
 phantoms, and every r18 and r22 run publishes the same sequence. r18 gains one empty
-window per run, which the vote refuses. It is not a default: #1353 measured rig-20260918's
-noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates them on
-amplitude alone.
+window per run, which the vote refuses. It was held opt-in because #1353 measured
+rig-20260918's noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates
+them on amplitude alone; the live run below is what answered that.
+`OD_SPIKE_THRESHOLD=0.011` (or `off`, or any value outside 0 < r < 0.011) pins the entry
+before turnaus#1682 (`motion_processing.cpp`, `entryThreshold`).
 
-**The lone camera (#1678), opt-in.** The state vote's fresh-change floor, 0.10% of a
+**The lone camera (#1678), default since turnaus#1682.** The state vote's fresh-change floor, 0.10% of a
 camera's board, is counted in the scoring area, while the tip is searched in the physical
 board. A double-ring dart seen side-on has its tip inside the scoring area and its shaft
 and flight outside it, so the floor sees only the tip. On rig-20260929, v6.2's D5 cleared
@@ -233,9 +235,10 @@ On the capture-clock bakeoff the rule fires once per rig-20260929 run and nowher
 r18 or r22. Every r18 and r22 run publishes the same sequence, and r18+r22 stays at 82/86
 with 0 phantoms. rig-20260929 reads 18..24/36 per window, up from 16..23. v6.2 publishes
 as its own dart (S5, flagged with D5 as the alternative), and v6.3's S1 is correct. The
-pool reads 118..130/158, up from 114..128. It is not a default: it rests on one dart and
-one negative control, and the control is separated by the tip-in-scoring-area clause
-alone.
+pool reads 118..130/158, up from 114..128. It was held opt-in because it rested on one
+dart and one negative control, and the control is separated by the tip-in-scoring-area
+clause alone. `OD_LONE_CAMERA=off` (any value but `on`) pins the vote before turnaus#1682
+(`dart_processing.cpp`, `loneRuleOn`).
 
 **Both together, on the forced Blade 6 (#1680).** This is main 2c33747 merged with both
 switches' branch, on the capture-clock bakeoff. With both switches off, the bakeoff
