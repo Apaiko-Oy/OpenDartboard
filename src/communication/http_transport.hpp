@@ -147,7 +147,7 @@ namespace odhttp
      */
     inline Response perform(const Url &u, const char *method, const std::string &path, const std::string &body,
                             const std::map<std::string, std::string> &headers,
-                            int connect_timeout_s, int read_timeout_s)
+                            int connect_timeout_s, int read_timeout_s, bool follow_redirects = false)
     {
         Response r;
         if (!u.valid)
@@ -162,6 +162,9 @@ namespace odhttp
         }
 
 #ifdef _WIN32
+        // WinHTTP's own redirect policy follows a redirect except https -> http whatever
+        // the caller asked (#1796); the flag decides only the POSIX client below.
+        (void)follow_redirects;
         auto widen = [](const std::string &s)
         {
             std::wstring w(s.begin(), s.end());
@@ -257,6 +260,16 @@ namespace odhttp
         client.set_read_timeout(read_timeout_s, 0);
         client.set_write_timeout(read_timeout_s, 0);
         client.set_keep_alive(false);
+        // #1796: a redirect is followed only where the caller asks, and the one caller that
+        // asks is the launcher's artefact fetch. A GitHub release asset -- the url
+        // release.yml signs into every manifest -- answers 302 to a signed address on
+        // another host; WinHTTP follows that by default, httplib does not, so a Pi read the
+        // 302's empty body and refused the download as "HTTP 302" (measured,
+        // testers/i1796_check.sh, before this line). Following it moves no trust: the
+        // artefact is held to the signed manifest's size and SHA-256 wherever it came from
+        // (ADR-0077 §6). Nothing else here follows one, so a Turnaus that answered the
+        // score push or a manifest with a redirect is still read as the status it sent.
+        client.set_follow_location(follow_redirects);
         httplib::Headers h;
         for (const auto &kv : headers)
         {
@@ -287,10 +300,15 @@ namespace odhttp
         return perform(u, "POST", path, body, headers, connect_timeout_s, read_timeout_s);
     }
 
-    /** One GET. #1305 reads a signed manifest with it and sends no credential. */
-    inline Response get(const Url &u, const std::string &path, int connect_timeout_s, int read_timeout_s)
+    /**
+     * One GET. #1305 reads a signed manifest with it and sends no credential. #1796: the
+     * launcher's artefact fetch passes follow_redirects, because a release asset is a
+     * redirect (perform() says why that is safe); on Windows WinHTTP follows either way.
+     */
+    inline Response get(const Url &u, const std::string &path, int connect_timeout_s, int read_timeout_s,
+                        bool follow_redirects = false)
     {
         return perform(u, "GET", path, std::string(), std::map<std::string, std::string>(), connect_timeout_s,
-                       read_timeout_s);
+                       read_timeout_s, follow_redirects);
     }
 }

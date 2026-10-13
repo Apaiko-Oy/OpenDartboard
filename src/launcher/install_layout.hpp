@@ -71,6 +71,14 @@ namespace launcher
         std::string previous_exe;  // ...\update\previous\opendartboard.exe
         std::string staging_dir;   // ...\update\staging
         std::string download_file; // ...\update\download.zip
+        /**
+         * #1796: the detector the PACKAGE put on this board, which the launcher may read
+         * and copy but never move or write over. Empty on Windows and in every layout
+         * layoutFor() makes, where the detector beside the launcher is the one that is
+         * swapped; set by layoutUnderStateDir() on a Linux board, where it is dpkg's
+         * /usr/local/bin/opendartboard. See that function for what it is for.
+         */
+        std::string shipped;
     };
 
     /** A path under a directory, with the platform's separator. */
@@ -97,7 +105,54 @@ namespace launcher
         layout.previous_dir = under(layout.update_dir, "previous");
         layout.previous_exe = under(layout.previous_dir, kDetectorFileName);
         layout.staging_dir = under(layout.update_dir, "staging");
+        // #1796: on POSIX the file is named for what it is -- the seam reads a zip or a
+        // tar.gz by its first bytes (apply_update.hpp), and a tar.gz called download.zip
+        // would be a thing to explain for ever. Windows keeps the name it had.
+#ifdef _WIN32
         layout.download_file = under(layout.update_dir, "download.zip");
+#else
+        layout.download_file = under(layout.update_dir, "download.archive");
+#endif
+        return layout;
+    }
+
+    /**
+     * #1796: the layout on a Raspberry Pi, and why it is not "beside the launcher".
+     *
+     * On Windows the install directory is the launcher's own, because the install IS a
+     * directory somebody unzipped. On a Pi the install is a .deb, and the two binaries it
+     * puts in /usr/local/bin are dpkg's: a launcher that renamed /usr/local/bin/opendartboard
+     * into update/previous would leave `dpkg -V` reporting a missing file for ever, and a
+     * later `dpkg -i` would write over whatever the launcher had put there. So the
+     * launcher's whole tree lives under the one directory a Linux board already keeps
+     * everything in (#1660, od_paths::configDir(): /var/lib/opendartboard, systemd's
+     * StateDirectory=), in exactly the Windows shape:
+     *
+     *   /var/lib/opendartboard/opendartboard            the detector the launcher installed
+     *   /var/lib/opendartboard/update/state.txt         the six facts
+     *   /var/lib/opendartboard/update/previous/         the version that worked
+     *   /var/lib/opendartboard/update/staging/          where the archive is unpacked
+     *   /var/lib/opendartboard/update/download.zip      the verified bytes on their way
+     *   /usr/local/bin/opendartboard                    `shipped`: the deb's own, read-only
+     *
+     * The board STARTS /var/lib/opendartboard/opendartboard when it exists and `shipped`
+     * when it does not (programToStart()), so a board that has never updated runs the
+     * deb's detector, as it did before #1796. The first update copies `shipped` into
+     * update/previous -- a copy, because dpkg's file is not ours to move -- so that the
+     * very first release a Pi takes over the wire can be rolled back like every later
+     * one. credentials.json, channel.json and score_token are in the same directory and
+     * nothing on this path writes them (install_layout.hpp's sixth criterion, measured by
+     * testers/i1796_inside.sh the way i1306's measures it).
+     *
+     * And `dpkg -i` of a newer deb: postinst clears this tree, so a board somebody updates
+     * by hand is again on the deb's version with nothing kept, and the channel decides
+     * from there. One rule either way: what the package put there is what runs until the
+     * launcher installs something, and the launcher's own files are the only ones it moves.
+     */
+    inline Layout layoutUnderStateDir(const std::string &state_dir, const std::string &shipped)
+    {
+        Layout layout = layoutFor(under(state_dir, kDetectorFileName));
+        layout.shipped = shipped;
         return layout;
     }
 
@@ -293,6 +348,44 @@ namespace launcher
         struct stat info;
         return ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
 #endif
+    }
+
+    /**
+     * #1796: copy a file whole. Used for one thing: keeping the deb's detector as
+     * `previous` before the first update on a Pi, because that file is dpkg's and may be
+     * read but never moved. The swap and the rollback are still renames (moveFile); this
+     * is the one copy on the path and it is never of a file the launcher installed.
+     */
+    inline bool copyFile(const std::string &from, const std::string &to)
+    {
+        std::ifstream in(from.c_str(), std::ios::binary);
+        if (!in)
+        {
+            return false;
+        }
+        std::ofstream out(to.c_str(), std::ios::binary | std::ios::trunc);
+        if (!out)
+        {
+            return false;
+        }
+        out << in.rdbuf();
+        out.flush();
+        return out.good() && !in.bad();
+    }
+
+    /**
+     * #1796: which file the launcher starts. The installed detector when there is one,
+     * else the shipped one on a board that has `shipped` at all. On Windows `shipped` is
+     * empty and the answer is layout.detector, exactly as before -- a missing detector is
+     * then #1303's NeverStarted and its sentence, byte for byte.
+     */
+    inline std::string programToStart(const Layout &layout)
+    {
+        if (!layout.shipped.empty() && !fileExists(layout.detector))
+        {
+            return layout.shipped;
+        }
+        return layout.detector;
     }
 
     /**

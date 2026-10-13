@@ -83,6 +83,10 @@ case "$NAME" in
   # Pure, over scheduled_stop.hpp and the launcher headers; the mutation proofs and the
   # re-carry against a real stub are i1797_check.sh's, which also runs this.
   1797) SRC=i1797_schedule_check.cpp;    EXTRA= ;;
+  # #1796: the manifest path a build asks for -- the bare one unchanged, a platform's with
+  # its suffix -- pure over update_check.hpp, compiled here without OD_UPDATE_PLATFORM;
+  # i1796_check.sh compiles it both ways and drives the real launcher.
+  1796) SRC=i1796_path_check.cpp;        EXTRA= ;;
   # Not an iNNNN: the connected-bull regression shipped with the maintainer's fix of
   # 2026-09-22 (1e39e79), which carried no issue number and no row; registered by #1534.
   # The whole calibration directory, because half of what it asserts is
@@ -91,7 +95,7 @@ case "$NAME" in
   # glob expands in the container, at /app.
   bull-colour) SRC=bull_colour_regression.cpp; EXTRA='src/detector/geometry/calibration/*.cpp' ;;
   *)
-    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour 1787 1797" >&2
+    echo "unit_check: '$NAME' is not a pure check here; they are 1336 1346 1347 1349 1350 1351 1363 1451 1456 1477 1510 1510p2 1511 1512 1517 1678 1681 1766 1773 1553 1554 1560 1586 1649 1652 bull-colour 1787 1797 1796" >&2
     exit 2
     ;;
 esac

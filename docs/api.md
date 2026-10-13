@@ -634,6 +634,51 @@ GET http://<ip-adress>:13520/calibrate/status
 }
 ```
 
+## The update manifest per platform (turnaus#1796)
+
+A board asks its Turnaus for the release its channel publishes and installs it itself
+(ADR-0077; `--check-update`, turnaus#1305; the launcher, turnaus#1306). Until #1796 one
+manifest per channel existed and it named the Windows x64 zip. A Raspberry Pi installs a
+different artefact, so a release now publishes **one manifest per channel per platform**,
+told apart by a suffix on the path the board asks and on the release asset's name. The
+manifest's shape is unchanged: the same signed envelope, the same six fields, the same
+key (`scripts/sign-manifest.sh`, `src/update/manifest.hpp`).
+
+| Platform | Release asset (the manifest) | Served by Turnaus at | Signed over |
+|---|---|---|---|
+| Windows x64 | `manifest.json` | `/updates/opendartboard/<channel>.json` | `opendartboard-<version>-windows-x64.zip` |
+| Linux arm64 (Raspberry Pi) | `manifest-linux-arm64.json` | `/updates/opendartboard/<channel>-linux-arm64.json` | `opendartboard-<version>-linux-arm64.tar.gz` |
+
+`<channel>` is `stable` or `beta`. The payload of each is
+
+```json
+{"channel":"stable","version":"0.2.0",
+ "url":"https://github.com/Apaiko-Oy/OpenDartboard/releases/download/v0.2.0/opendartboard-0.2.0-linux-arm64.tar.gz",
+ "sha256":"<64 lowercase hex of that file>","size":41234567,"minimumLauncher":"0.0.1"}
+```
+
+**Which path a board asks** is compiled in (`update_check::pathFor`, the `OD_UPDATE_PLATFORM`
+definition `CMakeLists.txt` sets from the processor it builds for): a Windows build and a
+Linux build for which no artefact is published (a developer's amd64) ask the bare path; an
+arm64 Linux build asks the `-linux-arm64` one. There is no runtime way to choose, for the
+same reason there is none to choose a key: the artefact a board fetches is not a thing its
+operator points elsewhere. A Turnaus that serves the bare path only answers a Pi 404, which
+the board reads as "publishes nothing" and keeps running; it never installs the other
+platform's artefact, because it never asks for it.
+
+**The archive.** `opendartboard-<version>-linux-arm64.tar.gz` holds `opendartboard`,
+`opendartboard-launcher`, `LICENSE`, `BUILD-INFO.txt` and `models/` at the top, root-owned,
+the binaries 0755. The launcher installs `opendartboard` from it and nothing else -- the
+launcher itself is replaced by the `.deb` (ADR-0077 §1), the models are the `.deb`'s. The
+`.deb` on the same release is how a Pi is installed the first time; after that the board
+takes this archive over the wire (`docs/rig.md`, "A Pi updates through the launcher").
+
+**On the Turnaus side** (its own issue, filed from #1796's report): the publish button
+reads two assets and `PublishedManifests` serves `manifest-linux-arm64.json` at the
+suffixed path, refusing it the same way it refuses the Windows one when the channel inside
+the signature is not the one the path names. Nothing else moves: the same key signs both,
+and a deployment with no key serves neither.
+
 ## Error Handling
 
 ### WebSocket Errors

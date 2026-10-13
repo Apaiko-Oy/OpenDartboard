@@ -268,30 +268,47 @@ target_compile_features(opendartboard PRIVATE cxx_std_17)
 # `cmake --build` builds every target, so scripts\build-windows.bat produces both
 # executables with no change to how it is called.
 #
-# WINDOWS ONLY, because the launcher is Windows only (ADR-0077, "Scope"): a Linux board
-# updates through apt and is started by whatever starts it, and adding a binary here that
-# nothing installs and the .deb does not carry would be a thing to explain for ever. The
-# decisions inside it are still compiled and RUN on Linux -- testers/i1303_check.sh does
-# that with g++ directly, the way #1258's and #1305's logic checks do -- so no criterion
-# depends on a platform this repository's harnesses cannot reach.
+# BOTH PLATFORMS SINCE #1796. Until then this block was `if(WIN32)`, with the sentence that
+# a Linux board "updates through apt and is started by whatever starts it" -- and no apt
+# repository ever existed, so every Pi was updated by somebody with a terminal running
+# `dpkg -i`. The maintainer's decision of 2026-10-10 (turnaus#1796) is that a Pi updates
+# the way a Windows board does: the same launcher, the same manifest and signature, the
+# same rename-never-overwrite and the same rollback. The source was already portable --
+# testers/i1303_check.sh and i1306_check.sh had compiled main.cpp with g++ on bullseye and
+# driven a real install and rollback since #1306 -- so what this block gains is the Linux
+# TARGET: the .deb carries it (Makefile, `deb`), templates/opendartboard.service.template
+# starts it, and testers/i1796_check.sh drives the binary CMake builds here, not a g++
+# one-off, through the install, the rollback and a scheduled restart.
+#
+# WHAT IT LINKS ON LINUX. The same nlohmann, the detector's own httplib (header-only; the
+# launcher's manifest and artefact fetches are src/communication/http_transport.hpp's,
+# so a transport with no TLS refuses https there exactly as it does in the detector), the
+# pure P-256 verifier src/update/p256_verify.hpp in place of CNG, and Threads for
+# httplib. No OpenCV, which is still the point of it being a second file.
+add_executable(opendartboard-launcher src/launcher/main.cpp)
+
+target_include_directories(opendartboard-launcher PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+)
+
+target_compile_definitions(opendartboard-launcher PRIVATE
+    APP_VERSION="${APP_VERSION}"
+)
+
+# #1408: and this is the one that decides whether a board can ever be updated, because
+# the launcher is the half that installs (ADR-0077 §1). On the Linux target too, or every
+# manifest a Pi ever reads answers NoAnchor (release.yml's own sentence about it).
+od_update_anchors(opendartboard-launcher)
+
+target_compile_features(opendartboard-launcher PRIVATE cxx_std_17)
+
 if(WIN32)
-    add_executable(opendartboard-launcher src/launcher/main.cpp)
-
-    target_include_directories(opendartboard-launcher PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
-    )
-
     target_compile_definitions(opendartboard-launcher PRIVATE
-        APP_VERSION="${APP_VERSION}"
         WIN32_LEAN_AND_MEAN
         NOMINMAX
         _CRT_SECURE_NO_WARNINGS
     )
-
-    # #1408: and this is the one that decides whether a board can ever be updated, because
-    # the launcher is the half that installs (ADR-0077 §1).
-    od_update_anchors(opendartboard-launcher)
 
     # #1306. nlohmann is the detector's own dependency and is linked as an interface
     # target, so nothing is compiled twice; winhttp and bcrypt are in-box Windows DLLs.
@@ -301,13 +318,63 @@ if(WIN32)
         bcrypt
     )
 
-    target_compile_features(opendartboard-launcher PRIVATE cxx_std_17)
-
     if(MSVC)
         # The same three as the detector, for the same three reasons: the sources are
         # UTF-8 and carry a and o with umlauts in every line this program says; /EHsc
         # because CMAKE_CXX_FLAGS is overwritten by the build script; and the Windows SDK
         # force-included ahead of everything, which is what od_platform_first.hpp is for.
         target_compile_options(opendartboard-launcher PRIVATE /utf-8 /EHsc /FIod_platform_first.hpp)
+    endif()
+else()
+    # httplib by its include directory, the way the detector takes it above.
+    target_include_directories(opendartboard-launcher PRIVATE ${httplib_SOURCE_DIR})
+    target_link_libraries(opendartboard-launcher PRIVATE
+        nlohmann_json::nlohmann_json
+        Threads::Threads
+    )
+
+    # #1796 over #1798: TLS is a per-TARGET decision, not something the launcher inherits
+    # by taking the same header. #1798's block above defines CPPHTTPLIB_OPENSSL_SUPPORT and
+    # links OpenSSL into `opendartboard` alone, PRIVATE; without the same two lines here the
+    # launcher compiles http_transport.hpp with no TLS and refuses every https:// address
+    # -- the manifest at a real Turnaus and the artefact on GitHub -- with "this build has no
+    # TLS transport", on the Pi whose detector can pair. Same find, same answer, same lines.
+    if(OpenSSL_FOUND)
+        target_compile_definitions(opendartboard-launcher PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_link_libraries(opendartboard-launcher PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        message(STATUS "opendartboard-launcher: TLS transport ON; it can fetch an https:// manifest and artefact")
+    else()
+        message(STATUS "opendartboard-launcher: TLS transport OFF (no OpenSSL found); it will refuse an https:// manifest (#1798)")
+    endif()
+
+    # ---- #1796: WHICH PLATFORM'S ARTEFACT A LINUX BUILD INSTALLS ----
+    #
+    # Turnaus serves one manifest per channel per platform, told apart by a suffix on the
+    # path (docs/api.md, "The update manifest per platform"): the bare `stable.json` is
+    # the Windows zip, `stable-linux-arm64.json` is the Pi's tar.gz. Both programs ask
+    # update_check::pathFor(), which appends OD_UPDATE_PLATFORM when it is defined; it is
+    # defined here, from the processor CMake is building for, into the detector (its
+    # --check-update then reports the release the Pi would install) and the launcher.
+    #
+    # EMPTY ON EVERY OTHER LINUX, ON PURPOSE. release.yml publishes a Windows artefact and
+    # an arm64 one and nothing else, so an amd64 build -- a developer's, and every build
+    # the testers make in od-amd64:bullseye -- asks the bare path, byte for byte what it
+    # asked before #1796: testers/i1305_inside.sh builds the detector with this file and
+    # serves it `stable.json`, and would otherwise go red for a platform nobody ships. A
+    # harness that wants the suffix on amd64 passes -DOD_UPDATE_PLATFORM=linux-arm64 to
+    # its own configure, which is what testers/i1796_check.sh does to prove the real
+    # binary asks the real path; the cache entry is what makes that an override and not a
+    # second definition.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+        set(od_default_update_platform "linux-arm64")
+    else()
+        set(od_default_update_platform "")
+    endif()
+    set(OD_UPDATE_PLATFORM "${od_default_update_platform}" CACHE STRING
+        "the suffix on the manifest path this build asks for: linux-arm64, or empty for the Windows path")
+    if(NOT OD_UPDATE_PLATFORM STREQUAL "")
+        message(STATUS "update manifest path: /updates/opendartboard/<channel>-${OD_UPDATE_PLATFORM}.json")
+        target_compile_definitions(opendartboard PRIVATE OD_UPDATE_PLATFORM="${OD_UPDATE_PLATFORM}")
+        target_compile_definitions(opendartboard-launcher PRIVATE OD_UPDATE_PLATFORM="${OD_UPDATE_PLATFORM}")
     endif()
 endif()
