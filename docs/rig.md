@@ -1361,6 +1361,96 @@ radius: v4.3 and v7.1 read 1.03-1.12), and a live session with the switch on and
 clearing cameras offered), the vote's reading, the carry, the ring (`D` for `S`), the switch,
 the read wedge and the tip; all eight fail as predicted.
 
+## A body at the board carried as darts by the rim-only votes (turnaus#1802), opt-in
+
+**Live on casual board 20** (2026-10-11, build 0.1.13-1798, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_KEEP_FRAMES=on`; the session in `sessions/2026-10-10-11/`, kept off GitHub)
+the board published three MISSes between the takeout END at 01:01:58.525 and the next at
+01:02:14.754, sixteen seconds in which nobody threw:
+
+| window | `I1707 RIM CARRIED` | the cameras (the DEGRADED story) | published |
+|---|---|---|---|
+| 01:02:06.363 | 3 up, 1 clearing the scoring floor | 1, 3 `rim only`; 2 `not straight`, 3.90 px RMS | MISS 0.5 |
+| 01:02:08.241 | 3 up, 0 clearing | 1, 2, 3 `rim only` | MISS 0.5 |
+| 01:02:10.312 | 3 up, 1 clearing | 1, 3 `rim only`; 2 `not straight`, 10.06 px RMS | MISS 0.5 |
+| 01:02:14.738 | END | `CLEAN BY REVERSION`: camera 2 from 25,835 to 270 px, 1 from 2,833, 3 from 3,063 | |
+
+None of the three had a reading in the vote (no `LONE-WIRE`, no `single camera score`): each is
+the no-winner MISS.
+
+**What the frames would say is unmeasured.** The board was offline when this was written, so the
+kept frames of the three references were not read, and what camera 2 was looking at (a thrower, a
+hand, the floor) is argued from the figures, not seen. What the figures say: something stayed in
+camera 2's view for at least three windows and left in one, back to 270 px off the scene the first
+END adopted (its CLEAN ceiling is 213); cameras 1 and 3 saw only a dart's worth of it (2,833 and
+3,063 px), at the rim.
+
+**Two premises of the issue, measured.**
+- *"no camera clearing the scoring floor"* holds for one window of three. In the other two camera
+  2 cleared it, with a figure refused `not straight`. What none of the three had is a camera on a
+  **usable line** in the scoring area -- the separator #1821 already named, and the one this rule
+  uses.
+- *"25,835 px, a hundred times its CLEAN ceiling and far beyond any dart window"*: the first half
+  is arithmetic (121x 213 px), but the CLEAN ceiling is a noise floor, not a dart. Against darts
+  it is not body-sized: 11.96% of camera 2's board (215,989 px, rig-20260929's, #1781's stand-in;
+  the live log prints no board size), under #1781's 15%. In the same log a real three-dart visit
+  (S20 S1 S20, the END at 01:23:02) reached 23,009 px on camera 2 and fell to 290, and on 2b56b48
+  at 16:51 three real surround misses reached 32,153 px. A cumulative figure does not separate
+  them.
+
+**The rule.** `OD_RIM_BODY=on` (`dart_processing.cpp`; the pure predicate `rimCarryIsABody` in
+`dart_processing.hpp`) holds an advance when all three hold:
+- the rim-only votes carried it (#1707's `rim_carried`: fewer cameras than the quorum cleared the
+  scoring floor);
+- no voting camera cleared the scoring floor **on a usable line** (`cleared_scoring_floor` with a
+  valid shaft axis), so #1821's S13 and the fixtures' surround misses, which each had one, stand;
+- a voting camera's fresh figure is **11% of its board** or more (`rimBodySharePercent`), by
+  #1781's measure, `freshFigureIsBodySized`: the fresh change counted to the rim as a share of the
+  scoring-area board. The two issues share the measure, and the figure differs because the window
+  does: at #1781's 15% this rule would be a subset of `OD_BODY_WINDOW=size` and could hold nothing
+  that switch does not.
+
+It logs `I1802 RIM BODY HELD`. `OD_BODY_CENSUS=1` prints an `I1802RIM` line on every rim-carried
+window, on and off alike, with each up-voter's fresh figure and share and whether it was `rim`,
+cleared on a `line`, or cleared on `noline`.
+
+**Where 11% comes from.** From a CLEAN board, and on every window a hold keeps at CLEAN, the
+working background is empty and the fresh figure is the cumulative one, so camera 2's 25,835 px
+(11.96%) is what the rule reads in the third window. Below it: the largest fresh figure any
+camera brought to any called dart on the seven bakeoff replays, 9.96% (#1781's census), and a
+surround dart at about 5% (32,153 / 3). 11% is above every dart on record and under the one
+phantom whose figure was printed. Both margins are thin, and the first two windows' figures were
+never printed (`OD_BODY_CENSUS` was off): whether the rule would have held all three is not
+known, which is why it is opt-in and why a live session should run it with `OD_BODY_CENSUS=1`.
+
+**Hold until the next window confirms? Measured against, not built.** A dart stays and a body
+leaves, but on board 20 the window after a rim-carried dart is the takeout in 12 of 29 (the third
+dart of a visit), which is a reversion: confirmation would refuse every rim-carried third dart,
+among them the thrown S13 (#1821) and accepted doubles (00:59:03 D20, 01:12:31 D10), or hold it
+until the takeout, 2.7 to 41.7 s. For the other 17 the cost is the next window, a median 2.8 s
+after (latency measured publication to publication). And it would have caught one phantom of
+three: the window after the first and second was another arrival 1.9 and 2.1 s later, with the
+body still in view, so each would have confirmed the one before.
+
+**The census for the run.** The longer of the session's two log copies holds 29 rim-carried
+windows. In 21 the DEGRADED story reads 0 usable constraints, the proxy here for the rule's
+second clause: the three phantoms; uncorrected Nones at 01:02:59, 01:12:01, 01:13:04, 01:15:11,
+01:24:47, 01:27:44, 01:33:58, 01:35:32 and 02:11:58; doubles the thrower kept (00:59:01 D1,
+01:05:22 D12, 01:07:04 D5, 01:11:41 D11, 01:12:29 D13, 01:12:31 D10); a D20 corrected to its
+alternative None (00:59:20); an S9 and one more window whose truth rows were not paired with
+confidence. So the first two clauses alone would refuse kept doubles, and the third is what
+keeps them: a single dart on camera 2 is under 6% (12,692 px, #1781's largest camera-2 fixture
+dart). Their own fresh figures were not printed either. The 8 with a usable constraint (the S13
+among them) stand whatever their size.
+
+`testers/run_all.sh 1802-rimbody` (45 s at load ~12-14) holds `rimCarryIsABody` on the live
+windows (the 01:02:08 window carrying the third window's figure as a stand-in, said in the
+assertion), the largest fixture dart, a surround dart, #1821's S13 and a window the scoring area
+carried, and mutates each clause with the prediction stated first: the figure at 15% (both
+phantoms stand), at 9% (the fixture dart is held), any clearing camera keeping the dart (the
+`not straight` phantom stands), no line keeping it (the S13 is held), and the carry dropped (a
+scoring-area window is held). All five fail as predicted.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while
