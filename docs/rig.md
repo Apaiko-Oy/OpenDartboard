@@ -999,6 +999,76 @@ thrower (both sessions are one rig, casual play, with 56 `turn` darts whose outc
 and that the default can move. The corner (#1782) interaction is measured only on the
 fixtures: both sessions predate it.
 
+## Three-camera solves near a wire (turnaus#1844), measured, no change
+
+**The question.** device/2 on 2026-10-13 had three corrected darts that were three-camera
+geometric solves sitting on a wire (T16 -> S16, S6 -> S13, T1 -> S1, all z <= 0.17). Three
+darts are not a rate: does a three-line solve near a wire publish the wrong side more often
+than chance, or than a two-line one? `testers/i1844_wire_side.py <truth-line> ...` answers
+from the truth lines alone (read through `i1815_census.read_truth_line`, by the columns
+line), with #1815's verdict: CORRECTED is `picked` alternative / candidate / typed, STOOD is
+`-` / `published` -- *nobody corrected it*, which is not proof it was right -- and `turn` /
+`removed` are set aside. The camera class is the `cameras` count; one device/2 dart (S20,
+stood) has three cameras and a `crossing_deg`, and is counted as three. `expected` is
+sum Phi(-z) over a bucket's decided darts: the wrong-side publishes an honest Gaussian sigma
+would predict, z being `margin_mm / sigma_mm`.
+
+**Read:** casual/17 2026-10-10, casual/19 and casual/20 2026-10-11, casual/21 2026-10-11,
+-12 and -13 (board 21's three lines hold 8 darts, 2 of them geometric, both stood) and
+device/2 2026-10-13: 2,165 darts, 1,550 geometric.
+
+| cameras | wire | z | posted | flagged | corrected (to) | stood | set aside | expected |
+|---|---|---|---|---|---|---|---|---|
+| 3 | ring | < 0.25 | 49 | 49 | 2 (alternative) | 39 | 8 turn | 18.5 |
+| 3 | ring | 0.25-0.5 | 45 | 45 | 1 (alternative) | 41 | 3 turn | 15.0 |
+| 3 | ring | 0.5-1 | 70 | 70 | 0 | 65 | 5 turn | 15.8 |
+| 3 | ring | > 1 | 94 | 0 | 0 | 87 | 7 turn | 7.1 |
+| 3 | wedge | < 0.25 | 41 | 41 | 2 (alternative) | 38 | 1 turn | 17.9 |
+| 3 | wedge | 0.25-0.5 | 88 | 88 | 0 | 85 | 3 turn | 30.2 |
+| 3 | wedge | 0.5-1 | 130 | 130 | 0 | 125 | 4 turn, 1 removed | 29.5 |
+| 3 | wedge | > 1 | 175 | 0 | 0 | 170 | 4 turn, 1 removed | 10.3 |
+| 2 | ring | < 0.25 | 82 | 82 | 2 (alternative) | 74 | 6 turn | 34.5 |
+| 2 | ring | 0.25-0.5 | 78 | 78 | 1 (alternative) | 73 | 4 turn | 26.6 |
+| 2 | ring | 0.5-1 | 105 | 105 | 1 (typed) | 100 | 4 turn | 23.6 |
+| 2 | ring | > 1 | 137 | 0 | 0 | 133 | 3 turn, 1 removed | 9.8 |
+| 2 | wedge | < 0.25 | 101 | 101 | 6 (alternative) | 88 | 7 turn | 42.5 |
+| 2 | wedge | 0.25-0.5 | 50 | 50 | 2 (alternative) | 46 | 2 removed | 17.1 |
+| 2 | wedge | 0.5-1 | 110 | 109 | 1 (typed) | 105 | 4 turn | 23.9 |
+| 2 | wedge | > 1 | 195 | 0 | 1 (candidate) | 186 | 8 turn | 12.3 |
+
+**Within a sigma of the wire, three-line solves were corrected 5 times in 398 decided darts
+(1.3%) and two-line ones 13 in 499 (2.6%).** The sessions disagree with each other: on the
+casual boards three-line is the *better* class, 2 / 132 against 12 / 173 (Fisher p 0.03);
+on device/2 it is the worse, 3 / 266 against 1 / 326 (p 0.33), and 3 / 61 against 0 / 107
+under 0.25 sigma (p 0.046 -- a bucket chosen after the three darts that raised the issue, so
+it does not count as a finding). Both classes are corrected **far less often than their
+sigma predicts**: 18 corrected where an honest sigma expects about 295 wrong sides inside
+one sigma, and at z < 0.25, where chance is a coin, 4 of 81 three-line darts and 8 of 170
+two-line ones were corrected (5% both). The sigma is pessimistic, not optimistic (three
+fifths of the three-line solves sit on the 5.0 mm floor); "wrong side more often than
+chance" does not happen in either class.
+
+**The radial side** (`I1844 SIDE`). Corrected three-line ring darts: T12 -> S12 inward (casual
+17), T16 -> S16 outward and T1 -> S1 inward (device/2). Two-line: T13 -> S13 and D20 -> S20
+inward, S7 -> D7 outward, S20 -> None (typed, no side). Every corrected dart near a ring wire,
+vote included: 5 outward, 11 inward -- the inward ones mostly a vote double that was the
+single (D5, D19, D1 -> S, plus geometric D20), the outward two of them a vote D -> None at the
+rim. Not one-sided for three-line solves (1 against 2); the pooled lean (sign test p ~0.2) is
+the double's inner wire on the vote path, which is #1773's ground, not this issue's.
+
+**The frames** (device/2's kept frames, three cameras each). T1 -> S1 (one dart on the board):
+camera 3 shows the tip just inside the treble's inner wire, the corrected side; cameras 1 and 2
+put it on the wire itself and cannot say. T16 -> S16 and S6 -> S13: the frames hold three and
+two darts, and I cannot tell which one is the dart named, so I cannot say which side its tip
+is on.
+
+**Verdict: noise, as far as these sessions can say.** Three-line solves near a wire are not
+corrected more often than two-line ones pooled, both are corrected far less often than their
+own sigma predicts, and the three device/2 darts sit in a bucket that holds them because the
+issue was filed on them. What these lines cannot say: whether stood darts were right (nobody
+was asked), and the 35 three-line `turn` darts (16% of the three-line ring darts under 0.25
+sigma) whose wrong dart, if any, is unnamed.
+
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
 **Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:24) the
