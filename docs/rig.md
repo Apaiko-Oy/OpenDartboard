@@ -952,21 +952,32 @@ crowd the wire and the false ones do not, which is what an honest sigma predicts
 part of #1556's band beyond about 0.6 sigma has caught nothing anywhere.
 
 **The rule** (`score_processing::tightenBoundaryCall`, pure, after `decideBoundaryCall` and
-before #1782's corner): under **`OD_FLAG_SIGMAS=<K>`, 0 < K < 1**, a geometric flag whose
+before #1782's corner): at **K = 0.7 by default** (since turnaus#1815's default, below;
+`OD_FLAG_SIGMAS=<K>`, 0 < K < 1, moves it), a geometric flag whose
 solve is further than K of its own sigmas from the wire publishes as a clear call: no
 alternative, no corner cells, confidence 0.9, and the sentence
 `UNCERTAINTY: S5 clears its nearest wedge wire -- 4.7 mm away across a 5.0 mm one-sigma
 (0.94 sigma), outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815); #1556's 1.0 would have
 flagged it with S20`. **The published score never moves**; the vote path's flags are not
-touched. Unset, empty, a word, 0, a negative or anything >= 1 is #1556's 1.0, byte for byte
-(a K above 1 would loosen the flag and is refused). Census line `I1815FLAG window= z= k=
+touched. Unset is the default 0.7; **`OD_FLAG_SIGMAS=off`** -- or any other set value: empty,
+a word, 0, a negative, 1 or anything above -- is #1556's 1.0, byte for byte (a K above 1 would
+loosen the flag and is refused). Census line `I1815FLAG window= z= k=
 default= flagged= score= alt= kind=` under `OD_GEO_SCORE=on`; `testers/i1555_run.sh`
 forwards the switch.
 
-**The value it proposes is 0.7, and it stays opt-in.** 0.7 is the fixtures' 0.57 with 0.13
-sigma to spare (0.6 would leave 0.03); it is read off fourteen session darts and five fixture
-ones, which is #1556's own reason for refusing k = 0.5 on two, so a live session decides the
-default and not this table.
+**The value is 0.7, and it is the default since turnaus#1815's decision of 2026-10-13.** 0.7
+is the fixtures' 0.57 with 0.13 sigma to spare (0.6 would leave 0.03). It was proposed opt-in
+because it is read off fourteen session darts and five fixture ones; the maintainer turned it
+on after the third session (device/2, 2026-10-13, 1329 darts, below) cut 132 more false flags
+and no true one. It makes the flag rarer, not right: the real fix is a different approach,
+commissioned separately.
+
+**It does not reach the vote path's ring-wire flag (#1773).** `checkVoteReadingAgainstRingWires`
+is called with its default `sigmaMm = kLoneReadingSigmaMm` (5 mm) and its flag is spent straight
+into the vote publish (`result.boundary_flagged = ring_wire.flagged`); `flagCrossingSigmas()` is
+read in one place, `tightenBoundaryCall` on #1556's geometric call, which a vote publish never
+flags (`decideBoundaryCall(geometryPublished = false, ...)`). So every lone double inside the
+5 mm sigma is still flagged, and #1707's argument for closing on RING-WIRE stands.
 
 `turn` darts (a Casual total corrected after the takeout, naming no dart; turnaus#1819) and
 `removed` ones are set aside from both tallies: 19 + 2 of board 17's flags and 12 + 1 of
@@ -982,6 +993,26 @@ own figure, which counts them as false, is beside it.
 | board 20, K = 0.7 | 123 | 34 | **0** | 2 | 11 | 0.902 | 0.821 |
 | board 20, K = 0.6 | 110 | 45 | 0 | 4 | 9 | 0.891 | 0.818 |
 | board 20, K = 0.5 | 98 | 55 | **1** | 5 | 8 | 0.889 | 0.816 |
+| device/2 2026-10-13, K = 1.0 | 722 | - | - | - | 29 | 0.991 | 0.952 |
+| device/2 2026-10-13, K = 0.7 | 584 | 132 | **0** | 6 | 23 | 0.989 | 0.950 |
+
+**The flagged share of all darts**, recounted for the default (`i1815_census.py --truth-line
+<file> --k 0.7 --k 1.0`, 2026-10-14; every truth line's recomputed flag agrees with the
+board's on all but one dart each on board 20 and device/2):
+
+| session | darts | flagged at 1.0 (off) | flagged at 0.7 (default) |
+|---|---|---|---|
+| casual 17, 2026-10-10 | 526 | 237 (45.1%) | 177 (33.6%) |
+| casual 20, 2026-10-11 | 294 | 159 (54.1%) | 123 (41.8%) |
+| device/2, 2026-10-13 | 1329 | 722 (54.3%) | 584 (43.9%) |
+| casual 19 and 21, 2026-10-11..13 (four short truth lines) | 16 | 3 | 2 |
+| all | 2165 | 1121 (51.8%) | 886 (40.9%) |
+
+**The bakeoff at the default** (`testers/i1555_run.sh`, capture clock, no pins, 887 s at load
+~2, 2026-10-14) is #1682's parent figure on every row: rig-20260918 19/20 and 19/20,
+rig-20260922 21/23 and 23/23, rig-20260929 30..33/36 and 31..34/36, POOLED 143..149/158,
+POOLED-r18+r22 82/86. The six default runs print the `outside the flag's 0.70` sentence on
+19 darts (r18 2 + 2, r22 2 + 2, r29 4 + 7), the 19 the opt-in run of 2026-10-11 cleared.
 
 **What it does and does not buy.** A quarter of the prompts go (60 of 237, 36 of 159) and not
 one corrected dart loses its flag. The false-alarm RATE barely moves, 0.949 -> 0.930 and
