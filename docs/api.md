@@ -303,6 +303,30 @@ Authorization: Bearer <the board's credential>
   acknowledged` at shutdown says how far it got.
 - Nothing is spooled: the file is the spool, append-only, and the offset is the cursor.
 
+**The two doors' 409s (turnaus#1841).** The log route's 409 above is an offset answer and
+nothing else. The push and heartbeat routes answer 409 for two different things, told apart
+by the door and by the body's shape, never by its sentence:
+
+- **autoscorer door** (`/api/v1/autoscorer/{detections,takeouts,heartbeats}`): `409
+  {"message": "This board stands at no Station."}` -- the club has linked this board to no
+  Station. The board says so and keeps retrying slowly; somebody clears it in a browser.
+- **Contest door** (`/api/v1/casual/...`) with **`errors.board` in the body**: `409
+  {"message": "<sentence>", "errors": {"board": ["<sentence>"]}}`, the sentence being
+  `casual_detection.error.discarded` or `.evening_over` in the board's language -- **the
+  Contest is over**. The board releases the Contest binding exactly as a 401 releases it
+  (`the binding to Casual Contest <id> has ended (HTTP 409: the Contest was given up)`,
+  the owed pushes dropped and counted, the `contest` object removed from
+  `credentials.json`) and its next beat goes to `/api/v1/autoscorer/heartbeats` with the
+  club credential underneath, or it stops if it holds none. Measured 2026-10-13: until
+  this a board beat into a given-up Contest for twenty-five minutes reading it as the
+  line below.
+- **Contest door without `errors.board`**: no Station at that Contest. Kept as before, with
+  the door named: `the server says this Contest board stands at no Station (409)`.
+
+A `410 Gone` from a given-up Contest's token would make this a status rather than a body
+shape; until Turnaus answers one, the shape is the contract and `TurnausClient::
+contestOverBody` reads it (`testers/i1841_body_check.cpp` holds it to both doors' bodies).
+
 **A corrected dart's frames.** With `OD_KEEP_FRAMES=on` the board keeps the settled frames
 of its last ten published darts (`OD_KEEP_FRAMES=25` keeps 25; docs/rig.md has the memory
 measured). **Which route shape, and why: the board polls** rather than serving a route of
