@@ -90,7 +90,7 @@ od_run "1815-check" --network none \
   read RC_C F_C E_C K_C C_C P_C U_C <<< "$(run /tmp/i1815_mutC /tmp/mutC.out)"
   grep "^FAIL " /tmp/mutC.out
 
-  echo "==== 5. mutation D: unset is #1556's 1.0 again ==============================="
+  echo "==== 5. mutation D: unset is 1.0 again, the flag before the default =========="
   echo "PREDICTION: exactly 1 FAIL line, parse: (unset is the default, 0.7), and no other."
   mutate /tmp/mutD "s#return kDefaultFlagSigmas;#return 1.0;#" \
          "return kDefaultFlagSigmas;" || { echo "FAIL mutation D did not land"; exit 1; }
