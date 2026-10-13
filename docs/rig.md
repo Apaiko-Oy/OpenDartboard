@@ -1361,6 +1361,88 @@ radius: v4.3 and v7.1 read 1.03-1.12), and a live session with the switch on and
 clearing cameras offered), the vote's reading, the carry, the ring (`D` for `S`), the switch,
 the read wedge and the tip; all eight fail as predicted.
 
+## A visit that closes short publishes its unseen darts as misses (turnaus#1537), opt-in
+
+**Live on 2026-10-10** (build `2b56b48`, `OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`) three
+visits closed with two darts published for three thrown, each third dart a miss beyond the rim
+that opened no event: 16:12 (miss, miss, miss: two `I1707 RIM CARRIED` MISSes, then nothing
+until the takeout's spike), 16:21 (miss, miss, S3: D3 and S3 published) and 16:38 (S19, miss,
+S19: S19 and T3 published). A Marker would have written three darts; Turnaus stored two. **The
+maintainer's decision, the same day:** a visit that closes with fewer than three darts marks
+the unseen ones as thrown misses.
+
+`OD_VISIT_FILL=on` (`src/scorer/visit_fill.hpp`, applied in `Scorer::run`): at an END, a visit
+that published **one or two** darts (a MISS is a dart) publishes `3 - n` MISSes first, then the
+END. A visit that published nothing is not filled (an END with no dart has no round on the
+server, and a spurious END would become three misses), nor is a visit of three or more. Each
+inferred MISS is score `MISS`, confidence **0.5**, camera -1, no position, no board fields, no
+candidates, the END's timestamp, and `path` **`inferred`**. `I1537 VISIT SHORT` is said at INFO
+at every short END, on and off alike (so an off replay counts what the fill would add), and
+`I1537 VISIT FILL` before each inferred MISS.
+
+**What Turnaus receives.** The body of an inferred MISS is
+
+    {"bounced_out":false,"confidence":0.5,"degraded":false,"flagged":false,
+     "inferred":true,"path":"inferred","reference":"<ulid>","sector":"None"}
+
+`sector` is `None`, so Turnaus scores it as the miss it is today. `inferred: true` (present
+only on an inferred MISS; every measured dart's bytes are unchanged) and `path: "inferred"` are
+how it can tell. Turnaus today (`AutoscorerDetectionController`, `CasualDetectionController`)
+validates `reference`, `sector`, `bounced_out`, `suggestions` and the position and drops every
+other key, so it **accepts the dart and ignores the mark**; showing an inferred miss as one, or
+offering it for correction first, is a Turnaus follow-up. The score socket publishes it as a
+plain MISS.
+
+**Bakeoff (capture clock, `OD_WINDOW_UNIT=cycles`, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`, 2026-10-13, one binary, switch off then on).** The accuracy censuses read
+what the detector saw: under the switch `i1555_inside.sh` takes the inferred SCORE lines out of
+the log it censuses and keeps the whole one as `<run>.filled.txt` (the first on run, without
+that, refused rig-20260929 dev: `detected visit 12 holds a dart with no I1555PUBLISH line`).
+Every replay's measured SCORE lines are identical off and on, and every `I1555 ACCURACY` row
+is the baseline's: 38/40, 44/46, 61..67/72, pooled 143..149/158, r18+r22 82/86.
+
+`testers/i1537_census.py` over each replay, joined to the truth line by visit order:
+
+| replay | closed visits | short | inferred (on) | real miss | board dart | phantom |
+|---|---|---|---|---|---|---|
+| rig-20260918 dev | 6 | 0 | 0 | 0 | 0 | 0 |
+| rig-20260918 opening | 6 | 0 | 0 | 0 | 0 | 0 |
+| rig-20260918 pin | 6 | 0 | 0 | 0 | 0 | 0 |
+| rig-20260922 dev | 7 | 0 | 0 | 0 | 0 | 0 |
+| rig-20260922 opening | 8 | 1 | 2 | 1 | 1 | 0 |
+| rig-20260929 dev | 12 | 1 | 2 | 2 | 0 | 0 |
+| rig-20260929 opening | 12 | 1 | 2 | 2 | 0 | 0 |
+
+- **rig-20260918:** nothing to fill. Every closed visit published three, visit 6's miss in the
+  number ring included (published `MISS`, seen by all three cameras, #1587). Visit 7 is open at
+  the end of the clip and has no END.
+- **rig-20260922 opening, visit 1** (`8 16 miss`): published `S16` alone, filled with two
+  MISSes. One is the real miss. The other is the **S8**, which is in the calibration picture
+  (#1648, the opening window), so no window can see it arrive: it becomes a MISS where it was
+  nothing. No score is replaced (the fill only adds), so the 8 was already lost; with the fill
+  a correction changes a MISS instead of adding a dart. This is a fixture artefact of the
+  opening window, not a dart the detector failed on the board. The dev window does not detect
+  visit 1 at all (no END closes it), so its seven ENDs close truth visits 2-8 and nothing is
+  filled; the ordinal join's truth column is shifted by one there, and every one of the seven
+  is a whole visit either way.
+- **rig-20260929, visit 12** (`miss d14 miss`): published `D14` alone in both windows, filled
+  with the two misses exactly. (The fixture's truth note says this build's predecessor published
+  nothing for visit 12 and two darts for visits 5, 6 and 11; on this build 5, 6 and 11 publish
+  three and visit 12 publishes one.)
+- **Phantoms: 0 on rig-20260918 and rig-20260922** (no inferred MISS in a visit the truth shows
+  as three darts on the board), and 0 on rig-20260929.
+- **The visit the thrower genuinely cut short** (two darts, then a takeout) is the case this
+  gets wrong, and none of the three fixtures holds one: every truth visit is three throws. The
+  Pi board's 2026-10-11 run had three two-dart visits whose third dart the thrower has not
+  confirmed (#1537's last comment); under the switch each would gain a MISS.
+
+`testers/run_all.sh 1537-visitfill` (249 s at load ~3, most of it the two compiles of
+`turnaus_client.cpp`) replays the live session's three short visits through the ledger, the
+shapes it must leave alone, and the body; eight mutations of a scratch copy (an empty END
+filled, a visit of four, no reset, the END before its misses, the switch ignored, confidence
+1.0, no path, the body's `inferred` struck) each fail exactly the assertions predicted
+beforehand.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while
