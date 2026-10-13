@@ -68,6 +68,18 @@ run_detector() { # $1 fixture dir, $2 output basename, $3.. extra env as VAR=val
         > "$RUN/$out.out" 2>&1
     local rc=$?
     sed 's/\x1b\[[0-9;]*m//g' "$RUN/$out.out" > "$RUN/$out.txt"
+    # turnaus#1537: under OD_VISIT_FILL=on the scorer publishes an inferred MISS, with no
+    # window and no I1555PUBLISH line, after each `I1537 VISIT FILL` line. The censuses
+    # below measure what the detector SAW, so they read the log with those SCORE lines
+    # taken out (the switch off and on then measure the same windows); the whole log is
+    # kept as <out>.filled.txt for testers/i1537_census.py, which counts the fill.
+    if grep -q 'I1537 VISIT FILL' "$RUN/$out.txt"; then
+        mv "$RUN/$out.txt" "$RUN/$out.filled.txt"
+        awk '/I1537 VISIT FILL/ {skip++; print; next}
+             skip > 0 && /SCORE: MISS \|/ {skip--; next}
+             {print}' "$RUN/$out.filled.txt" > "$RUN/$out.txt"
+        echo "detector $out: $(grep -c 'I1537 VISIT FILL' "$RUN/$out.filled.txt") inferred MISS(es) kept in $out.filled.txt, not censused"
+    fi
     echo "detector $out rc=$rc lines=$(wc -l < "$RUN/$out.txt")"
     if [ $rc -ne 0 ] && [ $rc -ne 124 ]; then
         tail -5 "$RUN/$out.txt"
