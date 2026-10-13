@@ -1,3 +1,4 @@
+# unrun-tester: a reporter over a #1555 bakeoff's logs run with and without OD_VISIT_FILL (turnaus#1537), run by hand on a run directory; it asserts nothing, needs seven whole-clip replays as input, and docs/rig.md records its counts. testers/i1537_check.sh (1537-visitfill) gates the rule.
 """turnaus#1537: what OD_VISIT_FILL does to a fixture replay, against the fixture's truth line.
 
     python3 i1537_census.py --log <run.txt> --fixture rig-20260918 --truth <GROUND-TRUTH.md> \
