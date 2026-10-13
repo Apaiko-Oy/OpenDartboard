@@ -9,6 +9,7 @@
 #include "../communication/score_queue.hpp"
 #include "../communication/turnaus_client.hpp"
 #include "../utils/scheduled_stop.hpp"
+#include "visit_fill.hpp"
 #include <memory>
 
 using namespace std;
@@ -147,6 +148,10 @@ private:
   // closes it), read by scheduledStopIsDue() on the same thread.
   scheduled_stop::Schedule schedule_;
   scheduled_stop::Facts schedule_facts_;
+
+  // turnaus#1537: how many darts the visit in hand has published, for the fill at its END.
+  // Same thread as sendResult(), so plain.
+  visit_fill::Ledger visit_ledger_;
 
   // #1797: one poll of the schedule, said in the log when the answer changed. True means
   // stop now, by the same flag a signal sets; the caller clears `running` and leaves.

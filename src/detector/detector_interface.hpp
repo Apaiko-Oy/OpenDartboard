@@ -71,6 +71,12 @@ struct DetectorResult
     float ring_wire_mm = -1.0f;  // RING-WIRE (#1773): the same reading's ring-wire margin; -1 unmeasured
     long window_ordinal = -1;    // the detection window that called this dart (frame_keep)
 
+    // turnaus#1537: a MISS the board did not see but inferred, because the visit closed with
+    // fewer than three darts (src/scorer/visit_fill.hpp, OD_VISIT_FILL=on). `path` is then
+    // "inferred", and TurnausClient::detectionBody posts `"inferred": true`; false everywhere
+    // else, where the body carries no such key and is byte for byte what it was.
+    bool inferred = false;
+
     // Metadata for debugging/analysis
     bool motion_detected = false;
     int processing_time_ms = 0;

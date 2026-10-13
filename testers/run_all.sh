@@ -781,6 +781,16 @@ tester 1821-rimoffer      "bash '$T/i1821_check.sh'"
 # detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-12 on the 4-core box
 # at load ~12-14 with two other agents' gates alongside, rc=0: 45 s wall.
 tester 1802-rimbody       "bash '$T/i1802_check.sh'"
+# turnaus#1537: a visit that closes with fewer than three darts (live 2026-10-10: three visits
+# whose miss landed beyond the rim and opened no event) publishes each unseen dart as MISS at
+# 0.5, path "inferred", `"inferred": true` in the Turnaus body, before its END. OD_VISIT_FILL
+# (off by default). The pure half: visit_fill::Ledger over the live session's three short
+# visits and the shapes it must leave alone (whole, empty END, past three, the next visit, the
+# switch off), and the body built from an inferred MISS; one compile of the tree plus eight of
+# a mutated scratch copy, each predicted to turn named assertions red. Needs build/_deps (it
+# links turnaus_client.cpp, compiled once and reused); no detector binary. MEASURED 2026-10-13
+# on the 4-core box at load ~3 with another checkout's gate alongside, rc=0: 249 s wall.
+tester 1537-visitfill     "bash '$T/i1537_check.sh'"
 # turnaus#1782: a flagged solve within its sigma of a ring wire AND a wedge wire (a corner)
 # offered only the nearest wire's alternative -- live on 2b56b48 a thrown S19 published T3
 # flagged "T3 or S3", 0.6 mm from the treble wire and 1.8 mm from the 3/19 wire. The flag now
