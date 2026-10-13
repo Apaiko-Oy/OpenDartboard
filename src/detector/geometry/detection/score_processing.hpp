@@ -301,7 +301,7 @@ namespace score_processing
         return line;
     }
 
-    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED BEHIND A SWITCH ------------------
+    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED (0.7 BY DEFAULT) ------------------
     //
     // The first two real sessions (casual boards 17 and 20, 2026-10-10/11, 820 darts, read
     // back through turnaus#1786/#1789) flagged 396 darts and 340 of them stood as published:
@@ -323,15 +323,27 @@ namespace score_processing
     // flags spread over every margin with the true ones among them (1.3 to 4.8 mm), and
     // nothing in the sessions separates them.
     //
-    // OD_FLAG_SIGMAS=<K>, 0 < K < 1, turns it on; unset, empty, unparseable or outside that
-    // range is #1556's 1.0, byte for byte. docs/rig.md records the measurement and the value
-    // it proposes (0.7: the fixtures' 0.57 with 0.13 sigma to spare). A figure read off
-    // fourteen session darts and five fixture ones is why it is not the default.
+    // 0.7 IS THE DEFAULT since the maintainer's decision of 2026-10-13 (turnaus#1815's
+    // comment of that date): the fixtures' nearest true flag, 0.57, with 0.13 sigma to spare;
+    // on the three sessions it clears about a quarter of the prompts, loses no true flag and
+    // moves no score. OD_FLAG_SIGMAS=<K>, 0 < K < 1, sets the threshold to K. ANY OTHER SET
+    // VALUE -- `off`, `1`, empty, unparseable or outside that range -- is #1556's 1.0, byte
+    // for byte, the flag as it was before the default. docs/rig.md records the measurement.
 
-    /** turnaus#1815: the switch's value from its text, pure; 1.0 (#1556's) unless a K in (0, 1). */
+    /** turnaus#1815: the default threshold, in the solve's own sigmas. */
+    inline constexpr double kDefaultFlagSigmas = 0.7;
+
+    /**
+     * turnaus#1815: the switch's value from its text, pure. Unset is the default 0.7; a K in
+     * (0, 1) is K; anything else set (`off` among it) is #1556's 1.0.
+     */
     inline double flagSigmasFrom(const char *text)
     {
-        if (text == nullptr || *text == '\0')
+        if (text == nullptr)
+        {
+            return kDefaultFlagSigmas;
+        }
+        if (*text == '\0')
         {
             return 1.0;
         }
