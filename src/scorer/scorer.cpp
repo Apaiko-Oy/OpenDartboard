@@ -211,6 +211,25 @@ namespace
         return v;
     }
 
+    // turnaus#1537: whether a visit that closes with fewer than three darts publishes the
+    // unseen ones as inferred MISSes before its END (src/scorer/visit_fill.hpp has the rule).
+    // OFF unless OD_VISIT_FILL is exactly "on". Read once, and said once when it is on.
+    inline bool visitFillIsOn()
+    {
+        static const bool v = []
+        {
+            const char *e = getenv("OD_VISIT_FILL");
+            const bool on = e != nullptr && string(e) == "on";
+            if (on)
+            {
+                log_info("OD_VISIT_FILL=on: a visit that closes with fewer than 3 darts publishes each unseen "
+                         "dart as MISS (confidence 0.5, path=inferred) before its END (turnaus#1537)");
+            }
+            return on;
+        }();
+        return v;
+    }
+
     // #1797: the clock the schedule reads, unix seconds, which scheduled_stop.hpp turns
     // into local time through the same localtime the log's timestamps use.
     //
@@ -755,7 +774,23 @@ void Scorer::run()
                 auto end_time = chrono::steady_clock::now();
                 auto processing_time = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
                 result.processing_time_ms = static_cast<int>(processing_time);
-                sendResult(result);
+                // turnaus#1537: every result goes through the visit's ledger, which answers
+                // the result itself -- preceded, at an END that closes a short visit under
+                // OD_VISIT_FILL=on, by one inferred MISS per unseen dart.
+                const visit_fill::Ledger::Answer fill = visit_ledger_.admit(result, visitFillIsOn());
+                if (fill.unseen > 0)
+                {
+                    log_info(visit_fill::shortSentence(fill.published, visitFillIsOn()));
+                }
+                int ordinal = fill.published;
+                for (const DetectorResult &each : fill.send)
+                {
+                    if (each.inferred)
+                    {
+                        log_info(visit_fill::fillSentence(fill.published, ++ordinal));
+                    }
+                    sendResult(each);
+                }
             }
         }
 
