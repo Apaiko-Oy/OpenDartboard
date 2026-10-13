@@ -3,17 +3,27 @@
 #include <filesystem>
 #include <iostream>
 #include <fstream>
+#include <cstdlib>
+#include <stdexcept>
 int main(int argc,char **argv)
 {
     if(argc<4){std::cerr<<"usage: probe output-dir start-ms camera...\n";return 2;}
+    int frameCount=30;
+    if(const char *value=std::getenv("OD_1510_AVERAGE_FRAMES"))
+    {
+        try { size_t end=0;frameCount=std::stoi(value,&end);
+              if(value[end]!='\0'||frameCount<1||frameCount>120)throw std::runtime_error("range"); }
+        catch(const std::exception &) { std::cerr<<"OD_1510_AVERAGE_FRAMES must be 1..120\n";return 2; }
+    }
+    std::cout<<"start_ms="<<argv[2]<<" average_frames="<<frameCount<<"\n";
     std::filesystem::create_directories(argv[1]);
     int refused=0;
     for(int i=3;i<argc;++i)
     {
         cv::VideoCapture cap(argv[i]);cap.set(cv::CAP_PROP_POS_MSEC,std::atof(argv[2]));
         cv::Mat frame,sum;
-        for(int j=0;j<30;++j){cv::Mat f,fl;if(!cap.read(f))return 2;f.convertTo(fl,CV_32F);if(sum.empty())sum=fl;else sum+=fl;}
-        sum.convertTo(frame,CV_8U,1./30);
+        for(int j=0;j<frameCount;++j){cv::Mat f,fl;if(!cap.read(f))return 2;f.convertTo(fl,CV_32F);if(sum.empty())sum=fl;else sum+=fl;}
+        sum.convertTo(frame,CV_8U,1./frameCount);
         auto initial=geometry_calibration::calibrateSingleCamera(frame,i-3,false);
         auto measured=board_model::measure(frame,initial);
         if(measured.observations.empty())

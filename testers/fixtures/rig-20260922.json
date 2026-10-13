@@ -1,0 +1,27 @@
+{
+  "fixture": "rig-20260922",
+  "truth_source": "Maintainer message, 2026-09-23; eight visits from the first visit",
+  "cameras": [
+    {"file": "cam_1.mp4", "sha256": "babf4d634e9a5fb446325bd608c9c974c16cb9e868cecccd349a5821a3019fc0"},
+    {"file": "cam_2.mp4", "sha256": "f049585693b38cdcc48807ea465b8be99dc9a54654146fe9a60cf41ec2da4764"},
+    {"file": "cam_3.mp4", "sha256": "f8270ad04bbe739f2e8d4334630449e84fc51bc37ea5aa587b2603502142e9c2"}
+  ],
+  "fps": 30,
+  "empty_frame_ms": 9000,
+  "first_complete_visit": 2,
+  "visit_windows_ms": [[9000,24000],[24000,36000],[36000,51000],[51000,65000],[65000,78000],[78000,91000],[91000,120100]],
+  "throw_dividers_ms": [[15000,17000],[28500,30500],[41500,43500],[56000,58000],[68500,71000],[81500,84000],[108500,110500]],
+  "throw_window_source": "Visual camera-1 review at 0.5-second intervals (visit 4 at 1-second intervals): dividers fall before the next visible dart arrives. These are attribution windows, not precise impact timestamps. First publication in each window is assessed; subsequent publications are extra events, never shifted onto a later throw or selected by matching its score. Delayed publications spanning a divider require further review.",
+  "window_source": "Independent visual review of camera 1, sampled every 3 seconds; boundaries lie in empty-board gaps between visits. These are visit windows, not independently annotated individual arrival times.",
+  "coverage_note": "The recording starts with a dart already present. The frozen-start replay replaces 0-9 seconds with this recording's empty frame at 9 seconds and evaluates visits 2-8 only. Visit 1 is excluded from replay coverage, not counted as a detector miss. Original timestamps from 9 seconds onward are preserved.",
+  "visits": [
+    ["S8", "S16", "S7"],
+    ["S12", "T9", "T8"],
+    ["S20", "D20", "S1"],
+    ["S7", "T15", "S4"],
+    ["S4", "S19", "S7"],
+    ["S19", "S18", "S6"],
+    ["S15", "S3", "T9"],
+    ["T1", "S4", "BULL"]
+  ]
+}

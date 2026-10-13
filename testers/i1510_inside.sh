@@ -1,6 +1,13 @@
 #!/bin/bash
 set -eu
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s /app/testers -p i1510_replay_report_test.py -v
 export OD_1510_REQUIRE_ACCEPTED="${OD_1510_REQUIRE_ACCEPTED:-1}"
+FIXTURE="${OD_1510_FIXTURE:-/app/mocks/rig-20260918}"
+START_MS="${OD_1510_START_MS:-3000}"
+for camera in 1 2 3; do
+  test -s "$FIXTURE/cam_$camera.mp4" || { echo "FAIL missing selected fixture $FIXTURE/cam_$camera.mp4"; exit 2; }
+  sha256sum "$FIXTURE/cam_$camera.mp4"
+done
 SRC=/app/src/detector/geometry/calibration
 OBJECTS=$(find /app/build/CMakeFiles/opendartboard.dir/src/detector/geometry/calibration -name '*.o')
 if [ -z "$OBJECTS" ] || [ ! -s /app/build/opendartboard ]; then
@@ -31,9 +38,9 @@ grep -q '^FAIL held-out observations' /out/mutant.txt || {
 }
 echo 'OK removing held-out acceptance is caught'
 echo "RIG ACCEPTANCE: all three models must pass unless explicitly in measurement mode"
-/out/probe /out/rig 3000 /app/mocks/rig-20260918/cam_1.mp4 \
-  /app/mocks/rig-20260918/cam_2.mp4 /app/mocks/rig-20260918/cam_3.mp4
-# The user selected these last rig clips. No upstream mock is substituted.
+/out/probe /out/rig "$START_MS" "$FIXTURE/cam_1.mp4" \
+  "$FIXTURE/cam_2.mp4" "$FIXTURE/cam_3.mp4"
+# Fixture selection is explicit; a missing local recording never falls back to an older one.
 # See docs/physical-board-model.md for measured acceptance and remaining limitations.
 echo 'OK synthetic controls and selected rig acceptance'
 exit 0
