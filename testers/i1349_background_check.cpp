@@ -86,10 +86,29 @@ static bool tipNear(const Point2f &tip, const Rect &dart, const std::string &wha
     return inside;
 }
 
+// #1759: a window that did not close returns no camera results at all, and this file used to
+// index camera_results[1] of it regardless -- so the one FAIL that said why was followed by
+// a segfault (rc 139) that said nothing. An absent camera now reads as a result that found
+// no tip, and the assertion beside it fails by name.
+static const CameraDetectionResult &camera(const DartStateResult &r, size_t index)
+{
+    static const CameraDetectionResult none{};
+    return index < r.camera_results.size() ? r.camera_results[index] : none;
+}
+
 int main()
 {
     DartParams params;
     params.stability_frames = 1; // one call is one window
+    // #1759: and in #1685's unit too -- #1688's line, which reached 1348, 1355, 1518 and
+    // 1552 and missed this file. Since #1685 the window is `stability_ms` of the motion
+    // clock unless OD_WINDOW_UNIT=cycles, so the count above alone closes no window on the
+    // first call: processDartState returned its still-collecting result, window 1 failed and
+    // the indexing below crashed. Green only under #1826's cycles pin until this line. A
+    // window of 0 ms is reached by the cycle it opens on (od_clock::window_reached), so one
+    // call is one window on any clock and at any speed, and the default unit is the one
+    // measured.
+    params.stability_ms = 0;
 
     const std::vector<Mat> backgrounds = {plainBackground(), plainBackground(), plainBackground()};
     // #1345 gave processDartState the boards so a refused window can say how much of a
@@ -104,7 +123,7 @@ int main()
         DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::CLEAN && r.current_state == DartBoardState::DART_1,
             "window 1: three cameras seeing dart A take the board to DART_1");
-        say(r.camera_results[1].tip_found && tipNear(r.camera_results[1].tip_position, kDartA, "window 1, camera 2"),
+        say(camera(r, 1).tip_found && tipNear(camera(r, 1).tip_position, kDartA, "window 1, camera 2"),
             "window 1: camera 2's tip is in dart A");
     }
 
@@ -115,18 +134,18 @@ int main()
         DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::DART_1 && r.current_state == DartBoardState::DART_2,
             "window 2: two cameras moving up outvote one flicker, DART_1 -> DART_2");
-        say(r.camera_results[0].detected_state == DartBoardState::CLEAN,
+        say(camera(r, 0).detected_state == DartBoardState::CLEAN,
             "window 2: camera 1 really did read CLEAN -- the flicker this issue is about happened");
 
         // THE ISSUE. On the shipped code camera 1's flicker wiped every working
         // background before cameras 2 and 3 were processed, their threshold became the
         // union of A and B, and this tip landed in A.
-        say(r.camera_results[1].tip_found &&
-                tipNear(r.camera_results[1].tip_position, kDartB, "window 2, camera 2"),
+        say(camera(r, 1).tip_found &&
+                tipNear(camera(r, 1).tip_position, kDartB, "window 2, camera 2"),
             "window 2: camera 2's tip is in dart B, the dart that just landed -- its working "
             "background survived camera 1's flicker");
-        say(r.camera_results[2].tip_found &&
-                tipNear(r.camera_results[2].tip_position, kDartB, "window 2, camera 3"),
+        say(camera(r, 2).tip_found &&
+                tipNear(camera(r, 2).tip_position, kDartB, "window 2, camera 3"),
             "window 2: camera 3's tip is in dart B too");
     }
 
@@ -149,12 +168,12 @@ int main()
         DartStateResult r = processDartState(frames, backgrounds, no_boards, true, false, params);
         say(r.previous_state == DartBoardState::CLEAN && r.current_state == DartBoardState::DART_1,
             "window 4: the next round begins at DART_1");
-        say(r.camera_results[1].tip_found &&
-                tipNear(r.camera_results[1].tip_position, kDartC, "window 4, camera 2"),
+        say(camera(r, 1).tip_found &&
+                tipNear(camera(r, 1).tip_position, kDartC, "window 4, camera 2"),
             "window 4: camera 2's tip is in dart C alone -- the takeout cleared every working "
             "background, so no ghost of A or B is in the picture");
-        say(r.camera_results[2].tip_found &&
-                tipNear(r.camera_results[2].tip_position, kDartC, "window 4, camera 3"),
+        say(camera(r, 2).tip_found &&
+                tipNear(camera(r, 2).tip_position, kDartC, "window 4, camera 3"),
             "window 4: camera 3's tip is in dart C too");
     }
 
