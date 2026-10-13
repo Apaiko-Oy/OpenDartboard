@@ -259,6 +259,35 @@ re-bases the clean reference. So r18's v6.2 is still S7, but it is published by 
 different path: geometry on the opening window, the vote (NEAR-PARALLEL) on dev and pin.
 Every r22 run publishes the same sequence as with both switches off.
 
+**Both are the defaults since turnaus#1682.** The maintainer decided it on 2026-10-13 on
+the live run of 2026-10-10 (same rig, build 2b56b48). With the defaults of the time, 58
+darts in 20 visits, one bull opened no event at all. With `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`, 156 darts in 68 visits, every dart that landed inside the rim opened an
+event, three in the 25 ring and one bull among them. The seven that opened nothing were
+beyond the rim (#1537) or the second of a fast pair in one window. The session's two
+phantoms were a takeout's arm (#1781), which the 0.011 entry would also have passed, so no
+phantom came from the lower threshold. The pins: `OD_SPIKE_THRESHOLD=0.011` (or `off`)
+restores the 0.011 entry and `OD_LONE_CAMERA=off` restores the vote without the lone
+camera; each logs a warning when set.
+
+The capture-clock bakeoff (`testers/i1555_run.sh`, 2026-10-14, host load 5-15 from
+another checkout's PHP suite), main 96bb38b against this branch:
+
+| fixture, window | main | defaults on |
+|---|---|---|
+| rig-20260918 dev / opening | 19/20, 19/20, phantoms 0 | 19/20, 19/20, phantoms 1 (0 scoring) each |
+| rig-20260922 dev / opening | 21/23, 23/23 | 21/23, 23/23 |
+| rig-20260929 dev | 26..30/36, undetected 1 | **30..33/36**, undetected 0 |
+| rig-20260929 opening | 27..31/36, undetected 1 | **31..34/36**, undetected 0 |
+| POOLED-r18+r22 | 82/86 | 82/86 |
+| POOLED | 135..143/158 | **143..149/158** |
+
+The r18 phantom is v6.1, a thrown MISS. It now opens its own window and publishes `MISS`,
+which the census cannot join to the thrown MISS, so it counts as a non-scoring phantom on
+each r18 run. The same window turns up in `1650-cooldown`, whose visit-6 sequences now
+start with that MISS (re-baselined there). Every other mechanism that tester asserts is
+unchanged.
+
 **Board counts to the rim (#1689), default.** A camera has two board counts: the
 cumulative figure that says the board is occupied, and the fresh figure that says a dart
 arrived. Both were taken inside the double's outer edge. On the cameras that do not see
