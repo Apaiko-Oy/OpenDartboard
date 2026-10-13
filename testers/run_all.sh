@@ -1017,6 +1017,12 @@ tester 1531-corpus       "bash '$T/i1531_run.sh'"
 tester 1532-guard        "bash '$T/i1532_check.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
+# #1841: the Contest door's 409 -- a given-up Contest released as a 401 releases it, the
+# next beat at the autoscorer door with the club credential; the no-Station body kept; the
+# pure body check; and a client harness the --mutate run compiles against a scratch copy.
+# Three detector runs of 1100 cycles and two compiles, #1276's shape. NOT MEASURED on the
+# authoring box (2026-10-13: no Docker there); predicted inside 1200 as 1276-takeout is.
+tester 1841-contest-409   "bash '$T/i1841_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"
 tester 1257-control       "bash '$T/i1257_run.sh' control '$T/i1257_control.sh'"
 tester 1257-resolution    "bash '$T/i1257_run.sh' resolution '$T/i1257_resolution.sh'"
