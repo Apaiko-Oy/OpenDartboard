@@ -1399,7 +1399,8 @@ what the detector saw: under the switch `i1555_inside.sh` takes the inferred SCO
 the log it censuses and keeps the whole one as `<run>.filled.txt` (the first on run, without
 that, refused rig-20260929 dev: `detected visit 12 holds a dart with no I1555PUBLISH line`).
 Every replay's measured SCORE lines are identical off and on, and every `I1555 ACCURACY` row
-is the baseline's: 38/40, 44/46, 61..67/72, pooled 143..149/158, r18+r22 82/86.
+is the baseline's: 38/40, 44/46, 61..67/72, pooled 143..149/158, r18+r22 82/86. 1,004 s off,
+1,007 s on, at load ~6-7 with another checkout's gate alongside.
 
 `testers/i1537_census.py` over each replay, joined to the truth line by visit order:
 
