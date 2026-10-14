@@ -35,7 +35,10 @@ docker rm -f "$(od_name i1355-bounds)" > /dev/null 2>&1
 # at 0x600000000000-0x640000000000, and with 32 bits of mmap randomness a PIE program lands
 # inside that window about one start in four, so the allocator maps over the program's
 # own text and every instruction run there faults again. Measured: an empty main hung 9 of
-# 40 there and 0 of 40 in the new image; testers/asan.dockerfile has the rest. The
+# 40 there and 0 of 40 in the new image; this tester, through the old image, FAILed 3 of
+# 5 runs on 4 hangs in 15 sanitizer starts, and through the new one PASSed 20 of 20 (60
+# starts, no hang; load 1.3-6.6, 46-98 s a run; 2026-10-14). testers/asan.dockerfile has
+# the rest. The
 # container's sandbox is untouched (no seccomp change, no `setarch -R`).
 #
 # Every sanitizer run stays BOUNDED all the same (cf417e4), and a run that meets its bound
