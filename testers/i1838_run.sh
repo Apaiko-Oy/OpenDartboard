@@ -22,6 +22,7 @@ mkdir -p "$RUN"
 
 START=$(date +%s)
 od_run "i1838" --cpus=2 --network none -e OD_I1838_MUTATE="${OD_I1838_MUTATE:-}" \
+  -e OD_I1838_LOADERS="${OD_I1838_LOADERS:-6}" \
   -v "$OD_TREE_ROOT":/app -v "$RUN":/run1838 \
   "$OD_IMAGE" bash /app/testers/i1838_inside.sh 2>&1 | tee "$RUN/out.txt"
 RC=${PIPESTATUS[0]}
