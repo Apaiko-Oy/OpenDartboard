@@ -257,6 +257,14 @@ TurnausClient::Redemption TurnausClient::redeem(Door door, const std::string &co
     // UTF-8 on Windows; replace rather than throw.
     std::map<std::string, std::string> headers;
     headers["Accept"] = "application/json";
+    // #1849: the re-join. With the board's current club token beside the code, Turnaus
+    // keeps this device and rotates the token (turnaus #1848); a token that is not a live
+    // board of the code's club is the door's ordinary 422 and the code is not spent.
+    const bool presents_token = !contest_door && config_.keep_device && !credential_.empty();
+    if (presents_token)
+    {
+        headers["Authorization"] = "Bearer " + credential_;
+    }
     odhttp::Response res = odhttp::postJson(url_, contest_door ? "/api/v1/casual/boards" : "/api/v1/autoscorer/devices",
                                             body.dump(-1, ' ', false, json::error_handler_t::replace), headers,
                                             config_.connect_timeout_s, config_.read_timeout_s);
@@ -333,6 +341,18 @@ TurnausClient::Redemption TurnausClient::redeem(Door door, const std::string &co
         }
         else
         {
+            // #1849: under keep_device the answer must name the club already in the file.
+            // Turnaus refuses that case itself with a 422; this is the board not taking
+            // its word for it, and the file is left exactly as it was found.
+            const long long kept_organisation = stored.value("organisation_id", (long long)0);
+            const long long answered_organisation = j["data"].value("organisationId", (long long)0);
+            if (config_.keep_device && kept_organisation != 0 && answered_organisation != kept_organisation)
+            {
+                log_error("TURNAUS: the pairing answered for another Organisation than the one this board is "
+                          "paired to; the credential already here is kept");
+                out.kind = Redemption::Kind::OtherOrganisation;
+                return out;
+            }
             stored["token"] = token;
             stored["organisation_id"] = j["data"].value("organisationId", 0);
             stored["device_id"] = j["data"]["device"].value("id", 0);
