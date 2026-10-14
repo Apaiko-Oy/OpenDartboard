@@ -2145,6 +2145,20 @@ the old count times the rig's 33.3 ms:
   call is one window in either unit. The pin does not make a file replay deterministic:
   which frame a cycle reads still depends on scheduling. Over three runs with the pin,
   1339's rig counted 27 events over its board every time and 23 or 24 over the frame.
+- **The window pin leaves the motion timers on the wall (turnaus#1838).** The cooldown
+  (1000 ms), the spike window (`spike_window_frames * 50` ms), the safety timeout
+  (10000 ms) and the body-window vote's `sinceEndMs` are lengths of `od_clock::now_ms()`,
+  not windows, so `OD_WINDOW_UNIT=cycles` does not touch them and on the default motion
+  clock they are wall time. A probe that replays the clips itself
+  (`i1492_tip_probe.cpp` and its siblings) reads frames in order, so scheduling cannot
+  change which frame a cycle sees; those timers are the only load-dependent input left in
+  it by reading. Until #1838 such a probe could not run on `OD_MOTION_CLOCK=capture`
+  either: only the detector's capture seam winds `od_clock::capture_ms()` and
+  `cycles()`, so a probe's capture clock read 0 for the whole replay.
+  `testers/replay_clock.hpp` winds it as the seam does; `i1492_tip_probe.cpp` calls it,
+  `1492-tips` pins `OD_MOTION_CLOCK=capture`, and `1838-replay-noise` replays the rig
+  quiet and under load on that pin and asserts identical darts. The other probes
+  (`i1490`, `i1493`, `i1505`) do not wind it yet.
 - **1339-denominator also pins `OD_SETTLE_EXPOSURE=off`** (the motion before #1662). On its
   scaled clip the exposure hold cuts the small board's events from 33 to 19-20 and leaves
   the frame arm at 21-22, which inverts the comparison the tester makes. That is a finding
