@@ -523,6 +523,12 @@ rule would have published it MISS. `testers/i1855_check.sh` holds the table with
 mutations (the radius keeps nothing: the 0.926 S20 turns MISS; the line moved in to the
 25's wire: the 0.562 miss turns a score).
 
+Bakeoff with `OD_RIM_FALLBACK=on` on the new binary (`OD_WINDOW_UNIT=cycles
+testers/i1555_run.sh`, capture clock, 859 s, 2026-10-14): pooled **143..149/158**, r18+r22
+**82/86**, every fixture row the documented baseline's. The fixtures hold no rim-carried
+lone reading inside the double, so neither MISS nor KEPT fires on any of them; the flag
+half fires on the same D20, D5 and D14 as before, publishing each one as read.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
