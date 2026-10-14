@@ -218,6 +218,9 @@ int main(int argc, char **argv)
         }
     }
 
-    std::cout << "I1492END cycles=" << cycle << " darts=" << dart << std::endl;
+    // turnaus#1838: which motion clock the replay ran on and where it ended, so a tester can
+    // tell a wound clock from one that read 0 all the way through.
+    std::cout << "I1492END cycles=" << cycle << " darts=" << dart << " motionClock=" << od_clock::mode_name()
+              << " motionMs=" << od_clock::now_ms() << std::endl;
     return 0;
 }
