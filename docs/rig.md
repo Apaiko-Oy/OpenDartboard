@@ -2208,7 +2208,8 @@ the old count times the rig's 33.3 ms:
   Measured 2026-10-14 on a quiet box, before and after: not one of them published a
   different dart, camera reading or figure on the capture clock than on the wall clock
   (the spread and pose censuses 63 readings each, identical; the edge probe 21 darts under
-  1505's pins and 19 under 1535's, identical vote for vote and cycle for cycle), so the pin moved no figure and only took the box's load out.
+  1505's pins and 19 under 1535's, identical vote for vote and cycle for cycle), so the
+  pin moved no figure and only took the box's load out.
   What the unwound clock had been doing was in the probes' own log all along: every
   `I1646 EXPOSURE HOLD` line read `cycle=0` for the whole replay and its `held_ms` was
   wall time (78 ms for a four-cycle hold); wound, the same hold reads `cycle=362
