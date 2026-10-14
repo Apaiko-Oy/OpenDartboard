@@ -2179,15 +2179,20 @@ the old count times the rig's 33.3 ms:
   pin: it moves every other motion-clock length as well, the four timers the next paragraph
   names. #1688 wrote here that it "is not the pin" because 1535's capture-clock probe had
   found no darts. That reading was of a clock stuck at 0, not of the capture clock: the edge
-  probe did not wind `od_clock` (the #1838 paragraph below), so every cooldown and spike
-  window it opened on that pin never closed. Re-measured on 2026-10-14 with the wound probe
-  (turnaus#1863), under 1535's own motion pins, the capture-clock replay found the same 19
-  darts as the wall-clock one, vote for vote, camera for camera and cycle for cycle, and
-  `1535-rereport` runs on that pin now. Testers that call `processDartState` directly
-  with `stability_frames = 1` (1348, 1355, 1518, 1552) also set `stability_ms = 0`, so one
-  call is one window in either unit. The pin does not make a file replay deterministic:
-  which frame a cycle reads still depends on scheduling. Over three runs with the pin,
-  1339's rig counted 27 events over its board every time and 23 or 24 over the frame.
+  probe did not wind `od_clock` (the #1838 paragraph below). Whether a stuck clock alone
+  explains "no darts" is not something today's tree reproduces, and #1863 measured rather
+  than assumed it: its mutation proof ran the spread census with `advance` planted out, and
+  on `motionMs=0` it scored the same 21 darts and 63 readings as wound, because with the
+  windows pinned to cycles those four timers decide no dart on this fixture. So the no-darts
+  reading belonged to that tree and that probe; what the rows refuse now is the unwound
+  clock, by name. Re-measured on 2026-10-14 with the wound probe (turnaus#1863), under
+  1535's own motion pins, the capture-clock replay found the same 19 darts as the wall-clock
+  one, vote for vote, camera for camera and cycle for cycle, and `1535-rereport` runs on
+  that pin now. Testers that call `processDartState` directly with `stability_frames = 1`
+  (1348, 1355, 1518, 1552) also set `stability_ms = 0`, so one call is one window in either
+  unit. The pin does not make a file replay deterministic: which frame a cycle reads still
+  depends on scheduling. Over three runs with the pin, 1339's rig counted 27 events over its
+  board every time and 23 or 24 over the frame.
 - **The window pin leaves the motion timers on the wall (turnaus#1838).** The cooldown
   (1000 ms), the spike window (`spike_window_frames * 50` ms), the safety timeout
   (10000 ms) and the body-window vote's `sinceEndMs` are lengths of `od_clock::now_ms()`,

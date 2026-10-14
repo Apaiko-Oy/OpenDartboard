@@ -135,8 +135,10 @@ RC2=$?
 
 # turnaus#1863: the probe ran on the capture clock and WOUND it -- motionMs at its end is the
 # footage's length rather than 0 (1838-replay-noise's first check). A probe that stopped calling
-# replay_clock::advance would run its cooldown and spike window on a clock stuck at 0 and publish
-# no darts, and the claims below would read that as detection variance rather than as what it is.
+# replay_clock::advance would run its cooldown and spike window on a clock stuck at 0 -- and
+# nothing below would see it: measured 2026-10-14 (#1863's mutation proof, the spread census
+# with this call planted out), the stuck clock still scored this fixture's 21 darts, 63 readings
+# identical, because the cycle-pinned windows decide every dart here. Only this line names it.
 clock_wound() {
   local end cycles clock ms played
   end=$(grep '^I1505END ' "$1")

@@ -69,8 +69,10 @@ grep '^I1493END ' /run1493/rows.txt
 
 # turnaus#1863: the probe ran on the capture clock and WOUND it -- motionMs at its end is the
 # footage's length rather than 0 (1838-replay-noise's first check). A probe that stopped calling
-# replay_clock::advance would run its cooldown and spike window on a clock stuck at 0, publish no
-# darts, and the control below would read as a detection failure rather than as what it is.
+# replay_clock::advance would run its cooldown and spike window on a clock stuck at 0 -- and
+# nothing below would see it: measured 2026-10-14 (#1863's mutation proof, this call planted out),
+# the stuck clock still scored this fixture's 21 darts, 63 readings identical, because the
+# cycle-pinned windows decide every dart here. Only this line names the unwound clock.
 CYCLES=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*cycles=\([0-9]*\).*/\1/')
 CLOCK=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*motionClock=\([a-z]*\).*/\1/')
 MS=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*motionMs=\([0-9]*\).*/\1/')
