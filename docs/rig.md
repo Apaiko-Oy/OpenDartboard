@@ -1811,6 +1811,36 @@ device 1 and wrote the credential, and the service's next start logged `pushing 
 server's ten-minute expiry, and shows the request reached Turnaus over TLS. The same board
 reached 84 °C during calibration without a cooler.
 
+## A Pi with no network sets itself up from a phone (turnaus#1849)
+
+`opendartboard-setup` (`src/setup/`, its own unit, shipped and enabled by the `.deb`) is the
+board's half of ADR-0083: five failed looks at the network in one boot, counted in
+`/var/lib/opendartboard/join-attempts`, raise the access point `Turnaus-XXXX` at
+`10.42.0.1`; `GET /setup` and `POST /setup {ssid, passphrase, pin}` on port 80 take the
+club's Wi-Fi and a pairing code; the board joins through NetworkManager and spends the code
+with `opendartboard --pair <pin> --keep-device`, which presents the board's current token so
+Turnaus keeps the device and rotates it (turnaus#1848).
+
+**Measured, with no radio** (`testers/i1849_check.sh`, 2026-10-14, 44 s wall): the decisions
+in `setup_machine.hpp` with NetworkManager and the pair call faked -- the count across five
+separate processes, a new boot starting it again, the scan taken before the access point,
+GET's four keys and no secret in them, nine malformed bodies refused 422 with nothing
+changed, the success path in order (drop, join, pair, restart the detector) and the four
+failure paths each deleting the new connection and raising the access point again -- and the
+pair path against an in-process devices door: the Bearer token presented, a rotated token
+kept, the file byte-for-byte on a 422 or on an answer for another club. `testers/
+i1659_deb_check.sh` measures the third unit installed, enabled, verified and removed.
+
+**Not measured: everything that touches NetworkManager.** The build image carries none, so
+`nm_platform.hpp`'s nmcli lines -- the shared-mode access point and whether `10.42.0.1` is
+really the address the phone reaches, `--rescan yes` on a Pi Zero 2 W's one radio, a wrong
+passphrase's exit status, how long a join takes -- have never run. The record of a real run,
+a fresh card to a paired board, belongs here and is the maintainer's at the board:
+
+| date | card | release | N looks to the access point | address | setup to paired | notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| *not yet run* | | | | | | |
+
 ## A session read back: the truth line, the log and the fault classes (turnaus#1789)
 
 What the board posts (#1787) Turnaus keeps per dart beside the thrower's corrections and
