@@ -1570,7 +1570,10 @@ the log it censuses and keeps the whole one as `<run>.filled.txt` (the first on 
 that, refused rig-20260929 dev: `detected visit 12 holds a dart with no I1555PUBLISH line`).
 Every replay's measured SCORE lines are identical off and on, and every `I1555 ACCURACY` row
 is the baseline's: 38/40, 44/46, 61..67/72, pooled 143..149/158, r18+r22 82/86. 1,004 s off,
-1,007 s on, at load ~6-7 with another checkout's gate alongside.
+1,007 s on, at load ~6-7 with another checkout's gate alongside. Re-measured 2026-10-14 after
+merging fork main (9e8b53a, #1682's defaults, #1838, #1855): every figure above and every row
+of the table below the same, the measured SCORE lines identical off and on; 837 s off, 891 s
+on, at load ~5-12 with a Turnaus gate alongside.
 
 `testers/i1537_census.py` over each replay, joined to the truth line by visit order:
 
@@ -1607,7 +1610,7 @@ is the baseline's: 38/40, 44/46, 61..67/72, pooled 143..149/158, r18+r22 82/86. 
   Pi board's 2026-10-11 run had three two-dart visits whose third dart the thrower has not
   confirmed (#1537's last comment); under the switch each would gain a MISS.
 
-`testers/run_all.sh 1537-visitfill` (249 s at load ~3, most of it the two compiles of
+`testers/run_all.sh 1537-visitfill` (249 s at load ~3; 187 s at load ~6 on fork main 9e8b53a, most of it the two compiles of
 `turnaus_client.cpp`) replays the live session's three short visits through the ledger, the
 shapes it must leave alone, and the body; eight mutations of a scratch copy (an empty END
 filled, a visit of four, no reset, the END before its misses, the switch ignored, confidence

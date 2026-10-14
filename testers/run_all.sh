@@ -795,7 +795,8 @@ tester 1821-rimoffer      "bash '$T/i1821_check.sh'"
 # switch off), and the body built from an inferred MISS; one compile of the tree plus eight of
 # a mutated scratch copy, each predicted to turn named assertions red. Needs build/_deps (it
 # links turnaus_client.cpp, compiled once and reused); no detector binary. MEASURED 2026-10-13
-# on the 4-core box at load ~3 with another checkout's gate alongside, rc=0: 249 s wall.
+# on the 4-core box at load ~3 with another checkout's gate alongside, rc=0: 249 s wall; again
+# 2026-10-14 over fork main 9e8b53a at load ~6, rc=0: 187 s wall.
 tester 1537-visitfill     "bash '$T/i1537_check.sh'"
 # turnaus#1802: a body at the board carried as three darts by the rim-only votes (live on casual
 # board 20, 2026-10-11 01:02: three `I1707 RIM CARRIED` MISSes between two takeouts, camera 2 at
