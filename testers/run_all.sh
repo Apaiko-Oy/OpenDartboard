@@ -585,7 +585,8 @@ tester 1493-rays          "bash '$T/i1493_run.sh'"
 # windows every arm reads 172 px on dart 17 camera 3, so it is printed and not asserted.
 # turnaus#1863: the row pins OD_MOTION_CLOCK=capture as 1492-tips does; until then its four
 # replays ran the cooldown, the spike window, the safety timeout and the body-window vote on
-# wall time. What the pin moves on the fixture is a measurement #1863 reports, not a claim here.
+# wall time. Measured 2026-10-14 on a quiet box: no arm moves on the capture clock -- the four
+# arms' table and all 4x63 readings are byte-identical to the wall-clock run. 358 s, rc=0.
 tester 1494-figure        "bash '$T/i1494_run.sh'"
 slow 2400
 # #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in
