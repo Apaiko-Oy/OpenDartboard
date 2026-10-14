@@ -21,6 +21,21 @@
 # OD_I1838_MUTATE=wall runs the asserted loaded replay on the wall clock -- the guard
 # taken away -- for the mutation proof recorded in the commit.
 #
+# MEASURED 2026-10-14 on the 4-core box (fork main 093be49 plus this branch):
+#   green: quiet 109.7 s, loaded 202.4 s (1.85x, 6 busy loops), 63 readings each, 0 differ;
+#          459 s for the whole tester with the build, load_at_end 6.66.
+#   mutation: testers/replay_clock.hpp's advance() given a planted wall clock for the
+#          loaded arm only (20 ms a cycle, a 600 ms stall every third cycle), run with
+#          OD_I1838_LOADERS=0. RED, naming the darts: "63 readings against 60, 27 differ",
+#          the first "dart 13 cam 1: quiet ... cycle=1185 ... score=MISS / loaded ...
+#          cycle=1225 ... score=S4", and the load check red beside it (0.96x), because
+#          no load was made. Restored, green above.
+#   On this tree the real load did NOT move the wall-clock replay either: one replay on
+#   each clock under 10 busy loops at a load average of ~31 (344 s, ~200 ms a cycle)
+#   published the quiet replay's 63 readings both times. A uniform 400 ms cycle does not
+#   move it, 1000 ms does; stalls of 600 ms every third cycle do. So the wall-clock noise
+#   #1838 measured at load ~18 on b9be02d needs worse stalls than this box made here.
+#
 # It never ends on an `echo` (#1479): the last statement is `exit $FAILED`.
 set -u
 export OD_WINDOW_UNIT=cycles

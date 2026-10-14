@@ -551,8 +551,8 @@ tester 1492-tips          "bash '$T/i1492_run.sh'"
 # clock, so the asserted pair runs on OD_MOTION_CLOCK=capture, which the probe now winds
 # (testers/replay_clock.hpp). Its instrument checks: the clock was wound (not read 0 all
 # the way through, #1535's capture-clock probe), and the load really slowed the replay.
-# A third replay on the wall clock under the same load is printed, not asserted. No
-# detector binary; OD_SKIP_BUILD changes nothing.
+# MEASURED 2026-10-14 on the 4-core box: 459 s, rc=0. No `slow`. No detector binary;
+# OD_SKIP_BUILD changes nothing.
 tester 1838-replay-noise  "bash '$T/i1838_run.sh'"
 # #1493: whether the three board planes compose into camera poses good enough to
 # TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
