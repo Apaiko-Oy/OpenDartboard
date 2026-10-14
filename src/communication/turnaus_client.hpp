@@ -53,6 +53,12 @@ struct TurnausConfig
     // #1787: the file --log-file (or --debug) appends the log to, so the client can post
     // what it wrote. Empty on a board that keeps no log file: nothing is uploaded.
     std::string log_file;
+    // #1849: --keep-device. A board that already holds a club credential presents it with
+    // the new code, so Turnaus re-pairs THIS device and rotates its token (turnaus #1848)
+    // rather than minting a second device; and an answer naming another Organisation than
+    // the one in the file is not kept. Off by default, so `--pair` typed at a console means
+    // what it always meant. The setup unit (src/setup/) always passes it.
+    bool keep_device = false;
     size_t queue_capacity = 512;  // detections held in memory before the policy bites
     int connect_timeout_s = 3;
     int read_timeout_s = 5;
@@ -602,6 +608,7 @@ public:
             Unexpected,  // any other status
             Blocked,     // pairingBlock() said no; nothing was sent
             NotKept,     // 201, but the credential could not be read or written; logged
+            OtherOrganisation, // #1849: 201 under keep_device, naming another club; not kept
         };
         Kind kind = Kind::Blocked;
         int status = 0;

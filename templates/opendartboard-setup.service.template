@@ -1,0 +1,39 @@
+# #1849: a Pi board's way onto a network and into a club (ADR-0083).
+#
+# opendartboard-setup looks at the network every two seconds. Five failed looks in a row in
+# one boot -- counted in /var/lib/opendartboard/join-attempts, so a restart does not reset
+# them -- raise the access point Turnaus-XXXX (the last four hex digits of the Wi-Fi MAC; the
+# same four are on the board's sticker) at 10.42.0.1, and the phone hands over the club's
+# Wi-Fi and a pairing code at http://10.42.0.1/setup. The access point stays up until a setup
+# succeeds or the board reboots.
+#
+# The count lives in a file because of Restart=: a count kept in memory starts again with
+# every start and never reaches five. The process loops by itself and the look that counts
+# to five is the look that raises the access point, so the start limit below never decides
+# anything; it is there for a binary that cannot start at all.
+#
+# StateDirectory= is the detector's own (#1660), so the credential `opendartboard --pair`
+# writes from here is the one the detector reads, and systemctl status says which of
+# "never provisioned", "credentials present, network unreachable" and "network up, Turnaus
+# unreachable" this board is in (ADR-0083 §10).
+[Unit]
+Description=OpenDartboard Wi-Fi setup (the Turnaus-XXXX access point)
+Wants=NetworkManager.service
+After=NetworkManager.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/opendartboard-setup --interface wlan0 --port 80
+Restart=on-failure
+RestartSec=2
+NotifyAccess=main
+StateDirectory=opendartboard
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/opendartboard
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

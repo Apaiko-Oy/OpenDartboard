@@ -191,6 +191,8 @@ int main(int argc, char **argv)
   turnaus_config.label = label;
   // #1787: the client posts what --log-file (or --debug) writes, read from the file itself.
   turnaus_config.log_file = log_file;
+  // #1849: --pair presents the current club token so the device is kept (turnaus #1848).
+  turnaus_config.keep_device = hasFlag(argc, argv, "--keep-device");
 
   // #1306: the four steps are update_address::resolve() and were these twenty lines. They
   // moved because the launcher now follows the same rule (ADR-0077 §5), and a rule two

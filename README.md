@@ -96,28 +96,49 @@ The goal: **drop-in freedom** for home tinkerers or bar owners who want "Automat
 # 1 Flash MicroSD with Rasbperi Pi Imager (https://www.raspberrypi.com/software/) | Image: Raspberry Pi OS Lite (64-bit)
 # 1.1 - set hostname to `opendartboard`.
 # 1.2 - set username as `pi`, and any password.
-# 1.3 - set Wi-Fi name and password.
-# 1.2 - enable SSH in services.
-# 1.4 - Flash MicroSD - once complete power on Raspberry Pi
-# 1.5 - Connect to it with terminal/cmd using SSH:
+# 1.3 - set Wi-Fi name and password (for the install below; the club's Wi-Fi is set from a phone, see after).
+# 1.4 - enable SSH in services.
+# 1.5 - Flash MicroSD - once complete power on Raspberry Pi
+# 1.6 - Connect to it with terminal/cmd using SSH:
 ssh pi@opendartboard.local
 
 # 2. Update the package lists
 sudo apt-get update
 
-# 3. Download & install the latest .deb release
-wget https://github.com/OpenDartboard/OpenDartboard/releases/download/v0.1.3/opendartboard_0.1.3-1_arm64.deb
-sudo apt install -y ./opendartboard_0.1.3-1_arm64.deb
+# 3. Download & install the latest .deb release. The fork's releases, not upstream's:
+#    v0.1.3, which this line used to name, predates TLS and cannot pair (#1798).
+wget https://github.com/Apaiko-Oy/OpenDartboard/releases/download/v0.1.15/opendartboard_0.1.15-1_arm64.deb
+sudo apt install -y ./opendartboard_0.1.15-1_arm64.deb
 
 # 4. Nothing to start: the package enables opendartboard.service, which starts the
-#    detector at every boot with --autocams and a log file of its own per start
-systemctl status opendartboard
+#    detector at every boot with --autocams and a log file of its own per start, and
+#    (from the first release carrying #1849) opendartboard-setup.service, below.
+systemctl status opendartboard opendartboard-setup
 
 # 5. Pair it with your Turnaus club (six-digit code from the club's autoscorer page), then restart it.
 #    The arm64 package speaks TLS since #1798; a build without OpenSSL refuses the https:// address.
+#    With opendartboard-setup this step is the phone's instead (below).
 sudo opendartboard --pair 123456 --credentials /var/lib/opendartboard/credentials.json
 sudo systemctl restart opendartboard
 ```
+
+**A board with no network sets itself up from a phone (turnaus#1849, ADR-0083).**
+`opendartboard-setup.service` looks at the network every two seconds. After five failed
+looks in one boot -- a fresh card, a club that changed its Wi-Fi password, a board carried
+to another pub -- it raises its own access point **`Turnaus-XXXX`**, where `XXXX` is the
+last four hex digits of the board's Wi-Fi MAC (the same four characters as on the board's
+sticker), with the password `turnaus-setup`, which is the same on every board and is not
+what keeps a board safe: the pairing code is. The Turnaus app, on a phone joined to that
+access point, talks to `http://10.42.0.1/setup` and hands over the club's Wi-Fi and a fresh
+six-digit pairing code in one request. The board drops the access point, joins that Wi-Fi
+through NetworkManager (which keeps the passphrase; nothing of ours stores it), spends the
+code with `opendartboard --pair <code> --keep-device`, and restarts the detector. If any of
+it fails -- wrong Wi-Fi password, a refused or expired code, a code from another club -- it
+deletes the Wi-Fi connection it made, keeps whatever credential it had, and raises the
+access point again; the phone learns the outcome from Turnaus, not from the board.
+`systemctl status opendartboard-setup` says which of *never provisioned*, *credentials
+present, network unreachable* and *network up, Turnaus unreachable* the board is in. **Not
+yet run on a Pi**: docs/rig.md says what has and has not been measured.
 
 **The packaged service logs, and the log reaches Turnaus on its own.** Each start writes a
 new file named by its UTC start time,

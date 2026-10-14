@@ -7,7 +7,7 @@
 # both units onto the new binary -- so a board is never left disabled by an upgrade.
 set -e
 
-UNITS="opendartboard.service lock_cams.service"
+UNITS="opendartboard-setup.service opendartboard.service lock_cams.service"
 
 case "$1" in
   remove|deconfigure)

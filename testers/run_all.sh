@@ -1024,6 +1024,11 @@ tester 1276-takeout       "bash '$T/i1276_check.sh'"
 # Three detector runs of 1100 cycles and two compiles, #1276's shape. NOT MEASURED on the
 # authoring box (2026-10-13: no Docker there); predicted inside 1200 as 1276-takeout is.
 tester 1841-contest-409   "bash '$T/i1841_check.sh'"
+# #1849: the Pi setup machine (src/setup/) with NetworkManager and the pair call faked --
+# the counter file, N = 5, GET/POST /setup, the success path and the four failure paths --
+# and --pair --keep-device against an in-process stand-in for the devices door. Two
+# compiles and no detector run. MEASURED 2026-10-14: 44 s wall, load 1.8.
+tester 1849-setup         "bash '$T/i1849_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"
 tester 1257-control       "bash '$T/i1257_run.sh' control '$T/i1257_control.sh'"
 tester 1257-resolution    "bash '$T/i1257_run.sh' resolution '$T/i1257_resolution.sh'"
