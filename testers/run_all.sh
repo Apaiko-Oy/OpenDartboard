@@ -722,6 +722,12 @@ tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # the tree plus two of a mutated scratch copy of the header (the wrong radius constant; the
 # flag for lone readings only), predictions stated first, in i1628_check.sh's shape.
 tester 1773-ringwire      "bash '$T/i1773_check.sh'"
+# #1855: #1707's to-MISS half reads the lone reading's radius -- MISS inside 134.5 mm (the
+# outer single's middle), as read at or beyond it -- so a real S20 at 0.926 stays S20 and
+# the miss at 0.562 still publishes MISS. Behind OD_RIM_FALLBACK=on, default unchanged. One
+# compile of the tree plus two of a mutated scratch copy of the header (the radius keeps
+# nothing; the line moved in to the 25's wire), predictions stated first.
+tester 1855-rimradius     "bash '$T/i1855_check.sh'"
 # turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
 # on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)
 # holds an advance a body-sized fresh figure voted (15% of a board) or one within 1500 ms of

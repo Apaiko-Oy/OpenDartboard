@@ -492,6 +492,43 @@ rig-20260929 v6.2's D5 (0.994), each with MISS as the alternative and each still
 publishing its correct score. The fixtures cannot measure the MISS rule, because they
 hold no miss read deep in the board. It stays opt-in until a live run says it holds.
 
+**The to-MISS half reads the radius (turnaus#1855), still opt-in.** Live on 2026-10-10
+(build 2b56b48, 15:39) one visit put two rim-carried darts with no usable line through the
+to-MISS branch with the identical story: a real S20 read at radius 0.926 and a miss read
+S20 at 0.562. #1707's rule sent both to MISS, fixing one and losing the other. Under
+`OD_RIM_FALLBACK=on` the lone reading now goes to MISS only when its own ruler puts it
+inside **134.5 mm** (radius 0.791): the middle of the outer single band, halfway between
+the treble's outer wire (107) and the double's inner wire (162). At or beyond it the
+reading publishes as read, logged `I1707 RIM FALLBACK KEPT`, and #1773's RING-WIRE flags
+it where it is near a wire. A reading with no radius goes to MISS as before. The double's
+flag half is untouched.
+
+Every rim-carried lone reading with no usable line that the records hold with a truth
+(#1707's body and comments, and the table above; the session logs themselves were not
+re-read for this):
+
+| live reading | truth | radius, mm | #1707 | #1855 |
+|---|---|---|---|---|
+| 2026-10-10 15:39:19, S20 (0.926) | S20 | 157.4 | MISS (wrong) | **S20** |
+| 2026-10-10 15:39:23, S20 (0.562) | miss | 95.5 | MISS | MISS |
+| 2026-09-30 2.6.3, S5 (0.47) | miss | 79.9 | MISS | MISS |
+| 2026-09-30 2.9.3, S18 (0.658) | miss | 111.9 | MISS | MISS |
+| 2026-09-30 run 3, S3 (0.461) | miss | 78.4 | MISS | MISS |
+| 2026-09-30 run 3, D14 (0.981) | miss | - | flagged, MISS offered | unchanged |
+
+The line sits in the middle of the measured gap (111.9 to 157.4 mm), 22.6 mm from the
+nearest miss and 22.9 mm from the real single. The risk is recorded: run 3's real S18 at
+0.75 (127.5 mm) was lone beside a rim-only camera but not rim-carried; had it been, this
+rule would have published it MISS. `testers/i1855_check.sh` holds the table with two
+mutations (the radius keeps nothing: the 0.926 S20 turns MISS; the line moved in to the
+25's wire: the 0.562 miss turns a score).
+
+Bakeoff with `OD_RIM_FALLBACK=on` on the new binary (`OD_WINDOW_UNIT=cycles
+testers/i1555_run.sh`, capture clock, 859 s, 2026-10-14): pooled **143..149/158**, r18+r22
+**82/86**, every fixture row the documented baseline's. The fixtures hold no rim-carried
+lone reading inside the double, so neither MISS nor KEPT fires on any of them; the flag
+half fires on the same D20, D5 and D14 as before, publishing each one as read.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles

@@ -702,48 +702,9 @@ namespace score_processing
         return v;
     }
 
-    // #1707: what a lone camera's fallback reading publishes when a camera in the window
-    // was rim-only (it voted the arrival and offered no figure). Two cases, each from the
-    // live run on 2026-09-30 (issue-1689, run 2), whose four wrong scores were all this
-    // fallback:
-    //   - `unsupported`: the dart was CARRIED by rim-only votes (fewer cameras than the
-    //     quorum cleared the floor in the scoring area) and no camera offered a usable
-    //     axis. Such a dart is at or beyond the double on the cameras that did not see it
-    //     side-on, and a lone tip INSIDE the double (single, triple, either bull) with no
-    //     line behind it is the dart's barrel or flight over the board -> MISS. Live: the
-    //     misses read S5 (radius 0.47) and S18 (0.658). Left alone: the S20 at 0.871 had a
-    //     usable axis, and the S3 at 0.84 was not carried by the rim.
-    //   - a reading in the DOUBLE publishes, flagged, with the candidate across the nearer
-    //     of its two wires: the single inside (radius < 0.977, the band's middle at
-    //     166/170) or MISS outside. Live: a miss read D3 (0.994), an S2 read D2 (0.954).
-    //     The published score is unchanged; the thrower is offered the other one.
-    // Opt-in: OD_RIM_FALLBACK=on. Unset, the lone camera publishes as it reads.
-    struct RimFallback
-    {
-        bool to_miss = false;
-        bool flag = false;
-        string alternative;
-    };
-
-    static RimFallback rimCarriedFallback(bool applies, bool unsupported, const string &ring, int segment,
-                                          float radius)
-    {
-        RimFallback f;
-        if (!applies)
-            return f;
-        if (unsupported && (ring == "single" || ring == "triple" || ring == "bull" || ring == "outer"))
-        {
-            f.to_miss = true;
-        }
-        else if (ring == "double")
-        {
-            f.flag = true;
-            f.alternative = (radius >= 0.0f && radius < 0.977f && segment > 0) ? "S" + to_string(segment)
-                                                                                : string("MISS");
-        }
-        return f;
-    }
-
+    // #1707's rule (RimFallback, rimCarriedFallback) is in score_processing.hpp since
+    // #1855, beside #1773's ring wires it now reads, so a tester can hold it without the
+    // detector. Only the switch is here.
     static bool rimFallbackIsOn()
     {
         static const bool v = []
@@ -753,7 +714,8 @@ namespace score_processing
             if (on)
             {
                 log_warning("OD_RIM_FALLBACK=on is set: a lone camera's reading beside a rim-only camera publishes "
-                            "MISS when it is unsupported inside the double, and flagged when it is in the double (#1707)");
+                            "MISS when it is unsupported inside the outer single's middle (134.5 mm, #1855), and flagged when "
+                            "it is in the double (#1707)");
             }
             return on;
         }();
@@ -1486,6 +1448,15 @@ namespace score_processing
                              "camera, on a dart the rim-only votes carried -- its tip is the dart's barrel or "
                              "flight over the board, so MISS publishes (#1707)");
                     result.score = "MISS";
+                }
+                else if (rim.kept)
+                {
+                    log_info("I1707 RIM FALLBACK KEPT: camera " + to_string(best_camera) + " alone read " + final_score +
+                             " in the " + point_scores[best_camera].ring + " ring at " +
+                             to_string(rim.radius_mm) + " mm, with no usable axis on any camera, on a dart the "
+                             "rim-only votes carried -- at or beyond " + to_string(kRimMissBelowMm) +
+                             " mm (the outer single's middle) a real single is where the rim saw it, so it "
+                             "publishes as read (#1855)");
                 }
                 else if (rim.flag)
                 {
