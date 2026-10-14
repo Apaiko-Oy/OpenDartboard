@@ -12,6 +12,10 @@
 #                  checkouts on one box cannot write into each other's run. Override
 #                  with OD_RUNS.
 #   OD_IMAGE       the image every harness runs in. Override with OD_IMAGE.
+#   OD_ASAN_IMAGE  the image the AddressSanitizer runs alone are made in (1355-bounds and
+#                  1317-asan's phase), built from testers/asan.dockerfile: gcc 10's libasan
+#                  in OD_IMAGE hangs about one start in four on this kernel (#1688).
+#                  Override with OD_ASAN_IMAGE.
 #   od_name        a container name unique to this checkout
 #   od_still       a still JPEG for the phases that hand the detector a frozen frame
 #   docker         `docker run` with the detection windows pinned to cycles (#1826)
@@ -23,6 +27,7 @@ OD_TREE_TAG="$(basename "$OD_TREE_ROOT")"
 OD_TREE_TAG="${OD_TREE_TAG//[^A-Za-z0-9_.-]/-}"   # a container name holds no more than this
 OD_RUNS_BASE="${OD_RUNS:-$(dirname "$OD_TREE_ROOT")/runs-$OD_TREE_TAG}"
 OD_IMAGE="${OD_IMAGE:-od-amd64:bullseye}"
+OD_ASAN_IMAGE="${OD_ASAN_IMAGE:-od-amd64:trixie-asan}"
 
 # A container name carrying the checkout, so two trees running the same tester at once
 # do not collide on the name each reaps by.
@@ -64,6 +69,16 @@ docker() {
   else
     command docker "$@"
   fi
+}
+
+# The AddressSanitizer image is built here, not pulled: a harness that names it on a box
+# that never built it would otherwise die in `docker run`'s "pull access denied", which
+# reads like a registry problem. So it is asked first, and the answer is the command.
+od_need_asan_image() {
+  command docker image inspect "$OD_ASAN_IMAGE" > /dev/null 2>&1 && return 0
+  echo "FAIL: the ASan image $OD_ASAN_IMAGE is not built on this box (#1688). From $OD_TREE_ROOT:"
+  echo "  tar -c apt-packages.txt testers/asan.dockerfile | docker build -f testers/asan.dockerfile -t $OD_ASAN_IMAGE -"
+  return 1
 }
 
 # The blind-camera phases hand the detector a JPEG where a camera should be. The file
