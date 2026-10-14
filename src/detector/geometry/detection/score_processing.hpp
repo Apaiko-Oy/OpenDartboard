@@ -1153,6 +1153,48 @@ namespace score_processing
     inline constexpr float kInnerDoubleWireMm = 162.0f; // single | double
     // double | MISS is kScoringRadiusMm, 170.
 
+    // #1707: what a lone camera's fallback reading publishes when a camera in the window
+    // was rim-only (it voted the arrival and offered no figure). Two cases, each from the
+    // live run on 2026-09-30 (issue-1689, run 2), whose four wrong scores were all this
+    // fallback:
+    //   - `unsupported`: the dart was CARRIED by rim-only votes (fewer cameras than the
+    //     quorum cleared the floor in the scoring area) and no camera offered a usable
+    //     axis. Such a dart is at or beyond the double on the cameras that did not see it
+    //     side-on, and a lone tip INSIDE the double (single, triple, either bull) with no
+    //     line behind it is the dart's barrel or flight over the board -> MISS. Live: the
+    //     misses read S5 (radius 0.47) and S18 (0.658). Left alone: the S20 at 0.871 had a
+    //     usable axis, and the S3 at 0.84 was not carried by the rim.
+    //   - a reading in the DOUBLE publishes, flagged, with the candidate across the nearer
+    //     of its two wires: the single inside (radius < 0.977, the band's middle at
+    //     166/170) or MISS outside. Live: a miss read D3 (0.994), an S2 read D2 (0.954).
+    //     The published score is unchanged; the thrower is offered the other one.
+    // Opt-in: OD_RIM_FALLBACK=on. Unset, the lone camera publishes as it reads.
+    struct RimFallback
+    {
+        bool to_miss = false;
+        bool flag = false;
+        string alternative;
+    };
+
+    inline RimFallback rimCarriedFallback(bool applies, bool unsupported, const string &ring, int segment,
+                                          float radius)
+    {
+        RimFallback f;
+        if (!applies)
+            return f;
+        if (unsupported && (ring == "single" || ring == "triple" || ring == "bull" || ring == "outer"))
+        {
+            f.to_miss = true;
+        }
+        else if (ring == "double")
+        {
+            f.flag = true;
+            f.alternative = (radius >= 0.0f && radius < 0.977f && segment > 0) ? "S" + to_string(segment)
+                                                                                : string("MISS");
+        }
+        return f;
+    }
+
     /**
      * #1773: this reading's distance to the nearest RING wire of the ring it was scored
      * in, in board millimetres by its own ruler, with the wire named and the ring across
