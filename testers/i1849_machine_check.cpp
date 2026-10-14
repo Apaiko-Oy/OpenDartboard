@@ -10,6 +10,7 @@
 // Machine for every look, as Restart= would. A machine that counted in a member passes every
 // other case here and fails that one.
 
+#include "setup/nm_platform.hpp"
 #include "setup/setup_machine.hpp"
 
 #include <cstdio>
@@ -407,6 +408,14 @@ namespace
         check(setup::boardName("dc:a6:32:12:ab:cd") == "Turnaus-ABCD", "pure: boardName takes the last four hex digits, upper case");
         check(setup::boardName("DC-A6-32-12-0B-0D") == "Turnaus-0B0D", "pure: boardName reads dashes too");
         check(setup::boardName("ab") == "", "pure: boardName refuses an address with fewer than four hex digits");
+        // nmcli -t escapes a colon in a field as \: -- an SSID may hold one.
+        const std::vector<setup::Network> seen =
+            setup::parseWifiList("Pub\\:2:70:WPA2\n:90:WPA2\nGuest:55:\nOpen Bar:31:--\n");
+        check(seen.size() == 4 && seen[0].ssid == "Pub:2" && seen[0].signal == 70 && seen[0].secured,
+              "pure: parseWifiList reads an escaped colon inside an SSID");
+        check(seen.size() == 4 && !seen[2].secured && !seen[3].secured && seen[3].ssid == "Open Bar",
+              "pure: an empty or `--` SECURITY is an open network");
+        check(setup::tidy(seen).size() == 3, "pure: tidy drops the hidden network");
     }
 
     void caseRaiseFails()
