@@ -18,10 +18,6 @@
 #   4. the two replays' I1492DART readings are identical, and if they are not, every
 #      (dart, camera) that differs is named with both readings.
 #
-# A third replay, on the WALL motion clock under the same load, is printed and NOT
-# asserted: it is the noise the pin removes, and whether one box's load reaches it is a
-# fact about the box (README rule 5).
-#
 # OD_I1838_MUTATE=wall runs the asserted loaded replay on the wall clock -- the guard
 # taken away -- for the mutation proof recorded in the commit.
 #
@@ -82,7 +78,6 @@ echo
 echo "=== the replays ===================================================================="
 replay quiet capture 0
 replay loaded "$LOADED_CLOCK" 1
-replay loaded-wall wall 1
 
 python3 - "$OUT" <<'PY'
 import sys
@@ -118,7 +113,6 @@ def say(ok, text):
 
 q, qe = read("quiet")
 l, le = read("loaded")
-w, we = read("loaded-wall")
 print()
 
 # 1. the clock the claim is about is the one that ran, and it was wound
@@ -141,18 +135,11 @@ say(int(qe.get("darts", 0)) > 0 and qe.get("cycles") == le.get("cycles"),
 
 # 4. the claim
 d = differing(q, l)
-say(not d, f"one binary, one fixture, quiet and loaded on the capture clock: {len(q)} readings against {len(l)}, "
+say(not d, f"one binary, one fixture, quiet on the {qe.get('motionClock')} clock and loaded on the "
+           f"{le.get('motionClock')} clock: {len(q)} readings against {len(l)}, "
            f"{len(d)} differ" + ("" if not d else " -- the darts that differ:"))
 name(q, l, d)
 
-print()
-dw = differing(q, w)
-print(f"  NOT ASSERTED -- the same load on the WALL motion clock (what OD_WINDOW_UNIT=cycles alone leaves):")
-print(f"  {len(w)} readings against the quiet replay's {len(q)}, {len(dw)} differ, "
-      f"{secs('loaded-wall'):.1f} s, darts {we.get('darts')}")
-name(q, w, dw[:12], indent="    ")
-if len(dw) > 12:
-    print(f"    ... and {len(dw) - 12} more")
 sys.exit(1 if failed else 0)
 PY
 [ $? -eq 0 ] || FAILED=1
