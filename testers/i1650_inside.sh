@@ -24,11 +24,12 @@
 # ASSERTED, each a measured fact of #1650's comment:
 #   all three  the 2's splash is cycle 1480: camera 3 over the spike threshold, one cycle;
 #   pinned     the run says both pins are set;
-#   pinned     the 7's event ends at 1447, the splash starts an event, S7 then S2 publish;
+#   pinned     the 7's event ends at 1447, the splash starts an event, MISS, S7 then S2
+#              publish (v6.1's MISS since turnaus#1682's 0.006 entry);
 #   hold       the 7's event ends at 1453, the splash cycle is the cooldown's last
-#              (COOLDOWN -> IDLE on it), no event starts there, and visit 6 publishes S7
-#              then END with no S2;
-#   fix        I1650 COOLDOWN EXPIRY SPIKE at cycle 1480, and S7 then S2 publish.
+#              (COOLDOWN -> IDLE on it), no event starts there, and visit 6 publishes MISS,
+#              S7, then END with no S2;
+#   fix        I1650 COOLDOWN EXPIRY SPIKE at cycle 1480, and MISS, S7 then S2 publish.
 set -u
 BIN=/app/build/opendartboard
 RUN=/run1650
@@ -93,9 +94,13 @@ def check(ok, what):
 pinned = text("pinned")
 check(any("OD_SETTLE_EXPOSURE=off is set" in l for l in pinned) and any("OD_TAKEOUT_REREPORT=off is set" in l for l in pinned),
       "pinned: the run says both pins are set")
-for n, end, pubs in (("pinned", 1447, ["S7", "S2", "|"]),
-                     ("hold", 1453, ["S7", "|"]),
-                     ("fix", 1453, ["S7", "S2", "|"])):
+# turnaus#1682 re-baselined each sequence with a leading MISS: under the 0.006 entry (the
+# default since then) visit 6's first dart, v6.1's thrown MISS, opens its own window and
+# publishes MISS. Before: pinned S7 S2 |, hold S7 |, fix S7 S2 |; after: the same with
+# MISS first. Every cycle and state above is unchanged, so the cooldown finding stands.
+for n, end, pubs in (("pinned", 1447, ["MISS", "S7", "S2", "|"]),
+                     ("hold", 1453, ["MISS", "S7", "|"]),
+                     ("fix", 1453, ["MISS", "S7", "S2", "|"])):
     t, lines = trace(n), text(n)
     r = t.get(SPLASH, {})
     cam3 = float(r.get("r2", 0))

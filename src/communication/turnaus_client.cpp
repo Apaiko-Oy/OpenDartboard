@@ -257,6 +257,14 @@ TurnausClient::Redemption TurnausClient::redeem(Door door, const std::string &co
     // UTF-8 on Windows; replace rather than throw.
     std::map<std::string, std::string> headers;
     headers["Accept"] = "application/json";
+    // #1849: the re-join. With the board's current club token beside the code, Turnaus
+    // keeps this device and rotates the token (turnaus #1848); a token that is not a live
+    // board of the code's club is the door's ordinary 422 and the code is not spent.
+    const bool presents_token = !contest_door && config_.keep_device && !credential_.empty();
+    if (presents_token)
+    {
+        headers["Authorization"] = "Bearer " + credential_;
+    }
     odhttp::Response res = odhttp::postJson(url_, contest_door ? "/api/v1/casual/boards" : "/api/v1/autoscorer/devices",
                                             body.dump(-1, ' ', false, json::error_handler_t::replace), headers,
                                             config_.connect_timeout_s, config_.read_timeout_s);
@@ -333,6 +341,18 @@ TurnausClient::Redemption TurnausClient::redeem(Door door, const std::string &co
         }
         else
         {
+            // #1849: under keep_device the answer must name the club already in the file.
+            // Turnaus refuses that case itself with a 422; this is the board not taking
+            // its word for it, and the file is left exactly as it was found.
+            const long long kept_organisation = stored.value("organisation_id", (long long)0);
+            const long long answered_organisation = j["data"].value("organisationId", (long long)0);
+            if (config_.keep_device && kept_organisation != 0 && answered_organisation != kept_organisation)
+            {
+                log_error("TURNAUS: the pairing answered for another Organisation than the one this board is "
+                          "paired to; the credential already here is kept");
+                out.kind = Redemption::Kind::OtherOrganisation;
+                return out;
+            }
             stored["token"] = token;
             stored["organisation_id"] = j["data"].value("organisationId", 0);
             stored["device_id"] = j["data"]["device"].value("id", 0);
@@ -584,6 +604,29 @@ void TurnausClient::releaseContestBinding(const char *why)
     unpaired_while_running_ = true; // #1259: a garage board's evening ended; ask, if anybody is there
     log_info("TURNAUS: this board holds no other binding, so nothing further will be pushed. "
              "Pair to a new Contest with --pair-contest <code>.");
+}
+
+bool TurnausClient::contestOverBody(const std::string &body)
+{
+    // The header says what this reads and why it is the shape and not the sentence. Every
+    // way the body can fail to be that shape answers false: a 409 is never promoted to "the
+    // Contest is over" on a guess, because the price of a wrong "over" is a binding dropped
+    // and its owed darts counted as abandoned, while the price of a wrong "no Station" is
+    // the slow retry the client already made before #1841.
+    try
+    {
+        const json j = json::parse(body);
+        if (!j.is_object())
+        {
+            return false;
+        }
+        const json::const_iterator errors = j.find("errors");
+        return errors != j.end() && errors->is_object() && errors->contains("board");
+    }
+    catch (const std::exception &)
+    {
+        return false;
+    }
 }
 
 std::string TurnausClient::newIdempotencyKey()
@@ -1315,6 +1358,26 @@ bool TurnausClient::deliver(const OwedPush &item)
     }
     if (res.status == 409)
     {
+        if (item.binding == Binding::Contest)
+        {
+            // #1841: the Contest door's 409 is two different answers, told apart by the
+            // body's shape (contestOverBody says which and quotes the measurement). A
+            // Contest that was given up is over for this board exactly as a 401 says it is
+            // -- the same release, the same owed-push accounting (#1276), the same fall-back
+            // to the club credential underneath -- and a board that read it as "no Station"
+            // instead beat into it for twenty-five minutes on 2026-10-13.
+            if (contestOverBody(res.body))
+            {
+                log_warning("TURNAUS: the server says Casual Contest " + std::to_string(item.contest_id) +
+                            " is over (409 with errors.board at " + item.path + ")");
+                releaseContestBinding("HTTP 409: the Contest was given up");
+                return false;
+            }
+            // Any other 409 at this door keeps the older meaning, and names the door, so the
+            // next person reading it on a pub PC knows which binding to look at.
+            log_warning("TURNAUS: the server says this Contest board stands at no Station (409)");
+            return false;
+        }
         // The club has stood this board at no Station. A retry cannot fix it either, but
         // it is a state somebody clears in the browser, so it is worth retrying slowly.
         log_warning("TURNAUS: the server says this board stands at no Station (409)");
@@ -1925,6 +1988,26 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
     }
     if (res.status == 409)
     {
+        if (binding == Binding::Contest)
+        {
+            // #1841: the beat is what meets a given-up Contest first (#891's own point: it
+            // goes every interval while darts go only when somebody throws), and on
+            // 2026-10-13 it met one every fifteen seconds for twenty-five minutes and read
+            // each as "no Station". Same verdict as deliver()'s, reached from the beat
+            // thread: a body with errors.board means the Contest is over, the binding is
+            // released as a 401 releases it, and the next beat goes to the autoscorer door
+            // with the club credential because destination() no longer names the Contest.
+            if (contestOverBody(res.body))
+            {
+                log_warning("TURNAUS: the server says Casual Contest " + std::to_string(contest_id_) +
+                            " is over (409 with errors.board at " + std::string(heartbeatsPath(binding)) + ")");
+                releaseContestBinding("HTTP 409: the Contest was given up");
+                return false;
+            }
+            log_warning("TURNAUS: the server says this Contest board stands at no Station (409); "
+                        "the beat has nowhere to land");
+            return false;
+        }
         // The club has stood this board at no Station, so there is no row for a
         // condition to belong to. Somebody clears that in a browser; keep beating.
         log_warning("TURNAUS: the server says this board stands at no Station (409); the beat has nowhere to land");

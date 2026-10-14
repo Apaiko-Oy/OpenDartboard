@@ -7,7 +7,7 @@
 # enable both units for every boot, and (re)start them so an upgrade runs the new binary.
 set -e
 
-UNITS="lock_cams.service opendartboard.service"
+UNITS="lock_cams.service opendartboard.service opendartboard-setup.service"
 STATE=/var/lib/opendartboard
 
 # systemctl can enable (write symlinks) with no manager running -- an image build, a chroot,
@@ -37,6 +37,17 @@ case "$1" in
         echo "opendartboard: moved /$leaf to $STATE/$leaf (#1660)"
       fi
     done
+
+    # #1796: a package installed by hand puts the board on the package's version. The
+    # launcher keeps what it installed over the wire under $STATE (the detector it
+    # installed, update/state.txt, update/previous), and starts that in preference to
+    # /usr/local/bin/opendartboard when it is there -- so without this line a `dpkg -i`
+    # of a newer deb would restart the unit onto the OLD detector the launcher had kept.
+    # Cleared whole: the next start finds no state, MAY check, and runs the deb's own
+    # detector until the channel offers something else. A copy of the deb's detector is
+    # what the launcher keeps as `previous` before its first update, so nothing a board
+    # could roll back to is lost here that the package does not carry itself.
+    rm -rf "$STATE/opendartboard" "$STATE/update"
 
     # Come up every boot.
     systemctl enable $UNITS

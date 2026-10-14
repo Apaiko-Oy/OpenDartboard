@@ -31,6 +31,7 @@
 #              directory 0700 and holding the moved token; `systemd-analyze verify` on the
 #              installed units; a second configure must not move a newer stray over it.
 #              Then `dpkg -r`: units gone, disabled, state kept. Then `dpkg -P`: state gone.
+#              #1849: the same of opendartboard-setup and its unit, the third.
 #
 # The package is Architecture: arm64 and this image is amd64, so the install runs with
 # --force-architecture --force-depends: dpkg is asked to place the files and run the
@@ -98,6 +99,8 @@ has -rwxr-xr-x usr/local/bin/opendartboard
 has -rwxr-xr-x usr/local/bin/lock_cams.sh
 has -rw-r--r-- lib/systemd/system/opendartboard.service
 has -rw-r--r-- lib/systemd/system/lock_cams.service
+has -rwxr-xr-x usr/local/bin/opendartboard-setup
+has -rw-r--r-- lib/systemd/system/opendartboard-setup.service
 has -rw-r--r-- usr/local/share/opendartboard/models/dart.param
 has -rw-r--r-- usr/local/share/opendartboard/models/dart.bin
 has -rw-r--r-- usr/lib/tmpfiles.d/opendartboard.conf
@@ -110,7 +113,7 @@ for s in postinst prerm postrm; do
 done
 
 mkdir -p /x && dpkg-deb -x /pkg.deb /x
-for u in opendartboard lock_cams; do
+for u in opendartboard lock_cams opendartboard-setup; do
   f=/x/lib/systemd/system/$u.service
   [ -f "$f" ] || continue
   if awk "/\\\$\\{/ {f=1} END {exit f}" "$f"; then ok "$u.service: no unreplaced \${...}"
@@ -140,7 +143,7 @@ if dpkg -i --force-architecture --force-depends /pkg.deb > /tmp/i.log 2>&1; then
 else fail "dpkg -i"; cat /tmp/i.log; fi
 grep "opendartboard:" /tmp/i.log
 W=/etc/systemd/system/multi-user.target.wants
-for u in opendartboard lock_cams; do
+for u in opendartboard lock_cams opendartboard-setup; do
   if [ -L $W/$u.service ]; then ok "$u.service enabled"; else fail "$u.service not enabled"; fi
 done
 ls -l $W/ 2>/dev/null | awk "NR>1"
@@ -150,7 +153,7 @@ if [ "$(cat /var/lib/opendartboard/score_token 2>/dev/null)" = old-token ] && [ 
   ok "/score_token moved into the state directory"; else fail "/score_token not moved"; fi
 if [ -f /var/lib/opendartboard/channel.json ] && [ ! -e /channel.json ]; then
   ok "/channel.json moved into the state directory"; else fail "/channel.json not moved"; fi
-if systemd-analyze verify /lib/systemd/system/opendartboard.service /lib/systemd/system/lock_cams.service > /tmp/v.log 2>&1 \
+if systemd-analyze verify /lib/systemd/system/opendartboard.service /lib/systemd/system/lock_cams.service /lib/systemd/system/opendartboard-setup.service > /tmp/v.log 2>&1 \
    && ! grep -qi "is not executable\|No such file" /tmp/v.log; then ok "systemd-analyze verify on the installed units ($(wc -l < /tmp/v.log) lines of complaint)"; cat /tmp/v.log
 else fail "systemd-analyze verify"; cat /tmp/v.log; fi
 
@@ -163,11 +166,11 @@ rm -f /score_token
 
 echo "## dpkg -r"
 dpkg -r opendartboard > /tmp/r.log 2>&1 || { fail "dpkg -r"; cat /tmp/r.log; }
-for u in opendartboard lock_cams; do
+for u in opendartboard lock_cams opendartboard-setup; do
   if [ ! -e $W/$u.service ] && [ ! -L $W/$u.service ]; then ok "$u.service disabled"; else fail "$u.service still enabled"; fi
   if [ ! -e /lib/systemd/system/$u.service ]; then ok "$u.service file removed"; else fail "$u.service file left"; fi
 done
-if [ ! -e /usr/local/bin/lock_cams.sh ] && [ ! -e /usr/local/bin/opendartboard ]; then ok "binaries removed"
+if [ ! -e /usr/local/bin/lock_cams.sh ] && [ ! -e /usr/local/bin/opendartboard ] && [ ! -e /usr/local/bin/opendartboard-setup ]; then ok "binaries removed"
 else fail "a binary was left"; fi
 if [ -f /var/lib/opendartboard/score_token ]; then ok "remove keeps the state directory"
 else fail "remove deleted the state directory"; fi

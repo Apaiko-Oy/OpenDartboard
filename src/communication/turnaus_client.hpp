@@ -53,6 +53,12 @@ struct TurnausConfig
     // #1787: the file --log-file (or --debug) appends the log to, so the client can post
     // what it wrote. Empty on a board that keeps no log file: nothing is uploaded.
     std::string log_file;
+    // #1849: --keep-device. A board that already holds a club credential presents it with
+    // the new code, so Turnaus re-pairs THIS device and rotates its token (turnaus #1848)
+    // rather than minting a second device; and an answer naming another Organisation than
+    // the one in the file is not kept. Off by default, so `--pair` typed at a console means
+    // what it always meant. The setup unit (src/setup/) always passes it.
+    bool keep_device = false;
     size_t queue_capacity = 512;  // detections held in memory before the policy bites
     int connect_timeout_s = 3;
     int read_timeout_s = 5;
@@ -365,6 +371,37 @@ public:
         return (n >= 1 && n <= 20 && score.substr(1) == std::to_string(n)) ? score : std::string();
     }
 
+    /**
+     * #1841: whether a 409 from the Contest door says THE CONTEST IS OVER rather than
+     * "this board stands at no Station".
+     *
+     * The two doors answer 409 for two different things, and until #1841 the client read
+     * both with the autoscorer door's sentence. Measured live on 2026-10-13 (Raspberry Pi 5,
+     * device 2, Casual Contest 22 given up at about 16:20): twenty-five minutes of
+     *
+     *   [WARN][TURNAUSCLIENT] - TURNAUS: the server says this board stands at no Station
+     *   (409); the beat has nowhere to land
+     *
+     * every fifteen seconds from the heartbeat, while the Station page said the board had
+     * announced nothing and the club binding underneath was never used. The by-hand fix was
+     * removing the `contest` object from credentials.json and restarting; the first beat
+     * after that landed at the autoscorer door and 44 darts were counted in ten minutes.
+     *
+     * What a given-up or discarded Contest really answers is `CasualDetectionController::
+     * boardOf()`'s ValidationException: HTTP 409 in Laravel's validation shape,
+     * `{"message": "<localised sentence>", "errors": {"board": ["<localised sentence>"]}}`,
+     * the sentence being `casual_detection.error.discarded` or `.evening_over` in the
+     * board's language. The autoscorer door's 409 is `{"message": "This board stands at no
+     * Station."}` and has no `errors` at all. So the contract read here is the SHAPE and
+     * never the sentence: a body whose `errors` object has a `board` key means the Contest
+     * is over. Anything else -- no body, not JSON, no `errors`, `errors` without `board` --
+     * answers false and keeps a 409's older meaning. A 410 from the server would make this
+     * a status rather than a body, and the issue asks the Turnaus side for one.
+     *
+     * Static and pure, so a tester can hold it to the server's shapes without a client.
+     */
+    static bool contestOverBody(const std::string &body);
+
     // ---- #1366: where the dart landed, in the body that is posted for ever. ----
 
     /**
@@ -575,6 +612,7 @@ public:
             Unexpected,  // any other status
             Blocked,     // pairingBlock() said no; nothing was sent
             NotKept,     // 201, but the credential could not be read or written; logged
+            OtherOrganisation, // #1849: 201 under keep_device, naming another club; not kept
         };
         Kind kind = Kind::Blocked;
         int status = 0;

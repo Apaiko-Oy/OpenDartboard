@@ -21,6 +21,16 @@ set -u
 SCRIPT="${1:-$OD_TREE_ROOT/testers/phases1317/1317-partial.sh}"
 PHASE="$(od_phase "$SCRIPT")"
 BASE="$OD_RUNS_BASE/1317"
+
+# #1688: the ASan phase runs in $OD_ASAN_IMAGE (testers/asan.dockerfile), whose gcc 14.2
+# libasan does not loop on DEADLYSIGNAL under this kernel's 32-bit mmap randomness the way
+# gcc 10.2.1's in $OD_IMAGE did about one start in four. Every other phase stays on
+# $OD_IMAGE; 1317-asan.sh keeps its bounds (cf417e4) as the backstop.
+IMAGE="$OD_IMAGE"
+if [ "$PHASE" = asan ]; then
+  od_need_asan_image || exit 2
+  IMAGE="$OD_ASAN_IMAGE"
+fi
 RUN="$BASE/$PHASE"
 mkdir -p "$BASE"
 if [ -d "$RUN" ]; then
@@ -44,7 +54,7 @@ T0=$(date +%s.%N)
 od_run "i1317-$PHASE" --cpus=2 --network none -e HOME=/root \
   -v "$OD_TREE_ROOT":/app \
   -v "$RUN":/run1317 -v "$RUN/cfg":/root/.config \
-  -w /run1317 "$OD_IMAGE" bash /run1317/inside.sh
+  -w /run1317 "$IMAGE" bash /run1317/inside.sh
 RC=$?
 
 T1=$(date +%s.%N)

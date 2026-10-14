@@ -26,7 +26,10 @@ MOCKS=/app/mocks/cam_1.mp4,/app/mocks/cam_2.mp4,/app/mocks/cam_3.mp4
 # go to their own files, so the run's own log stays readable either way.
 export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:halt_on_error=1:log_path=/run1317/asanrep
 
-# #1688: gcc 10.2.1's libasan in this image sometimes never reaches main on this kernel and
+# #1688, decided 2026-10-13: this phase now runs in od-amd64:trixie-asan (gcc 14.2, see
+# testers/asan.dockerfile), where the loop below was not seen; the bounds stay as the
+# backstop. What follows is what they were written against, in od-amd64:bullseye.
+# gcc 10.2.1's libasan in that image sometimes never reaches main on this kernel and
 # loops on `AddressSanitizer:DEADLYSIGNAL` for ever, about 2 MB of it a second. It is not
 # this program: an EMPTY main built with -fsanitize=address hung 10 of 40 times under
 # `timeout 3` here, and 9 of 40 with the options above (measured 2026-10-02, kernel 6.18).

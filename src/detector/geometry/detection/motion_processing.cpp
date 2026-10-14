@@ -151,40 +151,45 @@ namespace motion_processing
     }
     /**
      * #1677: the figure one camera's board must exceed for a QUIET board to start an
-     * event -- IDLE's entry, and the two cooldown arms that are IDLE's entry early. Off
-     * unless asked for: `OD_SPIKE_THRESHOLD=<ratio>` (a fraction of the board, 0 < r <
-     * spike_threshold) lowers the entry and nothing else. The settle test's re-open
-     * (#1627) and SPIKE_DETECTED's camera count keep `spike_threshold`, so an event that
-     * has started runs exactly as it did.
+     * event -- IDLE's entry, and the two cooldown arms that are IDLE's entry early. Since
+     * turnaus#1682 it is 0.006 of a camera's board by DEFAULT, under `spike_threshold`
+     * (0.011); the settle test's re-open (#1627) and SPIKE_DETECTED's camera count keep
+     * `spike_threshold`, so an event that has started runs exactly as it did.
+     * `OD_SPIKE_THRESHOLD=<ratio>` (0 < r < spike_threshold) sets the entry to r; any other
+     * value -- `off`, or `0.011` itself -- is the pre-#1682 entry, `spike_threshold`.
      *
-     * Why a switch: mocks/rig-20260929 (capture clock, OD_TRACE, open window) loses three
+     * Why 0.006: mocks/rig-20260929 (capture clock, OD_TRACE, open window) lost three
      * darts to this gate and to nothing else. Their splashes peak at 0.0108 (v5.3, f2564,
      * cam 3), 0.0106 (v11.1, f4739, cam 1) and 0.0074 (v12's D14, f5185, cam 1), under
-     * 0.011, so no event opens and the next window is the takeout's, which reconciles
-     * CLEAN. On that clip every IDLE burst over 0.004 of a board is a dart or a takeout,
-     * and those three are the only ones that opened nothing. #1353's census put the
-     * noise ceiling of mocks/rig-20260918 at 0.0088, which is above the weakest of the
-     * three, so this is measured over all three fixtures before it may be a default.
-     * Ignored under #1358's and #1339's falsification switches, as the cooldown arm is.
+     * 0.011, so no event opened and the next window was the takeout's, which reconciles
+     * CLEAN. #1353's census put the noise ceiling of mocks/rig-20260918 at 0.0088, above
+     * the weakest of the three, so it stayed opt-in until it was measured live: on
+     * 2026-10-10 (build 2b56b48, 156 darts) every dart inside the rim opened an event and
+     * no phantom came from the lower entry. The maintainer made it the default on
+     * 2026-10-13 (turnaus#1682; docs/rig.md). Ignored under #1358's and #1339's
+     * falsification switches, as the cooldown arm is.
      */
+    static constexpr double kDefaultEntryThreshold = 0.006;
     static double entryThreshold(const MotionParams &params)
     {
         static const double v = []
         {
             const char *e = std::getenv("OD_SPIKE_THRESHOLD");
-            const double r = e ? std::atof(e) : 0.0;
+            if (e == nullptr)
+                return kDefaultEntryThreshold;
+            const double r = std::atof(e);
+            if (r > 0.0)
+                log_warning(std::string("OD_SPIKE_THRESHOLD=") + e + " is set: a quiet board starts an event on " +
+                            to_string(r) + " of one camera's board where the default is " +
+                            to_string(kDefaultEntryThreshold) + " (#1677, turnaus#1682)");
+            else
+                log_warning(std::string("OD_SPIKE_THRESHOLD=") + e +
+                            " is set: a quiet board starts an event on spike_threshold, the entry before "
+                            "turnaus#1682 made it " + to_string(kDefaultEntryThreshold));
             return r > 0.0 ? r : -1.0;
         }();
-        static bool said = false;
         if (v <= 0.0 || v >= params.spike_threshold || settleTrigger() || measuredAgainstTheFrame())
             return spikeThreshold(params);
-        if (!said)
-        {
-            said = true;
-            log_warning("OD_SPIKE_THRESHOLD=" + to_string(v) + " is set: a quiet board starts an event on " +
-                        to_string(v) + " of one camera's board where the default is " +
-                        to_string(params.spike_threshold) + " (#1677)");
-        }
         return v;
     }
 

@@ -32,8 +32,10 @@
 // may still take the report with it. That is a platform limit, and it is why the report
 // is written before anything is waited on.
 
+#include "../utils/od_paths.hpp"
 #include "command_line.hpp"
 #include "ending.hpp"
+#include "install_layout.hpp"
 
 #include <cstdlib>
 #include <string>
@@ -128,6 +130,40 @@ namespace launcher
             return std::string(kDetectorName);
         }
         return beside(me, kDetectorName);
+    }
+
+    /**
+     * #1796: the layout this launcher runs in, which is the one platform decision main.cpp
+     * makes.
+     *
+     *   OD_DETECTOR named   beside that file, on both platforms: a harness's launcher, and
+     *                       what every tester since #1303 has started it with.
+     *   Windows             beside this launcher (layoutFor), as #1306 built it.
+     *   Linux               under the board's state directory (layoutUnderStateDir):
+     *                       od_paths::configDir() is systemd's $STATE_DIRECTORY, which the
+     *                       unit sets to /var/lib/opendartboard, or $XDG_CONFIG_HOME/$HOME
+     *                       for somebody at a terminal; `shipped` is the detector beside
+     *                       this launcher, which is the deb's /usr/local/bin/opendartboard.
+     *                       A box that can name no directory at all falls back to the
+     *                       Windows shape, so the launcher still starts what is beside it.
+     */
+    inline Layout layoutHere()
+    {
+        const char *named = std::getenv("OD_DETECTOR");
+        if (named != NULL && *named != '\0')
+        {
+            return layoutFor(std::string(named));
+        }
+#ifdef _WIN32
+        return layoutFor(detectorPath());
+#else
+        const std::string state_dir = od_paths::configDir();
+        if (state_dir.empty())
+        {
+            return layoutFor(detectorPath());
+        }
+        return layoutUnderStateDir(state_dir, detectorPath());
+#endif
     }
 
     /**

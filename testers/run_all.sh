@@ -516,7 +516,9 @@ tester 1485-rings         "bash '$T/i1485_run.sh'"
 # read as the anchor improving. Five sections: the vote, the reading on a synthetic board
 # anchored and not, OD_RING_ONLY=counted as the falsifier, three whole-footage detector
 # runs at OD_MAX_CYCLES=6000, and two planted lines that delete the distinction at source.
-# Sections 1-3 and 5 need no detector binary and cost a compile each.
+# Sections 1-3 and 5 need no detector binary and cost a compile each. Section 4's three
+# needle checks are HISTORICAL since #1825: OD_RINGS=asfitted no longer puts a 25 back on
+# this fixture, so its figures are printed and the full-clip and no-wedge checks asserted.
 tester 1489-ringonly      "bash '$T/i1489_run.sh'"
 # #1490: how far apart two cameras place ONE dart, in millimetres, through #1467's
 # planeOf() and through the BoardPosition the scorer already computes, side by side. A
@@ -538,8 +540,20 @@ tester 1490-spread        "bash '$T/i1490_run.sh'"
 # figure, so no third mechanism is hiding in this fixture. It then measures the obvious
 # repair instead of arguing about it: OD_TIP_PIECE_FLOOR=0 on the same binary, which moves
 # readings and does NOT reduce the off-board count (#1322). No detector binary, no cycle
-# cap, mocks/rig-20260918 only (#1478); two full replays of the clip.
+# cap, mocks/rig-20260918 only (#1478); two full replays of the clip. Claim TWO and the
+# floor experiment are HISTORICAL since #1824 -- printed with #1492's figures beside
+# main's and not asserted, because no switch on main restores the stage they measured.
 tester 1492-tips          "bash '$T/i1492_run.sh'"
+# turnaus#1838: one probe binary replays mocks/rig-20260918 on a quiet container and again
+# under busy loops it makes inside its own --cpus=2 quota, and the two must publish the same
+# darts. OD_WINDOW_UNIT=cycles took the WINDOWS off the wall clock; the cooldown, the spike
+# window, the safety timeout and the body-window vote are still milliseconds of the motion
+# clock, so the asserted pair runs on OD_MOTION_CLOCK=capture, which the probe now winds
+# (testers/replay_clock.hpp). Its instrument checks: the clock was wound (not read 0 all
+# the way through, #1535's capture-clock probe), and the load really slowed the replay.
+# MEASURED 2026-10-14 on the 4-core box: 459 s, rc=0. No `slow`. No detector binary;
+# OD_SKIP_BUILD changes nothing.
+tester 1838-replay-noise  "bash '$T/i1838_run.sh'"
 # #1493: whether the three board planes compose into camera poses good enough to
 # TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
 # in millimetres per dart. #1490's harness with one extra column: the same replay, the same
@@ -559,7 +573,9 @@ tester 1493-rays          "bash '$T/i1493_run.sh'"
 # repairs together could not say whether one had been traded for the other. Every claim it
 # makes is a comparison between two arms or an exact fact about one reading; there is no
 # millimetre threshold in it (#1322, #1478). No detector binary; OD_SKIP_BUILD changes
-# nothing. MEASURED on the 4-core box: see the pull request for the recorded line.
+# nothing. MEASURED on the 4-core box: see the pull request for the recorded line. The
+# claim that the worst tipGap falls from AA to BB is HISTORICAL since #1823: on cycle
+# windows every arm reads 172 px on dart 17 camera 3, so it is printed and not asserted.
 tester 1494-figure        "bash '$T/i1494_run.sh'"
 slow 2400
 # #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in
@@ -716,6 +732,12 @@ tester 1628-lonefix       "bash '$T/i1628_run.sh'"
 # the tree plus two of a mutated scratch copy of the header (the wrong radius constant; the
 # flag for lone readings only), predictions stated first, in i1628_check.sh's shape.
 tester 1773-ringwire      "bash '$T/i1773_check.sh'"
+# #1855: #1707's to-MISS half reads the lone reading's radius -- MISS inside 134.5 mm (the
+# outer single's middle), as read at or beyond it -- so a real S20 at 0.926 stays S20 and
+# the miss at 0.562 still publishes MISS. Behind OD_RIM_FALLBACK=on, default unchanged. One
+# compile of the tree plus two of a mutated scratch copy of the header (the radius keeps
+# nothing; the line moved in to the 25's wire), predictions stated first.
+tester 1855-rimradius     "bash '$T/i1855_check.sh'"
 # turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
 # on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)
 # holds an advance a body-sized fresh figure voted (15% of a board) or one within 1500 ms of
@@ -775,6 +797,16 @@ tester 1821-rimoffer      "bash '$T/i1821_check.sh'"
 # links turnaus_client.cpp, compiled once and reused); no detector binary. MEASURED 2026-10-13
 # on the 4-core box at load ~3 with another checkout's gate alongside, rc=0: 249 s wall.
 tester 1537-visitfill     "bash '$T/i1537_check.sh'"
+# turnaus#1802: a body at the board carried as three darts by the rim-only votes (live on casual
+# board 20, 2026-10-11 01:02: three `I1707 RIM CARRIED` MISSes between two takeouts, camera 2 at
+# 25,835 px, no camera clearing the scoring floor on a usable line). OD_RIM_BODY (off by default)
+# holds such an advance when a voting camera's fresh figure is 11% of its board or more (#1781's
+# measure, freshFigureIsBodySized). The pure half: rimCarryIsABody on the live windows, the
+# largest fixture dart, a surround dart and #1821's S13, one compile of the tree plus five of a
+# mutated scratch copy of dart_processing.hpp, each predicted to turn named assertions red. No
+# detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-12 on the 4-core box
+# at load ~12-14 with two other agents' gates alongside, rc=0: 45 s wall.
+tester 1802-rimbody       "bash '$T/i1802_check.sh'"
 # turnaus#1782: a flagged solve within its sigma of a ring wire AND a wedge wire (a corner)
 # offered only the nearest wire's alternative -- live on 2b56b48 a thrown S19 published T3
 # flagged "T3 or S3", 0.6 mm from the treble wire and 1.8 mm from the 3/19 wire. The flag now
@@ -786,12 +818,13 @@ tester 1537-visitfill     "bash '$T/i1537_check.sh'"
 # 4-core box at load ~15, rc=0: 50 s wall.
 tester 1782-corner        "bash '$T/i1782_check.sh'"
 # turnaus#1815: on the first two real sessions (casual boards 17 and 20, 820 darts) 340 of 396
-# flagged darts stood as published. OD_FLAG_SIGMAS=<K> (0 < K < 1, off by default) keeps a
+# flagged darts stood as published. The flag (K = 0.7 by default since 2026-10-13;
+# OD_FLAG_SIGMAS=<K>, 0 < K < 1, moves it; OD_FLAG_SIGMAS=off restores #1556's 1.0) keeps a
 # geometric flag only within K of the solve's own across-wire sigmas of the wire; the rest
 # publish clear at 0.9 and say what #1556's 1.0 would have offered; no score moves. The pure
 # half: the 14 session darts a marker corrected through a flag and the bakeoff's 5 wrong
 # flagged darts (all kept at 0.7), 9 flags that stood (cleared), one compile of the tree plus
-# three of a mutated scratch copy of score_processing.hpp, each predicted to turn exactly one
+# four of a mutated scratch copy of score_processing.hpp (the fourth puts the default back to 1.0), each predicted to turn exactly one
 # named set red. No detector binary; OD_SKIP_BUILD changes nothing about it. MEASURED
 # 2026-10-11 on the 4-core box at load ~20 with a bakeoff alongside, rc=0: 59 s wall.
 tester 1815-flagsigmas    "bash '$T/i1815_check.sh'"
@@ -1011,6 +1044,17 @@ tester 1531-corpus       "bash '$T/i1531_run.sh'"
 tester 1532-guard        "bash '$T/i1532_check.sh'"
 tester 1276-control       "bash '$T/i1276_run.sh' '$T/i1276_control.sh'"
 tester 1276-takeout       "bash '$T/i1276_check.sh'"
+# #1841: the Contest door's 409 -- a given-up Contest released as a 401 releases it, the
+# next beat at the autoscorer door with the club credential; the no-Station body kept; the
+# pure body check; and a client harness the --mutate run compiles against a scratch copy.
+# Three detector runs of 1100 cycles and two compiles, #1276's shape. NOT MEASURED on the
+# authoring box (2026-10-13: no Docker there); predicted inside 1200 as 1276-takeout is.
+tester 1841-contest-409   "bash '$T/i1841_check.sh'"
+# #1849: the Pi setup machine (src/setup/) with NetworkManager and the pair call faked --
+# the counter file, N = 5, GET/POST /setup, the success path and the four failure paths --
+# and --pair --keep-device against an in-process stand-in for the devices door. Two
+# compiles and no detector run. MEASURED 2026-10-14: 44 s wall, load 1.8.
+tester 1849-setup         "bash '$T/i1849_check.sh'"
 tester 1366-position      "bash '$T/i1366_run.sh'"
 tester 1257-control       "bash '$T/i1257_run.sh' control '$T/i1257_control.sh'"
 tester 1257-resolution    "bash '$T/i1257_run.sh' resolution '$T/i1257_resolution.sh'"
@@ -1048,6 +1092,14 @@ tester 1306-install      "bash '$T/i1306_check.sh'"
 # re-carry against a real stub in one container, each mutation proof inside the harness
 # (--mutate-clock, --mutate-ending); no detector binary, so OD_SKIP_BUILD changes nothing.
 tester 1797-scheduled     "bash '$T/i1797_check.sh'"
+# #1796: a Pi updates through the launcher. The launcher CMake builds for Linux, driven in
+# /var/lib/opendartboard's shape with a tar.gz artefact and a served manifest: a first boot
+# that MAY check and starts the deb's detector, an install, a release that exits at once
+# rolled back inside one launcher run, a scheduled stop followed by one look and one
+# restart, the platform path pure (unit_check.sh 1796) and compiled both ways; the mutation
+# (--mutate, the suffix dropped) inside the harness. Needs loopback, no detector binary;
+# OD_SKIP_BUILD changes nothing about it beyond build/_deps.
+tester 1796-pi-launcher   "bash '$T/i1796_check.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
 # #1383: a blind board given a cycle budget ends, and a blind board says so where a
 # supervisor can read it. Six detector runs on #892's blind fixture and the shipped

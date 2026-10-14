@@ -13,7 +13,8 @@ case "$1" in
     # Belt and braces for a board installed before prerm existed, whose symlinks could
     # outlive the unit files: a dangling wants/ link is harmless but is noise in systemctl.
     rm -f /etc/systemd/system/multi-user.target.wants/opendartboard.service \
-          /etc/systemd/system/multi-user.target.wants/lock_cams.service
+          /etc/systemd/system/multi-user.target.wants/lock_cams.service \
+          /etc/systemd/system/multi-user.target.wants/opendartboard-setup.service
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi

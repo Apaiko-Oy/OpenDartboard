@@ -33,6 +33,8 @@ build:
 	cmake -S . -B build $(CMAKE_FLAGS)
 	cmake --build build -- -j4 --no-print-directory
 	@cp build/opendartboard /usr/local/bin/opendartboard
+	@cp build/opendartboard-launcher /usr/local/bin/opendartboard-launcher
+	@cp build/opendartboard-setup /usr/local/bin/opendartboard-setup
 	@echo "\033[32mBuild completed successfully!\033[0m"
 
 run-mocks:
@@ -60,6 +62,14 @@ DEB_FPS ?= 30
 # build shell happened to hold -- nothing, in CI.
 DEB_UNIT_VARS = '$${WIDTH} $${HEIGHT} $${FPS}'
 DEB_ROOT = dist/staging/opendartboard_$(VERSION)
+# #1796: the launcher the unit starts (ADR-0077 §1: a board's program is two files). The
+# one `make build` just wrote, or the one it copied to /usr/local/bin, whichever is here;
+# a tree with neither cannot make a package that starts, and says so rather than staging
+# a unit whose ExecStart names a file the package does not carry.
+DEB_LAUNCHER = $(firstword $(wildcard build/opendartboard-launcher /usr/local/bin/opendartboard-launcher))
+# #1849: the setup program its own unit starts (the Turnaus-XXXX access point), found the
+# same way and refused the same way.
+DEB_SETUP = $(firstword $(wildcard build/opendartboard-setup /usr/local/bin/opendartboard-setup))
 
 deb:
 ifndef VERSION
@@ -78,17 +88,21 @@ endif
 	install -m 0755 distributions/debian_arm64/prerm $(DEB_ROOT)/DEBIAN/prerm
 	install -m 0755 distributions/debian_arm64/postrm $(DEB_ROOT)/DEBIAN/postrm
 
-	# The detector, and the script lock_cams.service runs
+	# The detector, the launcher that starts it (#1796), and the script lock_cams.service runs
 	install -D -m 0755 /usr/local/bin/opendartboard $(DEB_ROOT)/usr/local/bin/opendartboard
+	test -n "$(DEB_LAUNCHER)" || { echo "make deb: no opendartboard-launcher in build/ or /usr/local/bin; run make build first (#1796)" >&2; exit 1; }
+	install -D -m 0755 $(DEB_LAUNCHER) $(DEB_ROOT)/usr/local/bin/opendartboard-launcher
 	install -D -m 0755 scripts/lock_cams.sh $(DEB_ROOT)/usr/local/bin/lock_cams.sh
+	test -n "$(DEB_SETUP)" || { echo "make deb: no opendartboard-setup in build/ or /usr/local/bin; run make build first (#1849)" >&2; exit 1; }
+	install -D -m 0755 $(DEB_SETUP) $(DEB_ROOT)/usr/local/bin/opendartboard-setup
 
 	# The model the unit's ExecStart names with --model
 	install -d -m 0755 $(DEB_ROOT)/usr/local/share/opendartboard/models
 	install -m 0644 models/dart.param models/dart.bin $(DEB_ROOT)/usr/local/share/opendartboard/models/
 
-	# Both units, rendered from their templates
+	# The three units, rendered from their templates (#1849 added opendartboard-setup)
 	install -d -m 0755 $(DEB_ROOT)/lib/systemd/system
-	for unit in opendartboard lock_cams; do \
+	for unit in opendartboard lock_cams opendartboard-setup; do \
 		env WIDTH=$(DEB_WIDTH) HEIGHT=$(DEB_HEIGHT) FPS=$(DEB_FPS) \
 			envsubst $(DEB_UNIT_VARS) < templates/$$unit.service.template \
 			> $(DEB_ROOT)/lib/systemd/system/$$unit.service || exit 1; \

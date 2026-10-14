@@ -197,7 +197,7 @@ capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), the default reads 82/
 rig-20260922's opening: v2.1's 12, v3.1's 20 and v5.2's 19 are gained there, and its two
 phantoms are gone. The other three windows publish the same darts either way.
 
-**The entry threshold (#1677), opt-in.** A quiet board starts a motion event when one
+**The entry threshold (#1677), default since turnaus#1682.** A quiet board starts a motion event when one
 camera's board changes by more than `spike_threshold`, 0.011 of that board, frame to
 frame. rig-20260929 throws three darts whose splashes stay under it: v5.3 peaks at
 0.0108, v11.1 at 0.0106 and v12's D14 at 0.0074. No event opens, and the next window
@@ -206,11 +206,13 @@ is the takeout's, which reconciles CLEAN, so each of those darts is lost.
 A running event keeps 0.011. At 0.006, the capture-clock bakeoff reads rig-20260929 at
 18..25/36 per window, up from 16..23, with 0 undetected. r18+r22 stays at 82/86 with 0
 phantoms, and every r18 and r22 run publishes the same sequence. r18 gains one empty
-window per run, which the vote refuses. It is not a default: #1353 measured rig-20260918's
-noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates them on
-amplitude alone.
+window per run, which the vote refuses. It was held opt-in because #1353 measured
+rig-20260918's noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates
+them on amplitude alone; the live run below is what answered that.
+`OD_SPIKE_THRESHOLD=0.011` (or `off`, or any value outside 0 < r < 0.011) pins the entry
+before turnaus#1682 (`motion_processing.cpp`, `entryThreshold`).
 
-**The lone camera (#1678), opt-in.** The state vote's fresh-change floor, 0.10% of a
+**The lone camera (#1678), default since turnaus#1682.** The state vote's fresh-change floor, 0.10% of a
 camera's board, is counted in the scoring area, while the tip is searched in the physical
 board. A double-ring dart seen side-on has its tip inside the scoring area and its shaft
 and flight outside it, so the floor sees only the tip. On rig-20260929, v6.2's D5 cleared
@@ -233,9 +235,10 @@ On the capture-clock bakeoff the rule fires once per rig-20260929 run and nowher
 r18 or r22. Every r18 and r22 run publishes the same sequence, and r18+r22 stays at 82/86
 with 0 phantoms. rig-20260929 reads 18..24/36 per window, up from 16..23. v6.2 publishes
 as its own dart (S5, flagged with D5 as the alternative), and v6.3's S1 is correct. The
-pool reads 118..130/158, up from 114..128. It is not a default: it rests on one dart and
-one negative control, and the control is separated by the tip-in-scoring-area clause
-alone.
+pool reads 118..130/158, up from 114..128. It was held opt-in because it rested on one
+dart and one negative control, and the control is separated by the tip-in-scoring-area
+clause alone. `OD_LONE_CAMERA=off` (any value but `on`) pins the vote before turnaus#1682
+(`dart_processing.cpp`, `loneRuleOn`).
 
 **Both together, on the forced Blade 6 (#1680).** This is main 2c33747 merged with both
 switches' branch, on the capture-clock bakeoff. With both switches off, the bakeoff
@@ -255,6 +258,35 @@ rig-20260929. In that window all three cameras read CLEAN between visits, and th
 re-bases the clean reference. So r18's v6.2 is still S7, but it is published by a
 different path: geometry on the opening window, the vote (NEAR-PARALLEL) on dev and pin.
 Every r22 run publishes the same sequence as with both switches off.
+
+**Both are the defaults since turnaus#1682.** The maintainer decided it on 2026-10-13 on
+the live run of 2026-10-10 (same rig, build 2b56b48). With the defaults of the time, 58
+darts in 20 visits, one bull opened no event at all. With `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`, 156 darts in 68 visits, every dart that landed inside the rim opened an
+event, three in the 25 ring and one bull among them. The seven that opened nothing were
+beyond the rim (#1537) or the second of a fast pair in one window. The session's two
+phantoms were a takeout's arm (#1781), which the 0.011 entry would also have passed, so no
+phantom came from the lower threshold. The pins: `OD_SPIKE_THRESHOLD=0.011` (or `off`)
+restores the 0.011 entry and `OD_LONE_CAMERA=off` restores the vote without the lone
+camera; each logs a warning when set.
+
+The capture-clock bakeoff (`testers/i1555_run.sh`, 2026-10-14, host load 5-15 from
+another checkout's PHP suite), main 96bb38b against this branch:
+
+| fixture, window | main | defaults on |
+|---|---|---|
+| rig-20260918 dev / opening | 19/20, 19/20, phantoms 0 | 19/20, 19/20, phantoms 1 (0 scoring) each |
+| rig-20260922 dev / opening | 21/23, 23/23 | 21/23, 23/23 |
+| rig-20260929 dev | 26..30/36, undetected 1 | **30..33/36**, undetected 0 |
+| rig-20260929 opening | 27..31/36, undetected 1 | **31..34/36**, undetected 0 |
+| POOLED-r18+r22 | 82/86 | 82/86 |
+| POOLED | 135..143/158 | **143..149/158** |
+
+The r18 phantom is v6.1, a thrown MISS. It now opens its own window and publishes `MISS`,
+which the census cannot join to the thrown MISS, so it counts as a non-scoring phantom on
+each r18 run. The same window turns up in `1650-cooldown`, whose visit-6 sequences now
+start with that MISS (re-baselined there). Every other mechanism that tester asserts is
+unchanged.
 
 **Board counts to the rim (#1689), default.** A camera has two board counts: the
 cumulative figure that says the board is occupied, and the fresh figure that says a dart
@@ -459,6 +491,43 @@ Two readings are flagged, in both windows: rig-20260922 v3.2's D20 (radius 0.979
 rig-20260929 v6.2's D5 (0.994), each with MISS as the alternative and each still
 publishing its correct score. The fixtures cannot measure the MISS rule, because they
 hold no miss read deep in the board. It stays opt-in until a live run says it holds.
+
+**The to-MISS half reads the radius (turnaus#1855), still opt-in.** Live on 2026-10-10
+(build 2b56b48, 15:39) one visit put two rim-carried darts with no usable line through the
+to-MISS branch with the identical story: a real S20 read at radius 0.926 and a miss read
+S20 at 0.562. #1707's rule sent both to MISS, fixing one and losing the other. Under
+`OD_RIM_FALLBACK=on` the lone reading now goes to MISS only when its own ruler puts it
+inside **134.5 mm** (radius 0.791): the middle of the outer single band, halfway between
+the treble's outer wire (107) and the double's inner wire (162). At or beyond it the
+reading publishes as read, logged `I1707 RIM FALLBACK KEPT`, and #1773's RING-WIRE flags
+it where it is near a wire. A reading with no radius goes to MISS as before. The double's
+flag half is untouched.
+
+Every rim-carried lone reading with no usable line that the records hold with a truth
+(#1707's body and comments, and the table above; the session logs themselves were not
+re-read for this):
+
+| live reading | truth | radius, mm | #1707 | #1855 |
+|---|---|---|---|---|
+| 2026-10-10 15:39:19, S20 (0.926) | S20 | 157.4 | MISS (wrong) | **S20** |
+| 2026-10-10 15:39:23, S20 (0.562) | miss | 95.5 | MISS | MISS |
+| 2026-09-30 2.6.3, S5 (0.47) | miss | 79.9 | MISS | MISS |
+| 2026-09-30 2.9.3, S18 (0.658) | miss | 111.9 | MISS | MISS |
+| 2026-09-30 run 3, S3 (0.461) | miss | 78.4 | MISS | MISS |
+| 2026-09-30 run 3, D14 (0.981) | miss | - | flagged, MISS offered | unchanged |
+
+The line sits in the middle of the measured gap (111.9 to 157.4 mm), 22.6 mm from the
+nearest miss and 22.9 mm from the real single. The risk is recorded: run 3's real S18 at
+0.75 (127.5 mm) was lone beside a rim-only camera but not rim-carried; had it been, this
+rule would have published it MISS. `testers/i1855_check.sh` holds the table with two
+mutations (the radius keeps nothing: the 0.926 S20 turns MISS; the line moved in to the
+25's wire: the 0.562 miss turns a score).
+
+Bakeoff with `OD_RIM_FALLBACK=on` on the new binary (`OD_WINDOW_UNIT=cycles
+testers/i1555_run.sh`, capture clock, 859 s, 2026-10-14): pooled **143..149/158**, r18+r22
+**82/86**, every fixture row the documented baseline's. The fixtures hold no rim-carried
+lone reading inside the double, so neither MISS nor KEPT fires on any of them; the flag
+half fires on the same D20, D5 and D14 as before, publishing each one as read.
 
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
@@ -920,21 +989,32 @@ crowd the wire and the false ones do not, which is what an honest sigma predicts
 part of #1556's band beyond about 0.6 sigma has caught nothing anywhere.
 
 **The rule** (`score_processing::tightenBoundaryCall`, pure, after `decideBoundaryCall` and
-before #1782's corner): under **`OD_FLAG_SIGMAS=<K>`, 0 < K < 1**, a geometric flag whose
+before #1782's corner): at **K = 0.7 by default** (since turnaus#1815's default, below;
+`OD_FLAG_SIGMAS=<K>`, 0 < K < 1, moves it), a geometric flag whose
 solve is further than K of its own sigmas from the wire publishes as a clear call: no
 alternative, no corner cells, confidence 0.9, and the sentence
 `UNCERTAINTY: S5 clears its nearest wedge wire -- 4.7 mm away across a 5.0 mm one-sigma
 (0.94 sigma), outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815); #1556's 1.0 would have
 flagged it with S20`. **The published score never moves**; the vote path's flags are not
-touched. Unset, empty, a word, 0, a negative or anything >= 1 is #1556's 1.0, byte for byte
-(a K above 1 would loosen the flag and is refused). Census line `I1815FLAG window= z= k=
+touched. Unset is the default 0.7; **`OD_FLAG_SIGMAS=off`** -- or any other set value: empty,
+a word, 0, a negative, 1 or anything above -- is #1556's 1.0, byte for byte (a K above 1 would
+loosen the flag and is refused). Census line `I1815FLAG window= z= k=
 default= flagged= score= alt= kind=` under `OD_GEO_SCORE=on`; `testers/i1555_run.sh`
 forwards the switch.
 
-**The value it proposes is 0.7, and it stays opt-in.** 0.7 is the fixtures' 0.57 with 0.13
-sigma to spare (0.6 would leave 0.03); it is read off fourteen session darts and five fixture
-ones, which is #1556's own reason for refusing k = 0.5 on two, so a live session decides the
-default and not this table.
+**The value is 0.7, and it is the default since turnaus#1815's decision of 2026-10-13.** 0.7
+is the fixtures' 0.57 with 0.13 sigma to spare (0.6 would leave 0.03). It was proposed opt-in
+because it is read off fourteen session darts and five fixture ones; the maintainer turned it
+on after the third session (device/2, 2026-10-13, 1329 darts, below) cut 132 more false flags
+and no true one. It makes the flag rarer, not right: the real fix is a different approach,
+commissioned separately.
+
+**It does not reach the vote path's ring-wire flag (#1773).** `checkVoteReadingAgainstRingWires`
+is called with its default `sigmaMm = kLoneReadingSigmaMm` (5 mm) and its flag is spent straight
+into the vote publish (`result.boundary_flagged = ring_wire.flagged`); `flagCrossingSigmas()` is
+read in one place, `tightenBoundaryCall` on #1556's geometric call, which a vote publish never
+flags (`decideBoundaryCall(geometryPublished = false, ...)`). So every lone double inside the
+5 mm sigma is still flagged, and #1707's argument for closing on RING-WIRE stands.
 
 `turn` darts (a Casual total corrected after the takeout, naming no dart; turnaus#1819) and
 `removed` ones are set aside from both tallies: 19 + 2 of board 17's flags and 12 + 1 of
@@ -950,6 +1030,26 @@ own figure, which counts them as false, is beside it.
 | board 20, K = 0.7 | 123 | 34 | **0** | 2 | 11 | 0.902 | 0.821 |
 | board 20, K = 0.6 | 110 | 45 | 0 | 4 | 9 | 0.891 | 0.818 |
 | board 20, K = 0.5 | 98 | 55 | **1** | 5 | 8 | 0.889 | 0.816 |
+| device/2 2026-10-13, K = 1.0 | 722 | - | - | - | 29 | 0.991 | 0.952 |
+| device/2 2026-10-13, K = 0.7 | 584 | 132 | **0** | 6 | 23 | 0.989 | 0.950 |
+
+**The flagged share of all darts**, recounted for the default (`i1815_census.py --truth-line
+<file> --k 0.7 --k 1.0`, 2026-10-14; every truth line's recomputed flag agrees with the
+board's on all but one dart each on board 20 and device/2):
+
+| session | darts | flagged at 1.0 (off) | flagged at 0.7 (default) |
+|---|---|---|---|
+| casual 17, 2026-10-10 | 526 | 237 (45.1%) | 177 (33.6%) |
+| casual 20, 2026-10-11 | 294 | 159 (54.1%) | 123 (41.8%) |
+| device/2, 2026-10-13 | 1329 | 722 (54.3%) | 584 (43.9%) |
+| casual 19 and 21, 2026-10-11..13 (four short truth lines) | 16 | 3 | 2 |
+| all | 2165 | 1121 (51.8%) | 886 (40.9%) |
+
+**The bakeoff at the default** (`testers/i1555_run.sh`, capture clock, no pins, 887 s at load
+~2, 2026-10-14) is #1682's parent figure on every row: rig-20260918 19/20 and 19/20,
+rig-20260922 21/23 and 23/23, rig-20260929 30..33/36 and 31..34/36, POOLED 143..149/158,
+POOLED-r18+r22 82/86. The six default runs print the `outside the flag's 0.70` sentence on
+19 darts (r18 2 + 2, r22 2 + 2, r29 4 + 7), the 19 the opt-in run of 2026-10-11 cleared.
 
 **What it does and does not buy.** A quarter of the prompts go (60 of 237, 36 of 159) and not
 one corrected dart loses its flag. The false-alarm RATE barely moves, 0.949 -> 0.930 and
@@ -998,6 +1098,76 @@ the ones left; that no dart between z 0.7 and 1.0 is wrong on another rig or ano
 thrower (both sessions are one rig, casual play, with 56 `turn` darts whose outcome is unknown);
 and that the default can move. The corner (#1782) interaction is measured only on the
 fixtures: both sessions predate it.
+
+## Three-camera solves near a wire (turnaus#1844), measured, no change
+
+**The question.** device/2 on 2026-10-13 had three corrected darts that were three-camera
+geometric solves sitting on a wire (T16 -> S16, S6 -> S13, T1 -> S1, all z <= 0.17). Three
+darts are not a rate: does a three-line solve near a wire publish the wrong side more often
+than chance, or than a two-line one? `testers/i1844_wire_side.py <truth-line> ...` answers
+from the truth lines alone (read through `i1815_census.read_truth_line`, by the columns
+line), with #1815's verdict: CORRECTED is `picked` alternative / candidate / typed, STOOD is
+`-` / `published` -- *nobody corrected it*, which is not proof it was right -- and `turn` /
+`removed` are set aside. The camera class is the `cameras` count; one device/2 dart (S20,
+stood) has three cameras and a `crossing_deg`, and is counted as three. `expected` is
+sum Phi(-z) over a bucket's decided darts: the wrong-side publishes an honest Gaussian sigma
+would predict, z being `margin_mm / sigma_mm`.
+
+**Read:** casual/17 2026-10-10, casual/19 and casual/20 2026-10-11, casual/21 2026-10-11,
+-12 and -13 (board 21's three lines hold 8 darts, 2 of them geometric, both stood) and
+device/2 2026-10-13: 2,165 darts, 1,550 geometric.
+
+| cameras | wire | z | posted | flagged | corrected (to) | stood | set aside | expected |
+|---|---|---|---|---|---|---|---|---|
+| 3 | ring | < 0.25 | 49 | 49 | 2 (alternative) | 39 | 8 turn | 18.5 |
+| 3 | ring | 0.25-0.5 | 45 | 45 | 1 (alternative) | 41 | 3 turn | 15.0 |
+| 3 | ring | 0.5-1 | 70 | 70 | 0 | 65 | 5 turn | 15.8 |
+| 3 | ring | > 1 | 94 | 0 | 0 | 87 | 7 turn | 7.1 |
+| 3 | wedge | < 0.25 | 41 | 41 | 2 (alternative) | 38 | 1 turn | 17.9 |
+| 3 | wedge | 0.25-0.5 | 88 | 88 | 0 | 85 | 3 turn | 30.2 |
+| 3 | wedge | 0.5-1 | 130 | 130 | 0 | 125 | 4 turn, 1 removed | 29.5 |
+| 3 | wedge | > 1 | 175 | 0 | 0 | 170 | 4 turn, 1 removed | 10.3 |
+| 2 | ring | < 0.25 | 82 | 82 | 2 (alternative) | 74 | 6 turn | 34.5 |
+| 2 | ring | 0.25-0.5 | 78 | 78 | 1 (alternative) | 73 | 4 turn | 26.6 |
+| 2 | ring | 0.5-1 | 105 | 105 | 1 (typed) | 100 | 4 turn | 23.6 |
+| 2 | ring | > 1 | 137 | 0 | 0 | 133 | 3 turn, 1 removed | 9.8 |
+| 2 | wedge | < 0.25 | 101 | 101 | 6 (alternative) | 88 | 7 turn | 42.5 |
+| 2 | wedge | 0.25-0.5 | 50 | 50 | 2 (alternative) | 46 | 2 removed | 17.1 |
+| 2 | wedge | 0.5-1 | 110 | 109 | 1 (typed) | 105 | 4 turn | 23.9 |
+| 2 | wedge | > 1 | 195 | 0 | 1 (candidate) | 186 | 8 turn | 12.3 |
+
+**Within a sigma of the wire, three-line solves were corrected 5 times in 398 decided darts
+(1.3%) and two-line ones 13 in 499 (2.6%).** The sessions disagree with each other: on the
+casual boards three-line is the *better* class, 2 / 132 against 12 / 173 (Fisher p 0.03);
+on device/2 it is the worse, 3 / 266 against 1 / 326 (p 0.33), and 3 / 61 against 0 / 107
+under 0.25 sigma (p 0.046 -- a bucket chosen after the three darts that raised the issue, so
+it does not count as a finding). Both classes are corrected **far less often than their
+sigma predicts**: 18 corrected where an honest sigma expects about 295 wrong sides inside
+one sigma, and at z < 0.25, where chance is a coin, 4 of 81 three-line darts and 8 of 170
+two-line ones were corrected (5% both). The sigma is pessimistic, not optimistic (three
+fifths of the three-line solves sit on the 5.0 mm floor); "wrong side more often than
+chance" does not happen in either class.
+
+**The radial side** (`I1844 SIDE`). Corrected three-line ring darts: T12 -> S12 inward (casual
+17), T16 -> S16 outward and T1 -> S1 inward (device/2). Two-line: T13 -> S13 and D20 -> S20
+inward, S7 -> D7 outward, S20 -> None (typed, no side). Every corrected dart near a ring wire,
+vote included: 5 outward, 11 inward -- the inward ones mostly a vote double that was the
+single (D5, D19, D1 -> S, plus geometric D20), the outward two of them a vote D -> None at the
+rim. Not one-sided for three-line solves (1 against 2); the pooled lean (sign test p ~0.2) is
+the double's inner wire on the vote path, which is #1773's ground, not this issue's.
+
+**The frames** (device/2's kept frames, three cameras each). T1 -> S1 (one dart on the board):
+camera 3 shows the tip just inside the treble's inner wire, the corrected side; cameras 1 and 2
+put it on the wire itself and cannot say. T16 -> S16 and S6 -> S13: the frames hold three and
+two darts, and I cannot tell which one is the dart named, so I cannot say which side its tip
+is on.
+
+**Verdict: noise, as far as these sessions can say.** Three-line solves near a wire are not
+corrected more often than two-line ones pooled, both are corrected far less often than their
+own sigma predicts, and the three device/2 darts sit in a bucket that holds them because the
+issue was filed on them. What these lines cannot say: whether stood darts were right (nobody
+was asked), and the 35 three-line `turn` darts (16% of the three-line ring darts under 0.25
+sigma) whose wrong dart, if any, is unnamed.
 
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
@@ -1444,6 +1614,96 @@ filled, a visit of four, no reset, the END before its misses, the switch ignored
 1.0, no path, the body's `inferred` struck) each fail exactly the assertions predicted
 beforehand.
 
+## A body at the board carried as darts by the rim-only votes (turnaus#1802), opt-in
+
+**Live on casual board 20** (2026-10-11, build 0.1.13-1798, `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on OD_KEEP_FRAMES=on`; the session in `sessions/2026-10-10-11/`, kept off GitHub)
+the board published three MISSes between the takeout END at 01:01:58.525 and the next at
+01:02:14.754, sixteen seconds in which nobody threw:
+
+| window | `I1707 RIM CARRIED` | the cameras (the DEGRADED story) | published |
+|---|---|---|---|
+| 01:02:06.363 | 3 up, 1 clearing the scoring floor | 1, 3 `rim only`; 2 `not straight`, 3.90 px RMS | MISS 0.5 |
+| 01:02:08.241 | 3 up, 0 clearing | 1, 2, 3 `rim only` | MISS 0.5 |
+| 01:02:10.312 | 3 up, 1 clearing | 1, 3 `rim only`; 2 `not straight`, 10.06 px RMS | MISS 0.5 |
+| 01:02:14.738 | END | `CLEAN BY REVERSION`: camera 2 from 25,835 to 270 px, 1 from 2,833, 3 from 3,063 | |
+
+None of the three had a reading in the vote (no `LONE-WIRE`, no `single camera score`): each is
+the no-winner MISS.
+
+**What the frames would say is unmeasured.** The board was offline when this was written, so the
+kept frames of the three references were not read, and what camera 2 was looking at (a thrower, a
+hand, the floor) is argued from the figures, not seen. What the figures say: something stayed in
+camera 2's view for at least three windows and left in one, back to 270 px off the scene the first
+END adopted (its CLEAN ceiling is 213); cameras 1 and 3 saw only a dart's worth of it (2,833 and
+3,063 px), at the rim.
+
+**Two premises of the issue, measured.**
+- *"no camera clearing the scoring floor"* holds for one window of three. In the other two camera
+  2 cleared it, with a figure refused `not straight`. What none of the three had is a camera on a
+  **usable line** in the scoring area -- the separator #1821 already named, and the one this rule
+  uses.
+- *"25,835 px, a hundred times its CLEAN ceiling and far beyond any dart window"*: the first half
+  is arithmetic (121x 213 px), but the CLEAN ceiling is a noise floor, not a dart. Against darts
+  it is not body-sized: 11.96% of camera 2's board (215,989 px, rig-20260929's, #1781's stand-in;
+  the live log prints no board size), under #1781's 15%. In the same log a real three-dart visit
+  (S20 S1 S20, the END at 01:23:02) reached 23,009 px on camera 2 and fell to 290, and on 2b56b48
+  at 16:51 three real surround misses reached 32,153 px. A cumulative figure does not separate
+  them.
+
+**The rule.** `OD_RIM_BODY=on` (`dart_processing.cpp`; the pure predicate `rimCarryIsABody` in
+`dart_processing.hpp`) holds an advance when all three hold:
+- the rim-only votes carried it (#1707's `rim_carried`: fewer cameras than the quorum cleared the
+  scoring floor);
+- no voting camera cleared the scoring floor **on a usable line** (`cleared_scoring_floor` with a
+  valid shaft axis), so #1821's S13 and the fixtures' surround misses, which each had one, stand;
+- a voting camera's fresh figure is **11% of its board** or more (`rimBodySharePercent`), by
+  #1781's measure, `freshFigureIsBodySized`: the fresh change counted to the rim as a share of the
+  scoring-area board. The two issues share the measure, and the figure differs because the window
+  does: at #1781's 15% this rule would be a subset of `OD_BODY_WINDOW=size` and could hold nothing
+  that switch does not.
+
+It logs `I1802 RIM BODY HELD`. `OD_BODY_CENSUS=1` prints an `I1802RIM` line on every rim-carried
+window, on and off alike, with each up-voter's fresh figure and share and whether it was `rim`,
+cleared on a `line`, or cleared on `noline`.
+
+**Where 11% comes from.** From a CLEAN board, and on every window a hold keeps at CLEAN, the
+working background is empty and the fresh figure is the cumulative one, so camera 2's 25,835 px
+(11.96%) is what the rule reads in the third window. Below it: the largest fresh figure any
+camera brought to any called dart on the seven bakeoff replays, 9.96% (#1781's census), and a
+surround dart at about 5% (32,153 / 3). 11% is above every dart on record and under the one
+phantom whose figure was printed. Both margins are thin, and the first two windows' figures were
+never printed (`OD_BODY_CENSUS` was off): whether the rule would have held all three is not
+known, which is why it is opt-in and why a live session should run it with `OD_BODY_CENSUS=1`.
+
+**Hold until the next window confirms? Measured against, not built.** A dart stays and a body
+leaves, but on board 20 the window after a rim-carried dart is the takeout in 12 of 29 (the third
+dart of a visit), which is a reversion: confirmation would refuse every rim-carried third dart,
+among them the thrown S13 (#1821) and accepted doubles (00:59:03 D20, 01:12:31 D10), or hold it
+until the takeout, 2.7 to 41.7 s. For the other 17 the cost is the next window, a median 2.8 s
+after (latency measured publication to publication). And it would have caught one phantom of
+three: the window after the first and second was another arrival 1.9 and 2.1 s later, with the
+body still in view, so each would have confirmed the one before.
+
+**The census for the run.** The longer of the session's two log copies holds 29 rim-carried
+windows. In 21 the DEGRADED story reads 0 usable constraints, the proxy here for the rule's
+second clause: the three phantoms; uncorrected Nones at 01:02:59, 01:12:01, 01:13:04, 01:15:11,
+01:24:47, 01:27:44, 01:33:58, 01:35:32 and 02:11:58; doubles the thrower kept (00:59:01 D1,
+01:05:22 D12, 01:07:04 D5, 01:11:41 D11, 01:12:29 D13, 01:12:31 D10); a D20 corrected to its
+alternative None (00:59:20); an S9 and one more window whose truth rows were not paired with
+confidence. So the first two clauses alone would refuse kept doubles, and the third is what
+keeps them: a single dart on camera 2 is under 6% (12,692 px, #1781's largest camera-2 fixture
+dart). Their own fresh figures were not printed either. The 8 with a usable constraint (the S13
+among them) stand whatever their size.
+
+`testers/run_all.sh 1802-rimbody` (45 s at load ~12-14) holds `rimCarryIsABody` on the live
+windows (the 01:02:08 window carrying the third window's figure as a stand-in, said in the
+assertion), the largest fixture dart, a surround dart, #1821's S13 and a window the scoring area
+carried, and mutates each clause with the prediction stated first: the figure at 15% (both
+phantoms stand), at 9% (the fixture dart is held), any clearing camera keeping the dart (the
+`not straight` phantom stands), no line keeping it (the S13 is held), and the carry dropped (a
+scoring-area window is held). All five fail as predicted.
+
 ## Kept frames, the account per dart and the log upload (turnaus#1787)
 
 **What a kept dart is.** The window that calls a dart averages each camera's frames while
@@ -1588,6 +1848,121 @@ ran to the end of the footage and exited 0: the guard measured live, the stop no
 overnight restarts at 06:00, the log shows the sentence, `update\state.txt` shows
 `scheduled`, and the new run's first lines name the version Turnaus offered. Not yet done.
 
+## A Pi updates through the launcher (turnaus#1796)
+
+**The decision** (the maintainer, 2026-10-10): a Raspberry Pi board updates the way a
+Windows board does -- the same launcher, the same signed manifest, the same
+rename-never-overwrite and the same rollback -- from the release Turnaus's publish button
+offers the board's channel. Not apt: no apt repository exists and nobody is going to
+maintain one, so until #1796 every Pi was updated by somebody with a terminal running
+`dpkg -i`. ADR-0077's scope note ("a Linux board updates through apt or by hand") and
+ADR-0083's door 2 are amended on the Turnaus side by number from this issue's report.
+
+**What runs on the board.** The `.deb` carries two binaries in `/usr/local/bin`,
+`opendartboard` and `opendartboard-launcher` (`Makefile`, `deb`; `CMakeLists.txt` builds
+the launcher target on both platforms since #1796 -- the same `src/launcher/main.cpp`,
+nlohmann and the detector's own httplib transport, `src/update/p256_verify.hpp` for the
+signature in place of CNG, no OpenCV). The unit's `ExecStart` execs the launcher where it
+exec'd the detector (`templates/opendartboard.service.template`): the shell still picks
+the per-start log file (#1801), and every argument after the quoted script -- `--autocams`,
+the mode, `--model`, `--log-file` -- passes through the launcher to the detector in order,
+untouched (`command_line.hpp`; measured by `testers/i1796_inside.sh`, which diffs the
+stub's argv against the list it was given). `NotifyAccess=all` where it was `main`,
+because the main process is now the launcher and the detector's own `Status:` line (#1383)
+would otherwise be dropped. `systemctl status opendartboard` shows the launcher as the
+main process and the detector as its child.
+
+**Where the launcher keeps what -- never in `/usr/local/bin`.** The two files there are
+dpkg's, and a launcher that renamed one into `update/previous` would leave `dpkg -V`
+complaining for ever and a later `dpkg -i` writing over its work. So the launcher's tree
+is under the one directory a Pi already keeps everything in (#1660, `StateDirectory=`),
+in exactly the Windows shape (`install_layout.hpp`, `layoutUnderStateDir`):
+
+```
+/var/lib/opendartboard/opendartboard              the detector the launcher installed
+/var/lib/opendartboard/update/state.txt           the six facts (#1306)
+/var/lib/opendartboard/update/previous/           the version that worked, kept whole
+/var/lib/opendartboard/update/staging/            where an archive is unpacked
+/var/lib/opendartboard/update/download.archive    the verified bytes on their way
+/usr/local/bin/opendartboard                      the deb's own: read, copied, never moved
+```
+
+The launcher starts `/var/lib/opendartboard/opendartboard` when it exists and
+`/usr/local/bin/opendartboard` when it does not (`programToStart()`), so a board that has
+never taken a release over the wire runs the deb's detector exactly as before. The first
+update COPIES the deb's detector into `update/previous` -- a copy, since the file is not
+ours to move -- so the first release a Pi installs can be rolled back like every later
+one (`apply_update.hpp`, step 9). `credentials.json`, `channel.json`, `cameras.json` and
+`score_token` are in the same directory and nothing on this path writes them.
+
+**The archive and its manifest.** `release.yml`'s deb job now also writes
+`opendartboard-<version>-linux-arm64.tar.gz` (the detector, the launcher, `LICENSE`,
+`BUILD-INFO.txt`, `models/`) and signs `manifest-linux-arm64.json` over it with the same
+script and key as the Windows `manifest.json`; Turnaus serves it at
+`/updates/opendartboard/<channel>-linux-arm64.json`, which is the path an arm64 build asks
+(`update_check::pathFor`, `OD_UPDATE_PLATFORM`; `docs/api.md`, "The update manifest per
+platform"). The job then asks the arm64 detector it just built to read that manifest at
+that path and to refuse it one byte later, as the Windows job does. A tar.gz rather than a
+zip because `/bin/tar` is Essential on every Debian and python3 is not promised on Pi OS
+Lite: the POSIX unpack seam reads the archive's first two bytes and hands gzip to
+`/bin/tar -xzf`, anything else to python3's zipfile (which is what `testers/i1306_check.sh`
+has always sent it). The deb's `Depends` gains nothing.
+
+**Installed once by hand, and never touched by hand again.** `dpkg -i opendartboard_<v>.deb`
+(the deb on the release, `docs` elsewhere for the card and the pairing), pair the board,
+`systemctl status opendartboard`. From then on the channel decides: the launcher looks
+before a start that follows a clean stop fifteen minutes old, a bad ending, or #1797's
+scheduled stop at 06:00, and a release the channel publishes is on the board the next
+morning with the old version in `update/previous`. A `dpkg -i` by hand is still possible
+and means "put the board on the package's version": `postinst` clears
+`/var/lib/opendartboard/opendartboard` and `update/`, so the next start finds no state and
+runs the deb's detector until the channel offers something else.
+
+**The launcher under systemd.** It asks nothing: `console_prompt::isInteractiveConsole()`
+is false where there is no terminal, and `testers/i1303_check.sh` measures the launcher on
+`/dev/null`, an open pipe nobody writes and no stdin at all (i1796's own runs use a fifo
+nobody writes and `/dev/null`). When the detector stops the launcher exits with
+`ending.hpp`'s code (0, 40, 41, 42, 43) and `Restart=always` starts it again. A
+`scheduled` stop (exit 60) is followed INSIDE the launcher, as on Windows (`carry()` goes
+round once): one look, one restart with the same arguments, no unit restart and nothing
+counted against `StartLimitBurst` -- the same code on both platforms, measured by the same
+testers, which is why the Linux launcher does not simply exit 60 and let systemd carry. A
+release whose detector exits at once is started twice and rolled back within the same
+launcher run, so the unit sees one start where it would have seen three.
+
+**TLS.** The manifest and the artefact are fetched by `src/communication/http_transport.hpp`,
+the detector's own transport; on the base this issue was cut from the POSIX build has no
+TLS (#822's note) and so refuses an https address with "this build has no TLS transport",
+exactly as the detector's `--check-update` does. #1798 adds OpenSSL to that transport --
+and that sentence used to end "the launcher takes the same header and needs nothing of its
+own", which was false: #1798 defines `CPPHTTPLIB_OPENSSL_SUPPORT` and links OpenSSL into
+the `opendartboard` target alone, PRIVATE, so a launcher built beside it compiled the same
+header without TLS. `CMakeLists.txt` now gives the launcher target the same two lines under
+the same `find_package(OpenSSL)`, and the configure log names both targets' answer.
+
+**A release asset is a redirect.** The url `release.yml` signs into the manifest is
+`https://github.com/<repo>/releases/download/<tag>/<name>`, which answers 302 to a signed
+address on another host. WinHTTP follows that by default; httplib does not, and the first
+container run of `i1796_check.sh` with a redirecting artefact host printed "The release
+could not be fetched: HTTP 302." and installed nothing. The artefact fetch -- and only it --
+now asks the transport to follow (`odhttp::get(..., follow_redirects)`); the bytes are held
+to the signed size and digest wherever they came from (ADR-0077 §6). The harness's artefact
+host redirects since, so a regression is red there.
+
+**Measured in the container, 2026-10-11** (`testers/i1796_check.sh`, the launcher built
+by this tree's `CMakeLists.txt` with `-DOD_UPDATE_PLATFORM=linux-arm64` and the fixture's
+anchor, `/tmp/i1796/state` as `STATE_DIRECTORY`, the deb's detector beside the launcher
+in `/tmp/i1796/bin`, the manifest fetched from the credential's `base_url`): see the
+tester's own output on the issue -- first boot one request at
+`/updates/opendartboard/stable-linux-arm64.json` and the deb's detector started; `v1.1.0`
+installed from the tar.gz with `update/previous/opendartboard` a byte-identical copy of the
+deb's and `/usr/local/bin/opendartboard` untouched; `v1.3.0` (exit 3 at once) started
+twice and rolled back to `v1.1.0` in one launcher run ("Going back to version v1.1.0,
+which worked" / "Palataan versioon v1.1.0, joka toimi"); `v1.2.0` stopping on schedule
+followed by one look and one restart with byte-identical argv; the three config files
+byte-identical throughout. `--mutate` (the suffix dropped on a copy of `src/`) turns the
+pure check and the install red.
+
 ## A Raspberry Pi pairs over TLS, and which builds can (turnaus#1798)
 
 **Which builds can pair.** Pairing (`--pair`, `--pair-contest`) and every push go to an
@@ -1618,6 +1993,36 @@ device 1 and wrote the credential, and the service's next start logged `pushing 
 <host> over httplib (TLS)`. A code forty minutes old was refused with 422, which is the
 server's ten-minute expiry, and shows the request reached Turnaus over TLS. The same board
 reached 84 °C during calibration without a cooler.
+
+## A Pi with no network sets itself up from a phone (turnaus#1849)
+
+`opendartboard-setup` (`src/setup/`, its own unit, shipped and enabled by the `.deb`) is the
+board's half of ADR-0083: five failed looks at the network in one boot, counted in
+`/var/lib/opendartboard/join-attempts`, raise the access point `Turnaus-XXXX` at
+`10.42.0.1`; `GET /setup` and `POST /setup {ssid, passphrase, pin}` on port 80 take the
+club's Wi-Fi and a pairing code; the board joins through NetworkManager and spends the code
+with `opendartboard --pair <pin> --keep-device`, which presents the board's current token so
+Turnaus keeps the device and rotates it (turnaus#1848).
+
+**Measured, with no radio** (`testers/i1849_check.sh`, 2026-10-14, 44 s wall): the decisions
+in `setup_machine.hpp` with NetworkManager and the pair call faked -- the count across five
+separate processes, a new boot starting it again, the scan taken before the access point,
+GET's four keys and no secret in them, nine malformed bodies refused 422 with nothing
+changed, the success path in order (drop, join, pair, restart the detector) and the four
+failure paths each deleting the new connection and raising the access point again -- and the
+pair path against an in-process devices door: the Bearer token presented, a rotated token
+kept, the file byte-for-byte on a 422 or on an answer for another club. `testers/
+i1659_deb_check.sh` measures the third unit installed, enabled, verified and removed.
+
+**Not measured: everything that touches NetworkManager.** The build image carries none, so
+`nm_platform.hpp`'s nmcli lines -- the shared-mode access point and whether `10.42.0.1` is
+really the address the phone reaches, `--rescan yes` on a Pi Zero 2 W's one radio, a wrong
+passphrase's exit status, how long a join takes -- have never run. The record of a real run,
+a fresh card to a paired board, belongs here and is the maintainer's at the board:
+
+| date | card | release | N looks to the access point | address | setup to paired | notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| *not yet run* | | | | | | |
 
 ## A session read back: the truth line, the log and the fault classes (turnaus#1789)
 
@@ -1860,6 +2265,20 @@ the old count times the rig's 33.3 ms:
   call is one window in either unit. The pin does not make a file replay deterministic:
   which frame a cycle reads still depends on scheduling. Over three runs with the pin,
   1339's rig counted 27 events over its board every time and 23 or 24 over the frame.
+- **The window pin leaves the motion timers on the wall (turnaus#1838).** The cooldown
+  (1000 ms), the spike window (`spike_window_frames * 50` ms), the safety timeout
+  (10000 ms) and the body-window vote's `sinceEndMs` are lengths of `od_clock::now_ms()`,
+  not windows, so `OD_WINDOW_UNIT=cycles` does not touch them and on the default motion
+  clock they are wall time. A probe that replays the clips itself
+  (`i1492_tip_probe.cpp` and its siblings) reads frames in order, so scheduling cannot
+  change which frame a cycle sees; those timers are the only load-dependent input left in
+  it by reading. Until #1838 such a probe could not run on `OD_MOTION_CLOCK=capture`
+  either: only the detector's capture seam winds `od_clock::capture_ms()` and
+  `cycles()`, so a probe's capture clock read 0 for the whole replay.
+  `testers/replay_clock.hpp` winds it as the seam does; `i1492_tip_probe.cpp` calls it,
+  `1492-tips` pins `OD_MOTION_CLOCK=capture`, and `1838-replay-noise` replays the rig
+  quiet and under load on that pin and asserts identical darts. The other probes
+  (`i1490`, `i1493`, `i1505`) do not wind it yet.
 - **1339-denominator also pins `OD_SETTLE_EXPOSURE=off`** (the motion before #1662). On its
   scaled clip the exposure hold cuts the small board's events from 33 to 19-20 and leaves
   the frame arm at 21-22, which inverts the comparison the tester makes. That is a finding

@@ -301,7 +301,7 @@ namespace score_processing
         return line;
     }
 
-    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED BEHIND A SWITCH ------------------
+    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED (0.7 BY DEFAULT) ------------------
     //
     // The first two real sessions (casual boards 17 and 20, 2026-10-10/11, 820 darts, read
     // back through turnaus#1786/#1789) flagged 396 darts and 340 of them stood as published:
@@ -323,15 +323,27 @@ namespace score_processing
     // flags spread over every margin with the true ones among them (1.3 to 4.8 mm), and
     // nothing in the sessions separates them.
     //
-    // OD_FLAG_SIGMAS=<K>, 0 < K < 1, turns it on; unset, empty, unparseable or outside that
-    // range is #1556's 1.0, byte for byte. docs/rig.md records the measurement and the value
-    // it proposes (0.7: the fixtures' 0.57 with 0.13 sigma to spare). A figure read off
-    // fourteen session darts and five fixture ones is why it is not the default.
+    // 0.7 IS THE DEFAULT since the maintainer's decision of 2026-10-13 (turnaus#1815's
+    // comment of that date): the fixtures' nearest true flag, 0.57, with 0.13 sigma to spare;
+    // on the three sessions it clears about a quarter of the prompts, loses no true flag and
+    // moves no score. OD_FLAG_SIGMAS=<K>, 0 < K < 1, sets the threshold to K. ANY OTHER SET
+    // VALUE -- `off`, `1`, empty, unparseable or outside that range -- is #1556's 1.0, byte
+    // for byte, the flag as it was before the default. docs/rig.md records the measurement.
 
-    /** turnaus#1815: the switch's value from its text, pure; 1.0 (#1556's) unless a K in (0, 1). */
+    /** turnaus#1815: the default threshold, in the solve's own sigmas. */
+    inline constexpr double kDefaultFlagSigmas = 0.7;
+
+    /**
+     * turnaus#1815: the switch's value from its text, pure. Unset is the default 0.7; a K in
+     * (0, 1) is K; anything else set (`off` among it) is #1556's 1.0.
+     */
     inline double flagSigmasFrom(const char *text)
     {
-        if (text == nullptr || *text == '\0')
+        if (text == nullptr)
+        {
+            return kDefaultFlagSigmas;
+        }
+        if (*text == '\0')
         {
             return 1.0;
         }
@@ -1140,6 +1152,72 @@ namespace score_processing
     inline constexpr float kOuterTrebleWireMm = 107.0f; // triple | single
     inline constexpr float kInnerDoubleWireMm = 162.0f; // single | double
     // double | MISS is kScoringRadiusMm, 170.
+
+    // #1707: what a lone camera's fallback reading publishes when a camera in the window
+    // was rim-only (it voted the arrival and offered no figure). Two cases, each from the
+    // live run on 2026-09-30 (issue-1689, run 2), whose four wrong scores were all this
+    // fallback:
+    //   - `unsupported`: the dart was CARRIED by rim-only votes (fewer cameras than the
+    //     quorum cleared the floor in the scoring area) and no camera offered a usable
+    //     axis. Such a dart is at or beyond the double on the cameras that did not see it
+    //     side-on, and a lone tip INSIDE the double (single, triple, either bull) with no
+    //     line behind it is the dart's barrel or flight over the board -> MISS. Live: the
+    //     misses read S5 (radius 0.47) and S18 (0.658). Left alone: the S20 at 0.871 had a
+    //     usable axis, and the S3 at 0.84 was not carried by the rim.
+    //   - a reading in the DOUBLE publishes, flagged, with the candidate across the nearer
+    //     of its two wires: the single inside (radius < 0.977, the band's middle at
+    //     166/170) or MISS outside. Live: a miss read D3 (0.994), an S2 read D2 (0.954).
+    //     The published score is unchanged; the thrower is offered the other one.
+    // Opt-in: OD_RIM_FALLBACK=on. Unset, the lone camera publishes as it reads.
+    //
+    // #1855: THE TO-MISS HALF READS THE RADIUS. Live on 2026-10-10 (build 2b56b48, 15:39)
+    // one visit put two rim-carried darts with no usable line through this branch with the
+    // identical story: a real S20 read at radius 0.926 (157.4 mm) and a miss read S20 at
+    // 0.562 (95.5 mm). The rule as #1707 wrote it sent both to MISS -- one fixed, one lost.
+    // A rim vote says "at or beyond the double", and a lone tip deep in the board
+    // contradicts it; a lone tip in the outer single's outer half does not, because a
+    // real single there is exactly what a camera seeing the dart edge-on at the rim
+    // reports as `rim only`. So the lone reading goes to MISS only when, by its own ruler,
+    // it lies inside kRimMissBelowMm: the middle of the outer single band, halfway between
+    // the treble's outer wire (107) and the double's inner wire (162), 134.5 mm (radius
+    // 0.791). Every recorded rim-carried miss reads inside it (0.461, 0.47, 0.562, 0.658:
+    // 78-112 mm, the nearest 22.6 mm in) and the one recorded real single outside it
+    // (0.926: 157.4 mm, 22.9 mm out) -- the line sits in the middle of the measured gap,
+    // more than four of #1628's 5 mm sigmas from either side. A treble, an inner single
+    // and either bull are all inside it by construction. A reading WITHOUT a radius has no
+    // ruler to ask and goes to MISS as #1707 sent it. A kept reading publishes as it read,
+    // and #1773's RING-WIRE then flags it where it is within its sigma of a wire.
+    inline constexpr float kRimMissBelowMm = (kOuterTrebleWireMm + kInnerDoubleWireMm) / 2.0f; // 134.5
+
+    struct RimFallback
+    {
+        bool to_miss = false;
+        bool flag = false;
+        bool kept = false; // #1855: unsupported, inside the double, but at or beyond kRimMissBelowMm
+        float radius_mm = -1.0f;
+        string alternative;
+    };
+
+    inline RimFallback rimCarriedFallback(bool applies, bool unsupported, const string &ring, int segment,
+                                          float radius)
+    {
+        RimFallback f;
+        if (!applies)
+            return f;
+        if (unsupported && (ring == "single" || ring == "triple" || ring == "bull" || ring == "outer"))
+        {
+            f.radius_mm = radius >= 0.0f ? radius * kScoringRadiusMm : -1.0f;
+            f.kept = f.radius_mm >= kRimMissBelowMm;
+            f.to_miss = !f.kept;
+        }
+        else if (ring == "double")
+        {
+            f.flag = true;
+            f.alternative = (radius >= 0.0f && radius < 0.977f && segment > 0) ? "S" + to_string(segment)
+                                                                                : string("MISS");
+        }
+        return f;
+    }
 
     /**
      * #1773: this reading's distance to the nearest RING wire of the ring it was scored

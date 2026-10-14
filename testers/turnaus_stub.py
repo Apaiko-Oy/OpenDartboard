@@ -151,6 +151,27 @@ GIVE_UP_AFTER = int(os.environ.get("STUB_GIVE_UP_AFTER", "0"))
 GIVE_UP_AFTER_BEATS = int(os.environ.get("STUB_GIVE_UP_AFTER_BEATS", "0"))
 # Whether this deployment serves a heartbeat address for a Casual board at all.
 CASUAL_BEAT = os.environ.get("STUB_CASUAL_BEAT", "1") == "1"
+# #1841: WHAT a given-up Contest answers at its three routes. The comment above GIVE_UP_AFTER
+# is #891's model -- the token deleted, the guard's 401 -- and it is what every tester before
+# #1841 ran against, so `401` stays the default and nothing they recorded moves. The real
+# server, measured 2026-10-13 (Raspberry Pi 5, Contest 22), answers something else: the token
+# is still admitted and CasualDetectionController::boardOf() throws a ValidationException,
+# HTTP 409 in Laravel's shape, {"message": "<localised>", "errors": {"board": ["<localised>"]}}
+# -- which the client read as the autoscorer door's "no Station" for twenty-five minutes.
+#   401             #891's model, the default: Unauthenticated at every Casual route
+#   409             the real shape: 409 with errors.board, the sentence localised, at the
+#                   heartbeat, detections and takeouts routes alike
+#   409-nostation   the counterfactual #1841's second case needs: a 409 at the Contest door
+#                   WITHOUT errors.board ({"message": "This board stands at no Station."},
+#                   the autoscorer door's own body), which must NOT end the binding
+GIVE_UP_STATUS = os.environ.get("STUB_GIVE_UP_STATUS", "401")
+if GIVE_UP_STATUS not in ("401", "409", "409-nostation"):
+    sys.stderr.write("turnaus_stub: STUB_GIVE_UP_STATUS must be 401, 409 or 409-nostation, not %r\n"
+                     % GIVE_UP_STATUS)
+    sys.exit(2)
+# The sentence is a stand-in for casual_detection.error.discarded / evening_over in whatever
+# language the board asked for; the client must never read it, only the shape around it.
+GIVEN_UP_SENTENCE = "This game has been given up, so this board is no longer on it."
 
 lock = threading.Lock()
 
@@ -290,6 +311,20 @@ class Handler(BaseHTTPRequestHandler):
                           "pairedAt": "2026-09-06T19:31:00+00:00"}}})
 
         if self.path.startswith("/api/v1/casual/"):
+            # #1841: the real give-up answer, when asked for. The token is still this
+            # board's -- a wrong one is a 401 below as it always was -- but the Contest it
+            # names is over, and boardOf() says so with a 409 whose body carries
+            # errors.board. The 409-nostation value answers the OTHER door's 409 body here,
+            # which is the shape the client must go on reading as "no Station".
+            if presented == CASUAL_TOKEN and state["casual_given_up"] and GIVE_UP_STATUS != "401":
+                record({"event": "casual_refused", "path": self.path,
+                        "auth_sha256_16": auth_digest,
+                        "given_up": True, "status": 409, "shape": GIVE_UP_STATUS})
+                if GIVE_UP_STATUS == "409":
+                    return self.reply(409, {"message": GIVEN_UP_SENTENCE,
+                                            "errors": {"board": [GIVEN_UP_SENTENCE]}})
+                return self.reply(409, {"message": "This board stands at no Station."})
+
             # The guard, and it is the whole of the give-up story. A deleted token cannot
             # be admitted, and a board holding the club's credential is not this board.
             if presented != CASUAL_TOKEN or state["casual_given_up"]:
