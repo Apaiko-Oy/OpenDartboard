@@ -37,6 +37,7 @@
 #include "detector/geometry/detection/dart_processing.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
 #include "detector/geometry/detection/score_processing.hpp"
+#include "replay_clock.hpp" // turnaus#1863: winds od_clock as the capture seam does (#1838)
 
 namespace
 {
@@ -183,6 +184,11 @@ int main(int argc, char **argv)
 
     long cycle = 0;
     int dart = 0;
+    // turnaus#1863: the motion clock is wound as the detector's capture seam winds it, once per
+    // cycle after the reads (testers/replay_clock.hpp). On the default wall clock this changes
+    // nothing; under OD_MOTION_CLOCK=capture the cooldown, the spike window, the safety timeout
+    // and the body-window vote run on the footage's own 33.3 ms frames instead of reading 0.
+    replay_clock::start(caps);
     while (true)
     {
         std::vector<cv::Mat> images(cameras);
@@ -194,6 +200,7 @@ int main(int argc, char **argv)
         }
         if (got == 0) break;
         cycle++;
+        replay_clock::advance(caps, images);
 
         const motion_processing::MotionResult motion =
             motion_processing::processMotion(images, background_frames, board_extents, false);
@@ -241,6 +248,9 @@ int main(int argc, char **argv)
         }
     }
 
-    std::cout << "I1493END cycles=" << cycle << " darts=" << dart << std::endl;
+    // turnaus#1863: which motion clock the replay ran on and where it ended, so the harness can
+    // tell a wound clock from one that read 0 all the way through (i1492_tip_probe's shape).
+    std::cout << "I1493END cycles=" << cycle << " darts=" << dart << " motionClock=" << od_clock::mode_name()
+              << " motionMs=" << od_clock::now_ms() << std::endl;
     return 0;
 }

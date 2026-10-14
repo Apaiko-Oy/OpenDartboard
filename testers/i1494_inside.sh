@@ -23,6 +23,16 @@ set -u
 # 1492-tips' base run -- one binary, one clip, minutes apart -- read the worst on-board
 # dart as 108.2 mm and 19.5 mm. A figure this tester asserts must be the tree's, not the box's.
 export OD_WINDOW_UNIT=cycles
+# turnaus#1863: and the motion clock is the footage's, as 1492-tips has pinned it since #1838.
+# The cycles pin takes the WINDOWS off the wall clock and leaves the cooldown, the spike window,
+# the safety timeout and the body-window vote on it, so until #1863 this 2x2 ran those four
+# timers on wall time: four replays of one binary on one clip at ~21 ms a cycle, where the
+# footage plays at 33.3, and a loaded box would have cut them differently again (1492-tips read
+# 19 and 20 darts from one binary at a load average of ~18). The probe winds the capture clock
+# (testers/replay_clock.hpp), so the timers run on the clip's own frames whatever the load.
+# What this pin moved on the fixture is recorded in the #1863 report; 1838-replay-noise holds
+# the claim that it takes the load out.
+export OD_MOTION_CLOCK=capture
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }

@@ -4,6 +4,15 @@
 #
 # It never ends on an `echo` (#1463): the last statement is `exit $FAILED`.
 set -u
+# turnaus#1863: and the motion clock is the footage's, as 1492-tips has pinned it since #1838.
+# The cycles pin takes the WINDOWS off the wall clock and leaves the cooldown, the spike window,
+# the safety timeout and the body-window vote on it, so until #1863 this probe ran those four
+# timers on wall time -- 1691 cycles in ~36 s where the footage plays them in 56 -- and a loaded
+# box cut them differently again (1492-tips read 19 and 20 darts from one binary at a load
+# average of ~18). The probe now winds the capture clock (testers/replay_clock.hpp), so the
+# timers run on the clip's own frames whatever the load; what the pin moved on this fixture is
+# in the #1863 report, and 1838-replay-noise holds the claim that it takes the load out.
+export OD_MOTION_CLOCK=capture
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
@@ -57,6 +66,20 @@ echo "=== replaying the whole of mocks/rig-20260918 through the detector's own s
 RC=$?
 grep '^I1493CAM ' /run1493/rows.txt
 grep '^I1493END ' /run1493/rows.txt
+
+# turnaus#1863: the probe ran on the capture clock and WOUND it -- motionMs at its end is the
+# footage's length rather than 0 (1838-replay-noise's first check). A probe that stopped calling
+# replay_clock::advance would run its cooldown and spike window on a clock stuck at 0, publish no
+# darts, and the control below would read as a detection failure rather than as what it is.
+CYCLES=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*cycles=\([0-9]*\).*/\1/')
+CLOCK=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*motionClock=\([a-z]*\).*/\1/')
+MS=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*motionMs=\([0-9]*\).*/\1/')
+PLAYED=$(( ${CYCLES:-0} * 1000 / 30 ))
+if [ "$CLOCK" = capture ] && [ "${MS:-0}" -ge "$PLAYED" ] && [ "${MS:-0}" -le $(( PLAYED + 5000 )) ]; then
+  say "OK   the replay ran on the capture clock and wound it: $CYCLES cycles, motionMs=$MS (the $PLAYED ms they play at 30 fps, plus up to 5000 for the calibration seek and average)" ok
+else
+  say "FAIL the replay's motion clock was not the wound capture clock (motionClock=$CLOCK motionMs=$MS over $CYCLES cycles) -- the probe is not calling replay_clock::advance, so its timers ran on a clock that never moved" no
+fi
 if [ "$RC" -ne 0 ]; then
   tail -20 /run1493/pipeline.log
   say "FAIL the census exited $RC; no rows to read" no
@@ -76,7 +99,7 @@ echo "=== the replay is the detector's own pipeline, and this is its control ===
 # darts for the replay to have scored.
 CAMS=$(grep -c '^I1493CAM ' /run1493/rows.txt || true)
 PLANES=$(grep '^I1493CAM ' /run1493/rows.txt | grep -c 'planeBuilt=1' || true)
-DARTS=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*darts=//')
+DARTS=$(grep '^I1493END ' /run1493/rows.txt | sed 's/.*darts=\([0-9]*\).*/\1/')
 echo "  $CAMS cameras calibrated, $PLANES of them with a board plane, $DARTS darts scored by the replay"
 if [ "$CAMS" -eq 3 ] && [ "$PLANES" -ge 2 ] && [ "${DARTS:-0}" -gt 0 ]; then
   say "OK   three cameras, a plane on at least two of them, and darts to read" ok
