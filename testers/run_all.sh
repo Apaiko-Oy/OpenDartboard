@@ -531,6 +531,10 @@ tester 1489-ringonly      "bash '$T/i1489_run.sh'"
 # measured nothing. It needs no detector binary and OD_SKIP_BUILD changes nothing about
 # it: it compiles the calibration and detection stages and replays the whole of
 # mocks/rig-20260918 through them, to the end of the footage and with no cycle cap.
+# turnaus#1863: the census winds the motion clock (testers/replay_clock.hpp) and the row pins
+# OD_MOTION_CLOCK=capture beside the window pin, asserting the clock was wound. Measured
+# 2026-10-14 on a quiet box: the same 63 readings and 21 darts on either clock; the pin moved
+# no figure and took the box's load out of the four motion timers. MEASURED: 160 s, rc=0.
 tester 1490-spread        "bash '$T/i1490_run.sh'"
 # #1492: WHAT each camera found on the darts where they disagree most -- the first half
 # of that issue is a measurement and not a repair. It splits #1490's census by whether any
@@ -567,6 +571,9 @@ tester 1838-replay-noise  "bash '$T/i1838_run.sh'"
 # is not evidence about a pose. Section 1 is the control: the same arithmetic asked about
 # three cameras whose poses are known by construction, which is what makes a residual on
 # the real rig mean anything. No detector binary; OD_SKIP_BUILD changes nothing.
+# turnaus#1863: the census winds the motion clock and the row pins OD_MOTION_CLOCK=capture,
+# as 1490-spread does; 63 readings and 21 darts identical on either clock (2026-10-14), so
+# no residual moved. MEASURED: 158 s, rc=0.
 tester 1493-rays          "bash '$T/i1493_run.sh'"
 # #1494 and #1495: the two mechanisms #1492 measured and refused to repair, repaired
 # together and measured against the tree that had neither. FOUR replays of
@@ -578,6 +585,10 @@ tester 1493-rays          "bash '$T/i1493_run.sh'"
 # nothing. MEASURED on the 4-core box: see the pull request for the recorded line. The
 # claim that the worst tipGap falls from AA to BB is HISTORICAL since #1823: on cycle
 # windows every arm reads 172 px on dart 17 camera 3, so it is printed and not asserted.
+# turnaus#1863: the row pins OD_MOTION_CLOCK=capture as 1492-tips does; until then its four
+# replays ran the cooldown, the spike window, the safety timeout and the body-window vote on
+# wall time. Measured 2026-10-14 on a quiet box: no arm moves on the capture clock -- the four
+# arms' table and all 4x63 readings are byte-identical to the wall-clock run. 358 s, rc=0.
 tester 1494-figure        "bash '$T/i1494_run.sh'"
 slow 2400
 # #1497: whether the board's PRINTED NUMBERS are legible at all, and how big one is in
@@ -935,6 +946,11 @@ tester 1560-lensmodel     "bash '$T/i1560_check.sh'"
 # OD_SURROUND=votes pins the refused repair (i1492's shape) so the refusal stays
 # re-measurable; the harness holds the tree's rule, the pin, and the measurement.
 # MEASURED 2026-09-23 on this box: see the recorded line in the pull request.
+# turnaus#1863: the edge probe winds the motion clock and the row pins OD_MOTION_CLOCK=capture,
+# asserting the clock was wound. Measured 2026-10-14 on a quiet box: 21 darts, identical CAM,
+# VOTE and VISITEND lines cycle for cycle on either clock. On that box the row was ALREADY RED
+# at f8e0d3b, before and after alike: visit 6's first dart publishes MISS@0.50 where the claim
+# expects the knowingly kept on-board single -- reported in #1863, not tuned.
 tester 1505-surround      "bash '$T/i1505_run.sh'"
 
 # #1535: a camera that re-reports a pixel it already reported this visit is not a
@@ -947,6 +963,10 @@ tester 1505-surround      "bash '$T/i1505_run.sh'"
 # dart, so two witnesses cannot form; OD_TIP_IDENTITY=off restores the unguarded
 # machinery on one binary. The harness holds the rule to its own census and replays
 # the fixture both ways through #1505's edge probe.
+# turnaus#1863: the row pins OD_MOTION_CLOCK=capture beside its motion pins, asserting the
+# clock was wound. docs/rig.md's #1688 paragraph had this row's capture-clock probe finding
+# "no darts": it ran on a clock nothing wound. Wound, it finds the same 19 darts on either
+# clock, vote for vote and cycle for cycle (2026-10-14).
 tester 1535-rereport      "bash '$T/i1535_run.sh'"
 
 # #1336: a CAP_PROP_FOURCC read-back that cannot name a wire format does not reject a

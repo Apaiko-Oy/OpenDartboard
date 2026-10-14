@@ -2274,13 +2274,24 @@ the old count times the rig's 33.3 ms:
 - **Testers that replay files on the wall clock pin it (turnaus#1688).** A file replay runs
   as fast as the box allows, so on the wall clock a millisecond window spans however many
   cycles the box ran, and event counts move with load. `1535-rereport`, `1646-exposure` and
-  `1339-denominator` set `OD_WINDOW_UNIT=cycles`. `OD_MOTION_CLOCK=capture` is not the pin:
-  it also moves every other motion-clock length those testers were measured with, and
-  1535's capture-clock probe found no darts. Testers that call `processDartState` directly
-  with `stability_frames = 1` (1348, 1355, 1518, 1552) also set `stability_ms = 0`, so one
-  call is one window in either unit. The pin does not make a file replay deterministic:
-  which frame a cycle reads still depends on scheduling. Over three runs with the pin,
-  1339's rig counted 27 events over its board every time and 23 or 24 over the frame.
+  `1339-denominator` set `OD_WINDOW_UNIT=cycles`. `OD_MOTION_CLOCK=capture` is a different
+  pin: it moves every other motion-clock length as well, the four timers the next paragraph
+  names. #1688 wrote here that it "is not the pin" because 1535's capture-clock probe had
+  found no darts. That reading was of a clock stuck at 0, not of the capture clock: the edge
+  probe did not wind `od_clock` (the #1838 paragraph below). Whether a stuck clock alone
+  explains "no darts" is not something today's tree reproduces, and #1863 measured rather
+  than assumed it: its mutation proof ran the spread census with `advance` planted out, and
+  on `motionMs=0` it scored the same 21 darts and 63 readings as wound, because with the
+  windows pinned to cycles those four timers decide no dart on this fixture. So the no-darts
+  reading belonged to that tree and that probe; what the rows refuse now is the unwound
+  clock, by name. Re-measured on 2026-10-14 with the wound probe (turnaus#1863), under
+  1535's own motion pins, the capture-clock replay found the same 19 darts as the wall-clock
+  one, vote for vote, camera for camera and cycle for cycle, and `1535-rereport` runs on
+  that pin now. Testers that call `processDartState` directly with `stability_frames = 1`
+  (1348, 1355, 1518, 1552) also set `stability_ms = 0`, so one call is one window in either
+  unit. The pin does not make a file replay deterministic: which frame a cycle reads still
+  depends on scheduling. Over three runs with the pin, 1339's rig counted 27 events over its
+  board every time and 23 or 24 over the frame.
 - **The window pin leaves the motion timers on the wall (turnaus#1838).** The cooldown
   (1000 ms), the spike window (`spike_window_frames * 50` ms), the safety timeout
   (10000 ms) and the body-window vote's `sinceEndMs` are lengths of `od_clock::now_ms()`,
@@ -2293,8 +2304,21 @@ the old count times the rig's 33.3 ms:
   `cycles()`, so a probe's capture clock read 0 for the whole replay.
   `testers/replay_clock.hpp` winds it as the seam does; `i1492_tip_probe.cpp` calls it,
   `1492-tips` pins `OD_MOTION_CLOCK=capture`, and `1838-replay-noise` replays the rig
-  quiet and under load on that pin and asserts identical darts. The other probes
-  (`i1490`, `i1493`, `i1505`) do not wind it yet.
+  quiet and under load on that pin and asserts identical darts. #1838 ended this
+  paragraph with "the other probes (`i1490`, `i1493`, `i1505`) do not wind it yet"; since
+  turnaus#1863 they do, and every row that replays through one of them --
+  `1490-spread`, `1493-rays`, `1505-surround`, `1535-rereport`, and `1494-figure` beside
+  `1492-tips` -- pins `OD_MOTION_CLOCK=capture` and asserts that the clock was wound.
+  Measured 2026-10-14 on a quiet box, before and after: not one of them published a
+  different dart, camera reading or figure on the capture clock than on the wall clock
+  (the spread and pose censuses 63 readings each, identical; the edge probe 21 darts under
+  1505's pins and 19 under 1535's, identical vote for vote and cycle for cycle; 1494's four
+  arms 63 readings apiece, byte-identical, so no arm of its 2x2 moves on the capture clock),
+  so the pin moved no figure and only took the box's load out.
+  What the unwound clock had been doing was in the probes' own log all along: every
+  `I1646 EXPOSURE HOLD` line read `cycle=0` for the whole replay and its `held_ms` was
+  wall time (78 ms for a four-cycle hold); wound, the same hold reads `cycle=362
+  held_ms=133`, four frames at 33.3 ms.
 - **1339-denominator also pins `OD_SETTLE_EXPOSURE=off`** (the motion before #1662). On its
   scaled clip the exposure hold cuts the small board's events from 33 to 19-20 and leaves
   the frame arm at 21-22, which inverts the comparison the tester makes. That is a finding

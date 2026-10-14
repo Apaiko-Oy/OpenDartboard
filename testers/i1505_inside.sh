@@ -60,6 +60,17 @@ set -u
 RIG_DIR=/app/mocks/rig-20260918
 CLIPS="$RIG_DIR/cam_1.mp4 $RIG_DIR/cam_2.mp4 $RIG_DIR/cam_3.mp4"
 OUT=/run1505
+# turnaus#1863: the probe's motion clock is the footage's. OD_WINDOW_UNIT=cycles (tester_paths'
+# docker wrapper, #1826) takes the WINDOWS off the wall clock and leaves the cooldown, the spike
+# window, the safety timeout and the body-window vote on it, so until #1863 this harness ran
+# those four timers on wall time -- 1691 cycles in ~36 s on this box where the footage plays
+# them in 56 -- and a loaded box cut them differently again. docs/rig.md's #1688 paragraph said
+# "1535's capture-clock probe found no darts": that probe never wound the clock, so it ran on
+# one stuck at 0. The edge probe winds it now (testers/replay_clock.hpp), and measured
+# 2026-10-14 on a quiet box the capture-clock replay published the same darts, visit for visit
+# and camera for camera, as the wall-clock one -- so this pin moves no figure, it only takes
+# the box's load out of them. 1838-replay-noise holds that claim.
+export OD_MOTION_CLOCK=capture
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
@@ -121,6 +132,28 @@ RC2=$?
   tail -10 $OUT/probe-tree.err $OUT/probe-pinned.err
   say "FAIL a probe run did not reach the end of the footage (rc $RC1/$RC2)" no
 }
+
+# turnaus#1863: the probe ran on the capture clock and WOUND it -- motionMs at its end is the
+# footage's length rather than 0 (1838-replay-noise's first check). A probe that stopped calling
+# replay_clock::advance would run its cooldown and spike window on a clock stuck at 0 -- and
+# nothing below would see it: measured 2026-10-14 (#1863's mutation proof, the spread census
+# with this call planted out), the stuck clock still scored this fixture's 21 darts, 63 readings
+# identical, because the cycle-pinned windows decide every dart here. Only this line names it.
+clock_wound() {
+  local end cycles clock ms played
+  end=$(grep '^I1505END ' "$1")
+  cycles=$(echo "$end" | sed 's/.*cycles=\([0-9]*\).*/\1/')
+  clock=$(echo "$end" | sed 's/.*motionClock=\([a-z]*\).*/\1/')
+  ms=$(echo "$end" | sed 's/.*motionMs=\([0-9]*\).*/\1/')
+  played=$(( ${cycles:-0} * 1000 / 30 ))
+  if [ "$clock" = capture ] && [ "${ms:-0}" -ge "$played" ] && [ "${ms:-0}" -le $(( played + 5000 )) ]; then
+    say "OK   $2 ran on the capture clock and wound it: $cycles cycles, motionMs=$ms (the $played ms they play at 30 fps, plus up to 5000 for the calibration seek and average)" ok
+  else
+    say "FAIL $2's motion clock was not the wound capture clock (motionClock=$clock motionMs=$ms over $cycles cycles) -- the probe is not calling replay_clock::advance, so its timers ran on a clock that never moved" no
+  fi
+}
+clock_wound $OUT/probe-tree.txt "the tree run"
+clock_wound $OUT/probe-pinned.txt "the pinned run"
 
 python3 - $OUT/probe-tree.txt $OUT/probe-pinned.txt <<'PY'
 import re, sys
