@@ -544,6 +544,16 @@ tester 1490-spread        "bash '$T/i1490_run.sh'"
 # floor experiment are HISTORICAL since #1824 -- printed with #1492's figures beside
 # main's and not asserted, because no switch on main restores the stage they measured.
 tester 1492-tips          "bash '$T/i1492_run.sh'"
+# turnaus#1838: one probe binary replays mocks/rig-20260918 on a quiet container and again
+# under busy loops it makes inside its own --cpus=2 quota, and the two must publish the same
+# darts. OD_WINDOW_UNIT=cycles took the WINDOWS off the wall clock; the cooldown, the spike
+# window, the safety timeout and the body-window vote are still milliseconds of the motion
+# clock, so the asserted pair runs on OD_MOTION_CLOCK=capture, which the probe now winds
+# (testers/replay_clock.hpp). Its instrument checks: the clock was wound (not read 0 all
+# the way through, #1535's capture-clock probe), and the load really slowed the replay.
+# A third replay on the wall clock under the same load is printed, not asserted. No
+# detector binary; OD_SKIP_BUILD changes nothing.
+tester 1838-replay-noise  "bash '$T/i1838_run.sh'"
 # #1493: whether the three board planes compose into camera poses good enough to
 # TRIANGULATE -- rays from two cameras at one dart, intersected, and the residual reported
 # in millimetres per dart. #1490's harness with one extra column: the same replay, the same

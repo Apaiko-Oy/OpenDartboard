@@ -27,6 +27,14 @@ set -u
 # 1492-tips' base run -- one binary, one clip, minutes apart -- read the worst on-board
 # dart as 108.2 mm and 19.5 mm. A figure this tester asserts must be the tree's, not the box's.
 export OD_WINDOW_UNIT=cycles
+# turnaus#1838: and the motion clock is the footage's. The cycles pin takes the WINDOWS off
+# the wall clock and leaves the cooldown, the spike window, the safety timeout and the
+# body-window vote on it, so at a load average of ~18 this tester's two replays of one
+# binary read 19 and 20 darts. The probe winds the capture clock (testers/replay_clock.hpp);
+# on a quiet box it publishes the same 63 readings on either clock (measured 2026-10-14),
+# so this pin moves no figure, it only takes the box's load out of them. 1838-replay-noise
+# is the tester that holds it.
+export OD_MOTION_CLOCK=capture
 
 FAILED=0
 say() { echo "$1"; [ "$2" = ok ] || FAILED=1; }
