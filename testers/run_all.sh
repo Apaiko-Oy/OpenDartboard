@@ -92,7 +92,9 @@ tester 1787-account       "bash '$T/i1787_check.sh'"
 # phantoms move), a real push and a real mention struck (#1817), the re-read's END struck
 # and its Position moved 13 px (exactly the re-reads move, #1819). Stdlib python in
 # $OD_IMAGE; no detector binary, so OD_SKIP_BUILD changes nothing about it. MEASURED
-# 2026-10-11 on the 4-core box, rc=0: 8.4 s (4.4 s before #1819's two mutations).
+# 2026-10-11 on the 4-core box, rc=0: 8.4 s (4.4 s before #1819's two mutations). turnaus#1537
+# adds the 24-column shape (`inferred` appended last) and three predicted mutations of it:
+# 1.8 s on 2026-10-14 at load ~2, rc=0.
 tester 1789-truth         "bash '$T/i1789_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester

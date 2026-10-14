@@ -47,6 +47,23 @@
 #                           to (581,266), one pixel past REREAD_PX's 12. PREDICTION: rc 1 with
 #                           exactly 1 mismatch, 01M4KX46R3... got phantom-unplaced; the
 #                           00:57:25.415 re-read stays (9.2 px from the S4)
+#  11. the 24-column shape  turnaus#1537: the fixture with `inferred` appended LAST to its
+#                           columns line, `0` on every dart, and two inferred darts added (a
+#                           MISS nobody corrected, and a MISS corrected to S13). PREDICTION:
+#                           rc 0, every expectation of the 23-column fixture held plus
+#                           `count inferred posted=2 corrected=1 unflagged=1` (an unflagged dart's
+#                           correction is `unflagged`, countOf's rule), the four COUNT
+#                           lines byte-identical to step 2's (inferred darts are no
+#                           detection), 25 DART lines and one INFERRED-DART line, no class.
+#                           Step 2 is the other shape: no column, INFERRED column=absent
+#  12. mutation H: a        the 16:49:15 S1 (geometry, alternative) marked inferred on the
+#      measured dart        24-column line. PREDICTION: rc 1 with exactly 13 mismatches:
+#      marked inferred      geometry and total each lose posted, corrected, alternative and
+#                           flagged (8), the inferred count gains the same four (4), and the
+#                           dart's class goes (expected two-line-wire got not-a-corrected-dart)
+#  13. mutation I: the two  path and inferred disagreeing -- the S13 inferred dart given
+#      halves disagree      inferred 0 -- and path inferred on the 23-column line.
+#                           PREDICTION: rc 3 for both, FORMAT-REFUSED naming the line, no COUNT
 #
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
@@ -190,8 +207,59 @@ od_run "1789-check" --network none \
   echo "mutG rc=$RC_G mismatches=$G_ALL named=$G_NAMED"
   [ $RC_G -eq 1 ] && [ "$G_ALL" -eq 1 ] && [ "$G_NAMED" -eq 1 ] || no "mutation G did not move exactly the first re-read"
 
+  echo "==== 11. the 24-column shape, with two inferred darts (turnaus#1537) ==========="
+  echo "PREDICTION: rc 0, EXPECT HELD with 37 expectations, COUNT lines identical to step 2,"
+  echo "            25 DART lines, 1 INFERRED-DART line, INFERRED column=present posted=2."
+  I1=01M4KZINFERRED000000000001
+  I2=01M4KZINFERRED000000000002
+  HEAD=$(grep -n "^# turnaus truth line" $TRUTH | cut -d: -f1)
+  { echo "# expect count inferred posted=2 corrected=1 alternative=0 candidate=0 typed=0 unflagged=1 removed=0 turn=0 undone=0 flagged=0 false_flag=0"
+    awk -v h=$HEAD '"'"'NR == h + 1 { print $0 " inferred"; next } NR > h + 1 && NF { print $0 " 0"; next } { print }'"'"' $TRUTH
+    echo "$I1 None - - - inferred 0 0 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:59:00Z 1"
+    echo "$I2 None - S13 typed inferred 0 0 - - - - - - - - - - - 0 COUNTED 1 2026-10-10T13:59:01Z 1"
+  } > /tmp/wide.txt
+  [ "$(sed -n "$((HEAD + 2))p" /tmp/wide.txt | awk "{print \$NF}")" = inferred ] || no "the 24-column line does not end its columns line with inferred"
+  $PY --truth /tmp/wide.txt --log $LOG --expect > /tmp/wide.out; RC_W=$?
+  grep -E "^I1789 (HEADER|INFERRED|MISMATCH|EXPECT)" /tmp/wide.out
+  W_DARTS=$(grep -c "^I1789 DART " /tmp/wide.out)
+  W_INF=$(grep -c "^I1789 INFERRED-DART ref=$I2 published=None corrected=S13 picked=typed " /tmp/wide.out)
+  W_SAME=$(diff <(grep "^I1789 COUNT " /tmp/fixture.out) <(grep "^I1789 COUNT " /tmp/wide.out) | wc -l)
+  echo "wide rc=$RC_W darts=$W_DARTS inferred_dart=$W_INF count_diff_lines=$W_SAME"
+  [ $RC_W -eq 0 ] && grep -q "^I1789 EXPECT HELD expectations=37 mismatches=0$" /tmp/wide.out \
+    && [ "$W_DARTS" -eq 25 ] && [ "$W_INF" -eq 1 ] && [ "$W_SAME" -eq 0 ] \
+    && grep -q "^I1789 INFERRED column=present posted=2 corrected=1 " /tmp/wide.out \
+    && grep -q "^I1789 INFERRED column=absent posted=0 " /tmp/fixture.out \
+    || no "the 24-column line did not census as the 23-column one with two inferred darts apart"
+  ! grep -q "^I1789 DART ref=$I2 " /tmp/wide.out || no "an inferred dart was given a fault class"
+
+  echo "==== 12. mutation H: the 16:49:15 S1 marked inferred ==========================="
+  echo "PREDICTION: rc 1, exactly 13 mismatches: geometry and total lose posted, corrected,"
+  echo "            alternative, flagged; inferred gains them; the class goes."
+  sed "s/^\(01M4JFX0000000000000164915 S1 S20 S20 alternative \)geometry \(.*\) 0\$/\1inferred \2 1/" /tmp/wide.txt > /tmp/mutH.txt
+  [ "$(diff /tmp/wide.txt /tmp/mutH.txt | grep -c "^>")" -eq 1 ] || no "mutation H did not change exactly one line"
+  $PY --truth /tmp/mutH.txt --log $LOG --expect > /tmp/mutH.out; RC_H=$?
+  grep -E "^I1789 (MISMATCH|EXPECT)" /tmp/mutH.out
+  H_ALL=$(grep -c "^I1789 MISMATCH " /tmp/mutH.out)
+  H_NAMED=$(grep -cE "^I1789 MISMATCH (count (geometry\.posted expected 7 got 6|geometry\.corrected expected 6 got 5|geometry\.alternative expected 3 got 2|geometry\.flagged expected 6 got 5|total\.posted expected 37 got 36|total\.corrected expected 24 got 23|total\.alternative expected 4 got 3|total\.flagged expected 8 got 7|inferred\.posted expected 2 got 3|inferred\.corrected expected 1 got 2|inferred\.alternative expected 0 got 1|inferred\.flagged expected 0 got 1)|class 01M4JFX0000000000000164915 expected two-line-wire got not-a-corrected-dart)$" /tmp/mutH.out)
+  echo "mutH rc=$RC_H mismatches=$H_ALL named=$H_NAMED"
+  [ $RC_H -eq 1 ] && [ "$H_ALL" -eq 13 ] && [ "$H_NAMED" -eq 13 ] || no "mutation H did not move exactly the thirteen predicted figures"
+
+  echo "==== 13. mutation I: path and inferred disagree ================================="
+  echo "PREDICTION: rc 3 twice, FORMAT-REFUSED naming the line, no COUNT line."
+  sed "s/^\($I2 .*\) 1\$/\1 0/" /tmp/wide.txt > /tmp/mutI1.txt
+  [ "$(diff /tmp/wide.txt /tmp/mutI1.txt | grep -c "^>")" -eq 1 ] || no "mutation I1 did not change exactly one line"
+  { cat $TRUTH; echo "$I1 None - - - inferred 0 0 - - - - - - - - - - - 0 COUNTED 0 2026-10-10T13:59:00Z"; } > /tmp/mutI2.txt
+  for m in I1 I2; do
+    $PY --truth /tmp/mut$m.txt --log $LOG --expect > /tmp/mut$m.out; RC_I=$?
+    cat /tmp/mut$m.out
+    LAST=$(wc -l < /tmp/mut$m.txt)
+    echo "mut$m rc=$RC_I last_line=$LAST"
+    [ $RC_I -eq 3 ] && grep -q "^I1789 FORMAT-REFUSED line $LAST: .*inferred" /tmp/mut$m.out \
+      && ! grep -q "^I1789 COUNT " /tmp/mut$m.out || no "mutation $m was not refused on line $LAST"
+  done
+
   echo
-  if [ $fails -eq 0 ]; then echo "ALL TEN HELD"; exit 0; fi
+  if [ $fails -eq 0 ]; then echo "ALL THIRTEEN HELD"; exit 0; fi
   echo "FAILURES: $fails"; exit 1
 ' < /dev/null
 RC=$?

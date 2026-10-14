@@ -2082,6 +2082,19 @@ counted by its last correction, which is what `picked` carries (Turnaus's
 | `corrected` | any correction at all | the desk's figure |
 | `false_flag` | flagged and its published score stood | `false_flag_rate` is it over `flagged` |
 
+**An inferred dart is no detection (turnaus#1537).** Turnaus appends one column, `inferred`,
+LAST to the truth line (24th, after `posted_at`): `1` on a dart the board published without
+seeing it (`OD_VISIT_FILL=on`'s MISS, posted with `path` `inferred`), `0` on a measured one.
+The script reads it by name; a line without it (an older server, every session saved before
+it) is all measured, and the four sessions in `sessions/` census exactly as they did, plus
+`I1789 INFERRED column=absent posted=0`. Inferred darts are in no `COUNT` line, `total`
+included, as Turnaus keeps them out of its four counts; they are counted apart on the same
+keys as `I1789 INFERRED column=present ...` (`# expect count inferred` holds it), and a
+correction standing on one prints `I1789 INFERRED-DART` and gets no fault class. A value
+other than 0/1, `path` and `inferred` disagreeing, or `path` `inferred` on a line with no
+column is refused with exit 3. `1789-truth` steps 11-13 hold both header shapes (1.8 s in
+all on 2026-10-14).
+
 **The join.** The client prints every accepted push as `TURNAUS: <OUTCOME> <body>`, and the
 body carries the dart's `reference`. The dart's window is its `SCORE:` line (the nearest
 before the push whose sector is the published one) back to the previous `SCORE:` line, and
