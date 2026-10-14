@@ -1069,6 +1069,114 @@ issue was filed on them. What these lines cannot say: whether stood darts were r
 was asked), and the 35 three-line `turn` darts (16% of the three-line ring darts under 0.25
 sigma) whose wrong dart, if any, is unnamed.
 
+## What separates a corrected flag from one that stands (turnaus#1846), measured, no change
+
+**The question.** #1815 showed no distance threshold makes the flag mostly right. Is there
+anything else the board knows when it publishes that tells a flagged dart that will be
+corrected from one that will stand? `testers/i1846_separation.py [--log <log>] <truth-line>
+...` reads the truth lines through `i1815_census.read_truth_line`, keeps the board's own
+`flagged` darts, and uses #1815's verdict (CORRECTED: `picked` alternative / candidate /
+typed; STOOD: `-` -- *nobody corrected it*, not proof it was right; `turn` / `removed` set
+aside). A log is joined on the reference of every `TURNAUS: COUNTED` **or `DROPPED`** line
+(device/2's darts went to no Contest, so 1,188 of its 1,329 are DROPPED; reading COUNTED
+alone joins 81 of its 722 flags). From the log: `log_lines_failed` (a `LINES: 2 of 3` line)
+and why (`not straight`, `not a shaft`, `rim only`, ...), `log_vote_cams` (the string vote's
+`Consensus score: X from N cameras`, 1 for `No consensus`), `log_vote_disagrees` (the vote's
+or the LONE-WIRE camera's own reading names another score than the one published). **That is
+the only per-camera reading this build logs for a geometric dart**: no line gives each
+camera's score or tip, so "the cameras' disagreement" is that one bit, present on 303
+flags. casual/17's log holds one dart, so its 237 flags join nothing; casual/20 joins 133 of
+159 and has no `LINES` lines (marked unlogged, not zero).
+
+**Read:** casual/17 2026-10-10, casual/19, /20, /21 2026-10-11, casual/21 2026-10-12 and -13,
+device/2 2026-10-13. **1,121 flags: 28 corrected, 1,030 stood, 63 set aside (60 `turn`, 3
+`removed`).** For contrast the 1,044 unflagged darts: 6 corrected, 997 stood, 41 set aside --
+the flag holds 28 of the 34 corrected darts, and a flagged dart is corrected 2.6% of the
+time against 0.6% for an unflagged one.
+
+**The measure** is each feature's AUC alone: the chance a random corrected flag has a larger
+value than a random stood one (ties a half; 0.5 is nothing; printed as max(AUC, 1-AUC), `-`
+meaning *smaller* is corrected). `strat` counts only pairs from the same truth line, so a
+feature that merely tells device/2 (6 corrected of 693) from the casual boards (22 of 351)
+earns nothing. The interval is a 2,000-resample bootstrap; on a feature where one class has
+no corrected dart at all (`agreeing`, `log_vote_cams`) it is degenerately narrow and means
+nothing.
+
+| feature | corrected / stood with it | AUC | 95% interval | strat | corrected share, low half / high half |
+|---|---|---|---|---|---|
+| z (`margin/sigma`, geometric) | 18 / 878 | **0.73** (-) | 0.64-0.82 | 0.73 | 15/449 vs 3/447 (split 0.43) |
+| `margin_mm` | 18 / 878 | 0.70 (-) | 0.59-0.80 | 0.70 | 15/449 vs 3/447 (split 2.5 mm) |
+| `log_lines_failed` (device/2 only) | 6 / 687 | 0.65 (-) | 0.48-0.75 | 0.65 | 5/369 vs 1/324 |
+| `cameras` count | 28 / 1030 | 0.65 (-) | 0.55-0.75 | **0.59** | 23/660 (<= 2) vs 5/398 (3) |
+| `agreeing` (vote) | 10 / 152 | 0.64 (-) | (degenerate) | 0.64 | 10/119 (lone) vs 0/43 |
+| `path` = vote | 28 / 1030 | 0.61 (+) | 0.52-0.70 | 0.60 | 10/162 vote vs 18/896 geometric |
+| `lone_wire_mm` | 6 / 83 | 0.59 (+) | 0.30-0.82 | 0.58 | 2/45 vs 4/44 |
+| two-line solve | 18 / 878 | 0.59 (+) | 0.47-0.69 | **0.49** | 5/398 vs 13/498 |
+| `sigma_mm` | 18 / 878 | 0.57 (+) | 0.44-0.70 | 0.55 | 7/452 vs 11/444 |
+| published a double | 28 / 1030 | 0.57 (+) | 0.50-0.65 | 0.56 | 22/980 vs 6/78 |
+| `radius`, `crossing_deg`, sigma on the 5 mm floor, `degraded`, rim-carried, `wire_kind`, treble, `ring_wire_mm` | | 0.54-0.57 | all span 0.5 | 0.45-0.59 | |
+| `log_vote_disagrees` | 6 / 297 | 0.51 | 0.32-0.68 | 0.51 | 4/198 vs 2/105 |
+| `candidates` count, `bounced`, alternative is MISS, alternative is the first candidate | | 0.50-0.51 | | | carried by every flag alike |
+
+**Only z (and its own numerator) separates beyond the sample's noise, and it is the distance
+#1815 already measured.** With 28 corrected darts an AUC is good to about +-0.1; nothing
+else's interval clears 0.5 by more than a hair, and two that looked like signal fall away
+inside one session: the camera count drops from 0.65 to 0.59 and the two-line solve from 0.59
+to 0.49 (device/2 has more three-camera solves *and* far fewer corrections). The cameras'
+disagreement, the one bit the log carries, separates nothing (0.51). **Even z's best half is
+corrected 3.3% of the time**: at a base rate of 2.6%, no feature here, nor any rule built
+from them, can bring a flag to "right most of the time"; that would need a cell corrected
+more than half the time, and the best cell in the whole table is the lone-camera vote flag at
+10 / 119 (8.4%). Per rule: geo-ring-2line 4/247, geo-ring-3line 3/145, geo-wedge-2line
+9/238, geo-wedge-3line 2/248, vote-ringwire-lone 10/109, vote-ringwire-consensus 0/43.
+
+**How the label biases it.** A corrected dart was wrong; a stood dart may have been wrong too,
+and nobody said. Where the wrong-but-stood darts look like the corrected ones, they sit in the
+stood class and pull every AUC towards 0.5, so a real separation is *understated* and every
+corrected share is a floor on the wrong share. Where correction depends on noticing rather
+than on being wrong -- a double in a checkout, a vote D -> MISS at the rim, a flag whose
+offered alternative was the answer (22 of the 28 were `picked alternative`) -- the separation
+is *overstated* for what makes a dart noticeable (`published_double`, `path` = vote). device/2's
+0.9% against the casual boards' 5-7% is either a better board or a less attentive marker,
+and these lines cannot say which; `strat` removes that difference rather than explaining it.
+
+**Candidate rules** (`I1846 RULE`, on the flags as raised and on top of #1815's K = 0.7, which
+by itself leaves 886 flags, 28 corrected, 805 stood, 53 set aside). The chance figure is the
+Poisson chance of losing no corrected dart if the removed flags were corrected at their own
+truth line's rate.
+
+| rule | removes (board) | removes (on K = 0.7) | corrected lost | chance of 0 lost |
+|---|---|---|---|---|
+| A: no two-line ring flag | 265 | 207 | **4**: casual/20 `01M4KWJ9G3KNMV263VHENEBFPZ` T13->S13, `01M4KWN3XF28SXEPY9TXNWR3BF` D20->S20, `01M4KWQAVKYGF51PA278A0DX4Y` S7->D7, `01M4KWSX1303VZYAMYH3C3J8DZ` S20->None | - (rejected) |
+| B: no geometric flag where the vote's own reading agrees | 92 | 74 | 0 | 0.25 |
+| C: no vote flag with two or more agreeing cameras | 45 | 45 | 0 | 0.29 |
+| D: a three-line geometric flag only at z < 0.5 | 200 | 91 | 0 | 0.07 |
+| C + D | 245 | 136 | 0 | 0.02 |
+
+C + D on top of K = 0.7 takes the flags from 886 to 750 (33% fewer than the board raises
+today) and the false rate from 0.966 to 0.960. Every corrected three-line dart sits below z
+0.5 (0.35, 0.23, 0.06, 0.17, 0.13), on all three boards that had one; the two-line corrected
+darts at 0.52 and 0.68 are why D is three-line only. D has a reason outside this table --
+#1844 measured the three-camera sigma as pessimistic, three fifths on the 5.0 mm floor -- but
+its 0.5 was read off these darts after looking at 18 cells, so 0.07 is not a test. C rests on
+a split of 10 / 109 against 0 / 43 that chance makes a quarter of the time. B needs the log
+bit, which casual/17's build did not write.
+
+**Recommendation: no rule from this table; the next session must record whether the stood
+flags were right.** The answer to "what separates a corrected flag" is z and nothing else the
+board carries, and no rule can make the flag mostly right when 97% of flagged darts stand and
+"stood" cannot be told from "right". C + D is the most a reviewer could take -- 136 fewer
+prompts beyond K = 0.7 with no corrected dart lost -- and it changes the false rate by less
+than a point, so it buys rarity, which #1815 already bought, not correctness. What would turn
+this into an answer: device/2 kept frames for its 6 corrected darts only (18 PNGs); keeping
+the three frames of **every flagged dart** for a session, and reviewing a random 100 stood
+flags against them, gives the stood class's wrong share directly. If that share is near 3%,
+the flag is noise on these boards and the honest change is to raise it far less (a higher
+bar, or the lone-camera vote only); if it is near 30%, markers are ignoring right flags and the
+flag's presentation, not its rule, is what to fix. Logging each camera's own score and tip
+per geometric dart would let the cameras' disagreement be measured properly; today it is one
+bit on 303 flags.
+
 ## Body-sized windows: the takeout's arm (turnaus#1781), opt-in
 
 **Live on 2b56b48** (`OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`, 2026-10-10 16:24) the
