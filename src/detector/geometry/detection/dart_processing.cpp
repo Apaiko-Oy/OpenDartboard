@@ -708,18 +708,22 @@ namespace dart_processing
     static bool loneRuleOn(); // #1678, defined below the census
     static bool loneObservationOn() { return loneCensusOn() || loneRuleOn(); }
 
-    // #1678: the lone-camera rule's switch, OD_LONE_CAMERA=on. Anything else, unset
-    // included, leaves the vote as it was. See loneCameraCarries in dart_processing.hpp.
+    // #1678: the lone-camera rule. ON by default since turnaus#1682 (the maintainer's
+    // decision of 2026-10-13, on the 2026-10-10 live run: 156 darts, every dart inside the
+    // rim opened an event; docs/rig.md). `OD_LONE_CAMERA=off` -- or any value but `on` --
+    // leaves the vote as it was before the rule. See loneCameraCarries in
+    // dart_processing.hpp.
     static bool loneRuleOn()
     {
         static const bool v = []
         {
             const char *e = std::getenv("OD_LONE_CAMERA");
-            const bool on = e != nullptr && std::string(e) == "on";
-            if (on)
+            const bool on = e == nullptr || std::string(e) == "on";
+            if (!on)
             {
-                log_warning("OD_LONE_CAMERA=on is set: a lone camera's advance carries the board when "
-                            "no voter reads CLEAN and its fresh figure is a dart (#1678)");
+                log_warning(std::string("OD_LONE_CAMERA=") + e +
+                            " is set: the lone-camera rule is off, and a sub-floor camera no longer "
+                            "corroborates another camera's advance (#1678, turnaus#1682)");
             }
             return on;
         }();

@@ -1,6 +1,7 @@
-// turnaus#1815: six in seven flagged darts were right as published. Under OD_FLAG_SIGMAS=<K>
-// (0 < K < 1, default off) a geometric flag is kept only where the solve is within K of its
-// own across-wire sigmas of the wire; the rest publish clear. No score moves.
+// turnaus#1815: six in seven flagged darts were right as published. At K = 0.7 -- the default
+// since the maintainer's decision of 2026-10-13; OD_FLAG_SIGMAS=<K> (0 < K < 1) moves it and
+// OD_FLAG_SIGMAS=off restores #1556's 1.0 -- a geometric flag is kept only where the solve is
+// within K of its own across-wire sigmas of the wire; the rest publish clear. No score moves.
 //
 // The rule is `score_processing::tightenBoundaryCall`, pure, over #1556's BoundaryCall and the
 // solve's own z (EntrySolution::crossingSigmas), and `flagSigmasFrom`, the switch's parse.
@@ -24,7 +25,7 @@
 //          v9.3 at 0.569) -- kept at K = 0.7, and the first to go if K's comparison slips;
 //   keep:  a true flag at z <= 0.5, kept at K = 0.7;
 //   cut:   a flag that stood, z > 0.7, cleared at K = 0.7 -- unflagged, no alternative;
-//   parse: the switch's text: what turns it on, and what leaves #1556's 1.0;
+//   parse: the switch's text: the default when unset, what sets K, and what restores #1556's 1.0;
 //   pure:  none of those (the score never moves, K = 1 is #1556's call byte for byte).
 // Each assertion carries exactly one prefix, so a mutation's prediction is a count.
 
@@ -115,13 +116,15 @@ int main()
     const double K = 0.7;
 
     // ---- the switch -------------------------------------------------------------------
-    say(flagSigmasFrom(nullptr) == 1.0, "parse: unset is #1556's 1.0");
+    say(std::fabs(flagSigmasFrom(nullptr) - 0.7) < 1e-12, "parse: unset is the default, 0.7 (turnaus#1815, 2026-10-13)");
+    say(flagSigmasFrom("off") == 1.0, "parse: off is #1556's 1.0, the flag before the default");
+    say(flagSigmasFrom("1") == 1.0 && flagSigmasFrom("1.0") == 1.0, "parse: 1 and 1.0 are #1556's 1.0");
     say(flagSigmasFrom("") == 1.0, "parse: empty is #1556's 1.0");
     say(std::fabs(flagSigmasFrom("0.7") - 0.7) < 1e-12, "parse: 0.7 turns it on at 0.7");
     say(std::fabs(flagSigmasFrom("0.55") - 0.55) < 1e-12, "parse: 0.55 turns it on at 0.55");
     say(flagSigmasFrom("1.5") == 1.0, "parse: 1.5 would LOOSEN the flag, and is #1556's 1.0");
     say(flagSigmasFrom("0") == 1.0 && flagSigmasFrom("-0.3") == 1.0, "parse: 0 and a negative are #1556's 1.0");
-    say(flagSigmasFrom("on") == 1.0 && flagSigmasFrom("0.7x") == 1.0, "parse: a word or trailing text is #1556's 1.0");
+    say(flagSigmasFrom("on") == 1.0 && flagSigmasFrom("0.7x") == 1.0, "parse: any other word or trailing text is #1556's 1.0");
 
     // ---- the true flags: every one kept at K = 0.7 ------------------------------------
     for (const Flag &f : kTrue)

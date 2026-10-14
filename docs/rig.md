@@ -197,7 +197,7 @@ capture-clock bakeoff (`testers/run_all.sh 1555-bakeoff`), the default reads 82/
 rig-20260922's opening: v2.1's 12, v3.1's 20 and v5.2's 19 are gained there, and its two
 phantoms are gone. The other three windows publish the same darts either way.
 
-**The entry threshold (#1677), opt-in.** A quiet board starts a motion event when one
+**The entry threshold (#1677), default since turnaus#1682.** A quiet board starts a motion event when one
 camera's board changes by more than `spike_threshold`, 0.011 of that board, frame to
 frame. rig-20260929 throws three darts whose splashes stay under it: v5.3 peaks at
 0.0108, v11.1 at 0.0106 and v12's D14 at 0.0074. No event opens, and the next window
@@ -206,11 +206,13 @@ is the takeout's, which reconciles CLEAN, so each of those darts is lost.
 A running event keeps 0.011. At 0.006, the capture-clock bakeoff reads rig-20260929 at
 18..25/36 per window, up from 16..23, with 0 undetected. r18+r22 stays at 82/86 with 0
 phantoms, and every r18 and r22 run publishes the same sequence. r18 gains one empty
-window per run, which the vote refuses. It is not a default: #1353 measured rig-20260918's
-noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates them on
-amplitude alone.
+window per run, which the vote refuses. It was held opt-in because #1353 measured
+rig-20260918's noise blips at up to 0.0088, above v12's 0.0074, so no threshold separates
+them on amplitude alone; the live run below is what answered that.
+`OD_SPIKE_THRESHOLD=0.011` (or `off`, or any value outside 0 < r < 0.011) pins the entry
+before turnaus#1682 (`motion_processing.cpp`, `entryThreshold`).
 
-**The lone camera (#1678), opt-in.** The state vote's fresh-change floor, 0.10% of a
+**The lone camera (#1678), default since turnaus#1682.** The state vote's fresh-change floor, 0.10% of a
 camera's board, is counted in the scoring area, while the tip is searched in the physical
 board. A double-ring dart seen side-on has its tip inside the scoring area and its shaft
 and flight outside it, so the floor sees only the tip. On rig-20260929, v6.2's D5 cleared
@@ -233,9 +235,10 @@ On the capture-clock bakeoff the rule fires once per rig-20260929 run and nowher
 r18 or r22. Every r18 and r22 run publishes the same sequence, and r18+r22 stays at 82/86
 with 0 phantoms. rig-20260929 reads 18..24/36 per window, up from 16..23. v6.2 publishes
 as its own dart (S5, flagged with D5 as the alternative), and v6.3's S1 is correct. The
-pool reads 118..130/158, up from 114..128. It is not a default: it rests on one dart and
-one negative control, and the control is separated by the tip-in-scoring-area clause
-alone.
+pool reads 118..130/158, up from 114..128. It was held opt-in because it rested on one
+dart and one negative control, and the control is separated by the tip-in-scoring-area
+clause alone. `OD_LONE_CAMERA=off` (any value but `on`) pins the vote before turnaus#1682
+(`dart_processing.cpp`, `loneRuleOn`).
 
 **Both together, on the forced Blade 6 (#1680).** This is main 2c33747 merged with both
 switches' branch, on the capture-clock bakeoff. With both switches off, the bakeoff
@@ -255,6 +258,35 @@ rig-20260929. In that window all three cameras read CLEAN between visits, and th
 re-bases the clean reference. So r18's v6.2 is still S7, but it is published by a
 different path: geometry on the opening window, the vote (NEAR-PARALLEL) on dev and pin.
 Every r22 run publishes the same sequence as with both switches off.
+
+**Both are the defaults since turnaus#1682.** The maintainer decided it on 2026-10-13 on
+the live run of 2026-10-10 (same rig, build 2b56b48). With the defaults of the time, 58
+darts in 20 visits, one bull opened no event at all. With `OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on`, 156 darts in 68 visits, every dart that landed inside the rim opened an
+event, three in the 25 ring and one bull among them. The seven that opened nothing were
+beyond the rim (#1537) or the second of a fast pair in one window. The session's two
+phantoms were a takeout's arm (#1781), which the 0.011 entry would also have passed, so no
+phantom came from the lower threshold. The pins: `OD_SPIKE_THRESHOLD=0.011` (or `off`)
+restores the 0.011 entry and `OD_LONE_CAMERA=off` restores the vote without the lone
+camera; each logs a warning when set.
+
+The capture-clock bakeoff (`testers/i1555_run.sh`, 2026-10-14, host load 5-15 from
+another checkout's PHP suite), main 96bb38b against this branch:
+
+| fixture, window | main | defaults on |
+|---|---|---|
+| rig-20260918 dev / opening | 19/20, 19/20, phantoms 0 | 19/20, 19/20, phantoms 1 (0 scoring) each |
+| rig-20260922 dev / opening | 21/23, 23/23 | 21/23, 23/23 |
+| rig-20260929 dev | 26..30/36, undetected 1 | **30..33/36**, undetected 0 |
+| rig-20260929 opening | 27..31/36, undetected 1 | **31..34/36**, undetected 0 |
+| POOLED-r18+r22 | 82/86 | 82/86 |
+| POOLED | 135..143/158 | **143..149/158** |
+
+The r18 phantom is v6.1, a thrown MISS. It now opens its own window and publishes `MISS`,
+which the census cannot join to the thrown MISS, so it counts as a non-scoring phantom on
+each r18 run. The same window turns up in `1650-cooldown`, whose visit-6 sequences now
+start with that MISS (re-baselined there). Every other mechanism that tester asserts is
+unchanged.
 
 **Board counts to the rim (#1689), default.** A camera has two board counts: the
 cumulative figure that says the board is occupied, and the fresh figure that says a dart
@@ -920,21 +952,32 @@ crowd the wire and the false ones do not, which is what an honest sigma predicts
 part of #1556's band beyond about 0.6 sigma has caught nothing anywhere.
 
 **The rule** (`score_processing::tightenBoundaryCall`, pure, after `decideBoundaryCall` and
-before #1782's corner): under **`OD_FLAG_SIGMAS=<K>`, 0 < K < 1**, a geometric flag whose
+before #1782's corner): at **K = 0.7 by default** (since turnaus#1815's default, below;
+`OD_FLAG_SIGMAS=<K>`, 0 < K < 1, moves it), a geometric flag whose
 solve is further than K of its own sigmas from the wire publishes as a clear call: no
 alternative, no corner cells, confidence 0.9, and the sentence
 `UNCERTAINTY: S5 clears its nearest wedge wire -- 4.7 mm away across a 5.0 mm one-sigma
 (0.94 sigma), outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815); #1556's 1.0 would have
 flagged it with S20`. **The published score never moves**; the vote path's flags are not
-touched. Unset, empty, a word, 0, a negative or anything >= 1 is #1556's 1.0, byte for byte
-(a K above 1 would loosen the flag and is refused). Census line `I1815FLAG window= z= k=
+touched. Unset is the default 0.7; **`OD_FLAG_SIGMAS=off`** -- or any other set value: empty,
+a word, 0, a negative, 1 or anything above -- is #1556's 1.0, byte for byte (a K above 1 would
+loosen the flag and is refused). Census line `I1815FLAG window= z= k=
 default= flagged= score= alt= kind=` under `OD_GEO_SCORE=on`; `testers/i1555_run.sh`
 forwards the switch.
 
-**The value it proposes is 0.7, and it stays opt-in.** 0.7 is the fixtures' 0.57 with 0.13
-sigma to spare (0.6 would leave 0.03); it is read off fourteen session darts and five fixture
-ones, which is #1556's own reason for refusing k = 0.5 on two, so a live session decides the
-default and not this table.
+**The value is 0.7, and it is the default since turnaus#1815's decision of 2026-10-13.** 0.7
+is the fixtures' 0.57 with 0.13 sigma to spare (0.6 would leave 0.03). It was proposed opt-in
+because it is read off fourteen session darts and five fixture ones; the maintainer turned it
+on after the third session (device/2, 2026-10-13, 1329 darts, below) cut 132 more false flags
+and no true one. It makes the flag rarer, not right: the real fix is a different approach,
+commissioned separately.
+
+**It does not reach the vote path's ring-wire flag (#1773).** `checkVoteReadingAgainstRingWires`
+is called with its default `sigmaMm = kLoneReadingSigmaMm` (5 mm) and its flag is spent straight
+into the vote publish (`result.boundary_flagged = ring_wire.flagged`); `flagCrossingSigmas()` is
+read in one place, `tightenBoundaryCall` on #1556's geometric call, which a vote publish never
+flags (`decideBoundaryCall(geometryPublished = false, ...)`). So every lone double inside the
+5 mm sigma is still flagged, and #1707's argument for closing on RING-WIRE stands.
 
 `turn` darts (a Casual total corrected after the takeout, naming no dart; turnaus#1819) and
 `removed` ones are set aside from both tallies: 19 + 2 of board 17's flags and 12 + 1 of
@@ -950,6 +993,26 @@ own figure, which counts them as false, is beside it.
 | board 20, K = 0.7 | 123 | 34 | **0** | 2 | 11 | 0.902 | 0.821 |
 | board 20, K = 0.6 | 110 | 45 | 0 | 4 | 9 | 0.891 | 0.818 |
 | board 20, K = 0.5 | 98 | 55 | **1** | 5 | 8 | 0.889 | 0.816 |
+| device/2 2026-10-13, K = 1.0 | 722 | - | - | - | 29 | 0.991 | 0.952 |
+| device/2 2026-10-13, K = 0.7 | 584 | 132 | **0** | 6 | 23 | 0.989 | 0.950 |
+
+**The flagged share of all darts**, recounted for the default (`i1815_census.py --truth-line
+<file> --k 0.7 --k 1.0`, 2026-10-14; every truth line's recomputed flag agrees with the
+board's on all but one dart each on board 20 and device/2):
+
+| session | darts | flagged at 1.0 (off) | flagged at 0.7 (default) |
+|---|---|---|---|
+| casual 17, 2026-10-10 | 526 | 237 (45.1%) | 177 (33.6%) |
+| casual 20, 2026-10-11 | 294 | 159 (54.1%) | 123 (41.8%) |
+| device/2, 2026-10-13 | 1329 | 722 (54.3%) | 584 (43.9%) |
+| casual 19 and 21, 2026-10-11..13 (four short truth lines) | 16 | 3 | 2 |
+| all | 2165 | 1121 (51.8%) | 886 (40.9%) |
+
+**The bakeoff at the default** (`testers/i1555_run.sh`, capture clock, no pins, 887 s at load
+~2, 2026-10-14) is #1682's parent figure on every row: rig-20260918 19/20 and 19/20,
+rig-20260922 21/23 and 23/23, rig-20260929 30..33/36 and 31..34/36, POOLED 143..149/158,
+POOLED-r18+r22 82/86. The six default runs print the `outside the flag's 0.70` sentence on
+19 darts (r18 2 + 2, r22 2 + 2, r29 4 + 7), the 19 the opt-in run of 2026-10-11 cleared.
 
 **What it does and does not buy.** A quarter of the prompts go (60 of 237, 36 of 159) and not
 one corrected dart loses its flag. The false-alarm RATE barely moves, 0.949 -> 0.930 and

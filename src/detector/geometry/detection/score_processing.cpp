@@ -1216,8 +1216,9 @@ namespace score_processing
                 solution.boundaryAcrossMm, solution.sigmaAcrossMm,
                 // #1766: on an uncontrolled solve the sentence says whose sigma it is.
                 provenance);
-            // turnaus#1815: under OD_FLAG_SIGMAS=<K> a flag whose solve is further than K
-            // of its sigmas from the wire publishes clear. Off, this is default_crossing.
+            // turnaus#1815: a flag whose solve is further than K of its sigmas from the wire
+            // publishes clear -- K = 0.7 by default, OD_FLAG_SIGMAS=<K> to move it. Under
+            // OD_FLAG_SIGMAS=off this is default_crossing.
             bool flag_tightened = false;
             const BoundaryCall nearest_crossing =
                 tightenBoundaryCall(default_crossing, solution.crossingSigmas, flagCrossingSigmas(),

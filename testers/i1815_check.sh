@@ -1,8 +1,9 @@
 #!/bin/bash
-# turnaus#1815: six in seven flagged darts were right as published. Under OD_FLAG_SIGMAS=<K>
-# (0 < K < 1, default off) a geometric flag is kept only where the solve is within K of its
-# own across-wire sigmas of the wire; the rest publish clear and no score moves. One compile
-# of the tree plus three of a MUTATED SCRATCH COPY of the header, in i1782_check.sh's shape
+# turnaus#1815: six in seven flagged darts were right as published. At K = 0.7 -- the default
+# since 2026-10-13; OD_FLAG_SIGMAS=<K> (0 < K < 1) moves it, OD_FLAG_SIGMAS=off restores
+# #1556's 1.0 -- a geometric flag is kept only where the solve is within K of its own
+# across-wire sigmas of the wire; the rest publish clear and no score moves. One compile
+# of the tree plus four of a MUTATED SCRATCH COPY of the header, in i1782_check.sh's shape
 # and for its reason: the measurement is the set of runs on one tree. The mutations are made
 # with sed on a copy of src/ under the container's /tmp; the tree is mounted and never written.
 #
@@ -17,6 +18,9 @@
 #   4. mutation C: loosening  the parse's upper bound is gone, so 1.5 is read as 1.5 --
 #                             exactly one parse: assertion fails (the 1.5 one), and no other:
 #                             tightenBoundaryCall's own k < 1 guard still leaves K >= 1 alone.
+#   5. mutation D: the default unset reads #1556's 1.0 again (the pre-2026-10-13 parse) --
+#                             exactly one parse: assertion fails (`unset is the default,
+#                             0.7`), and no other.
 #
 # It links no extra translation unit: the rule is over primitives, in score_processing.hpp.
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
@@ -86,17 +90,28 @@ od_run "1815-check" --network none \
   read RC_C F_C E_C K_C C_C P_C U_C <<< "$(run /tmp/i1815_mutC /tmp/mutC.out)"
   grep "^FAIL " /tmp/mutC.out
 
+  echo "==== 5. mutation D: unset is 1.0 again, the flag before the default =========="
+  echo "PREDICTION: exactly 1 FAIL line, parse: (unset is the default, 0.7), and no other."
+  mutate /tmp/mutD "s#return kDefaultFlagSigmas;#return 1.0;#" \
+         "return kDefaultFlagSigmas;" || { echo "FAIL mutation D did not land"; exit 1; }
+  compile /tmp/mutD/src /tmp/i1815_mutD || { echo "COMPILE_FAILED (mutation D)"; exit 2; }
+  read RC_D F_D E_D K_D C_D P_D U_D <<< "$(run /tmp/i1815_mutD /tmp/mutD.out)"
+  grep "^FAIL " /tmp/mutD.out
+
   echo
   echo "tree rc=$RC_T fails=$F_T sensitive edge=$E cut=$C"
   echo "mutA rc=$RC_A fails=$F_A predicted=$E (edge=$E_A keep=$K_A cut=$C_A parse=$P_A pure=$U_A)"
   echo "mutB rc=$RC_B fails=$F_B predicted=$C (edge=$E_B keep=$K_B cut=$C_B parse=$P_B pure=$U_B)"
   echo "mutC rc=$RC_C fails=$F_C predicted=1 (edge=$E_C keep=$K_C cut=$C_C parse=$P_C pure=$U_C)"
+  echo "mutD rc=$RC_D fails=$F_D predicted=1 (edge=$E_D keep=$K_D cut=$C_D parse=$P_D pure=$U_D)"
   [ "$RC_T" -eq 0 ] && [ "$F_T" -eq 0 ] || { echo "FAIL the tree rule did not hold"; exit 1; }
   [ "$E" -gt 0 ] && [ "$C" -gt 0 ] || { echo "FAIL a sensitive count is zero, so a mutation would prove nothing"; exit 1; }
   [ "$RC_A" -ne 0 ] && [ "$F_A" -eq "$E" ] && [ "$E_A" -eq "$E" ] || { echo "FAIL mutation A: $F_A fails, $E_A edge:, predicted $E"; exit 1; }
   [ "$RC_B" -ne 0 ] && [ "$F_B" -eq "$C" ] && [ "$C_B" -eq "$C" ] || { echo "FAIL mutation B: $F_B fails, $C_B cut:, predicted $C"; exit 1; }
   [ "$RC_C" -ne 0 ] && [ "$F_C" -eq 1 ] && [ "$P_C" -eq 1 ] || { echo "FAIL mutation C: $F_C fails, $P_C parse:, predicted 1"; exit 1; }
-  echo "ALL FOUR HELD"
+  [ "$RC_D" -ne 0 ] && [ "$F_D" -eq 1 ] && [ "$P_D" -eq 1 ] && grep -q "^FAIL parse: unset is the default" /tmp/mutD.out \
+    || { echo "FAIL mutation D: $F_D fails, $P_D parse:, predicted 1 naming the default"; exit 1; }
+  echo "ALL FIVE HELD"
   exit 0
 '
 exit $?
