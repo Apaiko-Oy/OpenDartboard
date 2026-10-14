@@ -24,6 +24,7 @@
 #include "detector/geometry/detection/dart_processing.hpp"
 #include "detector/geometry/detection/motion_processing.hpp"
 #include "detector/geometry/detection/score_processing.hpp"
+#include "replay_clock.hpp" // turnaus#1838: winds od_clock as the capture seam does
 
 namespace
 {
@@ -133,6 +134,7 @@ int main(int argc, char **argv)
 
     long cycle = 0;
     int dart = 0;
+    replay_clock::start(caps);
     while (true)
     {
         std::vector<cv::Mat> images(cameras);
@@ -144,6 +146,7 @@ int main(int argc, char **argv)
         }
         if (got == 0) break;
         cycle++;
+        replay_clock::advance(caps, images);
 
         const motion_processing::MotionResult motion =
             motion_processing::processMotion(images, background_frames, board_extents, false);
