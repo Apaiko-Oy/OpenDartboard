@@ -104,6 +104,19 @@ int main()
             "pure: L6 2026-09-30 run 3 D14 at 0.981, thrown MISS: the flag half, D14 flagged with MISS");
     }
 
+    // The real singles the same records name beside a rim-only camera that were NOT
+    // rim-carried with no usable line, so neither #1707 nor this rule ever reached them:
+    // 2026-09-30 run 2 S20 at 0.871 (1 usable line), run 2 S3 at 0.84 and run 3 S18 at
+    // 0.75 (2 cameras in the scoring area). The S18 is 127.5 mm, INSIDE the line: had it
+    // been rim-carried and unsupported, this rule would have published it MISS.
+    {
+        const RimFallback a = rimCarriedFallback(true, false, "single", 20, 0.871f);
+        const RimFallback b = rimCarriedFallback(true, false, "single", 3, 0.84f);
+        const RimFallback c = rimCarriedFallback(true, false, "single", 18, 0.75f);
+        say(!a.to_miss && !b.to_miss && !c.to_miss && !a.kept && !b.kept && !c.kept,
+            "pure: 2026-09-30 S20 0.871, S3 0.84, S18 0.75 (supported or not rim-carried) are never asked");
+    }
+
     // ---- the line itself, either side ---------------------------------------------------
     {
         const RimFallback f = rimCarriedFallback(true, true, "single", 20, 135.0f / 170.0f);
