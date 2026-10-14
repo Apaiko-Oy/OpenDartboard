@@ -714,7 +714,8 @@ namespace score_processing
             if (on)
             {
                 log_warning("OD_RIM_FALLBACK=on is set: a lone camera's reading beside a rim-only camera publishes "
-                            "MISS when it is unsupported inside the double, and flagged when it is in the double (#1707)");
+                            "MISS when it is unsupported inside the outer single's middle (134.5 mm, #1855), and flagged when "
+                            "it is in the double (#1707)");
             }
             return on;
         }();
@@ -1447,6 +1448,15 @@ namespace score_processing
                              "camera, on a dart the rim-only votes carried -- its tip is the dart's barrel or "
                              "flight over the board, so MISS publishes (#1707)");
                     result.score = "MISS";
+                }
+                else if (rim.kept)
+                {
+                    log_info("I1707 RIM FALLBACK KEPT: camera " + to_string(best_camera) + " alone read " + final_score +
+                             " in the " + point_scores[best_camera].ring + " ring at " +
+                             to_string(rim.radius_mm) + " mm, with no usable axis on any camera, on a dart the "
+                             "rim-only votes carried -- at or beyond " + to_string(kRimMissBelowMm) +
+                             " mm (the outer single's middle) a real single is where the rim saw it, so it "
+                             "publishes as read (#1855)");
                 }
                 else if (rim.flag)
                 {

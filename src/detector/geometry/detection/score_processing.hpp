@@ -1169,10 +1169,32 @@ namespace score_processing
     //     166/170) or MISS outside. Live: a miss read D3 (0.994), an S2 read D2 (0.954).
     //     The published score is unchanged; the thrower is offered the other one.
     // Opt-in: OD_RIM_FALLBACK=on. Unset, the lone camera publishes as it reads.
+    //
+    // #1855: THE TO-MISS HALF READS THE RADIUS. Live on 2026-10-10 (build 2b56b48, 15:39)
+    // one visit put two rim-carried darts with no usable line through this branch with the
+    // identical story: a real S20 read at radius 0.926 (157.4 mm) and a miss read S20 at
+    // 0.562 (95.5 mm). The rule as #1707 wrote it sent both to MISS -- one fixed, one lost.
+    // A rim vote says "at or beyond the double", and a lone tip deep in the board
+    // contradicts it; a lone tip in the outer single's outer half does not, because a
+    // real single there is exactly what a camera seeing the dart edge-on at the rim
+    // reports as `rim only`. So the lone reading goes to MISS only when, by its own ruler,
+    // it lies inside kRimMissBelowMm: the middle of the outer single band, halfway between
+    // the treble's outer wire (107) and the double's inner wire (162), 134.5 mm (radius
+    // 0.791). Every recorded rim-carried miss reads inside it (0.461, 0.47, 0.562, 0.658:
+    // 78-112 mm, the nearest 22.6 mm in) and the one recorded real single outside it
+    // (0.926: 157.4 mm, 22.9 mm out) -- the line sits in the middle of the measured gap,
+    // more than four of #1628's 5 mm sigmas from either side. A treble, an inner single
+    // and either bull are all inside it by construction. A reading WITHOUT a radius has no
+    // ruler to ask and goes to MISS as #1707 sent it. A kept reading publishes as it read,
+    // and #1773's RING-WIRE then flags it where it is within its sigma of a wire.
+    inline constexpr float kRimMissBelowMm = (kOuterTrebleWireMm + kInnerDoubleWireMm) / 2.0f; // 134.5
+
     struct RimFallback
     {
         bool to_miss = false;
         bool flag = false;
+        bool kept = false; // #1855: unsupported, inside the double, but at or beyond kRimMissBelowMm
+        float radius_mm = -1.0f;
         string alternative;
     };
 
@@ -1184,7 +1206,9 @@ namespace score_processing
             return f;
         if (unsupported && (ring == "single" || ring == "triple" || ring == "bull" || ring == "outer"))
         {
-            f.to_miss = true;
+            f.radius_mm = radius >= 0.0f ? radius * kScoringRadiusMm : -1.0f;
+            f.kept = f.radius_mm >= kRimMissBelowMm;
+            f.to_miss = !f.kept;
         }
         else if (ring == "double")
         {
