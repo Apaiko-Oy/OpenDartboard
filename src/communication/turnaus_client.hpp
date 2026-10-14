@@ -556,6 +556,10 @@ public:
         {
             out.push_back("ring_wire_mm");
         }
+        if (result.inferred)
+        {
+            out.push_back("inferred"); // turnaus#1537
+        }
         return out;
     }
 

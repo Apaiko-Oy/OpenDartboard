@@ -23,7 +23,15 @@ WHAT IT READS. Two files Turnaus serves for one board-day (turnaus#1786, #1790):
 
         reference published alternative corrected picked path flagged degraded candidates
         cameras crossing_deg sigma_mm margin_mm wire_kind agreeing lone_wire_mm ring_wire_mm
-        radius angle bounced outcome corrections posted_at
+        radius angle bounced outcome corrections posted_at inferred
+
+    `inferred` (turnaus#1537) is OPTIONAL and read by name: `1` on a dart the board did not
+    see and published because its visit closed short (OD_VISIT_FILL=on: a MISS, path
+    `inferred`), `0` on a measured one. A line without the column -- an older server, a
+    session saved before it -- is read as all measured, as it is. With the column, a value
+    other than 0/1, or `path` and `inferred` disagreeing (path `inferred` on a 0, any other
+    path on a 1), is a loud failure like the rest; so is path `inferred` on a line with no
+    column, which no server that lacked the column could have written.
 
   * the day's LOG (`.../log`): the board's own `--log-file` text, each file it posted joined
     in the order begun. Lines are `[HH:MM:SS.mmm][LEVEL][module] - message` (logging.hpp).
@@ -35,6 +43,13 @@ WHAT IT PRINTS.
     I1789 COUNT path=<geometry|vote|unknown|total> posted= corrected= alternative=
           candidate= typed= unflagged= removed= turn= undone= flagged= false_flag=
           false_flag_rate=
+        Inferred darts are in NONE of these lines, `total` included: the board did not
+        detect them, and Turnaus keeps them out of its four counts the same way.
+    I1789 INFERRED column=<present|absent> posted= corrected= alternative= ...
+        the inferred darts (turnaus#1537), counted on the same keys and apart. A `# expect
+        count inferred ...` line holds them. A correction standing on one prints an
+        `I1789 INFERRED-DART ref= published= corrected= picked=` line and is given NO fault
+        class: no detection was made, so none was misread.
         The four counts (`alternative candidate typed unflagged`) are Turnaus's
         `BoardSession::countOf`, recounted from the line: a dart is counted by its LAST
         correction, which is what `picked` carries; `published` (a fix undone), `removed`
@@ -147,7 +162,10 @@ REQUIRED = (
 # App\Autoscoring\Pick, plus `-` for a dart nobody corrected.
 PICKS = ("alternative", "published", "candidate", "typed", "removed", "turn", "-")
 # BoardSession::PATHS; `-` is a board that did not say, counted as `unknown` as the desk does.
+# `inferred` (turnaus#1537) is a path too, but not a detection: those darts are counted apart.
 PATHS = ("geometry", "vote", "unknown")
+INFERRED_PATH = "inferred"
+INFERRED_COLUMN = "inferred"  # optional: a line without it is all measured
 COUNTS = ("alternative", "candidate", "typed", "unflagged")
 MISS = "None"  # #821's Sector grammar for a miss; the detector's MISS (turnaus_client.cpp)
 
@@ -229,8 +247,19 @@ def read_truth(text):
         if row["picked"] not in PICKS:
             raise FormatError("line %d: picked=%s is not one of App\\Autoscoring\\Pick's values (%s)"
                               % (n, row["picked"], " ".join(PICKS)))
-        if row["path"] not in ("geometry", "vote", "-"):
-            raise FormatError("line %d: path=%s is neither geometry, vote nor -" % (n, row["path"]))
+        if row["path"] not in ("geometry", "vote", INFERRED_PATH, "-"):
+            raise FormatError("line %d: path=%s is neither geometry, vote, inferred nor -" % (n, row["path"]))
+        # turnaus#1537: a line without the column is all measured, as it was written.
+        if INFERRED_COLUMN not in columns:
+            if row["path"] == INFERRED_PATH:
+                raise FormatError("line %d: path=inferred, but the columns line names no `inferred` "
+                                  "column -- no server that lacked it could have written that" % n)
+            row[INFERRED_COLUMN] = "0"
+        elif row[INFERRED_COLUMN] not in ("0", "1"):
+            raise FormatError("line %d: inferred=%s is not 0 or 1" % (n, row[INFERRED_COLUMN]))
+        elif (row[INFERRED_COLUMN] == "1") != (row["path"] == INFERRED_PATH):
+            raise FormatError("line %d: inferred=%s with path=%s -- the two disagree"
+                              % (n, row[INFERRED_COLUMN], row["path"]))
         if row["flagged"] not in ("0", "1"):
             raise FormatError("line %d: flagged=%s is not 0 or 1" % (n, row["flagged"]))
         if not re.fullmatch(r"\d+", row["corrections"]):
@@ -253,6 +282,11 @@ def path_of(row):
     return "unknown" if row["path"] == "-" else row["path"]
 
 
+def inferred(row):
+    """turnaus#1537: a dart the board published without seeing it (a short visit's MISS)."""
+    return row[INFERRED_COLUMN] == "1"
+
+
 def standing(row):
     """A correction stands: the dart's last correction is not 'none' or a fix undone."""
     return row["picked"] not in ("-", "published")
@@ -269,9 +303,10 @@ def count_of(row):
 
 def counts(rows):
     keys = ("posted", "corrected") + COUNTS + ("removed", "turn", "undone", "flagged", "false_flag")
-    out = {p: dict.fromkeys(keys, 0) for p in PATHS + ("total",)}
+    out = {p: dict.fromkeys(keys, 0) for p in PATHS + ("total", "inferred")}
     for row in rows:
-        for p in (path_of(row), "total"):
+        # An inferred dart is no detection: it is counted apart, never in a path or total.
+        for p in (("inferred",) if inferred(row) else (path_of(row), "total")):
             c = out[p]
             c["posted"] += 1
             c["corrected"] += int(row["corrections"]) > 0
@@ -583,6 +618,8 @@ def census(truth_text, log_text, out):
         rate = "%.3f" % (c["false_flag"] / c["flagged"]) if c["flagged"] else "-"
         out("I1789 COUNT path=%s %s false_flag_rate=%s"
             % (p, " ".join("%s=%d" % kv for kv in c.items()), rate))
+    out("I1789 INFERRED column=%s %s" % ("present" if INFERRED_COLUMN in columns else "absent",
+                                         " ".join("%s=%d" % kv for kv in tally["inferred"].items())))
     log = read_log(log_text) if log_text is not None else None
     ends = ends_of(log) if log else []
     if log is not None:
@@ -593,6 +630,10 @@ def census(truth_text, log_text, out):
         if disagrees:
             out("I1789 PICK-DISAGREES ref=%s line=%d %s" % (row["reference"], row["_line"], disagrees))
         if not standing(row):
+            continue
+        if inferred(row):
+            out("I1789 INFERRED-DART ref=%s published=%s corrected=%s picked=%s no class: the board "
+                "did not see it" % (row["reference"], row["published"], row["corrected"], row["picked"]))
             continue
         found = window_of(log, row["reference"], row["published"]) if log else None
         dart_time = found[0] if found else None
@@ -664,6 +705,7 @@ def self_test(out):
     instance (#1628, #1556 -- that session's every unflagged geometric solve was right)."""
     base = dict((c, "-") for c in REQUIRED)
     base.update(picked="typed", flagged="0", corrections="1", _line=0)
+    base[INFERRED_COLUMN] = "0"
 
     def row(**kw):
         r = dict(base)

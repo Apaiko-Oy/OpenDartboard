@@ -92,7 +92,9 @@ tester 1787-account       "bash '$T/i1787_check.sh'"
 # phantoms move), a real push and a real mention struck (#1817), the re-read's END struck
 # and its Position moved 13 px (exactly the re-reads move, #1819). Stdlib python in
 # $OD_IMAGE; no detector binary, so OD_SKIP_BUILD changes nothing about it. MEASURED
-# 2026-10-11 on the 4-core box, rc=0: 8.4 s (4.4 s before #1819's two mutations).
+# 2026-10-11 on the 4-core box, rc=0: 8.4 s (4.4 s before #1819's two mutations). turnaus#1537
+# adds the 24-column shape (`inferred` appended last) and three predicted mutations of it:
+# 1.8 s on 2026-10-14 at load ~2, rc=0.
 tester 1789-truth         "bash '$T/i1789_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
@@ -787,6 +789,17 @@ tester 1820-reread        "bash '$T/i1820_check.sh'"
 # binary; OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-11 on the 4-core box at load
 # ~10-13 with a bakeoff alongside, rc=0: 24 s wall.
 tester 1821-rimoffer      "bash '$T/i1821_check.sh'"
+# turnaus#1537: a visit that closes with fewer than three darts (live 2026-10-10: three visits
+# whose miss landed beyond the rim and opened no event) publishes each unseen dart as MISS at
+# 0.5, path "inferred", `"inferred": true` in the Turnaus body, before its END. OD_VISIT_FILL
+# (off by default). The pure half: visit_fill::Ledger over the live session's three short
+# visits and the shapes it must leave alone (whole, empty END, past three, the next visit, the
+# switch off), and the body built from an inferred MISS; one compile of the tree plus eight of
+# a mutated scratch copy, each predicted to turn named assertions red. Needs build/_deps (it
+# links turnaus_client.cpp, compiled once and reused); no detector binary. MEASURED 2026-10-13
+# on the 4-core box at load ~3 with another checkout's gate alongside, rc=0: 249 s wall; again
+# 2026-10-14 over fork main 9e8b53a at load ~6, rc=0: 187 s wall.
+tester 1537-visitfill     "bash '$T/i1537_check.sh'"
 # turnaus#1802: a body at the board carried as three darts by the rim-only votes (live on casual
 # board 20, 2026-10-11 01:02: three `I1707 RIM CARRIED` MISSes between two takeouts, camera 2 at
 # 25,835 px, no camera clearing the scoring floor on a usable line). OD_RIM_BODY (off by default)

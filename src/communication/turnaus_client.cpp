@@ -841,6 +841,13 @@ TurnausClient::DetectionBody TurnausClient::detectionBody(const std::string &ref
         {
             body["ring_wire_mm"] = atPlaces((double)result.ring_wire_mm, 2);
         }
+        // turnaus#1537: a MISS the board inferred because the visit closed short, and did not
+        // see (path "inferred", confidence 0.5). Present only then, so every measured dart
+        // posts the bytes it posted before this key existed.
+        if (result.inferred)
+        {
+            body["inferred"] = true;
+        }
         out.carries_account = true;
     }
 
