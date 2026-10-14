@@ -378,3 +378,26 @@ else()
         target_compile_definitions(opendartboard-launcher PRIVATE OD_UPDATE_PLATFORM="${OD_UPDATE_PLATFORM}")
     endif()
 endif()
+
+# ---- #1849: opendartboard-setup, a Pi board's way onto a network and into a club ----
+#
+# A third program, Linux only: it raises the Turnaus-XXXX access point after five failed
+# looks at the network, serves GET/POST /setup, hands the Wi-Fi to NetworkManager and the
+# code to `opendartboard --pair --keep-device`. Not the detector (ADR-0083 §4), so it links
+# no OpenCV; nlohmann and httplib as the launcher takes them, and OpenSSL for the same
+# reason -- its "is Turnaus answering" look is an https:// request.
+if(NOT WIN32)
+    add_executable(opendartboard-setup src/setup/main.cpp)
+    target_include_directories(opendartboard-setup PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+        ${httplib_SOURCE_DIR}
+    )
+    target_compile_definitions(opendartboard-setup PRIVATE APP_VERSION="${APP_VERSION}")
+    target_compile_features(opendartboard-setup PRIVATE cxx_std_17)
+    target_link_libraries(opendartboard-setup PRIVATE nlohmann_json::nlohmann_json Threads::Threads)
+    if(OpenSSL_FOUND)
+        target_compile_definitions(opendartboard-setup PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+        target_link_libraries(opendartboard-setup PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+endif()

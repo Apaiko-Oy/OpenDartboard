@@ -328,6 +328,7 @@ namespace
             setup::Machine m(p, freshCounter(), kBoard, "0.0.0-dev");
             setup::Reply r = m.post(R"({"ssid":"Pub","passphrase":"hunter2-pub","pin":"123456"})");
             check(r.status == 409 && p.acts.empty(), "malformed: a request while no access point is up is 409 and acts on nothing");
+            check(m.get().status == 409, "malformed: and GET /setup is 409 too -- a board on its network says nothing");
         }
         {
             FakePlatform p;

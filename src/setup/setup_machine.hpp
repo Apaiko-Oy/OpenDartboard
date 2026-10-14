@@ -322,6 +322,12 @@ namespace setup
         /** GET /setup. Never a credential, a token or a passphrase. */
         Reply get()
         {
+            // Only while this board is being set up: on the club's network it says nothing
+            // about itself to whoever asks.
+            if (mode_ == Mode::Watching)
+            {
+                return {409, nlohmann::json({{"errors", {{"board", "not_in_setup"}}}}).dump()};
+            }
             nlohmann::json j;
             j["board"] = board_;
             j["version"] = version_;
