@@ -28,26 +28,33 @@ COUNTS=("$@")
 # measures. By the exact name, never by pattern.
 docker rm -f "$(od_name i1355-bounds)" > /dev/null 2>&1
 
-# #1688: every sanitizer run is BOUNDED, and a run that meets its bound is a FAIL with its
-# reason in it. gcc 10.2.1's libasan in $OD_IMAGE sometimes never reaches main on this
-# kernel (6.18, WSL2): it loops on `AddressSanitizer:DEADLYSIGNAL` for ever, about 2 MB of
-# it a second. Measured on f15173f: 3 of 20 runs of `bounds_asan 4` under `timeout 5`, and
-# then 5 of 9 across the three counts; the ones that finish take 0.36-0.39 s. With this
-# bound, 3 of 5 whole runs of this tester FAILed on one hang each. Before this
-# the hang wedged run_all.sh -- one run went 12 minutes and grew the capturing shell to
-# 2 GB, because the output was captured into a variable. It now goes to a file.
-# The likely cause is libasan against the kernel's wider mmap randomisation (an EMPTY main
-# built with -fsanitize=address in the same image hangs 10 of 40 times), and the
-# cure for THAT (`setarch -R`, which needs the container's seccomp profile loosened) is the
-# maintainer's decision and is deliberately not taken here. So a hang is not a pass and is
-# not retried: it is reported by name, and it costs this tester its verdict.
+# #1688: the whole harness runs in $OD_ASAN_IMAGE (testers/asan.dockerfile, gcc 14.2),
+# not $OD_IMAGE. gcc 10.2.1's libasan there sometimes never reaches main on this kernel
+# (6.18, WSL2, vm.mmap_rnd_bits=32): it loops on `AddressSanitizer:DEADLYSIGNAL` for ever,
+# about 2 MB of it a second. The cause, measured: that libasan maps its allocator MAP_FIXED
+# at 0x600000000000-0x640000000000, and with 32 bits of mmap randomness a PIE program lands
+# inside that window about one start in four, so the allocator maps over the program's
+# own text and every instruction run there faults again. Measured: an empty main hung 9 of
+# 40 there and 0 of 40 in the new image; this tester, through the old image, FAILed 3 of
+# 5 runs on 4 hangs in 15 sanitizer starts, and through the new one PASSed 20 of 20 (60
+# starts, no hang; load 1.3-6.6, 46-98 s a run; 2026-10-14). testers/asan.dockerfile has
+# the rest. The
+# container's sandbox is untouched (no seccomp change, no `setarch -R`).
+#
+# Every sanitizer run stays BOUNDED all the same (cf417e4), and a run that meets its bound
+# is a FAIL with its reason in it: the bound is the backstop if a libasan ever loops again.
+# Before the bound the hang wedged run_all.sh -- one run went 12 minutes and grew the
+# capturing shell to 2 GB, because the output was captured into a variable. It now goes to
+# a file. A hang is not a pass and is not retried: it is reported by name, and it costs
+# this tester its verdict.
 # OD_ASAN_BOUND_S is the bound, 30 s by default: eighty times a finished run, so a slow box
 # cannot read as a hang, and 60 MB of DEADLYSIGNAL at worst in the container's /tmp.
 ASAN_BOUND_S="${OD_ASAN_BOUND_S:-30}"
+od_need_asan_image || exit 2
 
 docker run --rm --name "$(od_name i1355-bounds)" --cpus=2 --network none -e HOME=/root \
   -e ASAN_BOUND_S="$ASAN_BOUND_S" \
-  -v "$OD_TREE_ROOT":/app -w /app "$OD_IMAGE" bash -c '
+  -v "$OD_TREE_ROOT":/app -w /app "$OD_ASAN_IMAGE" bash -c '
     set -u
     g++ -std=c++17 -O1 -I /app/src -I /app/src/utils -o /tmp/bounds_check \
       /app/testers/i1355_bounds_check.cpp /app/src/detector/geometry/detection/dart_processing.cpp \
