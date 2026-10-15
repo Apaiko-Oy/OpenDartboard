@@ -529,6 +529,39 @@ testers/i1555_run.sh`, capture clock, 859 s, 2026-10-14): pooled **143..149/158*
 lone reading inside the double, so neither MISS nor KEPT fires on any of them; the flag
 half fires on the same D20, D5 and D14 as before, publishing each one as read.
 
+**The rim contradicts the lone reading, and MISS is offered (turnaus#1867), default.** Live
+on board device/2 on 2026-10-15 (`OD_RIM_FALLBACK` unset; darts 2519-3004 thrown and checked
+by the maintainer, 39 corrected), three misses published as scores through exactly #1855's
+to-MISS window: rim-carried, 0 usable constraints, a lone reading inside 134.5 mm. In the same
+checked span three darts with the identical story were left uncorrected, so their score stood.
+The log does not separate them: the same camera in five of the six, the same `not straight`
+refusal, the other two cameras rim only, and radii that interleave.
+
+| dart | lone reading | radius, mm | truth | `OD_RIM_FALLBACK=on` | default now |
+|---|---|---|---|---|---|
+| 2787 | T6 (0.585) | 99.5 | miss | MISS | T6, flagged, MISS offered |
+| 2788 | S18 (0.668) | 113.6 | miss | MISS | S18, flagged, MISS offered |
+| 3002 | S6 (0.115) | 19.5 | miss | MISS | S6, flagged, MISS offered |
+| 2707 | S19 (0.220) | 37.4 | stood | **MISS (lost)** | S19, flagged, MISS offered |
+| 2881 | S3 (0.465) | 79.1 | stood | **MISS (lost)** | S3, flagged, MISS offered |
+| 2946 | S2 (0.648) | 110.1 | stood | **MISS (lost)** | S2, flagged, MISS offered |
+
+Turning #1855's to-MISS half on is therefore 3 fixed for 3 lost on the only checked day that
+reaches it, and it stays opt-in. By default the reading now publishes as read, flagged with
+MISS as #1556's alternative at 0.7, logged `I1867 RIM CONTRADICTS`; MISS replaces #1773's
+RING-WIRE alternative on these windows. The score string does not move, so no count of correct
+scores moves either way: the three misses become one tap instead of a typed correction, the
+three hits are now flagged and stand. Outside the checked span the rule changes 14 darts of
+the day, truth unknown: 7 unflagged readings become flagged, and 7 trebles near radius 0.60
+(T20 twice, T2, T7, T5 twice, T6) offer MISS where RING-WIRE offered the single.
+
+Of the six misses the issue names, three are not reached and are left as they publish: 2630
+D19 was not rim-carried (two cameras cleared the scoring floor, both refused `not straight`)
+and RING-WIRE already offered MISS; 2642 D11 had one usable constraint; 2728 D18 read in the
+double, where the rim agrees with the reading and a real double stood on 18 rim-carried darts
+of the checked span. `testers/i1867_check.sh` holds the rows from the log, with two predicted
+mutations. It is not a replay: the kept frames are three stills per dart, not footage.
+
 `OD_COOLDOWN_EXPIRY=spike` (#1650) and the mask, bull and axis switches
 (`OD_MASK_UNSHIFT`, `OD_BULL_SUBPIXEL`, `OD_AXIS_UNSHIFT`) stay opt-in. One risk is
 recorded, not measured on the capture clock. On the wall clock, when detector cycles
