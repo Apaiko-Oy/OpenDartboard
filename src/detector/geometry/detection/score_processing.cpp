@@ -1492,6 +1492,29 @@ namespace score_processing
                     result.boundary_kind = "ring";
                     result.confidence = ring_wire.confidence;
                 }
+                // turnaus#1867: where #1855 would send this reading to MISS and its switch is
+                // off, the reading publishes as read and MISS is offered (score_processing.hpp,
+                // rimContradictsTheReading). It replaces RING-WIRE's alternative, said above.
+                const RimContradiction rim_contra = rimContradictsTheReading(
+                    any_rim_only && choice.agreeing < 2 && !rimFallbackIsOn(),
+                    dart_result.rim_carried && no_usable_axis,
+                    point_scores[best_camera].ring,
+                    point_scores[best_camera].board.has_radius ? point_scores[best_camera].board.radius : -1.0f);
+                if (rim_contra.flag)
+                {
+                    log_info("I1867 RIM CONTRADICTS: camera " + to_string(best_camera) + " alone read " + final_score +
+                             " in the " + point_scores[best_camera].ring + " ring at " +
+                             (rim_contra.radius_mm >= 0.0f ? to_string(rim_contra.radius_mm) + " mm"
+                                                           : string("no radius")) +
+                             ", with no usable axis on any camera, on a dart the rim-only votes carried -- the rim "
+                             "says at or beyond the double, this reading says inside " + to_string(kRimMissBelowMm) +
+                             " mm, and nothing in the window says which is the dart, so " + final_score +
+                             " publishes flagged with MISS (turnaus#1867)");
+                    result.boundary_flagged = true;
+                    result.alternative_score = "MISS";
+                    result.boundary_kind = "ring";
+                    result.confidence = std::min(result.confidence, geometricConfidence(true));
+                }
                 result.camera_index = best_camera;
                 result.valid = true;
                 // #1787: the vote's own account as fields -- "from N cameras" of the

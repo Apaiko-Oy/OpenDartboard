@@ -751,6 +751,14 @@ tester 1773-ringwire      "bash '$T/i1773_check.sh'"
 # compile of the tree plus two of a mutated scratch copy of the header (the radius keeps
 # nothing; the line moved in to the 25's wire), predictions stated first.
 tester 1855-rimradius     "bash '$T/i1855_check.sh'"
+# turnaus#1867: live on device/2, 2026-10-15, three misses published as scores through
+# #1855's to-MISS window with OD_RIM_FALLBACK unset (rim-carried, 0 usable constraints, a
+# lone reading inside 134.5 mm), and three hits with the identical story stood. By default
+# the reading now publishes as read, FLAGGED WITH MISS. The pure half, rows read from that
+# day's log (no replay: the kept frames are stills): one compile of the tree plus two of a
+# mutated scratch copy of the header (the rule never fires; the radius ignored), each
+# predicted to turn named rows red. No detector binary.
+tester 1867-rimcontra     "bash '$T/i1867_check.sh'"
 # turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
 # on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)
 # holds an advance a body-sized fresh figure voted (15% of a board) or one within 1500 ms of
