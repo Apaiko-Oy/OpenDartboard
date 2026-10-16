@@ -210,6 +210,23 @@ int main()
         json a = bodyOf(agreed);
         say(a["agreeing"] == 2 && a["confidence"].dump() == "0.9" && !a.contains("lone_wire_mm"),
             "a consensus dart says agreeing=2 at 0.9 and has no LONE-WIRE margin");
+
+        // turnaus#1873: the rim contradicts the reading (turnaus#1867) -- published as read,
+        // flagged with MISS, and the body says so by name, so the server asks for the frames
+        // on arrival. Every other dart, this vote dart among them, carries no such key.
+        say(!j.contains("rim_contradicts"), "an ordinary vote dart carries no rim_contradicts key");
+        DetectorResult contradicted = ringed;
+        contradicted.boundary_flagged = true;
+        contradicted.alternative_score = "MISS";
+        contradicted.boundary_kind = "ring";
+        contradicted.rim_contradicts = true;
+        json c = bodyOf(contradicted);
+        std::cout << "  BODY rim-contradicted vote: " << c.dump() << std::endl;
+        say(c["rim_contradicts"] == true && c["alternative"] == "None" && c["flagged"] == true,
+            "a rim-contradicted dart posts rim_contradicts=true beside MISS spelled None (turnaus#1873)");
+        say(TurnausClient::accountFieldsExpected(contradicted).back() == "rim_contradicts" &&
+                missing(c, TurnausClient::accountFieldsExpected(contradicted)).empty(),
+            "which the rule expects of it by name");
     }
 
     // ---- THE MISS the vote publishes when no camera scored ---------------------------------

@@ -250,6 +250,7 @@ there" and never "is it real".
 | `agreeing`     | `int`          | `path` is `vote`             | how many cameras agreed on the string: 2 or more is the Consensus line, 1 a lone reading, 0 the MISS      |
 | `lone_wire_mm` | `number`       | LONE-WIRE measured it        | the published lone reading's margin to the nearest wedge wire (#1628)                                      |
 | `ring_wire_mm` | `number`       | RING-WIRE measured it        | the same reading's margin to the nearest ring wire (#1773), on every vote publish that measured a radius    |
+| `rim_contradicts` | `bool`      | `I1867 RIM CONTRADICTS` fired | always `true`: the rim-only votes carried the dart at or beyond the double, the lone camera it published by read it inside, and no camera had a usable axis (turnaus#1867). Absent on every other dart (turnaus#1873) |
 
 A flagged two-line geometric dart therefore posts, beside #1366's keys and #1651's
 `alternative` and #1721's `candidates`:
@@ -262,6 +263,16 @@ A flagged two-line geometric dart therefore posts, beside #1366's keys and #1651
 and a lone camera's vote dart `{"path":"vote","flagged":false,"confidence":0.7,"degraded":true,
 "cameras_used":[2],"agreeing":1,"lone_wire_mm":7.8}`. A MISS carries `path`, `flagged`,
 `confidence`, `degraded` and `agreeing` and nothing a camera never measured.
+
+**`rim_contradicts` is the one marker of a rim contradiction, and the shape around it is not**
+(turnaus#1873). Such a dart publishes as read with MISS as its alternative, `path` `vote`,
+`degraded` and `wire_kind` `ring` -- but so does every RING-WIRE offer of MISS across a
+double's outer wire (#1773): device/2's 2026-10-15 log holds 51 pushes of that shape against
+the six darts #1867 marks. Turnaus asks the board for a marked dart's frames the moment it
+arrives (`GET .../frame-requests` lists it at the next END, under the same caps as a corrected
+dart's), so the open question -- should such a dart publish MISS by default? -- can be settled
+from pictures of the darts nobody corrected too. Like `inferred`, the key is sent only when
+true, so every other dart's body is byte for byte what it was.
 
 ### The log, uploaded, and a corrected dart's frames, on request (turnaus#1787)
 

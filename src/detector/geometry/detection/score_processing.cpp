@@ -1514,6 +1514,9 @@ namespace score_processing
                     result.alternative_score = "MISS";
                     result.boundary_kind = "ring";
                     result.confidence = std::min(result.confidence, geometricConfidence(true));
+                    // turnaus#1873: said in the body too, so the server asks for this dart's
+                    // frames the moment it arrives rather than only if somebody corrects it.
+                    result.rim_contradicts = true;
                 }
                 result.camera_index = best_camera;
                 result.valid = true;

@@ -163,6 +163,7 @@ namespace score_processing
         float lone_wire_mm = -1.0f; // LONE-WIRE's published-reading margin; -1 unmeasured
         float ring_wire_mm = -1.0f; // RING-WIRE's (#1773) margin, filled where that line is written; -1 unmeasured
         long window_ordinal = -1;   // the window that called this dart
+        bool rim_contradicts = false; // turnaus#1873: set exactly where I1867 RIM CONTRADICTS is logged
     };
 
     /**

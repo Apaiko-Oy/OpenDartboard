@@ -778,6 +778,7 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.lone_wire_mm = score_result.lone_wire_mm;
         result.ring_wire_mm = score_result.ring_wire_mm;
         result.window_ordinal = score_result.window_ordinal;
+        result.rim_contradicts = score_result.rim_contradicts; // turnaus#1873
         // The instant the frames behind this score were acquired, from the backend.
         result.timestamp = camera::newestInstantUs(frames);
     }
