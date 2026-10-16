@@ -77,6 +77,13 @@ struct DetectorResult
     // else, where the body carries no such key and is byte for byte what it was.
     bool inferred = false;
 
+    // turnaus#1873: the rim-only votes carried this dart at or beyond the double and the lone
+    // camera it published by read it inside, with no usable axis (turnaus#1867, the
+    // `I1867 RIM CONTRADICTS` line). TurnausClient::detectionBody posts `"rim_contradicts": true`
+    // then, so the server can ask for its frames on arrival; false everywhere else, where the
+    // body carries no such key and is byte for byte what it was.
+    bool rim_contradicts = false;
+
     // Metadata for debugging/analysis
     bool motion_detected = false;
     int processing_time_ms = 0;

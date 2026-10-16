@@ -560,6 +560,10 @@ public:
         {
             out.push_back("inferred"); // turnaus#1537
         }
+        if (result.rim_contradicts)
+        {
+            out.push_back("rim_contradicts"); // turnaus#1873
+        }
         return out;
     }
 

@@ -848,6 +848,12 @@ TurnausClient::DetectionBody TurnausClient::detectionBody(const std::string &ref
         {
             body["inferred"] = true;
         }
+        // turnaus#1873: the rim contradicts the published score (turnaus#1867). Present only
+        // then, as `inferred` is, so the server can ask for the dart's frames on arrival.
+        if (result.rim_contradicts)
+        {
+            body["rim_contradicts"] = true;
+        }
         out.carries_account = true;
     }
 
