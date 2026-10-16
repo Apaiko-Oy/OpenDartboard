@@ -1219,6 +1219,49 @@ namespace score_processing
         return f;
     }
 
+    // turnaus#1867: THE RIM CONTRADICTS THE LONE READING, AND MISS IS OFFERED -- BY DEFAULT.
+    //
+    // Live on board device/2, 2026-10-15 (darts 2519-3004 thrown and checked by the
+    // maintainer), three misses published as scores through exactly the window #1855's
+    // to-MISS half is about, with OD_RIM_FALLBACK unset: `I1707 RIM CARRIED` ("at or beyond
+    // the double ring"), 0 usable constraints, and one camera's reading deep in the board --
+    // dart 2787 T6 at 0.585 (99.5 mm), 2788 S18 at 0.668 (113.6 mm), 3002 S6 at 0.115
+    // (19.5 mm). The kept frames show 2787 and 2788 in the number ring beside the 1.
+    //
+    // The same day refuses #1855's answer as a default. In the same checked span three
+    // darts with the IDENTICAL story were left uncorrected -- the score stood: 2707 S19 at
+    // 0.220, 2881 S3 at 0.465, 2946 S2 at 0.648. The same camera (slot 1) in five of the
+    // six, the same "not straight" refusal on it, the other two cameras rim only, and radii
+    // that interleave (0.115 miss, 0.220 hit, 0.465 hit, 0.585 miss, 0.648 hit, 0.668 miss).
+    // Nothing the log holds separates them, so sending the reading to MISS is 3 fixed for 3
+    // lost -- the 1:1 #1628 refused for a reselection.
+    //
+    // THE RULE. Where #1855 would send the lone reading to MISS and OD_RIM_FALLBACK is NOT
+    // on, the reading publishes as read, FLAGGED with MISS as #1556's alternative, at 0.7.
+    // The score string does not move. Each of the six becomes one tap: the three misses tap
+    // MISS where they had to type it (S18 was unflagged, S6 offered 25, T6 offered S6), and
+    // the three hits stand as they stood. MISS replaces #1773's RING-WIRE alternative on
+    // these windows: the rim vote is evidence about where the dart is, and a wire beside a
+    // reading that may be the flight's and not the tip's is not.
+    //
+    // `applies` is #1855's own condition minus its switch (a lone reading beside a rim-only
+    // camera); with OD_RIM_FALLBACK=on, rimCarriedFallback decides and this is not asked.
+    struct RimContradiction
+    {
+        bool flag = false;       // publish as read, flagged, alternative MISS
+        float radius_mm = -1.0f; // the reading's radius by its own ruler; -1 where it had none
+    };
+
+    inline RimContradiction rimContradictsTheReading(bool applies, bool unsupported, const string &ring,
+                                                      float radius)
+    {
+        RimContradiction c;
+        const RimFallback f = rimCarriedFallback(applies, unsupported, ring, -1, radius);
+        c.flag = f.to_miss;
+        c.radius_mm = f.radius_mm;
+        return c;
+    }
+
     /**
      * #1773: this reading's distance to the nearest RING wire of the ring it was scored
      * in, in board millimetres by its own ruler, with the wire named and the ring across
