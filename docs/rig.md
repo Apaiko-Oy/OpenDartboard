@@ -1132,6 +1132,40 @@ thrower (both sessions are one rig, casual play, with 56 `turn` darts whose outc
 and that the default can move. The corner (#1782) interaction is measured only on the
 fixtures: both sessions predate it.
 
+## The flag's width on device/2, 2026-10-13..16 (turnaus#1874)
+
+**Why every geometric dart between 0.75 and 1.0 sigma was flagged: K = 0.7 was not running.**
+The truth lines' `margin_mm / sigma_mm` *is* the quantity K is compared with: it is
+`boundaryAcrossMm / sigmaAcrossMm` for the nearer wire in sigmas, which is `crossingSigmas`
+(`entry_intersection.hpp`, the `z` the solve sets) and what `tightenBoundaryCall` reads. No
+other rule flags those darts. The boards ran **v0.1.15**, and v0.1.15's `flagSigmasFrom`
+returns #1556's 1.0 for an unset `OD_FLAG_SIGMAS` (`if (text == nullptr || *text == '\0')
+return 1.0;`). The 0.7 default (d51d792) is in **v0.1.16**, tagged 2026-10-16 06:38 +0300,
+after that morning's 06:00 restart, and a board takes a release at the next 06:00 restart.
+Three measurements say the same:
+
+* the `#1556` rule alone (`margin_mm <= sigma_mm`, `i1815_census.py --truth-line`) reproduces
+  the boards' `flagged` on 1328 of 1329, 3085 of 3090 and 490 of 490 darts (the misses are
+  vote rows and one 6.22/6.22 rounding tie);
+* the sentence a K-cleared flag prints (`outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815)`)
+  occurs **0** times in the three days' logs, against 387, 856 and 169 ordinary `clears its
+  nearest` lines;
+* the darts in that band print #1556's flag, with no threshold named, including after
+  2026-10-16's 14:04 restart:
+
+```
+[00:12:24.241] UNCERTAINTY: S5 or T5 -- the nearest ring wire is 5.0 mm across a 5.7 mm one-sigma, so S5 publishes now as the more probable candidate and is flagged; ...
+[16:51:29.240] UNCERTAINTY: S20 or S1 -- the nearest wedge wire is 4.7 mm across a 5.0 mm one-sigma, so S20 publishes now as the more probable candidate and is flagged; ...
+[16:56:07.258] UNCERTAINTY: S5 or T5 -- the nearest ring wire is 4.5 mm across a 5.0 mm one-sigma, so S5 publishes now as the more probable candidate and is flagged; ...
+```
+
+No geometric dart above 1.0 was flagged on any of the three days. The corner (#1782) does not
+widen it: `decideCornerCall` returns its input unless that is already flagged.
+
+So the issue's premise -- the flag runs to one sigma -- was true **of those boards on those
+days** and is not true of fork main, where the default has been 0.7 since v0.1.16. What
+remains is whether 0.7 is right.
+
 ## Three-camera solves near a wire (turnaus#1844), measured, no change
 
 **The question.** device/2 on 2026-10-13 had three corrected darts that were three-camera
