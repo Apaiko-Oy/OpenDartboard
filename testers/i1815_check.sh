@@ -1,6 +1,6 @@
 #!/bin/bash
 # turnaus#1815: six in seven flagged darts were right as published. At K = 0.7 -- the default
-# since 2026-10-13; OD_FLAG_SIGMAS=<K> (0 < K < 1) moves it, OD_FLAG_SIGMAS=off restores
+# from 2026-10-13 until turnaus#1874 moved it to 0.6; OD_FLAG_SIGMAS=<K> (0 < K < 1) moves it, OD_FLAG_SIGMAS=off restores
 # #1556's 1.0 -- a geometric flag is kept only where the solve is within K of its own
 # across-wire sigmas of the wire; the rest publish clear and no score moves. One compile
 # of the tree plus four of a MUTATED SCRATCH COPY of the header, in i1782_check.sh's shape
@@ -20,7 +20,7 @@
 #                             tightenBoundaryCall's own k < 1 guard still leaves K >= 1 alone.
 #   5. mutation D: the default unset reads #1556's 1.0 again (the pre-2026-10-13 parse) --
 #                             exactly one parse: assertion fails (`unset is the default,
-#                             0.7`), and no other.
+#                             0.6` since turnaus#1874), and no other.
 #
 # It links no extra translation unit: the rule is over primitives, in score_processing.hpp.
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
@@ -91,7 +91,7 @@ od_run "1815-check" --network none \
   grep "^FAIL " /tmp/mutC.out
 
   echo "==== 5. mutation D: unset is 1.0 again, the flag before the default =========="
-  echo "PREDICTION: exactly 1 FAIL line, parse: (unset is the default, 0.7), and no other."
+  echo "PREDICTION: exactly 1 FAIL line, parse: (unset is the default, 0.6), and no other."
   mutate /tmp/mutD "s#return kDefaultFlagSigmas;#return 1.0;#" \
          "return kDefaultFlagSigmas;" || { echo "FAIL mutation D did not land"; exit 1; }
   compile /tmp/mutD/src /tmp/i1815_mutD || { echo "COMPILE_FAILED (mutation D)"; exit 2; }

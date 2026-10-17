@@ -1035,7 +1035,8 @@ loosen the flag and is refused). Census line `I1815FLAG window= z= k=
 default= flagged= score= alt= kind=` under `OD_GEO_SCORE=on`; `testers/i1555_run.sh`
 forwards the switch.
 
-**The value is 0.7, and it is the default since turnaus#1815's decision of 2026-10-13.** 0.7
+**The value was 0.7, the default from turnaus#1815's decision of 2026-10-13 until turnaus#1874
+moved it to 0.6 (below).** 0.7
 is the fixtures' 0.57 with 0.13 sigma to spare (0.6 would leave 0.03). It was proposed opt-in
 because it is read off fourteen session darts and five fixture ones; the maintainer turned it
 on after the third session (device/2, 2026-10-13, 1329 darts, below) cut 132 more false flags
@@ -1131,6 +1132,84 @@ the ones left; that no dart between z 0.7 and 1.0 is wrong on another rig or ano
 thrower (both sessions are one rig, casual play, with 56 `turn` darts whose outcome is unknown);
 and that the default can move. The corner (#1782) interaction is measured only on the
 fixtures: both sessions predate it.
+
+## The flag's width on device/2, 2026-10-13..16 (turnaus#1874)
+
+**Why every geometric dart between 0.75 and 1.0 sigma was flagged: K = 0.7 was not running.**
+The truth lines' `margin_mm / sigma_mm` *is* the quantity K is compared with: it is
+`boundaryAcrossMm / sigmaAcrossMm` for the nearer wire in sigmas, which is `crossingSigmas`
+(`entry_intersection.hpp`, the `z` the solve sets) and what `tightenBoundaryCall` reads. No
+other rule flags those darts. The boards ran **v0.1.15**, and v0.1.15's `flagSigmasFrom`
+returns #1556's 1.0 for an unset `OD_FLAG_SIGMAS` (`if (text == nullptr || *text == '\0')
+return 1.0;`). The 0.7 default (d51d792) is in **v0.1.16**, tagged 2026-10-16 06:38 +0300,
+after that morning's 06:00 restart, and a board takes a release at the next 06:00 restart.
+Three measurements say the same:
+
+* the `#1556` rule alone (`margin_mm <= sigma_mm`, `i1815_census.py --truth-line`) reproduces
+  the boards' `flagged` on 1328 of 1329, 3085 of 3090 and 490 of 490 darts (the misses are
+  vote rows and one 6.22/6.22 rounding tie);
+* the sentence a K-cleared flag prints (`outside the flag's 0.70 (OD_FLAG_SIGMAS, #1815)`)
+  occurs **0** times in the three days' logs, against 387, 856 and 169 ordinary `clears its
+  nearest` lines;
+* the darts in that band print #1556's flag, with no threshold named, including after
+  2026-10-16's 14:04 restart:
+
+```
+[00:12:24.241] UNCERTAINTY: S5 or T5 -- the nearest ring wire is 5.0 mm across a 5.7 mm one-sigma, so S5 publishes now as the more probable candidate and is flagged; ...
+[16:51:29.240] UNCERTAINTY: S20 or S1 -- the nearest wedge wire is 4.7 mm across a 5.0 mm one-sigma, so S20 publishes now as the more probable candidate and is flagged; ...
+[16:56:07.258] UNCERTAINTY: S5 or T5 -- the nearest ring wire is 4.5 mm across a 5.0 mm one-sigma, so S5 publishes now as the more probable candidate and is flagged; ...
+```
+
+No geometric dart above 1.0 was flagged on any of the three days. The corner (#1782) does not
+widen it: `decideCornerCall` returns its input unless that is already flagged.
+
+So the issue's premise -- the flag runs to one sigma -- was true **of those boards on those
+days** and is not true of fork main, where the default has been 0.7 since v0.1.16. What
+remains is whether 0.7 is right.
+
+**What 0.7 should be: 0.6 (the default since turnaus#1874).** Geometric darts inside each
+day's corrected span (2026-10-13 darts 6-90, -15 2519-3004, -16 8-471), by the truth line's z;
+"corrected" is `picked` alternative / candidate / typed, `turn` and `removed` are counted apart
+(turnaus#1819). Every dart at z <= 1.0 was flagged and none above it:
+
+| band (z) | 10-13 darts / corrected | 10-15 | 10-16 | all three | turn/removed |
+|---|---|---|---|---|---|
+| < 0.5 | 19 / 3 | 103 / 21 | 102 / 14 | **224 / 38** | 16 |
+| 0.5 - 0.6 | 3 / 0 | 16 / 0 | 17 / 0 | **36 / 0** | 2 |
+| 0.6 - 0.7 | 4 / **1** | 17 / 0 | 18 / 0 | **39 / 1** | 1 |
+| 0.7 - 1.0 | 11 / 0 | 40 / 0 | 59 / 0 | **110 / 0** | 5 |
+| >= 1.0 | 29 / 0 | 104 / 0 | 163 / 0 | 296 / 0 | 10 |
+
+Flags in the spans, by threshold (`testers/i1874_check.sh`), and corrected darts losing their flag:
+
+| K | 10-13 | 10-15 | 10-16 | all | corrected losing the flag |
+|---|---|---|---|---|---|
+| 1.0 (what the boards ran) | 37 | 176 | 196 | 409 | - |
+| 0.7 (v0.1.16) | 26 | 136 | 137 | 299 | 0 |
+| **0.6 (default)** | 22 | 119 | 119 | **260** | **1** |
+| 0.5 (the issue's proposal) | 19 | 103 | 102 | 224 | 1 |
+
+Over the three whole days (no span) the geometric flags are 1651 at 0.7, 1418 at 0.6 and 1215 at
+0.5. The one correction between 0.5 and 1.0 is 2026-10-13 dart 43
+(`01M4TRRGGTCXEHZG0C9HKDM52F`), S12 flagged with S5 at z 0.68 and typed `None`: the dart was
+not a wire call at all, and the S5 the flag offered could not have fixed it. Every dart a
+marker corrected *to a cell* in all seven truth lines (2026-10-10..16) sat at z <= 0.48.
+
+**Why not 0.5.** It clears 36 more flags in these spans, every one of a dart that stood, but
+it loses the two true flags #1815's tester holds between 0.5 and 0.6: board 20's S20 typed
+`None` at 0.524 and rig-20260929 dev v9.3's S19 for a thrown T19 at 0.569, where the flag
+offered exactly the thrown T19. That fixture dart is the only wire error above 0.5 anywhere in
+the data, and 0.6 keeps it with 0.03 sigma to spare. So 0.6 takes about half of what 0.5
+would (39 of 75 flags in the spans, 13% of 299) and loses no flag that offered the right cell.
+What it costs is the typed-`None` dart's prompt.
+
+**What it does not change.** No score moves, the vote path is untouched (#1773's RING-WIRE and
+#1875's LONE-UNCHECKED do not read K), and the corner only refines a flag that survived.
+`OD_FLAG_SIGMAS=0.7` restores v0.1.16; `OD_FLAG_SIGMAS=off` is #1556's 1.0. A cleared dart's
+sentence names the threshold: `outside the flag's 0.60 (OD_FLAG_SIGMAS, #1815)`. The truth
+line carries margin and sigma to two decimals, so a dart within 0.01 of 0.6 may sit on the
+other side of it on the board; and the bakeoff was not re-run here (its ACCURACY cannot move,
+and the count of `outside the flag's` sentences it prints will rise).
 
 ## Three-camera solves near a wire (turnaus#1844), measured, no change
 
