@@ -1194,6 +1194,14 @@ tester 1317-asan          "bash '$T/i1317_run.sh' '$T/phases1317/1317-asan.sh'"
 # measured here. Raising it does not make a HUNG run cheap, and it is not meant to: a
 # timeout bounds a run that is stuck, and this one only ever bounded a run that was slow.
 slow 2400
+# #1886: a Windows board asks the system not to sleep while the detector runs. The decision
+# and the pin, pure; the Windows branch compiled with _WIN32 against a recording stand-in
+# for SetThreadExecutionState (testers/fixtures1886/windows.h); main.cpp read for where the
+# request is held; two mutation proofs inside the harness. Compiles only: no detector
+# binary and no build/_deps, so OD_SKIP_BUILD changes nothing about it. MEASURED 2026-10-17
+# on the 4-core box at load 5-6: 17 s wall. At the end of the list only to keep clear of
+# the lines two sibling branches were adding at the same time.
+tester 1886-keep-awake    "bash '$T/i1886_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
