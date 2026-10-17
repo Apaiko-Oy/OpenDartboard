@@ -15,7 +15,11 @@
 #             for the rule alone (scorer.cpp, scheduleClock): the schedule starts at that
 #             instant when the schedule is ARMED (the start of scoring, where scheduleClock is
 #             first read) and advances with the steady clock, so it meets 06:00 OFFSET
-#             seconds after scoring begins. Two, so the first cycles after the arming meet
+#             seconds after scoring begins. SINCE turnaus#1885 the clock is first read as
+#             the PROGRAM starts (kProgramStartedAt), so OFFSET is seconds after the program
+#             started, calibration included: the default 2 is met during calibration and the
+#             stop comes at the first poll, before any dart. The measurements below are
+#             #1797's, under the old anchor; testers/i1885_check.sh gates the new one. Two, so the first cycles after the arming meet
 #             it before any dart has landed: with 40 and with 20 the first dart came 37 s
 #             and 19 s after the arming on two runs of this box (the replay pace moves
 #             with the host load) and the guard postponed to 06:10, which the footage

@@ -234,11 +234,13 @@ namespace
     // into local time through the same localtime the log's timestamps use.
     //
     // OD_SCHEDULED_CLOCK=<unix seconds> is TEST-ONLY and is an injected clock, not a pin on
-    // the rule: the schedule reads that instant the first time it is asked -- when run()
-    // arms it, at the start of scoring -- and advances with the steady clock from there,
-    // so a replay can meet "06:00" twenty seconds into scoring (testers/i1797_replay.sh).
-    // Nothing else reads it -- the log's own timestamps stay the machine's -- so a replay
-    // under it shows both clocks side by side, and a board at a venue never sets it.
+    // the rule: the schedule reads that instant the first time it is asked -- which since
+    // turnaus#1885 is kProgramStartedAt below, as the program loads, before a camera is
+    // opened -- and advances with the steady clock from there, so a replay can meet "06:00"
+    // a known number of seconds after the program started, calibration included
+    // (testers/i1885_check.sh, testers/i1797_replay.sh). Nothing else reads it -- the log's
+    // own timestamps stay the machine's -- so a replay under it shows both clocks side by
+    // side, and a board at a venue never sets it.
     inline long long scheduleClock()
     {
         static const long long forced = []
@@ -253,6 +255,24 @@ namespace
         }
         return forced + chrono::duration_cast<chrono::seconds>(chrono::steady_clock::now() - began).count();
     }
+
+    // turnaus#1885: the moment the PROGRAM started, by the schedule's clock, taken as this
+    // file is loaded -- before main, so before the cameras are opened and before the
+    // calibration in Scorer's constructor, its LOOK AGAIN included, has run a single look.
+    //
+    // #1797's rule is about when the detector STARTED, and until #1885 the start it was
+    // handed was the moment run() armed the schedule, after the constructor had calibrated.
+    // On device/2 on 2026-10-17 that moment was 13:41 for a program started at 05:54, so
+    // the board took itself to have started after six and was due the NEXT day's 06:00,
+    // and the release offered since the day before was not looked for. A board still
+    // calibrating at 06:00 was never due at all. The rule reads this instant instead; run()
+    // still arms it, so a stop that is already past is met at the loop's first poll, with
+    // the guard's two facts both empty -- a board that has only calibrated has published
+    // no dart and holds no round, so nothing holds it.
+    //
+    // Dynamic initialisation of a namespace-scope constant: scheduleClock() touches only
+    // its own function-local statics, getenv and the clocks, so it is safe before main.
+    const long long kProgramStartedAt = scheduleClock();
 
     // Flat, and NOT the doubling backoff the `Unreadable` path uses. That backoff exists
     // because a camera that will not open may not open for hours and the board must not
@@ -513,12 +533,21 @@ void Scorer::run()
     // ---- #1797: the scheduled stop, armed here so a blind board's vigil has it too. ----
     // Said once, so a reader of tomorrow's log knows when the board meant to stop; the
     // pin says itself, so a replay under it cannot be read as a board that forgot.
-    schedule_ = scheduled_stop::Schedule(scheduledRestartIsOn(), scheduleClock());
+    //
+    // turnaus#1885: from the moment the program started, not from this one. See
+    // kProgramStartedAt: the calibration above this line can take minutes, and a machine
+    // asleep in the middle of it (device/2, 05:54 -> 13:41) hours.
+    schedule_ = scheduled_stop::Schedule(scheduledRestartIsOn(), kProgramStartedAt);
     if (schedule_.enabled())
     {
+        const bool already_due = scheduleClock() >= schedule_.dueAt();
         log_info("I1797 SCHEDULED RESTART armed: due at " + scheduled_stop::dateClockText(schedule_.dueAt()) +
-                 " local, the first 06:00 after this start; a dart in the last 10 minutes or a round not "
-                 "taken out postpones it by 10 minutes");
+                 " local, the first 06:00 after this program started at " +
+                 scheduled_stop::dateClockText(kProgramStartedAt) +
+                 (already_due ? string(" -- already past, because calibrating took this start beyond it, so "
+                                       "the board stops at the first poll unless the guard holds it (turnaus#1885)")
+                              : string()) +
+                 "; a dart in the last 10 minutes or a round not taken out postpones it by 10 minutes");
     }
     else
     {
