@@ -767,6 +767,15 @@ tester 1867-rimcontra     "bash '$T/i1867_check.sh'"
 # frames are stills): one compile of the tree plus one of a mutated scratch copy of the header
 # (the rule never fires), predicted to turn exactly 60 named lines red. No detector binary.
 tester 1875-loneflag      "bash '$T/i1875_check.sh'"
+# turnaus#1874: on device/2 on 2026-10-13..16 every geometric dart within ONE sigma of its wire
+# was flagged -- the boards ran v0.1.15, whose unset OD_FLAG_SIGMAS is #1556's 1.0 -- and the
+# band from 0.5 to 1.0 held one correction, a dart typed None. The default is now 0.6 (0.7
+# from #1815). A truth-line replay of the three days' corrected spans (409 flagged geometric
+# darts, rows in the tester): flags at 1.0, 0.7 and the default, and the corrected darts that
+# lose their flag; one compile of the tree plus two of a mutated scratch copy of the header
+# (the default back at 0.7; at the issue's 0.5), each predicted to turn named lines red. No
+# detector binary.
+tester 1874-flagwidth     "bash '$T/i1874_check.sh'"
 # turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
 # on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)
 # holds an advance a body-sized fresh figure voted (15% of a board) or one within 1500 ms of
@@ -848,7 +857,7 @@ tester 1802-rimbody       "bash '$T/i1802_check.sh'"
 # 4-core box at load ~15, rc=0: 50 s wall.
 tester 1782-corner        "bash '$T/i1782_check.sh'"
 # turnaus#1815: on the first two real sessions (casual boards 17 and 20, 820 darts) 340 of 396
-# flagged darts stood as published. The flag (K = 0.7 by default since 2026-10-13;
+# flagged darts stood as published. The flag (K = 0.7 by default from 2026-10-13, 0.6 since #1874;
 # OD_FLAG_SIGMAS=<K>, 0 < K < 1, moves it; OD_FLAG_SIGMAS=off restores #1556's 1.0) keeps a
 # geometric flag only within K of the solve's own across-wire sigmas of the wire; the rest
 # publish clear at 0.9 and say what #1556's 1.0 would have offered; no score moves. The pure

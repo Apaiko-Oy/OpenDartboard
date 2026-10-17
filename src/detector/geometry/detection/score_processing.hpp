@@ -302,7 +302,7 @@ namespace score_processing
         return line;
     }
 
-    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED (0.7 BY DEFAULT) ------------------
+    // ---- turnaus#1815: THE FLAG'S THRESHOLD, TIGHTENED (0.6 BY DEFAULT, #1874) ------------
     //
     // The first two real sessions (casual boards 17 and 20, 2026-10-10/11, 820 darts, read
     // back through turnaus#1786/#1789) flagged 396 darts and 340 of them stood as published:
@@ -330,12 +330,20 @@ namespace score_processing
     // moves no score. OD_FLAG_SIGMAS=<K>, 0 < K < 1, sets the threshold to K. ANY OTHER SET
     // VALUE -- `off`, `1`, empty, unparseable or outside that range -- is #1556's 1.0, byte
     // for byte, the flag as it was before the default. docs/rig.md records the measurement.
+    //
+    // 0.6 SINCE turnaus#1874. device/2's 2026-10-13, -15 and -16 corrected spans (ran at 1.0:
+    // those boards were v0.1.15) hold 75 flagged geometric darts between 0.5 and 0.7 sigma
+    // and one correction among them, a dart typed `None` at 0.68 that no offered alternative
+    // could have fixed; every dart a marker corrected TO A CELL sat at or under 0.48. 0.6
+    // clears 39 of those flags in the spans (299 -> 260), and keeps the two true flags the
+    // issue's 0.5 would lose: the fixtures' 0.57 (S19 for a thrown T19, T19 offered) and
+    // board 20's 0.52. testers/i1874_check.sh replays the spans.
 
-    /** turnaus#1815: the default threshold, in the solve's own sigmas. */
-    inline constexpr double kDefaultFlagSigmas = 0.7;
+    /** turnaus#1815, turnaus#1874: the default threshold, in the solve's own sigmas. */
+    inline constexpr double kDefaultFlagSigmas = 0.6;
 
     /**
-     * turnaus#1815: the switch's value from its text, pure. Unset is the default 0.7; a K in
+     * turnaus#1815: the switch's value from its text, pure. Unset is the default 0.6; a K in
      * (0, 1) is K; anything else set (`off` among it) is #1556's 1.0.
      */
     inline double flagSigmasFrom(const char *text)

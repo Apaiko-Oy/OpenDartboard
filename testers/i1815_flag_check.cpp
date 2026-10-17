@@ -1,5 +1,5 @@
 // turnaus#1815: six in seven flagged darts were right as published. At K = 0.7 -- the default
-// since the maintainer's decision of 2026-10-13; OD_FLAG_SIGMAS=<K> (0 < K < 1) moves it and
+// from the maintainer's decision of 2026-10-13 until turnaus#1874 moved it to 0.6; OD_FLAG_SIGMAS=<K> (0 < K < 1) moves it and
 // OD_FLAG_SIGMAS=off restores #1556's 1.0 -- a geometric flag is kept only where the solve is
 // within K of its own across-wire sigmas of the wire; the rest publish clear. No score moves.
 //
@@ -116,7 +116,7 @@ int main()
     const double K = 0.7;
 
     // ---- the switch -------------------------------------------------------------------
-    say(std::fabs(flagSigmasFrom(nullptr) - 0.7) < 1e-12, "parse: unset is the default, 0.7 (turnaus#1815, 2026-10-13)");
+    say(std::fabs(flagSigmasFrom(nullptr) - 0.6) < 1e-12, "parse: unset is the default, 0.6 (turnaus#1874; 0.7 from turnaus#1815, 2026-10-13)");
     say(flagSigmasFrom("off") == 1.0, "parse: off is #1556's 1.0, the flag before the default");
     say(flagSigmasFrom("1") == 1.0 && flagSigmasFrom("1.0") == 1.0, "parse: 1 and 1.0 are #1556's 1.0");
     say(flagSigmasFrom("") == 1.0, "parse: empty is #1556's 1.0");
