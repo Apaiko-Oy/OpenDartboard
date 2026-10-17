@@ -6,7 +6,7 @@
 // -DAPP_VERSION="..." like the detector is, so "the version is the compiled APP_VERSION"
 // is asserted of the macro itself and not of a literal copied into this file.
 //
-//   g++ -std=c++17 -O1 -I src -DAPP_VERSION='"1882.0.0-check"' \
+//   g++ -std=c++17 -O1 -I src -DAPP_VERSION='"1882.0.0-check"'
 //       -o i1882_body_check testers/i1882_body_check.cpp
 //
 // Every assertion is labelled by what can turn it red; testers/i1882_check.sh mutates
