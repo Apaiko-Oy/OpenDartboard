@@ -17,6 +17,8 @@
 #include "communication/one_board.hpp"
 #include "utils/setup_view.hpp"
 #include "utils/od_paths.hpp"
+// #1886: a Windows board asks not to sleep while it runs; OD_KEEP_AWAKE=off is the pin.
+#include "utils/keep_awake.hpp"
 #include "communication/turnaus_client.hpp"
 #include "communication/pairing_prompt.hpp"
 #include "utils/console_prompt.hpp"
@@ -314,6 +316,11 @@ int main(int argc, char **argv)
     return 1;
   }
   log_info("one board per host: " + one_board_claim.detail());
+
+  // #1886: on Windows, ask the system not to sleep from here -- before the cameras and the
+  // calibration, which is where device/2 slept for 7 h 46 min -- to the end of main. Declared
+  // above the Scorer, so it is let go after ~Scorer's final log post. utils/keep_awake.hpp.
+  keep_awake::Request keep_awake_request;
 
   // #1259: the client is built here, before a camera opens, so an interactive start with no
   // credential can be paired from the console and go straight on. It is still STARTED where

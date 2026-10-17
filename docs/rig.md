@@ -2435,3 +2435,54 @@ the old count times the rig's 33.3 ms:
   scaled clip the exposure hold cuts the small board's events from 33 to 19-20 and leaves
   the frame arm at 21-22, which inverts the comparison the tester makes. That is a finding
   about the hold on a small board, reported in #1688.
+
+## A Windows board stays awake while it runs (turnaus#1886)
+
+**What happened.** Device/2's log of 2026-10-17 jumps from `[05:54:22.577]` to
+`[13:40:59.470]` inside one two-second camera-orientation step, then finishes the step as
+if no time had passed: the PC was asleep, not the detector slow. Until this section nothing
+in the detector asked Windows otherwise, so the power plan could sleep a board mid-evening
+as well as overnight; a sleeping board stops beating, its Station reads `silent`, the next
+darts go unscored, and #1797's 06:00 stop never runs because nothing is running at 06:00.
+Whether the 04:07 ending of the night before was the same sleep is the maintainer's to read
+in device/2's Event Viewer (System: Kernel-Power 42/107, Power-Troubleshooter 1 and its wake
+source, User32 1074) -- not measured here.
+
+**What a Windows board does now** (`src/utils/keep_awake.hpp`). Before the cameras open and
+calibrate -- the step device/2 slept in -- `main` takes a `keep_awake::Request`, which calls
+`SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` on the thread that runs the
+scorer, and lets it go with `ES_CONTINUOUS` after `~Scorer` (Windows also lets go by itself
+when that thread ends, so a crash cannot leave it held). The display may still turn off;
+nothing asks for away mode. It does not stop a sleep somebody chooses -- the Start menu, a
+lid, the power button -- or an update's restart. The log says it once at start:
+`I1886 KEEP AWAKE: this board asks Windows not to sleep while the detector runs (the display
+may still turn off); OD_KEEP_AWAKE=off leaves it to the power plan`, or
+`I1886 KEEP AWAKE: Windows refused the request ...` if the call answers 0.
+
+**The detector holds it, not the launcher.** The detector is the process that must be awake
+to score; it is alive for the whole session however it was started (the launcher, a shortcut
+straight at `opendartboard.exe`, a console); and its log is the one #1787 posts, so the line
+can be read back from a board day. The launcher prints nothing while a board works, keeps no
+log, is busy for seconds between two detectors, and would otherwise keep a PC awake on a dead
+board's "press Enter".
+
+**The pin.** `OD_KEEP_AWAKE=off`, exactly, for a club that wants its own power plan to
+decide: no request is made and the log says
+`OD_KEEP_AWAKE=off is set: this board does not ask Windows to stay awake, so the power plan
+may sleep it mid-session and its Station goes silent (#1886)`. Anything else -- `OFF`, `on`,
+empty -- keeps the request, `OD_SCHEDULED_RESTART`'s rule: a typo keeps the board awake.
+
+**A Pi: nothing, and why.** The package (`distributions/debian_arm64`,
+`templates/opendartboard.service.template`) installs on Raspberry Pi OS Lite: no desktop, so
+no idle power manager, and logind's `IdleAction` ships as `ignore`. Nothing on a packaged Pi
+suspends it on its own, so there is nothing to inhibit and the unit takes no inhibitor lock;
+on Linux the Request compiles to nothing and says nothing.
+
+**Tested** by `1886-keep-awake` (`testers/i1886_check.sh`, 17 s): the decision and the pin
+pure; the Windows branch compiled with `_WIN32` against `testers/fixtures1886/windows.h`, a
+stand-in that records each call -- one request with `0x80000001`, one release with
+`ES_CONTINUOUS`, no call under the pin, a refusal said as refused, the line said once;
+`main.cpp` read for one Request between the one-board claim and the Scorer; and two mutation
+proofs inside the harness (the flags made `ES_DISPLAY_REQUIRED`: 2 red; the pin compared with
+`"of"`: 5 red). The real call is MSVC's and kernel32's, built by release.yml, and runs only
+on a board.
