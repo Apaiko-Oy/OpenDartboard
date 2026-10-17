@@ -12,7 +12,9 @@ set -u
 # What carries that sentence, measured on fork 778dd19 before this was written:
 #   - the log's BOARD FAULTED line, and its once-a-minute reminder;
 #   - the supervisor's STATUS= (#1383), "this board cannot see -- <sentence>";
-#   - NOT the beat. The heartbeat body is {"condition", "cameras"} and nothing else, and
+#   - NOT the beat. The heartbeat body is {"condition", "cameras"} and nothing else (and,
+#     since turnaus#1882, "version" -- the build's --version string, the same on every
+#     board of a release and so no sentence about this one's fault), and
 #     the condition is ERROR only when board_sight::faulted() is set, which nothing in
 #     the looks touches. So a rescued board that scores beats READY; one that faults
 #     beats ERROR for its real fault, and the wrong sentence is local to the box.
@@ -156,9 +158,9 @@ echo "    beats: $(beats "$EF" "$ET" | sort | uniq -c | tr '\n' ' ')"
 if beats "$EF" "$ET" | grep -q '^ERROR'; then
   say "OK   edge: it beat ERROR -- this board really cannot score, so ERROR is the right word" ok
 else say "FAIL edge: no ERROR beat reached the stub, so phase A says nothing about the wire" no; fi
-if [ -z "$(beats "$EF" "$ET" | awk '{print $2}' | tr ',' '\n' | grep -vxE 'condition|cameras|' || true)" ]; then
-  say "OK   edge: every beat body is {condition, cameras} at most -- no fault sentence crosses to Turnaus" ok
-else say "FAIL edge: a beat carried a key other than condition and cameras" no; fi
+if [ -z "$(beats "$EF" "$ET" | awk '{print $2}' | tr ',' '\n' | grep -vxE 'condition|cameras|version|' || true)" ]; then
+  say "OK   edge: every beat body is {condition, cameras, version} at most -- no fault sentence crosses to Turnaus" ok
+else say "FAIL edge: a beat carried a key other than condition, cameras and version" no; fi
 
 echo
 echo "=== B. cut: refused on the averaged frame and on every look ==="
@@ -230,9 +232,9 @@ else
   grep -a '^STATUS=ERROR' /run1733/rig.notify | head -1 | cut -c1-200
   say "FAIL rig: STATUS= does not name the move" no
 fi
-if [ -z "$(beats "$CF" "$CT" | awk '{print $2}' | tr ',' '\n' | grep -vxE 'condition|cameras|' || true)" ]; then
-  say "OK   rig: no beat carried anything but condition and cameras" ok
-else say "FAIL rig: a beat carried a key other than condition and cameras" no; fi
+if [ -z "$(beats "$CF" "$CT" | awk '{print $2}' | tr ',' '\n' | grep -vxE 'condition|cameras|version|' || true)" ]; then
+  say "OK   rig: no beat carried anything but condition, cameras and version" ok
+else say "FAIL rig: a beat carried a key other than condition, cameras and version" no; fi
 
 kill $STUB 2>/dev/null; wait $STUB 2>/dev/null
 

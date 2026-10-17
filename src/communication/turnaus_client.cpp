@@ -1,4 +1,5 @@
 #include "turnaus_client.hpp"
+#include "beat_body.hpp"
 #include "../utils/logging.hpp"
 #include "../utils/od_paths.hpp"
 #include <nlohmann/json.hpp>
@@ -1900,7 +1901,8 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
     // 45.15.0 shape and in no other: `cameras` is a closed object on that side -- a fourth
     // member is a 422, and a 422 costs the club this board's CONDITION as well as its
     // count. So nothing about the machine goes in here, ever, and the three names are
-    // spelt once.
+    // spelt once. ("Here" is the `cameras` object: #1882's `version`, below, is a member
+    // of the BODY beside it, about the build rather than the machine.)
     //
     // OMITTED RATHER THAN NOUGHT when the board has not counted, which is the whole of the
     // upgrade story in one branch. A board that has not calibrated yet, one whose detector
@@ -1913,13 +1915,21 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
     const bool states_cameras =
         !board_sight::beatSaysNothingAboutCameras() && board_sight::camerasCounted(cameras);
 
-    std::string body = std::string("{\"condition\":\"") + condition_word + "\"";
+    // #1882: and which build this board is running, on EVERY beat, census or none:
+    // exactly what --version prints (APP_VERSION, which release.yml fills from the tag),
+    // carried here by main as `config_.version`. Turnaus has stored and drawn it since
+    // #1304 and no board ever sent it, so every board read "has not said what version it
+    // runs". It identifies a build, never a machine: every board on one release states the
+    // same string, and nothing routes or authorises on it. `beat_body::body` cuts it to
+    // the 64 characters `StatedVersion` keeps and escapes it -- a longer one is a 422, and
+    // a 422 costs the board its condition with it. Both doors take the same body (#1218's
+    // rule); the Casual door validates condition and cameras only and so ignores it.
+    beat_body::Census census{cameras.fitted, cameras.scoring, cameras.dark};
+    const std::string body =
+        beat_body::body(condition_word, config_.version, states_cameras ? &census : nullptr);
 
     if (states_cameras)
     {
-        body += ",\"cameras\":{\"fitted\":" + std::to_string(cameras.fitted) +
-                ",\"scoring\":" + std::to_string(cameras.scoring) +
-                ",\"dark\":" + std::to_string(cameras.dark) + "}";
 
         // Said once, at default level, because it is the sentence that tells somebody
         // reading this console that the number they are looking at on the marking page is
@@ -1933,8 +1943,6 @@ bool TurnausClient::postBeat(const char *condition_word, int &interval_s, int &s
                      " scoring, " + std::to_string(cameras.dark) + " dark");
         }
     }
-
-    body += "}";
 
     odhttp::Response res = odhttp::postJson(url_, heartbeatsPath(binding), body, headers,
                                             config_.connect_timeout_s, config_.read_timeout_s);

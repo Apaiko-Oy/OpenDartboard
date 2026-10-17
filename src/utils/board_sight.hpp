@@ -371,8 +371,9 @@ namespace board_sight
     }
 
     /**
-     * OD_BEAT_CAMERAS=0: beat the pre-#1474 body, `{"condition":"<word>"}` and nothing
-     * else, on this same binary.
+     * OD_BEAT_CAMERAS=0: beat the pre-#1474 body, `{"condition":"<word>"}` and no census,
+     * on this same binary. (Since turnaus#1882 every beat also states `version`, under this
+     * switch too: it is about the census and leaves the version alone.)
      *
      * `od_fix`'s convention and `OD_CAMERA_QUORUM`'s spelling, for their reason: one
      * binary, the rule chosen at run time, so that "a different build" is never a confound

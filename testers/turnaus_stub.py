@@ -114,6 +114,30 @@ def camera_report(body):
     return 200, report, "stated"
 
 
+def stated_version(body):
+    """turnaus#1882: `App\\Autoscoring\\StatedVersion`, to the comparison.
+
+    (status, version_or_None, why). `version` is `sometimes|nullable|string|max:64` after
+    Laravel's TrimStrings, and `max` on a string counts CHARACTERS. A 422 refuses the whole
+    beat -- the board's condition with it -- which is why the detector cuts a long build
+    string rather than sending it. Softer than that is a drop to null at 200: empty,
+    whitespace, or a control character left after the trim.
+    """
+    if "version" not in body:
+        return 200, None, "absent"
+    value = body["version"]
+    if value is None:
+        return 200, None, "null"
+    if not isinstance(value, str):
+        return 422, None, "not a string"
+    printed = value.strip()
+    if len(printed) > 64:
+        return 422, None, "longer than 64 characters"
+    if printed == "" or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in printed):
+        return 200, None, "unreadable"
+    return 200, printed, "stated"
+
+
 PIN = "483920"
 TOKEN = "17|" + "z" * 40
 # #1259: codes and tokens by generation. The first club token is TOKEN, unchanged, so every
@@ -482,6 +506,12 @@ class Handler(BaseHTTPRequestHandler):
                         "cameras_raw": body.get("cameras"), "auth_sha256_16": auth_digest})
                 return self.reply(422, {"message": "The given data was invalid.",
                                         "errors": {"cameras": [cam_why]}})
+            ver_status, version, ver_why = stated_version(body)
+            if ver_status == 422:
+                record({"event": "beat_refused", "condition": condition, "version_why": ver_why,
+                        "version_raw": body.get("version"), "auth_sha256_16": auth_digest})
+                return self.reply(422, {"message": "The given data was invalid.",
+                                        "errors": {"version": [ver_why]}})
             with lock:
                 state["cameras"] = cam_report
                 state["beats"] += 1
@@ -503,7 +533,11 @@ class Handler(BaseHTTPRequestHandler):
                     # #1733: every key the board sent, so a tester can say what did NOT
                     # cross the wire -- a fault's sentence, for one -- rather than only
                     # what this stub thought to pick out.
-                    "body_keys": sorted(body.keys())})
+                    "body_keys": sorted(body.keys()),
+                    # turnaus#1882: the version as stored (null is *has not said*) and as
+                    # it came over the wire.
+                    "version": version, "version_why": ver_why,
+                    "version_raw": body.get("version")})
             if REVOKE_CLUB_AFTER_BEATS and token_beats >= REVOKE_CLUB_AFTER_BEATS:
                 # #1246's revocation: the token row is gone, and the next request meets 401.
                 record({"event": "club_revoked", "generation": state["club_generation"],
