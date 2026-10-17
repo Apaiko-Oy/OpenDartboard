@@ -59,6 +59,10 @@ struct TurnausConfig
     // the one in the file is not kept. Off by default, so `--pair` typed at a console means
     // what it always meant. The setup unit (src/setup/) always passes it.
     bool keep_device = false;
+    // #1882: what --version prints (APP_VERSION), stated on every heartbeat. Empty only for
+    // a caller that never set it -- a tester building the client alone -- and Turnaus reads
+    // an empty version as "has not said", which is what every board before #1882 was.
+    std::string version;
     size_t queue_capacity = 512;  // detections held in memory before the policy bites
     int connect_timeout_s = 3;
     int read_timeout_s = 5;

@@ -32,7 +32,9 @@ set -u
 #            ABSENT -- not three noughts. Zero scoring cameras and "I do not know" are
 #            different claims and Turnaus draws the first as a fault; a board that answered
 #            nought here would mark itself broken every time it was starting up.
-#   OLD      this same binary with OD_BEAT_CAMERAS=0: the pre-#1474 body, byte for byte.
+#   OLD      this same binary with OD_BEAT_CAMERAS=0: the pre-#1474 body, byte for byte
+#            but for turnaus#1882's `version`, which every beat states and 1882-beat-version
+#            holds; nothing here reads it.
 #            It is the falsifier -- the numbers below must be shown to come from this
 #            change rather than from the stub -- and it is also the fleet mid-upgrade,
 #            which the server contract has to go on accepting.

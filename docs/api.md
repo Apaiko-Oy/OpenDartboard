@@ -381,6 +381,33 @@ request to it simply ages out on the server -- turnaus#1786 calls the whole thin
 effort). The answer is the only thing that ever leaves the buffer; nothing about a
 correction is kept on the board.
 
+### The heartbeat, and what it states (#892, #1474, turnaus#1882)
+
+Every interval Turnaus names, a paired board posts a beat to
+`/api/v1/autoscorer/heartbeats` (or `/api/v1/casual/heartbeats` while it is bound to a
+Casual Contest; one body for both doors):
+
+```
+POST /api/v1/autoscorer/heartbeats
+Authorization: Bearer <the board's credential>
+{"condition":"READY","version":"0.1.18","cameras":{"fitted":3,"scoring":3,"dark":0}}
+```
+
+- `condition` -- the board's word for itself (`READY`, `INITIALISING`, `ERROR`, ...).
+- `version` -- **on every beat**, census or none: exactly what `opendartboard --version`
+  prints after `OpenDartboard runtime version:` -- `APP_VERSION`, which `release.yml` fills
+  from the tag; a `make build` without `VERSION=` is `0.0.0-dev`, and a bare cmake without
+  `-DAPP_VERSION` sends it empty, which Turnaus reads as *has not said*. Turnaus keeps it
+  (`App\Autoscoring\StatedVersion`) and the club's Scorer Devices page reads *Ajaa versiota
+  X*; the Casual door accepts and ignores it. It is JSON-escaped and **cut to 64
+  characters**, on a character boundary: Turnaus refuses a longer one with a 422, and a 422
+  refuses the whole beat, the condition with it. It names a build, never a machine.
+- `cameras` -- only once the board has counted them, and **omitted, never three noughts**,
+  before then (#1474). A closed object: a fourth member is a 422.
+
+Nothing else goes in the body. `testers/i1882_check.sh` (`1882-beat-version`) holds the
+exact bytes and reads them off the wire.
+
 ### Finding a board on the network
 
 A board whose socket is open on the network - started with `--listen` - **announces itself

@@ -464,7 +464,8 @@ slow 4600
 # refused by the vote -- BOARD FAULTED and STATUS= must be the gate's sentence), 1331's cut
 # clip (refused on every look -- the camera's own sentence, as before), and rig-20260922
 # rescued 3 of 3, beating READY, then nudged into BOARD MOVED, which BOARD FAULTED and
-# STATUS= must name. Every beat body is held to {condition, cameras}. Red on 778dd19 on
+# STATUS= must name. Every beat body is held to {condition, cameras, version} (version
+# since turnaus#1882: about the build, never the fault). Red on 778dd19 on
 # exactly the rescued halves. MEASURED 2026-10-03 at load ~5-6: 178-193 s wall.
 tester 1733-rescued       "bash '$T/i1733_run.sh'"
 tester 1345-figures       "bash '$T/i1345_run.sh'"
@@ -645,6 +646,15 @@ tester 1487-asserted-said "bash '$T/i1487_run.sh'"
 # the board's condition as well as its count.
 # MEASURED 2026-09-20 on the 4-core box: see the recorded line in the pull request.
 tester 1474-beat-census   "bash '$T/i1474_run.sh'"
+# turnaus#1882: whether the board SENDS which build it runs. Turnaus has kept a beat's
+# `version` since #1304 and no board sent one, so every board read "has not said what
+# version it runs". Pure half: the exact body beat_body.hpp builds, with a census and
+# without one, the 64-character cut StatedVersion asks for (a longer string is a 422 that
+# costs the condition too) and the escape, compiled with -DAPP_VERSION, plus three mutated
+# scratch copies each predicted red. Wire half: build/opendartboard against the stub (which
+# models StatedVersion), a board that cannot count and one that does; every beat must state
+# exactly what that binary's --version prints.
+tester 1882-beat-version  "bash '$T/i1882_check.sh'"
 # #1484: HOW a run's darts were scored, not only what they scored. chooseScore has
 # published the distinction since #1346 -- 0.9 two or more cameras measured a wedge and
 # agreed, 0.7 measured with no two agreeing, 0.5 no camera measured a wedge at all -- and
