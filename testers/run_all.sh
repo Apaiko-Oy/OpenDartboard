@@ -765,7 +765,7 @@ tester 1867-rimcontra     "bash '$T/i1867_check.sh'"
 # default, its first candidate the alternative; anything already flagged keeps its own. A
 # truth-line replay of device/2's 2026-10-15 and -16 corrected spans (rows in the tester; the
 # frames are stills): one compile of the tree plus one of a mutated scratch copy of the header
-# (the rule never fires), predicted to turn exactly 61 named lines red. No detector binary.
+# (the rule never fires), predicted to turn exactly 60 named lines red. No detector binary.
 tester 1875-loneflag      "bash '$T/i1875_check.sh'"
 # turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
 # on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)

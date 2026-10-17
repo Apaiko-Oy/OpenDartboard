@@ -1282,7 +1282,7 @@ namespace score_processing
     // at 0.7, with the dart's own first-ranked candidate (dart_candidates::rank: another
     // camera's different reading first, else the neighbour across this camera's nearest
     // wire) as #1556's alternative, so the alternative is the first entry the fix row
-    // already shows. The score string does not move. A reading something else already
+    // already shows; where there is no candidate at all nothing is flagged (#1556 rule 2). The score string does not move. A reading something else already
     // flagged keeps that flag and its alternative: RING-WIRE's ring across, #1707's rim
     // fallback, #1867's RIM CONTRADICTS and its MISS. A MISS is not flagged here (whether a
     // published MISS should ever be is its own question, out of turnaus#1875's scope).
@@ -1298,8 +1298,8 @@ namespace score_processing
     struct LoneUnchecked
     {
         bool flag = false;       // publish as read, flagged
-        std::string alternative; // the first candidate that is not the published score; may be empty
-        std::string account;     // the LONE-UNCHECKED sentence; empty where nothing was flagged
+        std::string alternative; // the first candidate that is not the published score
+        std::string account;     // the LONE-UNCHECKED sentence; empty where the rule was not asked
     };
 
     /**
@@ -1318,7 +1318,6 @@ namespace score_processing
         {
             return u;
         }
-        u.flag = true;
         for (const string &c : candidates)
         {
             if (!c.empty() && c != published && c != "END")
@@ -1327,14 +1326,21 @@ namespace score_processing
                 break;
             }
         }
+        const string head = "LONE-UNCHECKED: camera " + std::to_string(camera) + "'s " + published +
+                            " was read by that camera alone, so its own ruler's clear is a claim no other "
+                            "camera checked";
+        if (u.alternative.empty())
+        {
+            // #1556 rule 2, as RING-WIRE keeps it: a flag is its alternative, and docs/api.md
+            // promises `alternative` is non-null exactly when a dart is flagged.
+            u.account = head + ", but it has no other candidate to offer, so nothing is flagged (#1556 rule 2)";
+            return u;
+        }
+        u.flag = true;
         char conf[16];
         snprintf(conf, sizeof(conf), "%.1f", std::min(confidence, geometricConfidence(true)));
-        u.account = "LONE-UNCHECKED: camera " + std::to_string(camera) + "'s " + published +
-                    " was read by that camera alone, so its own ruler's clear is a claim no other "
-                    "camera checked -- it publishes flagged" +
-                    (u.alternative.empty() ? string(" with no other candidate to offer")
-                                           : " with " + u.alternative + ", its first candidate,") +
-                    " at " + conf + " (turnaus#1875)";
+        u.account = head + " -- it publishes flagged with " + u.alternative + ", its first candidate, at " +
+                    conf + " (turnaus#1875)";
         return u;
     }
 

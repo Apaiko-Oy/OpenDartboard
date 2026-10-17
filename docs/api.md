@@ -260,9 +260,17 @@ A flagged two-line geometric dart therefore posts, beside #1366's keys and #1651
  "crossing_deg":27.0,"sigma_mm":5.0,"margin_mm":4.4,"wire_kind":"ring"}
 ```
 
-and a lone camera's vote dart `{"path":"vote","flagged":false,"confidence":0.7,"degraded":true,
-"cameras_used":[2],"agreeing":1,"lone_wire_mm":7.8}`. A MISS carries `path`, `flagged`,
-`confidence`, `degraded` and `agreeing` and nothing a camera never measured.
+and a lone camera's vote dart `{"path":"vote","flagged":true,"alternative":"S1","confidence":0.7,
+"degraded":true,"cameras_used":[2],"agreeing":1,"lone_wire_mm":7.8}`. A MISS carries `path`,
+`flagged`, `confidence`, `degraded` and `agreeing` and nothing a camera never measured.
+
+**A score one camera read alone is always flagged** (turnaus#1875). `agreeing` 1 means no
+second camera checked the reading, and LONE-WIRE's and RING-WIRE's margins are that same
+camera's rulers judging themselves: "clear of the sigma" says where the wires are relative to
+what it saw, not that what it saw was the tip. So such a dart publishes flagged even when both
+margins are clear, with the first of its own `candidates` as `alternative` (the log says
+`LONE-UNCHECKED`); where RING-WIRE, #1707 or #1867 flagged it already, their alternative stands.
+A lone MISS, a wedge-by-default reading and a two-camera consensus are not touched by this rule.
 
 **`rim_contradicts` is the one marker of a rim contradiction, and the shape around it is not**
 (turnaus#1873). Such a dart publishes as read with MISS as its alternative, `path` `vote`,

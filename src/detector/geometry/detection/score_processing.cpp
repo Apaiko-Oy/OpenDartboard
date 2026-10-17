@@ -1657,9 +1657,12 @@ namespace score_processing
                 const LoneUnchecked lone_unchecked = flagAnUncheckedLoneReading(
                     lone_reading_published, result.boundary_flagged, choice.camera, result.score,
                     result.candidates, result.confidence);
-                if (lone_unchecked.flag)
+                if (!lone_unchecked.account.empty())
                 {
                     log_info(lone_unchecked.account);
+                }
+                if (lone_unchecked.flag)
+                {
                     result.boundary_flagged = true;
                     result.alternative_score = lone_unchecked.alternative;
                     result.confidence = std::min(result.confidence, geometricConfidence(true));

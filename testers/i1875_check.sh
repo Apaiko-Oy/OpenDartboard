@@ -9,10 +9,10 @@
 #                                truth-line replay of device/2 2026-10-15 and -16
 #   2. mutation A: no rule      `u.flag = true;` reads `u.flag = false;` -- a lone reading
 #                                clear by its own ruler publishes unflagged again. PREDICTION:
-#                                exactly 61 FAIL lines: 53 `lone:` (34 + 19 rows), 3 `named:`
+#                                exactly 60 FAIL lines: 53 `lone:` (34 + 19 rows), 3 `named:`
 #                                (the issue's 01M52GGA8RE8R1RGHTW2F6FP0Z and
 #                                01M52HDF91B8AK0AP5QVG4PBH6, and #1822's 01M4KN6RGE535FXAG290F9THMQ),
-#                                4 `count:` and 1 `pure:` (no candidate); no `kept:`.
+#                                4 `count:`; no `kept:` and no `pure:`.
 #
 # Truth-line replay only; the kept frames are stills, not footage. The script ends on
 # `exit`, never on an `echo`: #1463, #1479.
@@ -56,7 +56,7 @@ od_run "1875-check" --network none \
   cat /tmp/tree.out
 
   echo "==== 2. mutation A: a lone reading clear by its own ruler publishes unflagged =="
-  echo "PREDICTION: exactly 61 FAIL lines: 53 lone:, 3 named:, 4 count:, 1 pure:, 0 kept:."
+  echo "PREDICTION: exactly 60 FAIL lines: 53 lone:, 3 named:, 4 count:, 0 pure:, 0 kept:."
   mutate /tmp/mutA "s/u.flag = true;/u.flag = false;/" || { echo "FAIL mutation A did not land"; exit 1; }
   compile /tmp/mutA/src /tmp/i1875_mutA || { echo "COMPILE_FAILED (mutation A)"; exit 2; }
   /tmp/i1875_mutA < /dev/null > /tmp/mutA.out 2>&1
@@ -72,10 +72,10 @@ od_run "1875-check" --network none \
 
   echo
   echo "tree rc=$RC_TREE"
-  echo "mutA rc=$RC_A fails=$A_FAILS predicted=61 lone=$A_LONE named=$A_NAMED count=$A_COUNT pure=$A_PURE kept=$A_KEPT the-two=$A_TWO"
+  echo "mutA rc=$RC_A fails=$A_FAILS predicted=60 lone=$A_LONE named=$A_NAMED count=$A_COUNT pure=$A_PURE kept=$A_KEPT the-two=$A_TWO"
   [ $RC_TREE -eq 0 ] || { echo "FAIL the tree rule did not hold"; exit 1; }
-  [ $RC_A -ne 0 ] && [ "$A_FAILS" -eq 61 ] && [ "$A_LONE" -eq 53 ] && [ "$A_NAMED" -eq 3 ] \
-    && [ "$A_COUNT" -eq 4 ] && [ "$A_PURE" -eq 1 ] && [ "$A_KEPT" -eq 0 ] && [ "$A_TWO" -eq 2 ] \
+  [ $RC_A -ne 0 ] && [ "$A_FAILS" -eq 60 ] && [ "$A_LONE" -eq 53 ] && [ "$A_NAMED" -eq 3 ] \
+    && [ "$A_COUNT" -eq 4 ] && [ "$A_PURE" -eq 0 ] && [ "$A_KEPT" -eq 0 ] && [ "$A_TWO" -eq 2 ] \
     || { echo "FAIL mutation A did not fail as predicted"; exit 1; }
   echo "BOTH HELD"
   exit 0

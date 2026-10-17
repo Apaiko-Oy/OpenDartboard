@@ -28,7 +28,7 @@
 //   kept:      a lone hit something already flagged keeps its flag and its alternative --
 //              RING-WIRE's, and on a v0.1.16 board #1867's MISS. No mutation of the flag
 //              reaches these.
-//   pure:      a consensus, a wedge-by-default, a MISS, an empty candidate list.
+//   pure:      a consensus, a wedge-by-default, a MISS, an empty candidate list (not flagged).
 
 #include <iostream>
 #include <string>
@@ -298,8 +298,10 @@ int main()
         if (ref == "01M52GGA8RE8R1RGHTW2F6FP0Z" || ref == "01M52HDF91B8AK0AP5QVG4PBH6")
         {
             const Published a = published(r, false), b = published(r, true);
-            say(a.flagged && b.flagged, "named: " + row(r) + " comes out flagged (" + a.alternative +
-                                            " on the truth line's build, " + b.alternative + " on v0.1.16)");
+            const std::string want = ref == "01M52GGA8RE8R1RGHTW2F6FP0Z" ? "S8" : "S20";
+            say(a.flagged && a.alternative == want && b.flagged && b.alternative == "MISS",
+                "named: " + row(r) + " comes out flagged (with " + want + " on the truth line's build; #1867's MISS "
+                "stands on v0.1.16)");
         }
     }
     {
@@ -329,8 +331,8 @@ int main()
         "pure: an already-flagged reading is left to the rule that flagged it");
     {
         const LoneUnchecked u = flagAnUncheckedLoneReading(true, false, 2, "BULL", {}, 0.9f);
-        say(u.flag && u.alternative.empty() && u.account.find("no other candidate") != std::string::npos,
-            "pure: a lone reading with no candidate is flagged with nothing to offer, and says so");
+        say(!u.flag && u.alternative.empty() && u.account.find("nothing is flagged (#1556 rule 2)") != std::string::npos,
+            "pure: a lone reading with no candidate is not flagged (#1556 rule 2: a flag is its alternative), and says so");
     }
     {
         const LoneUnchecked u = flagAnUncheckedLoneReading(true, false, 1, "S16", {"S16", "S8", "S7"}, 0.7f);
