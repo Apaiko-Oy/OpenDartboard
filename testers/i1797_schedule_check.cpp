@@ -12,6 +12,9 @@
 //   a detector started at 06:30                            NotYet all day; Stop at the next day's 06:00
 //   a detector started at 06:00:00 exactly                 waits for the next day (at-or-after is strict)
 //   the pin off (Schedule(false, ...))                     NotYet at 06:00 and at every other instant
+//   #1885: started 05:54:04, first polled at 13:41:51      due 06:00 that day; Stop at the first poll
+//          a round on the board at 06:00                   Postponed to 06:10 (the guard still holds)
+//          started 06:00:03 (the launcher's restart)       due the next day; NotYet at 06:01:30
 //
 // Over the launcher headers, with `last_ending` = "scheduled" two seconds after the stop:
 //
@@ -210,6 +213,41 @@ int main()
                   dateClockText(schedule.dueAt()) + ")");
         Schedule just_before(true, at(5, 59, 59));
         check(just_before.dueAt() == at(6, 0, 0), "  while a start at 05:59:59 is due a second later");
+    }
+
+    // ---- turnaus#1885: device/2's morning, the schedule taken from the PROGRAM's start ----
+    // Started 05:54:04, calibrated at 13:41 (the machine slept in between). The schedule is
+    // built from 05:54, so it is due at 06:00 that day; its first poll is at 13:41, after
+    // calibration, with no dart and no round -- a calibrating board has neither -- and stops.
+    // Had it been armed from 13:41 (the arming before #1885) it would be due tomorrow: that
+    // is the instant scorer.cpp passes, and testers/i1885_check.sh measures it in the binary.
+    {
+        Schedule schedule(true, at(5, 54, 4));
+        check(schedule.dueAt() == at(6, 0, 0),
+              "#1885: started 05:54:04 and calibrated at 13:41, the stop is due at 06:00 that day (due " +
+                  dateClockText(schedule.dueAt()) + ")");
+        const Outcome late = polled(schedule, at(13, 41, 51), quiet, "13:41:51, first poll after calibration");
+        check(late.verdict == Verdict::Stop, "  and the first poll after calibrating stops it at once (answered " +
+                                                 std::string(word(late.verdict)) + ")");
+        Schedule armed_late(true, at(13, 41, 51));
+        check(armed_late.dueAt() == at(6, 0, 0, 15),
+              "  control: the same board armed from 13:41 -- the old arming -- waits a day (due " +
+                  dateClockText(armed_late.dueAt()) + ")");
+
+        Schedule mid_round(true, at(5, 54, 4));
+        Facts in_hand;
+        in_hand.last_dart_at = at(5, 49, 0); // outside the 10-minute guard
+        in_hand.round_open = true;
+        const Outcome held = polled(mid_round, at(6, 0, 0), in_hand, "06:00:00, a round still on the board");
+        check(held.verdict == Verdict::Postponed && held.due_at == at(6, 10, 0),
+              "  the guard still holds a board that is mid-round at 06:00: postponed to 06:10 (answered " +
+                  std::string(word(held.verdict)) + ")");
+
+        Schedule restarted(true, at(6, 0, 3));
+        const Outcome again = polled(restarted, at(6, 1, 30), quiet, "06:01:30, the launcher's restart");
+        check(again.verdict == Verdict::NotYet && restarted.dueAt() == at(6, 0, 0, 15),
+              "  and the board the launcher starts again at 06:00:03 is not due twice (due " +
+                  dateClockText(restarted.dueAt()) + ")");
     }
 
     // ---- the pin off: never ---------------------------------------------------------------

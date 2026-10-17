@@ -1140,6 +1140,12 @@ tester 1306-install      "bash '$T/i1306_check.sh'"
 # re-carry against a real stub in one container, each mutation proof inside the harness
 # (--mutate-clock, --mutate-ending); no detector binary, so OD_SKIP_BUILD changes nothing.
 tester 1797-scheduled     "bash '$T/i1797_check.sh'"
+# turnaus#1885: and it is armed from the moment the PROGRAM started, not from the end of
+# calibration, so a board still calibrating at 06:00 stops at its first poll after it. The
+# dev binary on rig-20260918 twice, bounded, under an injected clock (06:00 minus 1 s, and
+# 06:00:01 as the control), so the answer does not depend on the hour; --mutate-arming
+# (the old arming, on a copy of the tree) is the proof it is a guard. Needs build/.
+tester 1885-armed-at-start "bash '$T/i1885_check.sh'"
 # #1796: a Pi updates through the launcher. The launcher CMake builds for Linux, driven in
 # /var/lib/opendartboard's shape with a tar.gz artefact and a served manifest: a first boot
 # that MAY check and starts the deb's detector, an install, a release that exits at once

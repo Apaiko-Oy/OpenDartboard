@@ -1889,6 +1889,26 @@ no idle heuristics beyond the one guard below.
 at 06:00:00 that day; one started at or after 06:00 waits for the next day's 06:00, so the
 board the launcher starts again at 06:00:xx does not stop twice. The log says when the stop
 is due as the loop starts (`I1797 SCHEDULED RESTART armed: due at 2026-10-12 06:00 local`).
+
+**When the start is taken (turnaus#1885).** "Started" is the moment the *program* started:
+`kProgramStartedAt` in `scorer.cpp`, read as the program loads -- before the cameras are
+opened and before the constructor's calibration, LOOK AGAIN included, has taken a single
+look. The schedule is still *armed* where the loop starts, from that instant, and the line
+says both (`due at 2026-10-17 06:00 local, the first 06:00 after this program started at
+2026-10-17 05:54`). So a board started before 06:00 is due at 06:00 that day however long
+it takes to calibrate, and **a board still calibrating at 06:00 stops too**: calibration
+does not poll the schedule (it is bounded -- 31 looks, a few minutes at most), so the
+stop that has passed meanwhile is met at the loop's first poll, and the arming line adds
+`already past, because calibrating took this start beyond it`. A board that has only
+calibrated has published no dart and holds no round, so the guard cannot hold it; a blind
+board polls from its vigil every 200 ms the same way. Until #1885 the start was the
+moment of arming, after calibration: device/2 on 2026-10-17 started at 05:54:04, slept in
+the middle of an orientation, calibrated at 13:41 and was armed `due at 2026-10-18 06:00`,
+so the release offered the day before was not looked for. `testers/i1885_check.sh`
+(`1885-armed-at-start`) measures it in the dev binary on `rig-20260918` with the injected
+clock at 06:00 minus one second as the program starts (stop at 06:00 before any `SCORE:`,
+exit 60) and at 06:00:01 (no stop, exit 0), and `--mutate-arming` puts the old arming back
+on a copy of the tree and goes red.
 **The one guard**, said in the log each time it fires: a dart published in the last ten
 minutes, or a round the board has not yet seen taken out (a `SCORE: <x>` with no
 `SCORE: END` after it), postpones the stop to the next ten-minute mark --
@@ -1931,9 +1951,10 @@ defaults to it and forwards it, because the bakeoff runs unbounded in a containe
 zone is UTC and a gate crossing 06:00 UTC (09:00 in Helsinki) would otherwise measure a
 replay that stopped at a ten-minute mark. Any other tester that runs the detector unbounded
 past six in the container's zone wants the same line. `OD_SCHEDULED_CLOCK=<unix seconds>`
-is test-only and is an injected clock for the rule alone: the schedule reads that instant
-when it is armed (the start of scoring) and advances with the steady clock from there, the
-log's own timestamps stay the machine's, and nothing deployed sets it.
+is test-only and is an injected clock for the rule alone: the rule's clock reads that
+instant as the program starts (since #1885; before it, when the schedule was armed at the
+start of scoring) and advances with the steady clock from there, the log's own timestamps
+stay the machine's, and nothing deployed sets it.
 
 **Measured on this box, 2026-10-11** (`testers/i1797_replay.sh`, `mocks/rig-20260918`, the
 dev binary built with `-j2` in a 3 GB container in 339 s, `--cpus=2`, the container at
