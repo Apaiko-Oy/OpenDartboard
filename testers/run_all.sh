@@ -759,6 +759,14 @@ tester 1855-rimradius     "bash '$T/i1855_check.sh'"
 # mutated scratch copy of the header (the rule never fires; the radius ignored), each
 # predicted to turn named rows red. No detector binary.
 tester 1867-rimcontra     "bash '$T/i1867_check.sh'"
+# turnaus#1875: on device/2 on 2026-10-16 two darts one camera read alone published unflagged,
+# each "clear of the 5 mm sigma" by that camera's own ruler, and both were the wrong place
+# entirely (S16 for an S20, S1 for a D20). The vote's lone reading now publishes flagged by
+# default, its first candidate the alternative; anything already flagged keeps its own. A
+# truth-line replay of device/2's 2026-10-15 and -16 corrected spans (rows in the tester; the
+# frames are stills): one compile of the tree plus one of a mutated scratch copy of the header
+# (the rule never fires), predicted to turn exactly 60 named lines red. No detector binary.
+tester 1875-loneflag      "bash '$T/i1875_check.sh'"
 # turnaus#1781: a takeout's arm voted to the board as a dart, either side of the END (live
 # on 2b56b48: a D11 0.7 s before it, an S2 1.0 s after it). OD_BODY_WINDOW (off by default)
 # holds an advance a body-sized fresh figure voted (15% of a board) or one within 1500 ms of

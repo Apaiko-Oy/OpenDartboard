@@ -1263,6 +1263,87 @@ namespace score_processing
         return c;
     }
 
+    // turnaus#1875: A SCORE ONE CAMERA READ ALONE IS FLAGGED, EVEN WHERE ITS OWN RULER SAYS
+    // CLEAR -- BY DEFAULT.
+    //
+    // Where the geometric entry did not decide the dart and no two cameras agreed, the vote
+    // publishes one camera's reading ("No consensus, using single camera score"), and that
+    // camera then judges itself: #1628's LONE-WIRE and #1773's RING-WIRE measure the
+    // reading against the wires by the same camera's rulers. "Clear of the 5 mm sigma" is
+    // a statement about where the wires are relative to what the camera saw, and nothing
+    // about whether what it saw was the tip. On device/2 on 2026-10-16 two such darts were
+    // wrong by a whole wedge or more and published unflagged, each "clear" by its own ruler:
+    // 01M52GGA8RE8R1RGHTW2F6FP0Z S16 for an S20 (24.2 mm from the 25's wire), and
+    // 01M52HDF91B8AK0AP5QVG4PBH6 S1 for a D20 (17.2 mm). One camera cannot see that it is
+    // looking at the barrel, the flight or another dart.
+    //
+    // THE RULE. A lone reading -- the "No consensus" branch, never a consensus and never
+    // the wedge-by-default 0.5 -- that would publish a score UNFLAGGED now publishes flagged,
+    // at 0.7, with the dart's own first-ranked candidate (dart_candidates::rank: another
+    // camera's different reading first, else the neighbour across this camera's nearest
+    // wire) as #1556's alternative, so the alternative is the first entry the fix row
+    // already shows; where there is no candidate at all nothing is flagged (#1556 rule 2). The score string does not move. A reading something else already
+    // flagged keeps that flag and its alternative: RING-WIRE's ring across, #1707's rim
+    // fallback, #1867's RIM CONTRADICTS and its MISS. A MISS is not flagged here (whether a
+    // published MISS should ever be is its own question, out of turnaus#1875's scope).
+    //
+    // MEASURED as a truth-line replay (testers/i1875_lone_flag_check.cpp holds the rows),
+    // over the maintainer's corrected span of each day on device/2: 2026-10-15, darts
+    // 2519-3004, 71 lone hits of which 34 published unflagged -- 34 flags added, 3 of them
+    // on corrected darts (2788 S18 for a miss; 2805 and 2906 S19 for S7, where S7 is the
+    // first candidate and so the one-tap fix); 2026-10-16, 464 darts, 39 lone hits, 19
+    // unflagged -- 19 flags added, 2 corrected (the two above). Against a v0.1.16 board,
+    // whose #1867 rule already flags 3 and 5 of those, it is 31 and 14 flags and 2 and 0
+    // corrected darts newly caught. The 2-camera consensus (37 and 28 darts) is untouched.
+    struct LoneUnchecked
+    {
+        bool flag = false;       // publish as read, flagged
+        std::string alternative; // the first candidate that is not the published score
+        std::string account;     // the LONE-UNCHECKED sentence; empty where the rule was not asked
+    };
+
+    /**
+     * turnaus#1875: the rule, pure. `lone` is true exactly where the vote published one
+     * camera's measured reading (score_processing.cpp's "No consensus" branch);
+     * `alreadyFlagged` is whether a rule before this one flagged it; `candidates` is
+     * dart_candidates::rank's list for the dart, best first.
+     */
+    inline LoneUnchecked flagAnUncheckedLoneReading(bool lone, bool alreadyFlagged, int camera,
+                                                    const string &published,
+                                                    const vector<string> &candidates,
+                                                    float confidence)
+    {
+        LoneUnchecked u;
+        if (!lone || alreadyFlagged || published.empty() || published == "MISS" || published == "END")
+        {
+            return u;
+        }
+        for (const string &c : candidates)
+        {
+            if (!c.empty() && c != published && c != "END")
+            {
+                u.alternative = c;
+                break;
+            }
+        }
+        const string head = "LONE-UNCHECKED: camera " + std::to_string(camera) + "'s " + published +
+                            " was read by that camera alone, so its own ruler's clear is a claim no other "
+                            "camera checked";
+        if (u.alternative.empty())
+        {
+            // #1556 rule 2, as RING-WIRE keeps it: a flag is its alternative, and docs/api.md
+            // promises `alternative` is non-null exactly when a dart is flagged.
+            u.account = head + ", but it has no other candidate to offer, so nothing is flagged (#1556 rule 2)";
+            return u;
+        }
+        u.flag = true;
+        char conf[16];
+        snprintf(conf, sizeof(conf), "%.1f", std::min(confidence, geometricConfidence(true)));
+        u.account = head + " -- it publishes flagged with " + u.alternative + ", its first candidate, at " +
+                    conf + " (turnaus#1875)";
+        return u;
+    }
+
     /**
      * #1773: this reading's distance to the nearest RING wire of the ring it was scored
      * in, in board millimetres by its own ruler, with the wire named and the ring across

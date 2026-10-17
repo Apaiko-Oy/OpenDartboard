@@ -1310,6 +1310,9 @@ namespace score_processing
                          " why=" + rim_offered.reason + cams);
             }
 
+            // turnaus#1875: set where the vote publishes one camera's measured reading (the
+            // "No consensus" sentence), and spent after the candidates are ranked below.
+            bool lone_reading_published = false;
             if (decision.path == ScorePath::Geometry)
             {
                 const int reference = solution.scoredThroughCamera;
@@ -1414,6 +1417,7 @@ namespace score_processing
                              (choice.preferred_complete
                                   ? " (preferred: it fitted every ring, a lower camera did not)"
                                   : ""));
+                    lone_reading_published = true;
                 }
                 else
                 {
@@ -1643,6 +1647,26 @@ namespace score_processing
                     }
                 }
                 result.candidates = dart_candidates::rank(evidence);
+            }
+
+            // turnaus#1875: a lone reading nothing above flagged publishes flagged all the
+            // same, with the first of the candidates just ranked -- which an unflagged dart's
+            // list starts with anyway, so the fix row does not move (score_processing.hpp,
+            // flagAnUncheckedLoneReading). Here, after the ranking and before the census lines.
+            {
+                const LoneUnchecked lone_unchecked = flagAnUncheckedLoneReading(
+                    lone_reading_published, result.boundary_flagged, choice.camera, result.score,
+                    result.candidates, result.confidence);
+                if (!lone_unchecked.account.empty())
+                {
+                    log_info(lone_unchecked.account);
+                }
+                if (lone_unchecked.flag)
+                {
+                    result.boundary_flagged = true;
+                    result.alternative_score = lone_unchecked.alternative;
+                    result.confidence = std::min(result.confidence, geometricConfidence(true));
+                }
             }
 
             // #1555: the machine-readable half of the same fact, for every called dart
