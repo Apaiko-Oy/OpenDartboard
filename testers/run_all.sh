@@ -1226,6 +1226,14 @@ tester 1909-sisal         "bash '$T/i1909_check.sh'"
 # shaft_axis.hpp (kappa's sign flipped, the line never transported, the default moved), each
 # predicted to turn named assertions red; then i1911_census.py --self-test. Compiles only.
 tester 1905-undistort     "bash '$T/i1905_check.sh'"
+# turnaus#1907: OD_SHAFT_ONLY (off unset), the silhouette cut where its width steps up to the
+# flight's and the tip-side shaft fitted under every gate unchanged. One compile of the tree (a
+# shaft-plus-flight figure of known cut point, 120 px from the tip, bent to 5.23 px whole, cut
+# within 2 px hinted, unhinted and reversed; a plain rod never cut; off answering the old fit
+# field for field) plus two of a mutated scratch copy of shaft_axis.hpp (the cut taken from
+# the wrong end, the default moved), each predicted to turn named assertions red; then
+# i1911_census.py --self-test. Compiles only.
+tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")

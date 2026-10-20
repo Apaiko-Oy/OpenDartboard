@@ -34,6 +34,11 @@ WHAT IT PRINTS, per --label (one log, or several pooled):
                     camera with a centreline, by camera and by radius bin -- n, the median
                     raw (distorted) residual, the median undistorted one, the median and the
                     largest raw-minus-undistorted, and how many the pin moved across the gate
+    I1907 SHAFT     turnaus#1907, only where a line carries `,cut=` (OD_SHAFT_ONLY on): every
+                    camera the pin looked at, overall, on vote darts, by camera and by radius
+                    bin -- how many were cut, the median cut point (px from the tip end) and
+                    width ratio, the whole figure's residual and the answer's (before and
+                    after), how many crossed the gate each way, and the cut answers' reasons
 
 A reporter: it asserts nothing about the numbers. --self-test holds the parser on planted
 lines of both kinds and exits non-zero on any difference.
@@ -51,7 +56,8 @@ LOG_LINE = re.compile(r"^(?:\[[^\]]*\])+ - (.*)$")
 SCORE_LINE = re.compile(r"^SCORE: (\S+)")
 POSTABLE = {"MISS": "None", "OUTER": "25", "BULL": "Bull"}  # i1789's, the push's spelling
 REFUSALS = re.compile(r"I1911 REFUSALS window=(-?\d+) path=(\S+) score=(\S+) r=(\S+) gate=(\S+)((?: cam\d+=\S+)*)")
-CAMSLOT = re.compile(r"cam(\d+)=([a-z+-]+),rms=([-0-9.]+),elong=([-0-9.]+),scale=([-0-9.]+)(?:,raw=([-0-9.]+))?")
+CAMSLOT = re.compile(r"cam(\d+)=([a-z+-]+),rms=([-0-9.]+),elong=([-0-9.]+),scale=([-0-9.]+)(?:,raw=([-0-9.]+))?"
+                     r"(?:,cut=([-0-9.]+),ratio=([-0-9.]+),whole=([-0-9.]+))?")
 CAMSTORY = re.compile(r"cam (\d): ")
 RMS_WORDS = re.compile(r"scatters ([0-9.]+) px RMS")
 ELONG_WORDS = re.compile(r"px is ([0-9.]+), under the")
@@ -115,14 +121,18 @@ def darts_from_census(text):
         m = REFUSALS.search(msg)
         if not m or m.group(3) == "END":
             continue  # an END (a takeout) is not a dart, and the binary wrote one for it
-        cams, pairs = {}, {}
+        cams, pairs, cuts = {}, {}, {}
         for c in CAMSLOT.finditer(m.group(6)):
             cams[int(c.group(1))] = (c.group(2), float(c.group(3)), float(c.group(4)))
             if c.group(6) is not None:  # turnaus#1905: (reason, raw, undistorted)
                 pairs[int(c.group(1))] = (c.group(2), float(c.group(6)), float(c.group(3)))
+            if c.group(9) is not None:  # turnaus#1907: (reason, cut px|None, ratio|None, whole, rms)
+                cut = None if c.group(7) == "-" else float(c.group(7))
+                ratio = None if c.group(8) == "-" else float(c.group(8))
+                cuts[int(c.group(1))] = (c.group(2), cut, ratio, float(c.group(9)), float(c.group(3)))
         darts.append({"path": m.group(2), "r": None if m.group(4) == "-" else float(m.group(4)),
                       "outcome": None, "cams": {k: v for k, v in cams.items() if v[0] != "ok"},
-                      "cameras": len(cams), "pairs": pairs, "gate": float(m.group(5))})
+                      "cameras": len(cams), "pairs": pairs, "cuts": cuts, "gate": float(m.group(5))})
     return darts
 
 
@@ -238,6 +248,45 @@ def report(label, darts, source, out):
                   sum(1 for v in straight if v <= 3.0), sum(1 for v in straight if v <= 4.0),
                   sum(1 for v in straight if v > 4.0), reach(3.0), reach(4.0)))
     residual_report(label, darts, cams, bins, out)
+    shaft_report(label, darts, cams, bins, out)
+
+
+def shaft_report(label, darts, cams, bins, out):
+    """turnaus#1907: the whole figure's residual and the cut shaft's, where the lines carry it."""
+    rows = []  # (camera, bin, reason, cut, ratio, whole, after, gate, vote)
+    for d in darts:
+        for cam, (reason, cut, ratio, whole, after) in d.get("cuts", {}).items():
+            rows.append((cam, radius_bin(d["r"]), reason, cut, ratio, whole, after, d.get("gate", 2.5),
+                         d["path"] != "geometry"))
+    if not rows:
+        return
+
+    def median(v):
+        v = sorted(v)
+        return "%.2f" % v[len(v) // 2] if v else "-"
+
+    def line(key, sel):
+        if not sel:
+            return
+        cut = [r for r in sel if r[3] is not None]
+        out.write("I1907 SHAFT label=%s %s looked=%d cut=%d cut_px_median=%s ratio_median=%s "
+                  "whole_median=%s after_median=%s cut_whole_median=%s cut_after_median=%s "
+                  "whole_over_gate=%d after_over_gate=%d admitted=%d refused=%d cut_ok=%d cut_not_straight=%d "
+                  "cut_not_a_shaft=%d\n" % (
+                      label, key, len(sel), len(cut), median([r[3] for r in cut]), median([r[4] for r in cut]),
+                      median([r[5] for r in sel]), median([r[6] for r in sel]), median([r[5] for r in cut]),
+                      median([r[6] for r in cut]), sum(1 for r in sel if r[5] > r[7]),
+                      sum(1 for r in sel if r[6] > r[7]),
+                      sum(1 for r in cut if r[5] > r[7] >= r[6]), sum(1 for r in cut if r[6] > r[7] >= r[5]),
+                      sum(1 for r in cut if r[2] == "ok"), sum(1 for r in cut if "not-straight" in r[2]),
+                      sum(1 for r in cut if "not-a-shaft" in r[2])))
+
+    line("all", rows)
+    line("vote-darts", [r for r in rows if r[8]])
+    for c in cams:
+        line("cam=%d" % c, [r for r in rows if r[0] == c])
+    for b in bins:
+        line("bin=%s" % b, [r for r in rows if r[1] == b])
 
 
 def residual_report(label, darts, cams, bins, out):
@@ -329,6 +378,16 @@ def self_test(out):
     expect("census #1905: raw= leaves the refusal reading alone", paired[0]["cams"],
            {2: ("not-straight", 3.8, 7.0)})
     expect("census #1905: an old line carries no pair", darts[0]["pairs"], {})
+    shaft, _ = darts_of("[INFO][GEOMETRYDETECTOR] - I1911 REFUSALS window=4 path=vote score=S3 r=0.4000 "
+                        "gate=2.50 cam1=ok,rms=0.27,elong=26.16,scale=1.00,cut=120.0,ratio=4.53,whole=5.23 "
+                        "cam2=not-straight,rms=3.10,elong=9.00,scale=1.00,cut=-,ratio=-,whole=3.10 "
+                        "cam3=ok,rms=1.00,elong=9.00,scale=1.00,raw=1.10,cut=-,ratio=-,whole=1.00\n")
+    expect("census #1907: the cut slot, - where no cut was taken", shaft[0]["cuts"],
+           {1: ("ok", 120.0, 4.53, 5.23, 0.27), 2: ("not-straight", None, None, 3.1, 3.1),
+            3: ("ok", None, None, 1.0, 1.0)})
+    expect("census #1907: the cut slot leaves raw= and the refusal reading alone",
+           (shaft[0]["pairs"], shaft[0]["cams"]), ({3: ("ok", 1.1, 1.0)}, {2: ("not-straight", 3.1, 9.0)}))
+    expect("census #1907: an old line carries no cut", paired[0]["cuts"], {})
     out.write("SELF-TEST %s (%d failure(s))\n" % ("PASSED" if not bad else "FAILED", len(bad)))
     return 1 if bad else 0
 
