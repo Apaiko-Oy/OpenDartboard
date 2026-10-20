@@ -2858,3 +2858,81 @@ assertions red: kappa's sign flipped (5: `straight:` 2, `transport:` 2, `census:
 never transported back (2: `transport:`), and the default moved to `on` (1: `parse:`). The
 plant's gate is 1.0 px and not 2.5 because a stronger kappa thins the drawn rod under two pixels
 before it bends it past 2.5 (measured at -1.8e-6..-3e-6: 59-70 px rms of fragments either way).
+
+## `OD_SHAFT_ONLY` (turnaus#1907): the silhouette cut at the flight, the shaft fitted, opt-in
+
+**What it does.** A dart's figure is a thin shaft and a wide flight, and the whole figure's
+centreline bends where the flight begins, so the 2.5 px straightness gate refuses a dart one
+line explains everywhere but in its flight. With `OD_SHAFT_ONLY=on` the figure is binned along
+the whole fit's line, the tip end is found (the pipeline's own tip, projected onto the line;
+the narrower end where no tip was found), and walking from it the figure is cut at the first
+column where the width reaches 2.0x the shaft's median (the tip-side quarter of the columns)
+and stays there for 4 columns. The tip-side piece is kept and fitted again with every gate
+unchanged. No step, or a kept piece under 12 columns, and the answer is the whole figure's.
+`OD_SHAFT_ONLY=refused` cuts only a figure the whole fit refused. Unset is today's fit byte
+for byte. The tip's own extraction (`detectTipAndCenter`) reads nothing new: the hint goes
+from the tip to the axis, never back. With the pin on, every camera on the `I1911 REFUSALS`
+line adds `,cut=<px|->,ratio=<x|->,whole=<px>` (the cut's distance from the tip end, the
+cut-off piece's median width over the shaft's, and the whole figure's residual), and
+`testers/i1911_census.py` prints `I1907 SHAFT` lines from them.
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, one binary, seven replays, runs-wt-1907). Off is the baseline: its
+`I1911`, `SCORE`, `PATH`, `I1512` and `I1511AXIS` lines are #1905's off run's line for line
+(1,767 lines over the seven replays, with the `Processing: <ms>` wall time stripped).
+
+| | off | on |
+|---|---|---|
+| pooled | 143..149/158 | **147..153/158** |
+| r18+r22 | 82/86 | **83/86** |
+| rig-20260918 | 38/40 | 38/40 |
+| rig-20260922 | 44/46 | **45/46** |
+| rig-20260929 | 61..67/72 | **64..70/72** |
+| r18 pin (vote) | 17/20 | 17/20 |
+
+Six published calls change, and the off run's and the on run's darts are counted separately:
+**five wrong to right** (rig-20260922 dev v7.2 S19 -> S3; rig-20260929 v3.1 S6 -> S13 and
+v10.3 S3 -> S17, each in both windows), **one right to wrong** (rig-20260929 opening v9.3,
+T19 -> S19, a ring call). No undetected, phantom or off-board count moves. The v7.2 fix is the
+issue's case exactly: cams 1 and 2 were refused not straight at 5.05 and 5.30 px whole, and were
+cut at 125 and 112 px from the tip at width ratio 5.9 and 6.3, where they scatter 0.59 and 1.24 px.
+The v9.3 loss is the case to watch: cams 2 and 3 were cut at 40 and 48 px at ratio 2.16 and
+2.13, just over the step. That is most likely the barrel's step, not the flight's. Elongation
+fell from 11.1/12.3 to 5.5/5.8, and the shorter line solved to r 0.6457 against the triple's
+outer wire at 0.629.
+
+**The census** (the six bakeoff replays, the pin left out; `I1911`/`I1907` lines):
+
+| | off | on |
+|---|---|---|
+| darts / vote | 151 / 37 | 151 / **22** |
+| not-straight (cam 1/2/3) | 19/34/15 = 68, 46 on vote darts | 5/11/4 = **20**, 7 on vote darts |
+| not-straight median residual | 3.88 px | 3.43 px |
+| not-a-shaft | 4 | 5 |
+| rim-only | 45 | 45 |
+
+Of 407 cameras with a figure, 336 were cut. The median cut is 138 px from the tip (cam 3: 80
+px) at a width ratio of 3.66. The median residual goes from 1.09 px whole to 0.55 px after (cut
+cameras: 1.19 to 0.53). 68 whole figures were over the gate and 20 answers are. 48 cut figures
+crossed under the gate, **none crossed over**, and the cut answers read 318 ok, 13 not straight
+and 5 not a shaft. On vote darts: 24 cut, residual 2.89 to 0.98 px, 10 admitted. 142 of the
+336 cuts have a ratio under 3.0, 61 of those leave an elongation under 6, and 93 cuts are under
+60 px. That is the barrel population the v9.3 loss belongs to. A higher `shaft_step_ratio`
+(3.0) is the next knob to measure. It is a field of `AxisParams` and is not read from the
+environment.
+
+**The default stays off** until the maintainer decides otherwise from these rows. This is the
+first pin in the #1911/#1909/#1905 stack that admits straighter lines and solves more darts
+right: +4 pooled, net of one ring call lost.
+
+**Tested** by `1907-shaft-only` (`testers/i1907_check.sh`). The plant is a synthetic shaft
+(5 px wide) whose flight (24 px wide, sitting 9 px off the shaft's line and drifting 0.3 px/px)
+begins 120 px from the tip. The whole figure scatters 5.23 px and is refused not straight. With
+the hint, without it (the narrower end) and drawn reversed, it is cut at 120.0 px (truth 120,
+gate 2 px) at ratio 4.53, and the kept shaft scatters 0.22-0.27 px on the shaft's own line
+(0.00-0.01 deg). A plain rod is never cut and answers the off fit field for field. `refused`
+leaves an admitted figure whole. The default and the census slot are checked too. Then two
+mutations of a scratch copy of `shaft_axis.hpp`, each predicted to turn named assertions red.
+The cut taken from the wrong end (the issue's mutation, 15: `cut:` 3, `straight:` 3, `angle:`
+3, `ratio:` 3, `mode:` 2, `census:` 1): the flight's width is read as the shaft's, no step is
+ever found, and the bent whole is the answer. The default moved to `on` (2: `parse:` 1, `off:` 1).
