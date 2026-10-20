@@ -38,7 +38,7 @@ static void say(bool ok, const std::string &what)
     }
 }
 
-static bool near(double a, double b) { return std::fabs(a - b) < 1e-6; }
+static bool close_to(double a, double b) { return std::fabs(a - b) < 1e-6; }
 
 static PointScore reading(const std::string &score, bool complete = true)
 {
@@ -84,7 +84,7 @@ int main()
             "issue: control -- the majority alone publishes S12 from 2 cameras (got " + published(p, majority) + ")");
         const WeightedVote w = weighVote(p, v, e, majority);
         say(published(p, w.choice) == "D12" && w.overturned && w.choice.camera == 2 && w.choice.agreeing == 1 &&
-                near(w.choice.confidence, 0.7f),
+                close_to(w.choice.confidence, 0.7f),
             "issue: weighted, camera 3's D12 (1.00) outweighs two rim-only S12 (0.25 each) and publishes alone at 0.7"
             " (got " + published(p, w.choice) + ", why=" + w.why + ")");
         say(w.weights == "S12=0.50[cam1 0.25,cam2 0.25] D12=1.00[cam3 1.00]",
@@ -96,11 +96,11 @@ int main()
     }
 
     // ---- weight: the three factors -------------------------------------------------------
-    say(near(voteWeightOf(reading("S1"), seen("ok", 1.2)), 1.0), "weight: an admitted line, every ring, unmeasured R = 1.00");
-    say(near(voteWeightOf(reading("S1"), seen("not-straight", 5.0)), 0.5),
+    say(close_to(voteWeightOf(reading("S1"), seen("ok", 1.2)), 1.0), "weight: an admitted line, every ring, unmeasured R = 1.00");
+    say(close_to(voteWeightOf(reading("S1"), seen("not-straight", 5.0)), 0.5),
         "weight: not straight at 5.00 px against the 2.50 px gate = 0.50");
-    say(near(voteWeightOf(reading("S1"), seen("rim-only", 0.0)), 0.25), "weight: rim only = 0.25");
-    say(near(voteWeightOf(reading("S1", false), seen("ok", 1.2, 0.8)), 0.4),
+    say(close_to(voteWeightOf(reading("S1"), seen("rim-only", 0.0)), 0.25), "weight: rim only = 0.25");
+    say(close_to(voteWeightOf(reading("S1", false), seen("ok", 1.2, 0.8)), 0.4),
         "weight: a zeroed ring halves it and R=0.80 scales it: 1.00 x 0.50 x 0.80 = 0.40");
 
     // ---- keep: where the weighting publishes exactly what the majority would ------------
@@ -111,7 +111,7 @@ int main()
         const ScoreChoice m = chooseScore(p, v);
         const WeightedVote w = weighVote(p, v, e, m);
         say(!w.overturned && w.why == "same" && w.choice.camera == m.camera && w.choice.agreeing == m.agreeing &&
-                near(w.choice.confidence, m.confidence),
+                close_to(w.choice.confidence, m.confidence),
             "keep: the weighted winner is the majority's string -- the choice is the majority's, field for field");
     }
     {
