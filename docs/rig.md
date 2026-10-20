@@ -2521,7 +2521,7 @@ extent over median width (the 3.0 elongation gate's), `scale` the sigma factor a
 line carries, `r` the published board radius (1.0 the double's outer wire). The reasons are
 the refusal's own first words: `not-straight`, `not-a-shaft`, `rim-only` (#1689),
 `no-figure`, `no-frame`, `direction-unusable`, `other` (departure, clean, support floor). An END
-writes none; the binary the bakeoff below measured (ab272e9) wrote one for each END, every
+writes none; the binary the bakeoff below measured (the source of 5e939a2) wrote one for each END, every
 camera `other`, and the census leaves such a line out.
 
 `testers/i1911_census.py --log <log> [--log ...] [--label <name>] [--each]` counts them by
