@@ -322,6 +322,51 @@ namespace shaft_axis
     }
 
     /**
+     * turnaus#1907: OD_SHAFT_ONLY -- the line fitted to the shaft, with the flight cut off.
+     *
+     * A dart's silhouette is a thin shaft and a wide flight, and the centreline of the whole
+     * figure bends where the flight begins (the flight sits off the shaft's line, tilted, and
+     * is what a neighbouring dart occludes first), so the straightness gate refuses a dart one
+     * line explains everywhere but in its flight. With the pin on, the figure is binned along
+     * the whole fit's line, the TIP END is found (the pipeline's own tip, AxisParams::tip_hint,
+     * projected onto the line; the narrower end where no tip was found), and walking from it
+     * the silhouette is cut at the first column where the width steps up to
+     * `shaft_step_ratio` times the shaft's own median width and stays there for
+     * `shaft_step_run` columns. The TIP-SIDE piece is kept, and the whole fit -- every gate
+     * unchanged -- runs again on it. No step, or a kept piece shorter than
+     * `shaft_min_columns`, and the answer is the whole figure's, with the reason recorded.
+     *
+     *   unset, empty, "off", anything else   off: the fit is the old one, byte for byte
+     *   "on"                                 every figure with a step is cut
+     *   "refused"                            only a figure the whole fit refused is cut
+     *
+     * The tip's own extraction (detectTipAndCenter) reads nothing here and is untouched.
+     */
+    inline int shaftOnlyModeFrom(const char *text)
+    {
+        if (text == nullptr)
+        {
+            return 0;
+        }
+        const std::string word(text);
+        if (word == "on")
+        {
+            return 1;
+        }
+        if (word == "refused")
+        {
+            return 2;
+        }
+        return 0;
+    }
+
+    inline int shaftOnlyMode()
+    {
+        static const int v = shaftOnlyModeFrom(std::getenv("OD_SHAFT_ONLY"));
+        return v;
+    }
+
+    /**
      * The gates a figure must pass before its fitted line is called an axis, and the
      * numbers each one encodes. `gated = false` is the falsification arm -- the issue's
      * own required mutation is "removing the quality gate must make negative controls
@@ -506,6 +551,20 @@ namespace shaft_axis
         // frame). 0, or a centre left negative, is off -- today's fit byte for byte.
         double undistort_kappa = undistortKappa();
         cv::Point2d undistort_centre{-1.0, -1.0};
+
+        // turnaus#1907: OD_SHAFT_ONLY (0 off, 1 on, 2 refused-only), and the pipeline's own
+        // tip in this camera's pixels, set by the caller that found one (negative: none, so
+        // the narrower end is taken for the tip). The step is a SHAPE fact: a flight is
+        // several times the shaft's width wherever it is seen from the side, the barrel at
+        // most about twice the point's; 2.0 sustained over 4 one-pixel columns is a step no
+        // one-pixel quantisation makes on a rod (i1907_shaft_only_check's plain rod is never
+        // cut). The kept piece must hold 12 columns, or the cut is not taken. These are
+        // shape choices, not fits: the bakeoff (docs/rig.md) is what measured them.
+        int shaft_only = shaftOnlyMode();
+        cv::Point2d tip_hint{-1.0, -1.0};
+        double shaft_step_ratio = 2.0;
+        int shaft_step_run = 4;
+        int shaft_min_columns = 12;
     };
 
     /** One centreline sample: one one-pixel column along the axis. Kept for overlays
@@ -576,6 +635,21 @@ namespace shaft_axis
         // Off, `undistorted` is false and the raw figure is centrelineRmsPx itself.
         bool undistorted = false;
         double rawCentrelineRmsPx = 0.0;
+
+        // turnaus#1907: OD_SHAFT_ONLY's census. `shaftLooked` says the pin was on for this
+        // figure; `shaftCut` that the answer is the tip-side piece's fit, cut `shaftCutPx`
+        // along the line from the tip end, where the width stepped up `shaftWidthRatio`
+        // times the shaft's median. `shaftWholeRmsPx` / `shaftWholeValid` are the whole
+        // figure's fit beside it -- the residual before the cut -- and `shaftNote` says why
+        // no cut was taken where none was.
+        bool shaftLooked = false;
+        bool shaftCut = false;
+        bool shaftTipFromHint = false;
+        double shaftCutPx = 0.0;
+        double shaftWidthRatio = 0.0;
+        double shaftWholeRmsPx = 0.0;
+        bool shaftWholeValid = false;
+        std::string shaftNote;
 
         // Event and frame identity, filled by the caller that owns them
         // (dart_processing::processDartState): which camera, which completed window,
@@ -1280,6 +1354,119 @@ namespace shaft_axis
         }
     }
 
+    namespace detail
+    {
+        /** turnaus#1907: where the silhouette's width steps up from the shaft's to the flight's. */
+        struct ShaftCut
+        {
+            bool found = false;
+            bool tipHigh = false;     // the tip end is the high-t end of the line
+            bool tipFromHint = false; // the end was the pipeline's tip, not the narrower end
+            double cutT = 0.0;        // the cut, t along (O, D)
+            double keptPx = 0.0;      // the cut's distance from the tip end, px along the line
+            double ratio = 0.0;       // the cut-off piece's median width over the shaft's
+            double shaftWidthPx = 0.0;
+            std::string note;
+        };
+
+        /**
+         * Bin `pixels` along the line (O, D) at one-pixel pitch, orient the columns from the
+         * tip end, and find the first sustained width step. Pure: no state, no environment.
+         */
+        inline ShaftCut findShaftCut(const std::vector<cv::Point> &pixels, const cv::Point2d &O,
+                                     const cv::Point2d &D, const AxisParams &params)
+        {
+            ShaftCut cut;
+            const cv::Point2d N(-D.y, D.x);
+            double tmin = 1e18, tmax = -1e18;
+            std::vector<double> ts(pixels.size()), us(pixels.size());
+            for (size_t i = 0; i < pixels.size(); i++)
+            {
+                const double dx = pixels[i].x - O.x, dy = pixels[i].y - O.y;
+                ts[i] = dx * D.x + dy * D.y;
+                us[i] = dx * N.x + dy * N.y;
+                tmin = std::min(tmin, ts[i]);
+                tmax = std::max(tmax, ts[i]);
+            }
+            if (pixels.empty())
+            {
+                cut.note = "no pixels";
+                return cut;
+            }
+            const int nbins = (int)std::floor(tmax - tmin) + 1;
+            std::vector<double> umin(nbins, 1e18), umax(nbins, -1e18);
+            std::vector<int> n(nbins, 0);
+            for (size_t i = 0; i < pixels.size(); i++)
+            {
+                const int b = std::min(nbins - 1, (int)std::floor(ts[i] - tmin));
+                umin[b] = std::min(umin[b], us[i]);
+                umax[b] = std::max(umax[b], us[i]);
+                n[b]++;
+            }
+            std::vector<double> t, w;
+            for (int b = 0; b < nbins; b++)
+            {
+                if (n[b] > 0)
+                {
+                    t.push_back(tmin + b + 0.5);
+                    w.push_back(umax[b] - umin[b] + 1.0);
+                }
+            }
+            const int cols = (int)t.size();
+            if (cols < 2 * params.shaft_min_columns)
+            {
+                cut.note = "too short to hold a shaft and a flight: " + std::to_string(cols) + " columns";
+                return cut;
+            }
+            const int quarter = std::max(params.shaft_min_columns / 2, cols / 4);
+            const double lowWidth = medianOf(std::vector<double>(w.begin(), w.begin() + quarter));
+            const double highWidth = medianOf(std::vector<double>(w.end() - quarter, w.end()));
+            cut.tipFromHint = params.tip_hint.x >= 0.0 && params.tip_hint.y >= 0.0;
+            const double tipT = (params.tip_hint.x - O.x) * D.x + (params.tip_hint.y - O.y) * D.y;
+            cut.tipHigh = cut.tipFromHint ? tipT > 0.5 * (t.front() + t.back()) : highWidth < lowWidth;
+            if (cut.tipHigh)
+            {
+                std::reverse(t.begin(), t.end());
+                std::reverse(w.begin(), w.end());
+            }
+            cut.shaftWidthPx = medianOf(std::vector<double>(w.begin(), w.begin() + quarter));
+            const double step = params.shaft_step_ratio * cut.shaftWidthPx;
+            int at = -1;
+            for (int j = quarter; j + params.shaft_step_run <= cols && at < 0; j++)
+            {
+                bool wide = true;
+                for (int k = j; k < j + params.shaft_step_run && wide; k++)
+                {
+                    wide = w[k] >= step;
+                }
+                if (wide)
+                {
+                    at = j;
+                }
+            }
+            if (at < 0)
+            {
+                cut.note = "no width step: nothing past the shaft's " + fmt("%.1f", cut.shaftWidthPx) +
+                           " px holds " + fmt("%.1f", params.shaft_step_ratio) + "x it for " +
+                           std::to_string(params.shaft_step_run) + " columns";
+                return cut;
+            }
+            if (at < params.shaft_min_columns)
+            {
+                cut.note = "the shaft piece is " + std::to_string(at) + " columns, under " +
+                           std::to_string(params.shaft_min_columns);
+                return cut;
+            }
+            cut.found = true;
+            cut.cutT = 0.5 * (t[at - 1] + t[at]);
+            cut.keptPx = std::fabs(cut.cutT - t.front()) + 0.5;
+            cut.ratio = cut.shaftWidthPx > 0.0
+                            ? medianOf(std::vector<double>(w.begin() + at, w.end())) / cut.shaftWidthPx
+                            : 0.0;
+            return cut;
+        }
+    }
+
     /**
      * The axis of one fresh figure: #1511's fit (with #1554's shadow subtraction), and
      * -- where `params.rescue_composite` is on and the plain fit failed the straightness
@@ -1320,6 +1507,53 @@ namespace shaft_axis
             AxisParams unshifted = params;
             unshifted.support_shift_px = 0;
             return observeShaftAxis(moved, current, reference, unshifted);
+        }
+        // turnaus#1907: OD_SHAFT_ONLY -- cut at the flight, keep the tip side, fit that.
+        if (params.shaft_only != 0)
+        {
+            AxisParams whole = params;
+            whole.shaft_only = 0;
+            AxisObservation all = observeShaftAxis(supportPixels, current, reference, whole);
+            all.shaftLooked = true;
+            all.shaftWholeRmsPx = all.centrelineRmsPx;
+            all.shaftWholeValid = all.valid;
+            if (all.extentPx <= 0.0)
+            {
+                all.shaftNote = "no whole line to cut along";
+                return all;
+            }
+            if (params.shaft_only == 2 && all.valid)
+            {
+                all.shaftNote = "the whole figure's line was admitted";
+                return all;
+            }
+            const cv::Point2d O(all.point.x, all.point.y), D(all.direction.x, all.direction.y);
+            const detail::ShaftCut cut = detail::findShaftCut(supportPixels, O, D, params);
+            all.shaftTipFromHint = cut.tipFromHint;
+            if (!cut.found)
+            {
+                all.shaftNote = cut.note;
+                return all;
+            }
+            std::vector<cv::Point> tipSide;
+            tipSide.reserve(supportPixels.size());
+            for (const cv::Point &p : supportPixels)
+            {
+                const double t = (p.x - O.x) * D.x + (p.y - O.y) * D.y;
+                if (cut.tipHigh ? t > cut.cutT : t < cut.cutT)
+                {
+                    tipSide.push_back(p);
+                }
+            }
+            AxisObservation piece = observeShaftAxis(tipSide, current, reference, whole);
+            piece.shaftLooked = true;
+            piece.shaftCut = true;
+            piece.shaftTipFromHint = cut.tipFromHint;
+            piece.shaftCutPx = cut.keptPx;
+            piece.shaftWidthRatio = cut.ratio;
+            piece.shaftWholeRmsPx = all.centrelineRmsPx;
+            piece.shaftWholeValid = all.valid;
+            return piece;
         }
         AxisObservation base = observeShaftAxisOnce(supportPixels, current, reference, params);
         if (!params.rescue_composite || !params.gated || base.valid ||
@@ -1594,7 +1828,10 @@ namespace shaft_axis
      * extent over median width (the elongation gate's), `scale` the sigma factor an
      * admitted line carries (straightSigmaScale; 1.00 on every refused one). `r` is the
      * published dart's board radius, 1.0 the double's outer wire, `-` where none was
-     * measured. turnaus#1905: with OD_UNDISTORT on, each camera whose centreline was
+     * measured. turnaus#1907: with OD_SHAFT_ONLY on, every camera adds `,cut=<px|->,ratio=<x|->,
+     * whole=<px>` last -- the cut's distance from the tip end, the cut-off piece's width over
+     * the shaft's, and the whole figure's residual (the one before the cut); `-` where no cut
+     * was taken. turnaus#1905: with OD_UNDISTORT on, each camera whose centreline was
      * straightened adds `,raw=<px>`, the distorted fit's residual, after `scale` -- `rms` is
      * then the undistorted one the gate read; off, the line is the old one byte for byte.
      * testers/i1911_census.py reads it, and reads the older PATH/LINES stories
@@ -1620,7 +1857,13 @@ namespace shaft_axis
                    ",elong=" + detail::fmt("%.2f", elongation) +
                    ",scale=" + detail::fmt("%.2f", scale) +
                    (c.axis.undistorted ? ",raw=" + detail::fmt("%.2f", c.axis.rawCentrelineRmsPx)
-                                       : std::string());
+                                       : std::string()) +
+                   (c.axis.shaftLooked
+                        ? ",cut=" + (c.axis.shaftCut ? detail::fmt("%.1f", c.axis.shaftCutPx) : std::string("-")) +
+                              ",ratio=" +
+                              (c.axis.shaftCut ? detail::fmt("%.2f", c.axis.shaftWidthRatio) : std::string("-")) +
+                              ",whole=" + detail::fmt("%.2f", c.axis.shaftWholeRmsPx)
+                        : std::string());
         }
         return out;
     }

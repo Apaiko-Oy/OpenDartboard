@@ -1957,6 +1957,10 @@ namespace dart_processing
                         axis_params.rescue_composite = axisRescueIsOn();
                         axis_params.undistort_centre = // turnaus#1905: the frame centre
                             cv::Point2d(single_thresh.cols * 0.5, single_thresh.rows * 0.5);
+                        if (norm(tip_and_center.first) > 0) // turnaus#1907: which end OD_SHAFT_ONLY keeps
+                        {
+                            axis_params.tip_hint = cv::Point2d(tip_and_center.first.x, tip_and_center.first.y);
+                        }
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
@@ -2059,6 +2063,10 @@ namespace dart_processing
                         axis_params.rescue_composite = axisRescueIsOn();
                         axis_params.undistort_centre = // turnaus#1905: the frame centre
                             cv::Point2d(single_thresh.cols * 0.5, single_thresh.rows * 0.5);
+                        if (norm(tc.first) > 0) // turnaus#1907: which end OD_SHAFT_ONLY keeps
+                        {
+                            axis_params.tip_hint = cv::Point2d(tc.first.x, tc.first.y);
+                        }
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
