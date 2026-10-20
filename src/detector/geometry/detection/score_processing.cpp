@@ -798,6 +798,7 @@ namespace score_processing
             ev.axisDir = r.axis.direction;
             ev.axisSigmaDeg = r.axis.sigmaDeg;
             ev.axisRescued = r.axis.rescued; // #1586: a last resort, see solveEntry
+            ev.axisRmsPx = r.axis.centrelineRmsPx; // turnaus#1911: the widened sigma
             ev.tipFound = r.frame_available && r.tip_found;
             ev.tipImage = r.tip_position;
             evidence.push_back(ev);

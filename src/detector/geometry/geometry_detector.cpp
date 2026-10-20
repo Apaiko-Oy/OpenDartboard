@@ -781,6 +781,21 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.rim_contradicts = score_result.rim_contradicts; // turnaus#1873
         // The instant the frames behind this score were acquired, from the backend.
         result.timestamp = camera::newestInstantUs(frames);
+
+        // turnaus#1911: why each camera did or did not offer a line to this dart, with the
+        // straightness and elongation figures, one line per published dart, always.
+        std::vector<shaft_axis::RefusalSlot> slots;
+        for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
+        {
+            shaft_axis::RefusalSlot slot;
+            slot.frameAvailable = r.frame_available;
+            slot.rimOnly = r.rim_only;
+            slot.axis = r.axis;
+            slots.push_back(slot);
+        }
+        log_info(shaft_axis::refusalCensusLine(score_result.window_ordinal, result.path, score_result.score,
+                                               score_result.board.has_radius, score_result.board.radius,
+                                               shaft_axis::straightGatePx(), slots));
     }
 
     return result;

@@ -229,6 +229,53 @@ namespace shaft_axis
     }
 
     /**
+     * turnaus#1911: THE STRAIGHTNESS GATE AS AN EXPERIMENT, AND THE SIGMA A LOOSER LINE
+     * CARRIES. `kStraightBasePx` is the gate AxisParams::max_centreline_rms_px has always
+     * held (its measurement is beside that field). OD_STRAIGHT_PX=<px> moves the gate for
+     * the experiment; unset, unparsable or not above zero is 2.5, so the default is the
+     * old gate byte for byte.
+     *
+     * A line admitted ABOVE the base -- only possible with the gate widened -- is a wider
+     * constraint, not a wrong one: its perpendicular sigma in the solve is multiplied by
+     * rms / 2.5 (`straightSigmaScale`), so a 5 px line weighs a quarter of what a 2.5 px
+     * one does (sigma twice, weight 1/sigma^2). At or under the base the scale is exactly
+     * 1.0, which is why the default solve cannot move: every line the 2.5 px gate admits
+     * already scatters 2.5 px or less. A widened line is still ONE constraint: the scale
+     * touches its weight and nothing counts it (#1505, #1535: TOO-FEW-CONSTRAINTS).
+     */
+    constexpr double kStraightBasePx = 2.5;
+
+    inline double straightGateFrom(const char *text)
+    {
+        if (text == nullptr || *text == '\0')
+        {
+            return kStraightBasePx;
+        }
+        char *end = nullptr;
+        const double v = std::strtod(text, &end);
+        if (end == text || *end != '\0' || !(v > 0.0) || !std::isfinite(v))
+        {
+            return kStraightBasePx;
+        }
+        return v;
+    }
+
+    inline double straightGatePx()
+    {
+        static const double v = straightGateFrom(std::getenv("OD_STRAIGHT_PX"));
+        return v;
+    }
+
+    inline double straightSigmaScale(double rmsPx)
+    {
+        if (!(rmsPx > kStraightBasePx) || !std::isfinite(rmsPx))
+        {
+            return 1.0;
+        }
+        return rmsPx / kStraightBasePx;
+    }
+
+    /**
      * The gates a figure must pass before its fitted line is called an axis, and the
      * numbers each one encodes. `gated = false` is the falsification arm -- the issue's
      * own required mutation is "removing the quality gate must make negative controls
@@ -270,7 +317,8 @@ namespace shaft_axis
         // keep: 11 refusals across rig-18's cameras and 10 on rig-22's, at measured
         // 3.23-11.84 px, every one a figure carrying a shadow or a neighbouring dart;
         // accepted axes there measured 0.28-2.23 px (i1511_run.sh, 2026-09-24).
-        double max_centreline_rms_px = 2.5;
+        // turnaus#1911: straightGatePx() is 2.5 unless OD_STRAIGHT_PX moves it.
+        double max_centreline_rms_px = straightGatePx();
 
         // The usability gate on the direction itself, degrees at one sigma. #1512
         // intersects axes across cameras; a direction looser than this constrains
@@ -1348,6 +1396,87 @@ namespace shaft_axis
                        : "NO AXIS: " + axis.refusal;
         cv::putText(canvas, caption.substr(0, 110), cv::Point(10, 22), cv::FONT_HERSHEY_SIMPLEX, 0.5,
                     axis.valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255), 1);
+    }
+
+    /**
+     * turnaus#1911: WHY ONE CAMERA OFFERED NO LINE, BY NAME. The reason words are the
+     * refusal's own first words, hyphenated, so the census and the story cannot word one
+     * camera two ways: `ok` (an axis), `no-frame`, `rim-only` (#1689), `not-a-shaft` (the
+     * elongation gate), `not-straight` (the straightness gate), `direction-unusable`,
+     * `no-figure`, else `other`. A figure refused by more than one gate names each,
+     * `+`-joined in the order the gates run.
+     */
+    inline std::string refusalReasonOf(const AxisObservation &axis, bool frameAvailable, bool rimOnly)
+    {
+        if (!frameAvailable)
+        {
+            return "no-frame";
+        }
+        if (axis.valid)
+        {
+            return "ok";
+        }
+        if (rimOnly || axis.refusal.rfind("rim only", 0) == 0)
+        {
+            return "rim-only";
+        }
+        static const char *const kNamed[][2] = {{"not a shaft", "not-a-shaft"},
+                                                {"not straight", "not-straight"},
+                                                {"direction unusable", "direction-unusable"},
+                                                {"no fresh figure", "no-figure"}};
+        std::string out;
+        for (const auto &named : kNamed)
+        {
+            if (axis.refusal.find(named[0]) != std::string::npos)
+            {
+                out += (out.empty() ? "" : "+") + std::string(named[1]);
+            }
+        }
+        return out.empty() ? "other" : out;
+    }
+
+    /** One camera's slot in the I1911 REFUSALS line. */
+    struct RefusalSlot
+    {
+        bool frameAvailable = false;
+        bool rimOnly = false;
+        AxisObservation axis;
+    };
+
+    /**
+     * turnaus#1911: one line per published dart, every camera's reason and figures:
+     *
+     *   I1911 REFUSALS window=<n> path=<geometry|vote> score=<S20> r=<0.9615|-> gate=<px>
+     *     cam1=<reason>,rms=<px>,elong=<x>,scale=<x> cam2=... cam3=...
+     *
+     * `rms` is the kept centreline's scatter (the straightness gate's figure), `elong`
+     * extent over median width (the elongation gate's), `scale` the sigma factor an
+     * admitted line carries (straightSigmaScale; 1.00 on every refused one). `r` is the
+     * published dart's board radius, 1.0 the double's outer wire, `-` where none was
+     * measured. testers/i1911_census.py reads it, and reads the older PATH/LINES stories
+     * where a log predates it.
+     */
+    inline std::string refusalCensusLine(long window, const std::string &path, const std::string &score,
+                                         bool radiusKnown, double radius, double gatePx,
+                                         const std::vector<RefusalSlot> &cameras)
+    {
+        std::string out = "I1911 REFUSALS window=" + std::to_string(window) + " path=" + path +
+                          " score=" + (score.empty() ? std::string("-") : score) +
+                          " r=" + (radiusKnown ? detail::fmt("%.4f", radius) : std::string("-")) +
+                          " gate=" + detail::fmt("%.2f", gatePx);
+        for (size_t i = 0; i < cameras.size(); i++)
+        {
+            const RefusalSlot &c = cameras[i];
+            const double elongation =
+                c.axis.medianWidthPx > 0.0 ? c.axis.extentPx / c.axis.medianWidthPx : 0.0;
+            const double scale = c.axis.valid ? straightSigmaScale(c.axis.centrelineRmsPx) : 1.0;
+            out += " cam" + std::to_string(i + 1) + "=" +
+                   refusalReasonOf(c.axis, c.frameAvailable, c.rimOnly) +
+                   ",rms=" + detail::fmt("%.2f", c.axis.centrelineRmsPx) +
+                   ",elong=" + detail::fmt("%.2f", elongation) +
+                   ",scale=" + detail::fmt("%.2f", scale);
+        }
+        return out;
     }
 
     /** The census line i1511's harness parses: one line, every figure, refusal last so

@@ -329,6 +329,9 @@ namespace entry_intersection
         bool excluded = false;   // was usable, refused by the consistency check
         std::string exclusion;   // the named reason, when !usable or excluded
         bool rescued = false;    // #1586: the axis came from the composite rescue
+        // turnaus#1911: the factor on this line's perpendicular sigma, rms / 2.5 above the
+        // base gate and exactly 1.0 at or under it. A weight, never a count.
+        double sigmaScale = 1.0;
 
         // The transported line, canonical board mm: unit normal (nx,ny) and offset c,
         // a point X on the line satisfying nx*X.x + ny*X.y + c = 0.
@@ -408,6 +411,9 @@ namespace entry_intersection
         // it only as a LAST RESORT: where the plain constraints already number two, it
         // is held back by name.
         bool axisRescued = false;
+        // turnaus#1911: the admitted axis's centreline rms, px; its constraint's sigma is
+        // widened by shaft_axis::straightSigmaScale of it (1.0 at or under 2.5 px).
+        double axisRmsPx = 0.0;
 
         bool tipFound = false;
         cv::Point2f tipImage;
@@ -904,7 +910,7 @@ namespace entry_intersection
             const double angular = std::tan(sigmaDir * CV_PI / 180.0) * con.leverMm;
             const double lateral = con.pxPerMm > 0.0 ? p.sigmaLateralPx / con.pxPerMm
                                                      : p.sigmaLateralPx;
-            con.sigmaPerpMm = std::sqrt(angular * angular + lateral * lateral);
+            con.sigmaPerpMm = con.sigmaScale * std::sqrt(angular * angular + lateral * lateral);
         }
 
         /** Weighted least squares over the usable, unexcluded constraints.
@@ -954,6 +960,7 @@ namespace entry_intersection
             Constraint con = constraintFrom(ev);
             con.sigmaDirDeg = ev.axisSigmaDeg;
             con.rescued = ev.axisRescued;
+            con.sigmaScale = shaft_axis::straightSigmaScale(ev.axisRmsPx);
             out.constraints.push_back(con);
         }
 
@@ -1054,7 +1061,7 @@ namespace entry_intersection
             {
                 if (!con->excluded)
                 {
-                    con->sigmaPerpMm = 1.0;
+                    con->sigmaPerpMm = con->sigmaScale; // turnaus#1911: 1.0 on any 2.5 px line
                 }
             }
             if (!detail::solveOnce(out.constraints, Xout, covOut))
