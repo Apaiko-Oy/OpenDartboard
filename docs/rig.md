@@ -2658,3 +2658,88 @@ through a planted solve, a displaced widened line pulling the entry less, a wide
 alone refused as TOO-FEW-CONSTRAINTS, the switch's parse and the census words, then five
 mutations of scratch copies each predicted to turn named assertions red, and the census
 reader's self-test.
+
+## The sisal census (turnaus#1909): the solve's error, radial and tangential, and no `OD_SISAL_MM`
+
+**The question.** A dart's tip rests 1..3 mm into the sisal below the wires' plane, and a
+line transported to that plane meets it short of or past the scoring point by the depth
+times the cotangent of the dart's angle to the board. Before building a term for it, the
+census asks whether the solved entry's error is radial at all.
+
+`testers/i1909_census.py --run <bakeoff dir> [--label <name>] [--rows] [--sisal 1 2 3]`
+reads the four annotated replays a `testers/i1555_run.sh` bakeoff leaves (r18 dev/open,
+r22 dev/open), binds every matched, solved dart to its annotated throw with i1647's
+`collect` (i1511's matcher, imported), and splits *solved minus reference* at the reference
+into radial (+ = the solve lies further out) and tangential, in i1911's radius bins (on the
+reference's radius). Two references: `tip`, the annotated board-contact pixel of every
+camera carried to canonical mm through that camera's own logged model (`I1647FIT`) and
+averaged, which is where the dart visibly meets the board and carries each camera's
+parallax; and `annX`, the crossing of the annotated shaft lines, which is the fit's error
+alone and has the same blind spot for depth the solve has. `VECTOR` is the mean error in
+fixed board directions (`up` the 20, `right` toward the 1): a depth term slides every dart
+along its own lean, and darts from one oche lean alike, so it would show as a mean vector,
+not as a radial bias.
+
+**Measured** over #1911's unset bakeoff (`runs-wt-1911/bake-unset`, `OD_WINDOW_UNIT=cycles
+OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`; unset `OD_STRAIGHT_PX`, the solve this branch
+leaves byte-identical), 63 solved matched darts. Medians of the absolute parts, then the
+signed means, mm; `share` is sum rad² over sum |e|²:
+
+| ref | bin | n | rad med | tan med | rad mean | tan mean | rad rms | tan rms | share |
+|---|---|---|---|---|---|---|---|---|---|
+| tip | `<0.58` | 32 | 1.10 | 1.85 | +1.15 | +0.68 | 2.03 | 3.00 | 0.31 |
+| tip | treble | 14 | 2.73 | 1.69 | +1.28 | +1.91 | 3.52 | 2.23 | 0.71 |
+| tip | `0.63-0.90` | 16 | 3.90 | 3.08 | +2.01 | +1.51 | 5.29 | 5.46 | 0.48 |
+| tip | `0.90-0.95` | 1 | 2.09 | 3.02 | +2.09 | -3.02 | 2.09 | 3.02 | 0.32 |
+| tip | all | 63 | 1.69 | 1.95 | +1.41 | +1.11 | 3.47 | 3.66 | 0.47 |
+| annX | `<0.58` | 31 | 1.02 | 0.61 | +0.32 | +0.28 | 1.45 | 1.64 | 0.44 |
+| annX | treble | 14 | 1.34 | 1.34 | +0.28 | +1.33 | 1.72 | 1.61 | 0.53 |
+| annX | `0.63-0.90` | 17 | 0.82 | 0.95 | +0.46 | -3.33 | 1.47 | 10.44 | 0.02 |
+| annX | all | 63 | 1.13 | 0.77 | +0.36 | -0.50 | 1.51 | 5.60 | 0.07 |
+
+(annX's `0.63-0.90` tangential rms is r18 v2.3's annotated lines, which cross 30 mm off in
+both windows; the medians are the figure to read.) No double-bin dart solved and matched.
+The mean vector against `tip` is (up +0.65, right -0.41) mm, |0.76| mm, against a scatter of
+4.98 mm rms; against `annX` |1.07| mm against 5.70.
+
+**The radial part does not dominate.** Over all 63 it is 47% of the squared error against
+the tip and 7% against the annotated crossing; only the treble bin leans radial (71%
+against the tip, median 2.73 mm radial to 1.69 tangential), and its radial mean is +1.28 mm
+OUTWARD, which no depth term produces (a slide follows the dart's lean, not the radius).
+
+**And the term would be small on these fixtures whatever the census said.** The
+transported lines lie in the board plane and all pass through the entry, so they fix the
+entry and say nothing about the dart's angle to the board -- the issue's premise that "the
+axis's angle to the plane is what the transported lines give" does not hold. The angle needs
+each camera's centre. `--sisal` recovers it from the camera's own homography (a pinhole with
+square pixels and the principal point at the frame's centre leaves the focal length the one
+unknown, and `r1 . r2 = 0`, `|r1| = |r2|` answer it), takes the dart's 3D axis as the line
+common to every used camera's plane through its centre and its fitted line, and slides the
+solved entry along it by d / sin(elevation). On the same 63 darts: focal 757-854 px (median
+789) on every camera of both rigs, and the darts stand at **median 81.3 degrees to the
+board** (p10 73.9, p90 85.9; the shallowest 56.7). So the slide is d x cot(81 deg), about a
+sixth of the depth:
+
+| d (mm) | shift med / max (mm) | tip rad med / tan med (all) | tip treble rad med | annX rad med | ring calls moved (spec radii) |
+|---|---|---|---|---|---|
+| unset | 0 / 0 | 1.69 / 1.95 | 2.73 | 1.13 | - |
+| 1 | 0.15 / 0.66 | 1.79 / 1.96 | 2.77 | 1.07 | 2 |
+| 2 | 0.30 / 1.31 | 1.89 / 1.94 | 2.82 | 1.04 | 2 |
+| 3 | 0.46 / 1.97 | 1.98 / 1.94 | 2.86 | 1.21 | 2 |
+
+The radial error against the tip grows with d, the tangential holds, and the only ring call
+any depth moves is r22 v8.1's T1 (solved 99.03 mm, 0.03 mm outside the treble's inner wire),
+in both windows, from the right answer to the wrong one. The two surviving fixture errors are
+untouched: r18 v5.1 (thrown S15, solved T15 at 96.3 mm, standing at 84-85 degrees) would
+need about 3 mm inward and moves 0.1-0.3 mm.
+
+**So `OD_SISAL_MM` is not built.** The rows above are the offline model over the logged
+lines and models, not replays: the bakeoff rows at d = 1, 2, 3 were not run because there is
+no detector term to run them on. The model is held pure by `testers/i1909_check.sh`
+(`run_all.sh 1909-sisal`): the acceptance's plant (a known axis at 45 degrees and d = 2
+moves the entry 2.0 mm radially, the way the dart travels), the same dart end to end through
+two planted pinhole cameras (centres and focal recovered from H alone to 1e-6), and two
+mutation proofs (the slide's sign flipped: 3 named checks red; the axis oriented out of the
+board: 2). A rig that throws at a shallower angle, or a board whose wires stand proud of a
+worn sisal, is where the census would be worth re-running; the default is the maintainer's
+call from these rows.

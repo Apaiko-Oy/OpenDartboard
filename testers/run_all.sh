@@ -1211,6 +1211,13 @@ tester 1886-keep-awake    "bash '$T/i1886_check.sh'"
 # named assertions red; then i1911_census.py --self-test. No detector binary; needs
 # build/_deps. At the end of the list for #1886's reason: two sibling branches add rows.
 tester 1911-straight      "bash '$T/i1911_check.sh'"
+# turnaus#1909: the sisal slide's geometry, pure, on the host (python3 alone, no build, no
+# container): the radial/tangential split, the acceptance's plant (a known axis at 45 degrees
+# and d = 2 moves the entry 2.0 mm radially, the way the dart travels) and the same dart end
+# to end through two planted pinhole cameras; two mutation proofs (the slide's sign flipped,
+# the axis oriented out of the board), each predicted to turn named checks red. OD_SISAL_MM
+# is not in the detector: the census argues against it (docs/rig.md, "The sisal census").
+tester 1909-sisal         "bash '$T/i1909_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
