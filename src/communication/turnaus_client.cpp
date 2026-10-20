@@ -558,6 +558,7 @@ void TurnausClient::releaseContestBinding(const char *why)
                 ++it;
             }
         }
+        queueChanged();
     }
 
     // MEASURED, AND IT IS THE FINDING THIS SLICE DID NOT KNOW IT WAS ASKING FOR. A
@@ -921,6 +922,7 @@ bool TurnausClient::offer(const DetectorResult &result)
     }
 
     OwedPush item;
+    item.offered_at = std::chrono::steady_clock::now(); // turnaus#1912: the SCORE, for ANSWER_MS
     // #891: stamped once, here, on the scoring thread's own item. Everything downstream
     // reads it off the item rather than off the client, so a restart cannot deliver a
     // Tuesday dart into a Wednesday evening.
@@ -989,10 +991,9 @@ bool TurnausClient::offer(const DetectorResult &result)
         item.body = "{}";
         item.idempotency_key = "";
         // #1787: an END is also when the log lines since the last END are owed, and when
-        // the server is asked whether it wants a corrected dart's frames. Flags only: the
-        // push thread does both once the takeout and the darts before it are delivered.
-        log_upload_due_ = !config_.log_file.empty();
-        frames_poll_due_ = frame_keep::enabled();
+        // the server is asked whether it wants a corrected dart's frames. Flags only, and
+        // raised below under the queue's lock with the takeout already in it (#1912), so
+        // the duty thread can never see them before the takeout they follow is owed.
     }
     else
     {
@@ -1046,10 +1047,22 @@ bool TurnausClient::offer(const DetectorResult &result)
             // hole at the end is a short round somebody can see and fix. A drop is
             // counted and said out loud at shutdown; it is never silent.
             dropped_++;
+            if (item.idempotency_key.empty())
+            {
+                // The END's duties are owed whether or not its takeout found room.
+                log_upload_due_ = !config_.log_file.empty();
+                frames_poll_due_ = frame_keep::enabled();
+            }
             return false;
         }
         queue_.push_back(item);
         queued_++;
+        if (result.score == "END")
+        {
+            log_upload_due_ = !config_.log_file.empty();
+            frames_poll_due_ = frame_keep::enabled();
+        }
+        queueChanged();
         // #1276: a round is begun by the first dart that really entered the queue, and it
         // remembers the door that dart is going out of. A dart dropped by the policy above
         // opens nothing -- a takeout ending a round nothing was ever sent for would close
@@ -1214,6 +1227,7 @@ void TurnausClient::loadSpool()
         item.spool_index = here;
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.push_back(item);
+        queueChanged();
         resumed++;
     }
 
@@ -1280,7 +1294,7 @@ static bool pastThreeOn()
     return v;
 }
 
-bool TurnausClient::deliver(const OwedPush &item)
+bool TurnausClient::deliver(const OwedPush &item, std::string &said)
 {
     attempts_++;
     std::map<std::string, std::string> headers;
@@ -1288,11 +1302,19 @@ bool TurnausClient::deliver(const OwedPush &item)
     headers["Authorization"] = "Bearer " + credentialFor(item.binding);
     headers["Accept"] = "application/json";
 
-    odhttp::Response res = odhttp::postJson(url_, item.path, item.body, headers,
-                                            config_.connect_timeout_s, config_.read_timeout_s);
+    // turnaus#1912: on the push thread's kept connection; a failure drops it, so the retry
+    // below is made on a fresh one.
+    odhttp::Response res = push_session_.postJson(url_, item.path, item.body, headers,
+                                                  config_.connect_timeout_s, config_.read_timeout_s);
     if (!res.reached_a_server())
     {
+        said = res.transport_error.empty() ? std::string("no answer") : res.transport_error;
         return false;
+    }
+    said = "HTTP " + std::to_string(res.status);
+    if (res.retry_after_s >= 0)
+    {
+        said += " Retry-After " + std::to_string(res.retry_after_s) + " s";
     }
     if (res.status == 202)
     {
@@ -1306,6 +1328,10 @@ bool TurnausClient::deliver(const OwedPush &item)
         {
         }
         delivered_++;
+        if (!outcome.empty())
+        {
+            said += " " + outcome;
+        }
         // turnaus#1793: a takeout has no reference; delivering one ends the round.
         const bool takeout = item.idempotency_key.empty();
         if (!outcome.empty())
@@ -1432,7 +1458,9 @@ void TurnausClient::start()
     od_paths::ensureDir(od_paths::configDir());
     loadSpool();
     running_ = true;
+    duty_gate_.open();
     worker_ = std::thread(&TurnausClient::run, this);
+    duties_ = std::thread(&TurnausClient::runDuties, this); // turnaus#1912
     // #892. Two threads and one flag: `stop()` drops `running_`, notifies both condition
     // variables and joins both, so neither can outlive the other or the object.
     beater_ = std::thread(&TurnausClient::beat, this);
@@ -1444,9 +1472,17 @@ void TurnausClient::haltThreads()
 {
     condition_.notify_all();
     beat_condition_.notify_all();
+    // turnaus#1912: a duty waiting for the road to clear is woken and abandons its unit; a
+    // unit already in flight is bounded by the transport's timeouts, as the push is.
+    duty_gate_.close();
+    duty_condition_.notify_all();
     if (worker_.joinable())
     {
         worker_.join();
+    }
+    if (duties_.joinable())
+    {
+        duties_.join();
     }
     if (beater_.joinable())
     {
@@ -1501,7 +1537,9 @@ bool TurnausClient::resume()
     // The queue is left as it stands: everything in it is already in the spool (quiesce()
     // wrote what the worker had not), and it is owed to whoever this board is paired to now.
     running_ = true;
+    duty_gate_.open();
     worker_ = std::thread(&TurnausClient::run, this);
+    duties_ = std::thread(&TurnausClient::runDuties, this); // turnaus#1912
     beater_ = std::thread(&TurnausClient::beat, this);
     log_info("TURNAUS: pushing to " + url_.host + " over " + std::string(odhttp::transportName()) +
              (url_.tls ? " (TLS)" : " (plaintext, --allow-plaintext)") + " again, after a new pairing");
@@ -1564,6 +1602,8 @@ size_t TurnausClient::backlog() const
 void TurnausClient::run()
 {
     int backoff_ms = config_.backoff_initial_ms;
+    OwedPush last_tried; // turnaus#1912: for the try count in the retry and ANSWER_MS lines
+    int tries = 0;
 
     while (running_)
     {
@@ -1589,11 +1629,9 @@ void TurnausClient::run()
             }
             if (queue_.empty())
             {
-                // #1787: nothing is owed to the round, so what the last END owed besides
-                // its takeout is done now -- after every dart and the takeout itself, and
-                // never with the queue's lock held.
-                lock.unlock();
-                endOfRoundDuties();
+                // #1787 ran the END's duties here, and a dart thrown during them waited
+                // behind every byte (turnaus#1912). They are the duty thread's now; this
+                // thread only ever posts what the round owes.
                 continue;
             }
             // Copied out under the lock; the lock is released before the POST. This is
@@ -1645,10 +1683,33 @@ void TurnausClient::run()
             continue;
         }
 
-        bool settled = deliver(item);
+        // turnaus#1912: which try of this push this is. The front is the same push across
+        // a retry, so the count is kept by name and starts again at the next one.
+        if (!sameOwedPush(last_tried, item) || last_tried.offered_at != item.offered_at ||
+            last_tried.spool_index != item.spool_index)
+        {
+            tries = 0;
+        }
+        last_tried = item;
+        tries++;
+        std::string said;
+        bool settled = deliver(item, said);
+        const std::string what = item.idempotency_key.empty() ? std::string("takeout")
+                                                              : "dart " + item.idempotency_key;
 
         if (settled)
         {
+            // turnaus#1912: THE FIGURE. From the SCORE the detector said to the answer the
+            // server gave, once per push, on one greppable prefix, so a session census
+            // reads the over-2 s share from one line per dart instead of pairing lines.
+            if (item.offered_at.time_since_epoch().count() != 0)
+            {
+                const long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::steady_clock::now() - item.offered_at)
+                                         .count();
+                log_info("TURNAUS: ANSWER_MS " + std::to_string(ms) + " " + what + " " + said +
+                         " tries=" + std::to_string(tries));
+            }
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 // #1351: pop what was delivered, which is the front unless the queue
@@ -1671,6 +1732,7 @@ void TurnausClient::run()
                         }
                     }
                 }
+                queueChanged();
             }
             settleRecord(item.spool_index);
             compactSpoolIfSettled();
@@ -1692,6 +1754,11 @@ void TurnausClient::run()
             continue;
         }
 
+        // turnaus#1912: said at INFO, once per try of this push, with why and how long the
+        // board will wait -- so a 45 s gap in a session log has a sentence in it.
+        log_info("TURNAUS: " + what + " not delivered on try " + std::to_string(tries) + " (" + said +
+                 "); trying again in " + std::to_string(backoff_ms) + " ms");
+
         // The network is gone, or the server is unwell. Wait, and wake immediately if
         // the program is shutting down -- so #825's exit path never waits 30 seconds for
         // a sleeping worker.
@@ -1708,22 +1775,61 @@ void TurnausClient::run()
 
 // ---------------------------------------------------------------------------------
 // #1787: what an END owes besides its takeout -- the log since the last END, and an
-// answer to any frames request the server has pending. Push thread only.
+// answer to any frames request the server has pending. turnaus#1912: on the duty thread,
+// never the push thread, and each unit only once nothing is owed (duty_gate.hpp).
 // ---------------------------------------------------------------------------------
+
+void TurnausClient::queueChanged()
+{
+    duty_gate_.owed(queue_.size());
+    if (queue_.empty())
+    {
+        duty_condition_.notify_all();
+    }
+}
+
+void TurnausClient::runDuties()
+{
+    while (running_)
+    {
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            // The 200 ms is the push thread's own poll, for the same reason: a flag raised
+            // with nobody notified is picked up within it rather than at the next END.
+            duty_condition_.wait_for(lock, std::chrono::milliseconds(200),
+                                     [this]
+                                     {
+                                         return !running_ ||
+                                                (queue_.empty() && (log_upload_due_.load() || frames_poll_due_.load()));
+                                     });
+            if (!running_)
+            {
+                break;
+            }
+            // #1787's order, kept: nothing of an END's duties starts before the darts and
+            // the takeout it follows are delivered.
+            if (!queue_.empty() || !(log_upload_due_.load() || frames_poll_due_.load()))
+            {
+                continue;
+            }
+        }
+        endOfRoundDuties();
+    }
+}
 
 void TurnausClient::endOfRoundDuties()
 {
     if (log_upload_due_.exchange(false) && paired_.load())
     {
-        uploadLog(false, 16);
+        uploadLog(false, 16, true);
     }
     if (frames_poll_due_.exchange(false) && paired_.load())
     {
-        serveFrameRequests();
+        serveFrameRequests(true);
     }
 }
 
-void TurnausClient::uploadLog(bool final, int most_chunks)
+void TurnausClient::uploadLog(bool final, int most_chunks, bool yield_to_pushes)
 {
     if (config_.log_file.empty() || log_upload_off_)
     {
@@ -1735,6 +1841,13 @@ void TurnausClient::uploadLog(bool final, int most_chunks)
 
     for (int chunk_no = 0; chunk_no < most_chunks; chunk_no++)
     {
+        // turnaus#1912: a dart queued during the last chunk goes first. Closed means the
+        // program is stopping: the rest is owed from the same offset, at the next END or in
+        // stop()'s final upload, which does not yield because nothing is left to post.
+        if (yield_to_pushes && !duty_gate_.awaitClear())
+        {
+            return;
+        }
         // The file's length NOW; lines keep arriving underneath this read, and the ledger
         // only ever claims what the server acknowledged, so a line written during the
         // post is simply the first line of the next chunk.
@@ -1770,8 +1883,8 @@ void TurnausClient::uploadLog(bool final, int most_chunks)
         headers["Authorization"] = "Bearer " + credentialFor(binding);
         headers["Accept"] = "application/json";
         const bool last = final && chunk.offset + send >= size;
-        odhttp::Response res = odhttp::postJson(url_, logPath(binding), logChunkBody(leaf, chunk.offset, bytes, last),
-                                                headers, config_.connect_timeout_s, config_.read_timeout_s);
+        odhttp::Response res = duty_session_.postJson(url_, logPath(binding), logChunkBody(leaf, chunk.offset, bytes, last),
+                                                      headers, config_.connect_timeout_s, config_.read_timeout_s);
         if (res.status == 202 || res.status == 200 || res.status == 201)
         {
             log_ledger_.posted(chunk.offset, send);
@@ -1821,9 +1934,13 @@ void TurnausClient::uploadLog(bool final, int most_chunks)
     }
 }
 
-void TurnausClient::serveFrameRequests()
+void TurnausClient::serveFrameRequests(bool yield_to_pushes)
 {
     if (frames_route_off_)
+    {
+        return;
+    }
+    if (yield_to_pushes && !duty_gate_.awaitClear())
     {
         return;
     }
@@ -1831,8 +1948,8 @@ void TurnausClient::serveFrameRequests()
     std::map<std::string, std::string> headers;
     headers["Authorization"] = "Bearer " + credentialFor(binding);
     headers["Accept"] = "application/json";
-    odhttp::Response res = odhttp::perform(url_, "GET", frameRequestsPath(binding), std::string(), headers,
-                                           config_.connect_timeout_s, config_.read_timeout_s);
+    odhttp::Response res = duty_session_.perform(url_, "GET", frameRequestsPath(binding), std::string(), headers,
+                                                 config_.connect_timeout_s, config_.read_timeout_s);
     if (res.status == 404)
     {
         frames_route_off_ = true;
@@ -1862,10 +1979,17 @@ void TurnausClient::serveFrameRequests()
     }
     for (const std::string &reference : references)
     {
+        // turnaus#1912: one answer is one unit; a dart queued during the last one goes
+        // first. A request not answered now is still pending at the server, asked again
+        // at the next END.
+        if (yield_to_pushes && !duty_gate_.awaitClear())
+        {
+            return;
+        }
         const frame_keep::Answer answer = frame_keep::answer(reference);
         const std::string body = frameAnswerBody(reference, answer);
-        odhttp::Response posted = odhttp::postJson(url_, std::string(frameRequestsPath(binding)) + "/" + reference, body,
-                                                   headers, config_.connect_timeout_s, config_.read_timeout_s);
+        odhttp::Response posted = duty_session_.postJson(url_, std::string(frameRequestsPath(binding)) + "/" + reference,
+                                                         body, headers, config_.connect_timeout_s, config_.read_timeout_s);
         std::string said = "TURNAUS: frames for " + reference;
         said += answer.found ? " served (" + std::to_string(answer.raw_bytes) + " raw bytes, " +
                                    std::to_string(body.size()) + " posted)"
