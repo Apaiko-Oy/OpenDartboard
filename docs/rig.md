@@ -2991,10 +2991,10 @@ does not say whether a dissenting camera voted or read a MISS: `I1628LONE` is be
 pin. So the weighted winner cannot be replayed, and the census counts where an overturn is
 structurally possible. 840 vote-path COUNTED darts were joined: 801 on 10-15, 0 on 10-19 (every
 row is DROPPED) and 39 of 40 on 10-20. Of those, 819 stood and 21 were corrected. An overturn is
-possible on 4 corrected darts and on **129 that stood**. 18 of the 21 corrections were a double
-published for a single, or a dart off the board published as a hit. Most of them are lone
-readings whose own camera already weighs 1.00 or is the only voter, and no weighting can reach
-those.
+possible on 4 corrected darts and on **129 that stood**. Of the 21 corrections, 9 were a double
+published for a single, 6 were a dart off the board published as a hit, and 6 were something
+else. No weighting can reach 17 of them. On those the published camera already outweighs every
+other voter, or it is the only camera that could vote.
 
 **The default stays off.** On every measurement the pin made it is a loss, and the live bound
 puts 129 standing darts within its reach against 4 corrected ones.
