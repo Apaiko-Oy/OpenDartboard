@@ -41,7 +41,9 @@ import re
 import sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-LOG_LINE = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\.(\d{3})\]\[[^\]]*\]\[[^\]]*\] - (.*)$")
+# A board's log stamps each line `[HH:MM:SS.mmm][LEVEL][module] - `; a replay's (the
+# bakeoff's `<run>.txt`) carries `[LEVEL][module] - ` alone. Either is a message.
+LOG_LINE = re.compile(r"^(?:\[[^\]]*\])+ - (.*)$")
 SCORE_LINE = re.compile(r"^SCORE: (\S+)")
 POSTABLE = {"MISS": "None", "OUTER": "25", "BULL": "Bull"}  # i1789's, the push's spelling
 REFUSALS = re.compile(r"I1911 REFUSALS window=(-?\d+) path=(\S+) score=(\S+) r=(\S+) gate=(\S+)((?: cam\d+=\S+)*)")
@@ -100,15 +102,15 @@ def messages(text):
     for raw in text.splitlines():
         m = LOG_LINE.match(ANSI.sub("", raw))
         if m:
-            yield m.group(5)
+            yield m.group(1)
 
 
 def darts_from_census(text):
     darts = []
     for msg in messages(text):
         m = REFUSALS.search(msg)
-        if not m:
-            continue
+        if not m or m.group(3) == "END":
+            continue  # an END (a takeout) is not a dart, and the binary wrote one for it
         cams = {}
         for c in CAMSLOT.finditer(m.group(6)):
             cams[int(c.group(1))] = (c.group(2), float(c.group(3)), float(c.group(4)))
@@ -255,6 +257,12 @@ def self_test(out):
               "r=0.9615 gate=2.50 cam1=not-straight,rms=19.47,elong=8.10,scale=1.00 cam2=rim-only,rms=0.00,"
               "elong=0.00,scale=1.00 cam3=ok,rms=1.20,elong=14.00,scale=1.00\n")
     darts, source = darts_of(census)
+    bare, _ = darts_of("[INFO][GEOMETRYDETECTOR] - I1911 REFUSALS window=1 path=geometry score=T13 r=0.5821 "
+                       "gate=2.50 cam1=ok,rms=0.28,elong=8.29,scale=1.00\n")
+    ends, _ = darts_of("[INFO][GEOMETRYDETECTOR] - I1911 REFUSALS window=-1 path=vote score=END r=- gate=2.50 "
+                       "cam1=other,rms=0.00,elong=0.00,scale=1.00\n")
+    expect("census: an END is not a dart", len(ends), 0)
+    expect("census: a replay's unstamped line is read", [(d["path"], d["r"]) for d in bare], [("geometry", 0.5821)])
     expect("census: a log with the line is read from it alone", (source, len(darts)), ("I1911 REFUSALS", 1))
     expect("census: cameras", darts[0]["cams"], {1: ("not-straight", 19.47, 8.1), 2: ("rim-only", 0.0, 0.0)})
     expect("census: radius", darts[0]["r"], 0.9615)
