@@ -1,6 +1,6 @@
 #!/bin/bash
 # turnaus#1911: OD_STRAIGHT_PX's widened sigma and the I1911 REFUSALS words, held pure. One
-# compile of the tree plus four of a MUTATED SCRATCH COPY of the two headers, in
+# compile of the tree plus five of a MUTATED SCRATCH COPY of the two headers, in
 # i1783_check.sh's shape and for its reason: the tree is mounted read-only and never written;
 # each mutation is a replacement in a copy under the container's /tmp, and its needle must
 # occur exactly once before and not at all after.
@@ -9,11 +9,15 @@
 #   2. flat          straightSigmaScale returns 1.0: the widening is gone -- PREDICTION: exactly
 #                    5 FAILs, `scale:` 1, `sigma:` 2 (the doubled sigmaPerp and the wider
 #                    ellipse), `weight:` 1, `census:` 1 (scale=1.50 reads 1.00)
-#   3. unweighed     the factor computed and never applied to sigmaPerp -- PREDICTION: exactly
+#   3. unweighed     weighAt's sigmaPerp loses the factor, the seed solve keeps it -- PREDICTION:
+#                    exactly 2 FAILs, both `sigma:`. `weight:` HOLDS, and that was measured, not
+#                    planned: the first run of this file predicted it red, and the seed solve's
+#                    widened weight alone still lets the displaced line pull the entry less.
+#   4. unapplied     solveEntry never hands the factor to the constraint -- PREDICTION: exactly
 #                    3 FAILs, `sigma:` 2 and `weight:` 1 (the arithmetic and the words hold)
-#   4. counted twice a widened line counted as two constraints -- PREDICTION: exactly 1 FAIL,
+#   5. counted twice a widened line counted as two constraints -- PREDICTION: exactly 1 FAIL,
 #                    `count:` (#1505's phantom and #1535's re-report are what that guards)
-#   5. default moved unset OD_STRAIGHT_PX reads 3.0 -- PREDICTION: exactly 2 FAILs, both `gate:`
+#   6. default moved unset OD_STRAIGHT_PX reads 3.0 -- PREDICTION: exactly 2 FAILs, both `gate:`
 #
 # Then testers/i1911_census.py --self-test, on the host.
 #
@@ -82,7 +86,9 @@ PY
   run_mutation flat "$AXIS" "        return rmsPx / kStraightBasePx;" "        return 1.0;" \
     5 "scale:=1" "sigma:=2" "weight:=1" "census:=1" || BAD=1
   run_mutation unweighed "$ENTRY" "con.sigmaPerpMm = con.sigmaScale * std::sqrt(" "con.sigmaPerpMm = std::sqrt(" \
-    3 "sigma:=2" "weight:=1" || BAD=1
+    2 "sigma:=2" || BAD=1
+  run_mutation unapplied "$ENTRY" "            con.sigmaScale = shaft_axis::straightSigmaScale(ev.axisRmsPx);
+" "" 3 "sigma:=2" "weight:=1" || BAD=1
   run_mutation counted_twice "$ENTRY" "        if ((int)usable.size() < 2)" \
     "        if ((int)usable.size() + ((usable.size() == 1 && usable[0]->sigmaScale > 1.0) ? 1 : 0) < 2)" \
     1 "count:=1" || BAD=1
@@ -92,7 +98,7 @@ PY
         }
         char *end" 2 "gate:=2" || BAD=1
   [ $BAD -eq 0 ] || exit 1
-  echo "ALL FIVE HELD"
+  echo "ALL SIX HELD"
   exit 0
 '
 RC=$?

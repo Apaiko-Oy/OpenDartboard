@@ -1204,9 +1204,10 @@ slow 2400
 tester 1886-keep-awake    "bash '$T/i1886_check.sh'"
 # turnaus#1911: OD_STRAIGHT_PX (the straightness gate, 2.5 px unset) and the sigma a line
 # admitted above 2.5 px carries, widened by rms / 2.5 and never counted as a second
-# constraint; and the I1911 REFUSALS words. One compile of the tree plus four of a mutated
-# scratch copy of shaft_axis.hpp / entry_intersection.hpp (the widening kept flat, computed
-# and not applied, a widened line counted twice, the default moved), each predicted to turn
+# constraint; and the I1911 REFUSALS words. One compile of the tree plus five of a mutated
+# scratch copy of shaft_axis.hpp / entry_intersection.hpp (the widening kept flat, dropped
+# from weighAt, never handed to the constraint, a widened line counted twice, the default
+# moved), each predicted to turn
 # named assertions red; then i1911_census.py --self-test. No detector binary; needs
 # build/_deps. At the end of the list for #1886's reason: two sibling branches add rows.
 tester 1911-straight      "bash '$T/i1911_check.sh'"
