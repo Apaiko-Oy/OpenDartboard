@@ -2659,7 +2659,7 @@ alone refused as TOO-FEW-CONSTRAINTS, the switch's parse and the census words, t
 mutations of scratch copies each predicted to turn named assertions red, and the census
 reader's self-test.
 
-## The sisal census (turnaus#1909): the solve's error, radial and tangential, and no `OD_SISAL_MM`
+## The sisal census (turnaus#1909): the solve's error, radial and tangential, and `OD_SISAL_MM`, opt-in
 
 **The question.** A dart's tip rests 1..3 mm into the sisal below the wires' plane, and a
 line transported to that plane meets it short of or past the scoring point by the depth
@@ -2733,13 +2733,48 @@ in both windows, from the right answer to the wrong one. The two surviving fixtu
 untouched: r18 v5.1 (thrown S15, solved T15 at 96.3 mm, standing at 84-85 degrees) would
 need about 3 mm inward and moves 0.1-0.3 mm.
 
-**So `OD_SISAL_MM` is not built.** The rows above are the offline model over the logged
-lines and models, not replays: the bakeoff rows at d = 1, 2, 3 were not run because there is
-no detector term to run them on. The model is held pure by `testers/i1909_check.sh`
-(`run_all.sh 1909-sisal`): the acceptance's plant (a known axis at 45 degrees and d = 2
-moves the entry 2.0 mm radially, the way the dart travels), the same dart end to end through
-two planted pinhole cameras (centres and focal recovered from H alone to 1e-6), and two
-mutation proofs (the slide's sign flipped: 3 named checks red; the axis oriented out of the
-board: 2). A rig that throws at a shallower angle, or a board whose wires stand proud of a
-worn sisal, is where the census would be worth re-running; the default is the maintainer's
-call from these rows.
+**`OD_SISAL_MM=<d>` is built anyway, opt-in, so the rows could be measured rather than
+modelled** (`sisal_slide.hpp`, applied in `solveEntry` before anything reads the entry, so the
+tips, the score, the wire question and the census lines all see the slid point). Unset
+(`Params::sisalMm` 0) nothing in it runs and every solve is byte-identical. It refuses by
+name -- fewer than two cameras placing an axis plane, no frame size, no focal length, an axis
+under 30 degrees to the board -- and the BOARD line gains `| sisal=<mm>mm (<story>)` only
+where it is set; under `OD_GEO_SCORE=on` an `I1909SISAL` line carries the shift and elevation.
+`i1555_run.sh` forwards it.
+
+**The bakeoff, replayed** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+OD_SISAL_MM=<d> testers/i1555_run.sh`, all seven replays, one binary built from 304f74d;
+`unset` is #1911's run of the same solve, `runs-wt-1911/bake-unset`):
+
+| OD_SISAL_MM | pooled | r18+r22 | r29 | shift med / max (mm) | tip rad / tan med (all) | darts that changed their call |
+|---|---|---|---|---|---|---|
+| unset | 143..149/158 | 82/86 | 61..67/72 | 0 / 0 | 1.69 / 1.95 | - |
+| 1 | 142..148/158 | 82/86 | 60..66/72 | 0.18 / 0.66 | 1.79 / 1.95 | r29-dev v6.1 S20 -> S1 (wedge) |
+| 2 | 141..147/158 | 82/86 | 59..65/72 | 0.35 / 1.31 | 1.89 / 1.94 | r29 v6.1 S20 -> S1 (wedge), both windows |
+| 3 | 140..146/158 | 82/86 | 58..64/72 | 0.53 / 1.97 | 1.98 / 1.95 | r29 v6.1 S20 -> S1, both windows; r29-dev v5.3 S3 -> S19 |
+
+(Shift over the solved darts of the six measured replays; the 37 `applied=0` lines at each
+d are darts the solve refused before any entry existed, which carry no story.)
+
+The replayed census reproduces the offline model to a hundredth of a millimetre on the
+annotated darts (tip radial median 1.89 replayed against 1.89 modelled at d = 2, 1.98 against
+1.98 at d = 3), so the model's rows above are the instrument's. No depth fixes a dart: the
+annotated fixtures hold at 82/86 at every d, its four misses (three wrong
+scores, r18 v5.1's T15 over S15 among them, and one undetected dart) stay what they were, and on rig-20260929 -- the fixture no constant
+was fitted to -- every call the slide moves it moves from right to wrong, in the WEDGE, the
+direction the census says carries as much error as the ring. A slide that only adds
+tangential error to the darts it moves is what a census with no depth signal in it predicts.
+
+**Tested** by `1909-sisal` (`testers/i1909_check.sh`): on the host, the census model's
+self-test (the acceptance's plant -- a known axis at 45 degrees and d = 2 moves the entry 2.0
+mm radially, the way the dart travels -- and the same dart end to end through two planted
+pinholes, centres and focal recovered from H alone to 1e-6) with two mutations (the slide's
+sign flipped: 3 named checks red; the axis oriented out of the board: 2); then in a container
+`testers/i1909_sisal_check.cpp`, the detector's term through `solveEntry` on three planted
+pinhole boards fitted and anchored as the pipeline does it (focal 800 recovered to 0.001 px,
+heights to 0.3 mm, the 45-degree dart slid 2.000 mm radially and 0.000 across), with four
+mutations of scratch copies (sign flipped: `slide:` and `solve:` red; axis flipped: `solve:`;
+the slide computed and not applied: `solve:`; the default moved to 2.0: `plant:`, `off:` and
+`solve:`). A rig that throws at a shallower angle, or a board whose wires stand proud of a
+worn sisal, is where the census is worth re-running; the default is the maintainer's call
+from these rows.
