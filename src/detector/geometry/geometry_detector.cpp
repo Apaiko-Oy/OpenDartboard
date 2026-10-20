@@ -783,7 +783,8 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
         result.timestamp = camera::newestInstantUs(frames);
 
         // turnaus#1911: why each camera did or did not offer a line to this dart, with the
-        // straightness and elongation figures, one line per published dart, always.
+        // straightness and elongation figures, one line per published dart, always. An END
+        // (a takeout) is not a dart and offered no line to anything, so it has none.
         std::vector<shaft_axis::RefusalSlot> slots;
         for (const dart_processing::CameraDetectionResult &r : dart_result.camera_results)
         {
@@ -793,9 +794,12 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
             slot.axis = r.axis;
             slots.push_back(slot);
         }
-        log_info(shaft_axis::refusalCensusLine(score_result.window_ordinal, result.path, score_result.score,
-                                               score_result.board.has_radius, score_result.board.radius,
-                                               shaft_axis::straightGatePx(), slots));
+        if (score_result.score != "END")
+        {
+            log_info(shaft_axis::refusalCensusLine(score_result.window_ordinal, result.path, score_result.score,
+                                                   score_result.board.has_radius, score_result.board.radius,
+                                                   shaft_axis::straightGatePx(), slots));
+        }
     }
 
     return result;

@@ -2520,8 +2520,9 @@ figures the gates judged (`shaft_axis::refusalCensusLine`, written by `geometry_
 extent over median width (the 3.0 elongation gate's), `scale` the sigma factor an admitted
 line carries, `r` the published board radius (1.0 the double's outer wire). The reasons are
 the refusal's own first words: `not-straight`, `not-a-shaft`, `rim-only` (#1689),
-`no-figure`, `no-frame`, `direction-unusable`, `other` (departure, clean, support floor). The
-binary also writes one for an END, all `other`; the census leaves it out.
+`no-figure`, `no-frame`, `direction-unusable`, `other` (departure, clean, support floor). An END
+writes none; the binary the bakeoff below measured (ab272e9) wrote one for each END, every
+camera `other`, and the census leaves such a line out.
 
 `testers/i1911_census.py --log <log> [--log ...] [--label <name>] [--each]` counts them by
 camera, by radius bin and by reason, over a bakeoff replay's `<run>.txt` or a board's log.
