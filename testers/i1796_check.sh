@@ -13,7 +13,11 @@
 #      GitHub release asset answers (the harness's artefact host redirects) -- unpacks it with
 #      /bin/tar, puts the detector under the state directory and a COPY of the deb's in
 #      update/previous, starts the new one, and the state file names both versions -- on
-#      an input nobody answers, without pausing;
+#      an input nobody answers, without pausing at a console. turnaus#1900, in the same
+#      carry: the artefact host answers 403 to the first request and timesyncd's flag
+#      (OD_TIMESYNC_DIR) appears two seconds into the look, so the launcher waits for the
+#      clock and says so, says the retry in both languages, and installs at the second
+#      attempt -- two requests at the redirector, one fetch behind it;
 #   2  a newer version whose detector exits at once is started twice, rolled back, and
 #      the old one runs, in one launcher run of a few seconds (one unit start, inside
 #      StartLimitBurst), with the launcher's sentence in both languages;

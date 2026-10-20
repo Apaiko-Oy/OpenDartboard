@@ -125,10 +125,21 @@ REDIRECT_LOG="$WORK/redirect.log"
 cat > "$WORK/redirect.py" <<'REDIRECTOR'
 import http.server, sys
 port, target, log = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+refuse = log + ".refuse"  # turnaus#1900: a count of requests to answer 403 first, as GitHub did
 class Redirect(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         with open(log, "a") as f:
             f.write("GET %s\n" % self.path)
+        try:
+            left = int(open(refuse).read().strip() or "0")
+        except (OSError, ValueError):
+            left = 0
+        if left > 0:
+            open(refuse, "w").write(str(left - 1))
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(302)
         self.send_header("Location", "http://127.0.0.1:%s%s" % (target, self.path))
         self.send_header("Content-Length", "0")
@@ -189,20 +200,37 @@ head -1 "$WORK/argv/firstboot" | grep -q "^$BIN/opendartboard$"; note $? "argv[0
 # ---- 1. a release over the wire: the state names it, previous holds the deb's copy -----------
 echo
 echo "==== 1. the channel publishes $B: installed, started, the state names it ===="
+# turnaus#1900, in the same carry: the artefact host answers 403 to the FIRST request, as
+# GitHub did to the Pi on 2026-10-20, and timesyncd has not synchronised yet -- its flag
+# appears two seconds into the look. The launcher waits for the clock, says so, asks again
+# after 5 s and installs at the second attempt.
 age_state
 serve "$B"
+echo 1 > "$REDIRECT_LOG.refuse"
+mkdir -p "$WORK/timesync" && rm -f "$WORK/timesync/synchronized"
+( sleep 2; touch "$WORK/timesync/synchronized" ) &
+SYNCER=$!
+export OD_TIMESYNC_DIR="$WORK/timesync"
 rm -f "$WORK/fifo" && mkfifo "$WORK/fifo"
 sleep 90 > "$WORK/fifo" &
 HOLDER=$!
 BEGAN=$(date +%s)
 carry fresh "$WORK/fifo"            # a service's stdin: an open pipe nobody writes
 kill "$HOLDER" 2> /dev/null; wait "$HOLDER" 2> /dev/null
+wait "$SYNCER" 2> /dev/null
+unset OD_TIMESYNC_DIR
 ELAPSED=$(( $(date +%s) - BEGAN ))
 [ "$RC" -eq 0 ]; note $? "the launcher exits 0 in ${ELAPSED} s on an input nobody answers: it never waited at a console"
 ! grep -q "Enter" "$WORK/fresh.out"; note $? "  and it asked nothing"
 [ "$(cat "$WORK/ran.fresh" 2>/dev/null)" = "$B" ]; note $? "$B ran, and only $B"
-[ "$(redirected "$B")" = 1 ] && [ "$(fetched "$B")" -eq 1 ]
-note $? "the tar.gz was asked once at the manifest's path, answered 302, and fetched once where the redirect pointed"
+[ "$(redirected "$B")" = 2 ] && [ "$(fetched "$B")" -eq 1 ]
+note $? "the tar.gz was asked TWICE at the manifest's path (403, then 302) and fetched once where the redirect pointed"
+grep -q "The release could not be fetched (HTTP 403); trying again, 2 of 3, in 5 seconds." "$WORK/fresh.out" \
+  && grep -q "Julkaisua ei saatu haettua (HTTP 403), yritetään uudelleen 2/3 5 sekunnin kuluttua." "$WORK/fresh.out"
+note $? "turnaus#1900: the retry was said, in Finnish and English"
+grep -q "The clock was not yet synchronised; it was after [0-9]* s, before the look for updates began." "$WORK/fresh.out"
+note $? "turnaus#1900: the launcher waited for timesyncd's flag and said so"
+[ "$ELAPSED" -ge 5 ] && [ "$ELAPSED" -lt 60 ]; note $? "turnaus#1900: the clock wait and one 5 s retry, inside a minute (${ELAPSED} s)"
 [ "$(fact "$STATE" detector_version)" = "$B" ] && [ "$(fact "$STATE" previous_version)" = "$A" ]
 note $? "update/state.txt: detector_version=$B previous_version=$A"
 [ "$(sha "$STATE/opendartboard")" = "$(sha "$WORK/stubs/stub-$B")" ]; note $? "$STATE/opendartboard is release $B's detector, byte for byte"
