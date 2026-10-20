@@ -1234,6 +1234,15 @@ tester 1905-undistort     "bash '$T/i1905_check.sh'"
 # the wrong end, the default moved), each predicted to turn named assertions red; then
 # i1911_census.py --self-test. Compiles only.
 tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
+# turnaus#1908: OD_VOTE_WEIGHT=fit (off unset), the string vote weighing each reading by its
+# camera's axis verdict (the I1911 REFUSALS word and residual), its ring set and its sectors R;
+# the weighted winner replaces the majority's string only past the tie margin, the floor and
+# the scoring-area guard. One compile of the tree (two rim-only S12 do not outvote one
+# admitted D12; same, tie and floor keep the majority's choice; a MISS, an asserted 20 and a
+# rim-only winner are never weighed into a publish) plus three of a mutated scratch copy of
+# score_processing.hpp (weights ignored, the default moved, the rim guard removed), each
+# predicted to turn named assertions red. Compiles only.
+tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
