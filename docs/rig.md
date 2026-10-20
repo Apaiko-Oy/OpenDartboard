@@ -2936,3 +2936,74 @@ mutations of a scratch copy of `shaft_axis.hpp`, each predicted to turn named as
 The cut taken from the wrong end (the issue's mutation, 15: `cut:` 3, `straight:` 3, `angle:`
 3, `ratio:` 3, `mode:` 2, `census:` 1): the flight's width is read as the shaft's, no step is
 ever found, and the bent whole is the answer. The default moved to `on` (2: `parse:` 1, `off:` 1).
+
+## `OD_VOTE_WEIGHT` (turnaus#1908): the string vote weighed by each camera's evidence, opt-in
+
+**What it does.** On the degraded path the string vote counts cameras. With
+`OD_VOTE_WEIGHT=fit` every reading that votes (it may vote and its wedge is not asserted) is
+weighed, and the score string with the largest total is the weighted winner. The weight is the
+product of three factors. The axis factor is 1.00 for an admitted line, gate/rms held to
+[0.25, 0.90] for not straight, 0.25 for rim only and 0.50 for any other refusal. The ring factor
+is 0.50 where a ring was zeroed (#1517). The sectors factor is the calibration's twenty-fold R,
+held to [0.50, 1.00]. The weighted winner publishes only where all four hold: it is a different
+string from the majority's, it beats the majority's total by 0.10, its own total is at least
+0.50, and one camera in its group saw the dart in the scoring area. Otherwise the majority's
+choice publishes field for field. No reading is ever added. A MISS still does not vote (#1505),
+an asserted 20 is not weighed (#1346) and a re-report has already abstained (#1535). With the pin
+on, the "Consensus score" and "No consensus" sentences end with
+`-- weighted (turnaus#1908): D12=1.00[cam3 1.00] S12=0.50[cam1 0.25,cam2 0.25]; kept (same)`,
+and every called dart prints an `I1908VOTE` line. Unset is today's vote byte for byte.
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, one binary, seven replays, runs-wt-1908). Off is the baseline: its
+`I1911`, `SCORE`, `PATH`, `I1512` and `I1511AXIS` lines are #1907's off run's, line for line
+(1,767 lines, with `Processing: <ms>` stripped).
+
+| | off | fit | shaft (#1907) | fit + shaft |
+|---|---|---|---|---|
+| pooled | 143..149/158 | 139..145/158 | 147..153/158 | 145..151/158 |
+| r18+r22 | 82/86 | 80/86 | 83/86 | 81/86 |
+| rig-20260918 | 38/40 | 38/40 | 38/40 | 38/40 |
+| rig-20260922 | 44/46 | 42/46 | 45/46 | 43/46 |
+| rig-20260929 | 61..67/72 | 59..65/72 | 64..70/72 | 64..70/72 |
+
+Fit against off changes four calls, **all right to wrong, none wrong to right**. In
+rig-20260922 v3.2, D20 became D1 in both windows. In rig-20260929 v2.3, T11 became S11 in both
+windows. Fit + shaft against shaft changes two calls, the same v3.2 pair, both right to wrong.
+Every overturn is on a dart where no two cameras agreed (`agreeing=1`). The #1517 fallback took
+the first complete camera, and it was right. The weighting moved the call to the one camera with
+an admitted line (1.00), and that camera's tip was wrong. On v3.2 cam 3's D1 sat 1.83 mm from a
+wedge wire (`I1628LONE near=1`). On v2.3 cam 3 read S11 against cam 1's T11 and cam 2's S8. No
+consensus was overturned in any replay. The issue's case, two weak cameras agreeing against one
+strong camera, never happens on the fixtures. Under fit, 87 + 24 geometry darts and 40 + 5 vote
+darts read `same` or `tie`.
+
+**What the factors measure.** A straight axis is evidence about the line. It is not evidence
+about where that camera put the tip. On the degraded path a camera with an admitted line is
+usually the only line the solve had, so "TOO-FEW-CONSTRAINTS" is already a statement that its
+tip could not be checked. The sectors factor is inert on the live board, where every calibration
+printed `sectors R=1.000` (10-15, 10-19 and 10-20).
+
+**The live census** (`testers/i1908_vote_census.py`, the session logs joined to the operator
+API's truth line). A shipped log names each camera's axis refusal in its `PATH: DEGRADED`
+sentence, so each weight can be recovered. It does not carry each camera's score string, and it
+does not say whether a dissenting camera voted or read a MISS: `I1628LONE` is behind the census
+pin. So the weighted winner cannot be replayed, and the census counts where an overturn is
+structurally possible. 840 vote-path COUNTED darts were joined: 801 on 10-15, 0 on 10-19 (every
+row is DROPPED) and 39 of 40 on 10-20. Of those, 819 stood and 21 were corrected. An overturn is
+possible on 4 corrected darts and on **129 that stood**. 18 of the 21 corrections were a double
+published for a single, or a dart off the board published as a hit. Most of them are lone
+readings whose own camera already weighs 1.00 or is the only voter, and no weighting can reach
+those.
+
+**The default stays off.** On every measurement the pin made it is a loss, and the live bound
+puts 129 standing darts within its reach against 4 corrected ones.
+
+**Tested** by `1908-vote-weight` (`testers/i1908_check.sh`). The tree must pass whole. Two
+rim-only S12 (0.25 each) do not outvote one admitted D12 (1.00), against a control where the
+majority alone publishes S12. The three factors are checked, and same, tie and floor publish the
+majority's choice. A winner only rim-only cameras read, a MISS and an asserted 20 are never
+weighed into a publish. Then three mutations of a scratch copy of `score_processing.hpp`, each
+predicted to turn named assertions red. Weights ignored (the issue's mutation, 10: `issue:` 1,
+`account:` 2, `weight:` 3, `keep:` 2, `guard:` 2). The default moved to `fit` (`parse:` 1). The
+rim guard removed (`guard:` 1).
