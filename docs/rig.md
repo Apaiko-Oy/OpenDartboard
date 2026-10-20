@@ -2634,19 +2634,19 @@ replays' (the pin left out):
 | census: not-straight refusals (on vote darts) | 68 (46) | 51 (35) | 32 (22) |
 | census: not-straight at r > 0.90 | 16 | 12 | 8 |
 
-**Every newly solved dart reads, and the one that turns is #1586's.** At 3.0 six vote darts
-solve: rig-20260918 v8.3's S20 (both windows: the same score), rig-20260922's two S7s in
-windows 9 / 11 (exact, as the vote was), and **rig-20260922's S7 in windows 15 / 17, exact on
-the vote at 0.90, now S19 at 0.70 across the 7/19 wire, in both windows** -- the dart #1586's
-rescue turned the same way (v5.3) -- and rig-20260929 opening's window 35, a vote T19 now S19.
-At 4.0 the same, plus rig-20260918's S5 (window 25, the same score), and rig-20260929's window 6
-in both windows, a vote T14 now S14. Two vote darts (rig-20260918 window 23, rig-20260929 window
-27) move from TOO-FEW-CONSTRAINTS to NEAR-PARALLEL and still publish the vote. No phantom is
-added, no visit publishes more than was thrown, and no dart the geometry already solved changes
-score (confidence moves on a few, 0.90 / 0.70 on a WIRE-UNCERTAIN solve). So the gate's darts
-are bought at an exact dart each: the vote was already right on every dart the wider gate
-admits that the annotations judge, and the one it turns is turned wrong. **The default stays
-2.5**; the maintainer's call, and these rows are what it is made from.
+**Every newly solved dart that changes the published score turns it wrong.** At 3.0 six vote
+darts solve. Three publish the vote's own score (rig-20260918 window 26's S20 in both windows,
+rig-20260922's S7 in windows 9 / 11). Two are **rig-20260922's S7 in windows 15 / 17, exact on
+the vote at 0.90 and now S19 at 0.70 across the 7/19 wire, in both windows**: the dart #1586's
+rescue turned the same way (opening v5.3). The sixth is rig-20260929 opening's window 35, a vote
+T19 now S19, judged wrong by the ordinal join. At 4.0, the same six, plus rig-20260918 window 25's
+S5 in both windows (the same score) and rig-20260929's window 6 in both windows, a vote T14 now
+S14, judged wrong. Two vote darts (rig-20260918 window 23, rig-20260929 window 27) move from
+TOO-FEW-CONSTRAINTS to NEAR-PARALLEL and still publish the vote. No phantom is added, no visit
+publishes more than was thrown, and no dart the geometry already solved changes score
+(confidence moves on a few between 0.90 and 0.70). On the fixtures, then, the wider gate gains no
+dart: where its line agrees with the vote nothing changes, and where it disagrees the vote was
+right. **The default stays 2.5.** That is the maintainer's call, made from these rows.
 
 **Why the fixtures disagree with the live board's appetite.** The live board's 2.5-3.0 band
 holds 309 / 63 / 8 refusals over the three sessions, and those darts are not judged here: the
