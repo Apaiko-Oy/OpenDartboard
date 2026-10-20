@@ -156,7 +156,7 @@ static Outcome apply(const std::string &work, const std::string &log, const std:
                                                 unpack, wait, say);
     outcome.wall_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
     outcome.said_after = launcher::applicationLines(outcome.application);
-    outcome.requests = requestsFor(log, "/releases/download/v1.1.0/" + scenario + ".tar.gz");
+    outcome.requests = requestsFor(log, "/example/releases/download/v1.1.0/" + scenario + ".tar.gz");
 
     std::cout << "---- " << scenario << ": step " << static_cast<int>(outcome.application.step) << ", "
               << outcome.requests << " request(s) in the server's log, waits " << joined(outcome.waits) << ", "
