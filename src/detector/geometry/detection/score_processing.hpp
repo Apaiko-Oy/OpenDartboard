@@ -1038,6 +1038,209 @@ namespace score_processing
         return out;
     }
 
+    // ---- turnaus#1908: OD_VOTE_WEIGHT=fit, each camera weighted by its own evidence ------
+    //
+    // chooseScore counts cameras: two agreeing win at 0.9 whatever each one saw, and a
+    // camera whose axis was refused as bent votes with the weight of one whose line was
+    // admitted. Under OD_VOTE_WEIGHT=fit every reading that votes (chooseScore's
+    // `readings`: may vote, wedge not asserted) carries a weight from three facts this
+    // window and its calibration already measured, and the score string with the largest
+    // TOTAL is the weighted winner:
+    //
+    //   axis    1.00  an admitted line ("ok" on the I1911 REFUSALS line)
+    //           gate/rms, held to [0.25, 0.90]  "not-straight": a bent figure is weaker
+    //                 the further its centreline scatters past the straightness gate
+    //           0.25  "rim-only": #1689's camera saw the arrival out at the rim and no
+    //                 figure in the scoring area (it offers no tip today, so it cannot
+    //                 reach this vote -- the weight is what it would carry if it did)
+    //           0.50  every other refusal: a tip with no line to say how well it was seen
+    //   rings   1.00  every ring fitted (#1517's rings_complete), 0.50 where one was
+    //                 zeroed and the camera cannot tell a treble or a double from a single
+    //   sectors the calibration's twenty-fold coherence R (board_model, the "sectors R="
+    //                 of the board-model sentence), held to [0.50, 1.00]; 1.00 unmeasured
+    //
+    // The weight is the product. The weighted winner publishes ONLY where it is a
+    // different string from the majority's AND beats the majority's total by `tie`
+    // (0.10) AND its own total reaches `min_total` (0.50) AND one camera in its group saw the
+    // dart in the scoring area (reason other than rim-only). Anything short of that is
+    // today's choice, byte for byte, with the weights said beside it. No reading is ever
+    // added: a MISS still does not vote (aVoteIsCast, #1505), a constant still does not
+    // (#1346), and a re-report has already abstained (#1535), so the weighting can only
+    // choose among the strings the cameras already read.
+    //
+    // Inline for #1338's reason; testers/i1908_vote_weight_check.cpp holds it.
+    enum class VoteWeightMode
+    {
+        Off,
+        Fit
+    };
+
+    /** The exact word `fit`; anything else, unset included, is Off. */
+    inline VoteWeightMode voteWeightModeFrom(const char *value)
+    {
+        return value != nullptr && std::string(value) == "fit" ? VoteWeightMode::Fit : VoteWeightMode::Off;
+    }
+
+    inline VoteWeightMode voteWeightMode()
+    {
+        static const VoteWeightMode v = voteWeightModeFrom(std::getenv("OD_VOTE_WEIGHT"));
+        return v;
+    }
+
+    /** One camera's evidence, in the I1911 REFUSALS line's words and figures. */
+    struct VoteEvidence
+    {
+        std::string reason = "other"; // shaft_axis::refusalReasonOf's word
+        double rms_px = 0.0;          // the kept centreline's scatter
+        double gate_px = 2.5;         // the straightness gate it was judged against
+        double sectors_r = -1.0;      // the calibration's twenty-fold coherence; -1 unmeasured
+    };
+
+    inline double voteWeightOf(const PointScore &point, const VoteEvidence &e)
+    {
+        double axis = 0.5;
+        if (e.reason == "ok")
+        {
+            axis = 1.0;
+        }
+        else if (e.reason == "rim-only")
+        {
+            axis = 0.25;
+        }
+        else if (e.reason.find("not-straight") != std::string::npos && e.rms_px > 0.0)
+        {
+            axis = std::min(0.90, std::max(0.25, e.gate_px / e.rms_px));
+        }
+        const double rings = point.rings_complete ? 1.0 : 0.5;
+        const double sectors = e.sectors_r >= 0.0 ? std::min(1.0, std::max(0.5, e.sectors_r)) : 1.0;
+        return axis * rings * sectors;
+    }
+
+    struct WeightedVote
+    {
+        ScoreChoice choice;      // what publishes: the majority's, or the weighted winner's
+        bool overturned = false; // the weighted winner replaced the majority's string
+        std::string winner;      // the weighted winner's string; empty where nothing read
+        std::string why;         // kept: same | tie | floor | rim | none; or overturned
+        std::string weights;     // "D12=1.00[cam3 1.00] S12=0.50[cam1 0.25,cam2 0.25]"
+    };
+
+    inline WeightedVote weighVote(const vector<PointScore> &points, const vector<bool> &may_vote,
+                                  const vector<VoteEvidence> &evidence, const ScoreChoice &majority,
+                                  double tie = 0.10, double min_total = 0.50)
+    {
+        WeightedVote out;
+        out.choice = majority;
+        out.why = "none";
+        if (majority.camera < 0 || majority.by_default)
+        {
+            return out;
+        }
+        // Score string -> its total and its cameras, in index order.
+        vector<std::string> order;
+        map<std::string, double> total;
+        map<std::string, vector<int>> cams;
+        map<std::string, bool> scoring_area;
+        vector<double> weight(points.size(), 0.0);
+        for (size_t i = 0; i < points.size(); i++)
+        {
+            if (i >= may_vote.size() || !may_vote[i] || points[i].wedge_asserted)
+            {
+                continue;
+            }
+            const VoteEvidence e = i < evidence.size() ? evidence[i] : VoteEvidence();
+            weight[i] = voteWeightOf(points[i], e);
+            const std::string &s = points[i].score;
+            if (cams.find(s) == cams.end())
+            {
+                order.push_back(s);
+            }
+            total[s] += weight[i];
+            cams[s].push_back((int)i);
+            scoring_area[s] = scoring_area[s] || e.reason != "rim-only";
+        }
+        std::string best;
+        for (const std::string &s : order)
+        {
+            if (best.empty() || total[s] > total[best])
+            {
+                best = s;
+            }
+            char head[48];
+            snprintf(head, sizeof(head), "%s=%.2f[", s.c_str(), total[s]);
+            out.weights += (out.weights.empty() ? "" : " ") + std::string(head);
+            for (size_t k = 0; k < cams[s].size(); k++)
+            {
+                char c[32];
+                snprintf(c, sizeof(c), "%scam%d %.2f", k ? "," : "", cams[s][k] + 1, weight[cams[s][k]]);
+                out.weights += c;
+            }
+            out.weights += "]";
+        }
+        out.winner = best;
+        const std::string &held = points[majority.camera].score;
+        if (best.empty() || best == held)
+        {
+            // "tie" where another string came within the margin of the majority's.
+            out.why = best.empty() ? "none" : "same";
+            for (const std::string &s : order)
+            {
+                if (s != held && total[held] - total[s] < tie)
+                {
+                    out.why = "tie";
+                }
+            }
+            return out;
+        }
+        if (total[best] - total[held] < tie)
+        {
+            out.why = "tie";
+            return out;
+        }
+        if (total[best] < min_total)
+        {
+            out.why = "floor";
+            return out;
+        }
+        if (!scoring_area[best])
+        {
+            out.why = "rim";
+            return out;
+        }
+        int camera = cams[best][0];
+        for (int index : cams[best])
+        {
+            if (weight[index] > weight[camera])
+            {
+                camera = index;
+            }
+        }
+        out.choice = ScoreChoice();
+        out.choice.camera = camera;
+        out.choice.agreeing = (int)cams[best].size();
+        out.choice.confidence = out.choice.agreeing >= 2 ? 0.9f : 0.7f;
+        out.choice.ring_only = points[camera].ring_only;
+        out.overturned = true;
+        out.why = "overturned";
+        return out;
+    }
+
+    /** The account the vote's sentence carries under the pin, and the census line. */
+    inline std::string weightedVoteAccount(const WeightedVote &w)
+    {
+        return " -- weighted (turnaus#1908): " + (w.weights.empty() ? std::string("-") : w.weights) +
+               (w.overturned ? "; the weighted winner replaced the majority's reading" : "; kept (" + w.why + ")");
+    }
+
+    inline std::string weightedVoteCensusLine(long window, const std::string &path, const std::string &majority,
+                                              const WeightedVote &w)
+    {
+        return "I1908VOTE window=" + std::to_string(window) + " path=" + path + " majority=" +
+               (majority.empty() ? std::string("-") : majority) + " weighted=" +
+               (w.winner.empty() ? std::string("-") : w.winner) + " overturned=" + (w.overturned ? "1" : "0") +
+               " why=" + w.why + " weights=" + (w.weights.empty() ? std::string("-") : w.weights);
+    }
+
     // ---- #1628: a lone reading that sits on a wire does not stand alone over a clear one --
     //
     // WHAT WENT WRONG, measured on rig-20260922 dev v7.2 (a thrown S3) with #1605's budget
