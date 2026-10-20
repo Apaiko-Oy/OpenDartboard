@@ -801,6 +801,10 @@ namespace score_processing
             ev.axisRmsPx = r.axis.centrelineRmsPx; // turnaus#1911: the widened sigma
             ev.tipFound = r.frame_available && r.tip_found;
             ev.tipImage = r.tip_position;
+            if (i < background_frames.size())
+            {
+                ev.imageSize = background_frames[i].size(); // turnaus#1909's principal point
+            }
             evidence.push_back(ev);
             if (r.axis.windowOrdinal >= 0)
             {
@@ -808,8 +812,18 @@ namespace score_processing
             }
         }
 
+        // turnaus#1909: OD_SISAL_MM, 0 (off) unset -- and then Params is the default the
+        // solve has always been called with.
+        entry_intersection::Params params;
+        params.sisalMm = sisal_slide::depthFromEnvironment();
         const entry_intersection::EntrySolution sol =
-            entry_intersection::solveEntry(profile, evidence);
+            entry_intersection::solveEntry(profile, evidence, params);
+        if (geoScoreShadowed() && params.sisalMm > 0.0)
+        {
+            log_info("I1909SISAL window=" + to_string(window) + " applied=" + (sol.sisalApplied ? "1" : "0") +
+                     " shift_mm=" + to_string(sol.sisalShiftMm) + " elevation_deg=" + to_string(sol.sisalElevationDeg) +
+                     " story=" + sol.sisalStory);
+        }
         if (geoScoreShadowed())
         {
             log_info(entry_intersection::censusEntryLine(sol, window, publishedScore, publishedConfidence));
@@ -1397,7 +1411,14 @@ namespace score_processing
                          " | ring=" + result.ring +
                          " | segment=" + to_string(result.segment) +
                          " | radius=" + (result.board.has_radius ? to_string(result.board.radius) : string("none")) +
-                         " | angle=" + (result.board.has_angle ? to_string(result.board.angle) : string("none")));
+                         " | angle=" + (result.board.has_angle ? to_string(result.board.angle) : string("none")) +
+                         // turnaus#1909: the slide, said where it was asked for and nowhere else.
+                         (sisal_slide::depthFromEnvironment() > 0.0
+                              ? " | sisal=" + (solution.sisalApplied
+                                                   ? entry_intersection::detail::fmt("%.2f", solution.sisalShiftMm) + "mm"
+                                                   : string("none")) +
+                                    " (" + solution.sisalStory + ")"
+                              : string()));
             }
             else if (choice.camera >= 0)
             {
