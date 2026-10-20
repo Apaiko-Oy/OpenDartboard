@@ -2778,3 +2778,82 @@ the slide computed and not applied: `solve:`; the default moved to 2.0: `plant:`
 `solve:`). A rig that throws at a shallower angle, or a board whose wires stand proud of a
 worn sisal, is where the census is worth re-running; the default is the maintainer's call
 from these rows.
+
+## `OD_UNDISTORT` (turnaus#1905): #1560's kappa on the dart axis, opt-in -- the residual does not move
+
+**What it does.** `OD_UNDISTORT=on` takes the kept centreline's column points through
+`lens_census::undistortPx` with `MEASURED_KAPPA` (-2.45e-7 px^-2) before the straightness gate
+and the line fit (`shaft_axis::observeShaftAxisOnce`); the gate, the sigma and the line are the
+undistorted fit's. The line is taken back to the pixels calibration lives in (the wire fit and
+the bull are untouched) as the chord through the re-distorted ends of the kept extent. A number
+instead of `on` is that kappa (an experiment's knob); unset, empty, `off` or unparsable is off,
+and off is the old fit byte for byte. **The distortion centre is the frame centre**, (640, 360)
+on these 1280x720 cameras: no camera here has a measured principal point, and this is
+turnaus#1909's assumption (focal lengths 757-854 px recovered from the homographies, the
+principal point taken at the centre). With the pin on, each camera's slot on the
+`I1911 REFUSALS` line adds `,raw=<px>`, the distorted fit's residual, beside `rms` (then the
+undistorted one the gate read), and `testers/i1911_census.py` prints `I1905 RESIDUAL` lines from
+the pair: by camera, by radius bin, and how many lines crossed the gate each way.
+
+**Bakeoff** (capture clock, `OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, 2026-10-21, one binary, unset then `OD_UNDISTORT=on`; 766 / 722 s at load
+about 2). Unset is the baseline exactly, and its I1911 / SCORE / PATH / I1512 lines are
+#1911's unset run's line for line (bar the takeout `END` lines #1911 itself later dropped):
+
+| | unset | `OD_UNDISTORT=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (0 scoring) | **40/40**, phantoms 2 (0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | **145..151/158** |
+| r18+r22 | 82/86 | **84/86** |
+| census: vote darts of 151 | 37 | 37 |
+| census: not-straight refusals (on vote darts) | 68 (46) | 73 (46) |
+| census: not-straight median | 3.88 px | 3.67 px (five more, all marginal) |
+
+**The residual, raw against undistorted, over every camera with a centreline (407 lines):**
+
+| | n | raw median | undistorted median | median raw - undistorted | best | worst |
+|---|---|---|---|---|---|---|
+| all | 407 | 1.09 | 1.14 | -0.02 px | +0.05 | -0.91 |
+| cam 1 / 2 / 3 | 138 / 134 / 135 | 1.06 / 1.54 / 0.90 | 1.09 / 1.58 / 0.93 | -0.02 / -0.03 / -0.02 | | |
+| r < 0.58 | 212 | 1.16 | 1.18 | -0.02 | +0.04 | -0.27 |
+| 0.90-0.95 | 22 | 2.02 | 2.03 | -0.09 | +0.01 | -0.19 |
+| double | 10 | 4.53 | 4.69 | -0.16 | +0.02 | -0.42 |
+| the not-straight ones | 73 | 3.63 | 3.67 | -0.07 | +0.04 | -0.91 |
+
+**The measured kappa does not straighten a single dart.** No line anywhere improves by more
+than 0.05 px, no refused line crosses under the gate, and near the frame edge, where the issue
+expected the bow, the darts get slightly LESS straight (double ring median -0.16 px). The
+largest single move, -0.91 px, is rig-20260929 window 35 camera 1, a 40 px composite. So
+kappa is not what puts the fixtures' not-straight residuals at 3.9 px, and it cannot be what
+puts the live board's at 5-7 px: it bends a 230 px rod at this frame's edge by under a pixel
+(the pure check prints 0.32 -> 0.21 px rms for one), against refusals measured in pixels.
+
+**Why the bakeoff moves anyway, and why that is not the pin working.** Five lines cross the
+gate the other way, 2.31-2.45 px raw to 2.53-2.65 px undistorted. One of them is the whole
+gain: rig-20260918 window 17 camera 3 (2.43 -> 2.65) drops out, cameras 1 and 2 alone solve
+S15 where the three solved T15 across the treble wire (WIRE-UNCERTAIN either way), and S15 is
+the throw, in both windows. The other four (rig-20260922 windows 3, 23 / 25, camera 2) change
+no published score. That is a marginal, wrong-leaning line refused by accident, the opposite
+of the mechanism the issue built: a gate at 2.4 px would have done the same.
+
+**The default stays off** until the maintainer decides otherwise from these rows. The rows
+argue for off: the +2 is one dart in two windows, reached by refusing a line, not by admitting
+a curved one, and the transform's own premise (a curved silhouette that undistortion makes
+straight) is falsified on all 407 lines. What would be worth measuring next: the same census
+at `OD_UNDISTORT=+2.45e-7` (sign flipped). If the residual falls there, the darts' curvature
+is lens-like and the census's sign or centre is wrong for these cameras; if it does not, the
+residual is not lens at all (a shadow lobe, a flight, the morphology), which is #1911's
+conclusion reached from the other side.
+
+**Tested** by `1905-undistort` (`testers/i1905_check.sh`): a 230 px rod drawn through kappa
+-1.1e-6 (lens_census.hpp's worst corner) at the edge of a 640x480 frame bows 4.1 px and
+scatters 1.26 px raw, so a 1.0 px gate refuses it; straightened it scatters 0.33 px and is an
+axis; its line is the chord of the distorted true ends (0.000 deg, 0.03 px); off and a kappa
+with no centre answer the default observation field for field; the parse and the census slot.
+Then three mutations of a scratch copy of `shaft_axis.hpp`, each predicted to turn named
+assertions red: kappa's sign flipped (5: `straight:` 2, `transport:` 2, `census:` 1), the line
+never transported back (2: `transport:`), and the default moved to `on` (1: `parse:`). The
+plant's gate is 1.0 px and not 2.5 because a stronger kappa thins the drawn rod under two pixels
+before it bends it past 2.5 (measured at -1.8e-6..-3e-6: 59-70 px rms of fragments either way).
