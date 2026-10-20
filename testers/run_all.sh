@@ -1218,6 +1218,14 @@ tester 1911-straight      "bash '$T/i1911_check.sh'"
 # the axis oriented out of the board), each predicted to turn named checks red. OD_SISAL_MM
 # is not in the detector: the census argues against it (docs/rig.md, "The sisal census").
 tester 1909-sisal         "bash '$T/i1909_check.sh'"
+# turnaus#1905: OD_UNDISTORT (off unset), the kept centreline straightened through #1560's
+# kappa before the straightness gate and the fit, the line taken back to the distorted pixels
+# as the chord of its kept ends. One compile of the tree (a rod drawn through kappa -1.1e-6 at
+# the frame edge: 1.26 px raw, 0.33 px straightened, the line on the distorted chord, off
+# answering the old fit field for field) plus three of a mutated scratch copy of
+# shaft_axis.hpp (kappa's sign flipped, the line never transported, the default moved), each
+# predicted to turn named assertions red; then i1911_census.py --self-test. Compiles only.
+tester 1905-undistort     "bash '$T/i1905_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")

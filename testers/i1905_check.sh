@@ -9,9 +9,13 @@
 #                     -1.1e-6 at the frame edge scatters 1.26 px raw and 0.33 px straightened,
 #                     its line is the distorted chord, and off answers the old fit field for field
 #   2. sign flipped   the centreline is undistorted with -kappa (the issue's mutation) --
-#                     PREDICTION: SIGN_PREDICTION
+#                     PREDICTION: exactly 5 FAILs, `straight:` 2 (the curve bends the other way
+#                     and scatters 1.68 px, worse than raw), `transport:` 2 and `census:` 1 (the
+#                     refused line is no longer the `ok` slot the census assertion reads)
 #   3. untransported  the undistorted line is handed to the board fit as it is, never taken
-#                     back to the distorted pixels -- PREDICTION: UNTRANSPORTED_PREDICTION
+#                     back to the distorted pixels -- PREDICTION: exactly 2 FAILs, both
+#                     `transport:` (the line sits 26 px off the chord at 1.5 deg; the
+#                     straightness, the gate and the census all hold -- they never read it)
 #   4. default moved  unset OD_UNDISTORT reads "on" -- PREDICTION: exactly 1 FAIL, `parse:`
 #                     (AxisParams' default; every other assertion names its kappa)
 #
@@ -74,12 +78,12 @@ PY
   run_mutation sign_flipped "$AXIS" \
     "lens_census::undistortPx(kcx, kcy, params.undistort_kappa, p.x, p.y);" \
     "lens_census::undistortPx(kcx, kcy, -params.undistort_kappa, p.x, p.y);" \
-    SIGN_ARGS || BAD=1
+    5 "straight:=2" "transport:=2" "census:=1" || BAD=1
   run_mutation untransported "$AXIS" \
     "                lens_census::distortPx(kcx, kcy, params.undistort_kappa, e0.x, e0.y);
                 lens_census::distortPx(kcx, kcy, params.undistort_kappa, e1.x, e1.y);
                 lens_census::distortPx(kcx, kcy, params.undistort_kappa, mid.x, mid.y);
-" "" UNTRANSPORTED_ARGS || BAD=1
+" "" 2 "transport:=2" || BAD=1
   run_mutation default_moved "$AXIS" \
     "undistortKappaFrom(std::getenv(\"OD_UNDISTORT\"));" \
     "undistortKappaFrom(std::getenv(\"OD_UNDISTORT\") ? std::getenv(\"OD_UNDISTORT\") : \"on\");" \
