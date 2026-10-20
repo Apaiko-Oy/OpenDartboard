@@ -30,6 +30,10 @@ WHAT IT PRINTS, per --label (one log, or several pooled):
     I1911 RADIUS    reason x radius bin, the same refusals
     I1911 STRAIGHT  the not-straight residuals: n, median, and how many a 3.0 and a 4.0 px
                     gate would admit (the figure OD_STRAIGHT_PX moves)
+    I1905 RESIDUAL  turnaus#1905, only where a line carries `,raw=` (OD_UNDISTORT on): every
+                    camera with a centreline, by camera and by radius bin -- n, the median
+                    raw (distorted) residual, the median undistorted one, the median and the
+                    largest raw-minus-undistorted, and how many the pin moved across the gate
 
 A reporter: it asserts nothing about the numbers. --self-test holds the parser on planted
 lines of both kinds and exits non-zero on any difference.
@@ -47,7 +51,7 @@ LOG_LINE = re.compile(r"^(?:\[[^\]]*\])+ - (.*)$")
 SCORE_LINE = re.compile(r"^SCORE: (\S+)")
 POSTABLE = {"MISS": "None", "OUTER": "25", "BULL": "Bull"}  # i1789's, the push's spelling
 REFUSALS = re.compile(r"I1911 REFUSALS window=(-?\d+) path=(\S+) score=(\S+) r=(\S+) gate=(\S+)((?: cam\d+=\S+)*)")
-CAMSLOT = re.compile(r"cam(\d+)=([a-z+-]+),rms=([-0-9.]+),elong=([-0-9.]+),scale=([-0-9.]+)")
+CAMSLOT = re.compile(r"cam(\d+)=([a-z+-]+),rms=([-0-9.]+),elong=([-0-9.]+),scale=([-0-9.]+)(?:,raw=([-0-9.]+))?")
 CAMSTORY = re.compile(r"cam (\d): ")
 RMS_WORDS = re.compile(r"scatters ([0-9.]+) px RMS")
 ELONG_WORDS = re.compile(r"px is ([0-9.]+), under the")
@@ -111,12 +115,14 @@ def darts_from_census(text):
         m = REFUSALS.search(msg)
         if not m or m.group(3) == "END":
             continue  # an END (a takeout) is not a dart, and the binary wrote one for it
-        cams = {}
+        cams, pairs = {}, {}
         for c in CAMSLOT.finditer(m.group(6)):
             cams[int(c.group(1))] = (c.group(2), float(c.group(3)), float(c.group(4)))
+            if c.group(6) is not None:  # turnaus#1905: (reason, raw, undistorted)
+                pairs[int(c.group(1))] = (c.group(2), float(c.group(6)), float(c.group(3)))
         darts.append({"path": m.group(2), "r": None if m.group(4) == "-" else float(m.group(4)),
                       "outcome": None, "cams": {k: v for k, v in cams.items() if v[0] != "ok"},
-                      "cameras": len(cams)})
+                      "cameras": len(cams), "pairs": pairs, "gate": float(m.group(5))})
     return darts
 
 
@@ -231,6 +237,39 @@ def report(label, darts, source, out):
                   "%.2f" % straight[0] if straight else "-", "%.2f" % straight[-1] if straight else "-",
                   sum(1 for v in straight if v <= 3.0), sum(1 for v in straight if v <= 4.0),
                   sum(1 for v in straight if v > 4.0), reach(3.0), reach(4.0)))
+    residual_report(label, darts, cams, bins, out)
+
+
+def residual_report(label, darts, cams, bins, out):
+    """turnaus#1905: the raw and undistorted residual pair, where the lines carry it."""
+    rows = []  # (camera, bin, reason, raw, undistorted, gate)
+    for d in darts:
+        for cam, (reason, raw, und) in d.get("pairs", {}).items():
+            rows.append((cam, radius_bin(d["r"]), reason, raw, und, d.get("gate", 2.5)))
+    if not rows:
+        return
+
+    def median(v):
+        v = sorted(v)
+        return v[len(v) // 2] if v else None
+
+    def line(key, sel):
+        if not sel:
+            return
+        delta = [r[3] - r[4] for r in sel]
+        admitted = sum(1 for r in sel if r[3] > r[5] >= r[4])
+        refused = sum(1 for r in sel if r[4] > r[5] >= r[3])
+        out.write("I1905 RESIDUAL label=%s %s n=%d raw_median=%.2f undistorted_median=%.2f delta_median=%.3f "
+                  "delta_max=%.3f delta_min=%.3f crossed_under_gate=%d crossed_over_gate=%d\n" % (
+                      label, key, len(sel), median([r[3] for r in sel]), median([r[4] for r in sel]),
+                      median(delta), max(delta), min(delta), admitted, refused))
+
+    line("all", rows)
+    for c in cams:
+        line("cam=%d" % c, [r for r in rows if r[0] == c])
+    for b in bins:
+        line("bin=%s" % b, [r for r in rows if r[1] == b])
+    line("not-straight", [r for r in rows if "not-straight" in r[2]])
 
 
 def self_test(out):
@@ -282,6 +321,14 @@ def self_test(out):
     expect("census: a log with the line is read from it alone", (source, len(darts)), ("I1911 REFUSALS", 1))
     expect("census: cameras", darts[0]["cams"], {1: ("not-straight", 19.47, 8.1), 2: ("rim-only", 0.0, 0.0)})
     expect("census: radius", darts[0]["r"], 0.9615)
+    paired, _ = darts_of("[INFO][GEOMETRYDETECTOR] - I1911 REFUSALS window=2 path=vote score=D5 r=0.9700 "
+                         "gate=2.50 cam1=ok,rms=2.40,elong=9.00,scale=1.00,raw=2.61 cam2=not-straight,rms=3.80,"
+                         "elong=7.00,scale=1.00,raw=3.90 cam3=ok,rms=1.00,elong=9.00,scale=1.00\n")
+    expect("census #1905: the raw/undistorted pair, only where the line carries raw=", paired[0]["pairs"],
+           {1: ("ok", 2.61, 2.4), 2: ("not-straight", 3.9, 3.8)})
+    expect("census #1905: raw= leaves the refusal reading alone", paired[0]["cams"],
+           {2: ("not-straight", 3.8, 7.0)})
+    expect("census #1905: an old line carries no pair", darts[0]["pairs"], {})
     out.write("SELF-TEST %s (%d failure(s))\n" % ("PASSED" if not bad else "FAILED", len(bad)))
     return 1 if bad else 0
 

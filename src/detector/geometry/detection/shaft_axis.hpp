@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "../calibration/lens_census.hpp"
+
 /**
  * #1511: THE NEW DART'S SHAFT AXIS, WITH UNCERTAINTY, PER CAMERA.
  *
@@ -276,6 +278,50 @@ namespace shaft_axis
     }
 
     /**
+     * turnaus#1905: OD_UNDISTORT -- #1560's kappa, read at last, on the dart axis alone.
+     *
+     * The straightness gate measures the kept centreline in the camera's DISTORTED pixels,
+     * where a straight dart near the frame edge images as a curve. With the pin on, the
+     * kept centreline's column points are taken through lens_census::undistortPx about the
+     * frame centre (turnaus#1909's principal-point assumption: no camera here has a
+     * measured one) BEFORE the straightness test and the line fit; the gate, the sigma and
+     * the line are the undistorted fit's. The line is then TRANSPORTED back to the pixels
+     * the board fit consumes (calibration -- the wire fit, the bull -- is untouched and
+     * lives in distorted pixels): the chord through the re-distorted ends of the kept
+     * extent, which is the straight dart's own image between those ends to within the bow
+     * the transform has just measured and removed.
+     *
+     *   unset, empty, "off", anything unparsable, 0   off: the fit is the old one, byte for byte
+     *   "on"                                          lens_census::MEASURED_KAPPA (-2.45e-7 px^-2)
+     *   <number>                                      that kappa, px^-2 (an experiment's knob)
+     */
+    inline double undistortKappaFrom(const char *text)
+    {
+        if (text == nullptr || *text == '\0')
+        {
+            return 0.0;
+        }
+        const std::string word(text);
+        if (word == "on")
+        {
+            return lens_census::MEASURED_KAPPA;
+        }
+        char *end = nullptr;
+        const double v = std::strtod(text, &end);
+        if (end == text || *end != '\0' || !std::isfinite(v) || std::fabs(v) > 1e-4)
+        {
+            return 0.0;
+        }
+        return v;
+    }
+
+    inline double undistortKappa()
+    {
+        static const double v = undistortKappaFrom(std::getenv("OD_UNDISTORT"));
+        return v;
+    }
+
+    /**
      * The gates a figure must pass before its fitted line is called an axis, and the
      * numbers each one encodes. `gated = false` is the falsification arm -- the issue's
      * own required mutation is "removing the quality gate must make negative controls
@@ -454,6 +500,12 @@ namespace shaft_axis
         // back by it before anything else. The preamble above AxisParams owns the
         // arithmetic and the measurement. 0 unless OD_AXIS_UNSHIFT=on.
         int support_shift_px = axisUnshiftIsOn() ? supportChainShiftPx(kSupportMorphKernel) : 0;
+
+        // turnaus#1905: the radial term the kept centreline is straightened by, px^-2,
+        // about `undistort_centre` (the frame centre, set by the caller that knows the
+        // frame). 0, or a centre left negative, is off -- today's fit byte for byte.
+        double undistort_kappa = undistortKappa();
+        cv::Point2d undistort_centre{-1.0, -1.0};
     };
 
     /** One centreline sample: one one-pixel column along the axis. Kept for overlays
@@ -517,6 +569,13 @@ namespace shaft_axis
         double rescueFraction = 0.0;     // dominant component's share of the columns
         double rescueRivalRatio = 0.0;   // best rival component over the dominant one
         std::string rescueNote;          // why the rescue refused, when it did
+
+        // turnaus#1905: `undistorted` says the straightness figure, the sigma and the line
+        // are the undistorted centreline's (OD_UNDISTORT); `rawCentrelineRmsPx` is then the
+        // distorted fit's residual beside it, so a census can count what the pin admits.
+        // Off, `undistorted` is false and the raw figure is centrelineRmsPx itself.
+        bool undistorted = false;
+        double rawCentrelineRmsPx = 0.0;
 
         // Event and frame identity, filled by the caller that owns them
         // (dart_processing::processDartState): which camera, which completed window,
@@ -917,6 +976,83 @@ namespace shaft_axis
             const double sFit2 = fit.s2 / (fit.kept - 2);
             out.sigmaDeg = std::sqrt(sFit2 / fit.sumTT) * 180.0 / CV_PI;
         }
+        // turnaus#1905: the kept centreline straightened before the gate and the line.
+        bool straightened = false;
+        cv::Point2d straightPoint, straightDir;
+        if (params.undistort_kappa != 0.0 && params.undistort_centre.x >= 0.0 &&
+            params.undistort_centre.y >= 0.0)
+        {
+            const cv::Point2d nrm(-dir.y, dir.x);
+            const double kcx = params.undistort_centre.x, kcy = params.undistort_centre.y;
+            std::vector<cv::Point2d> q;
+            q.reserve(fit.cols.size());
+            double qx = 0.0, qy = 0.0;
+            for (const AxisColumn &c : fit.cols)
+            {
+                if (!c.kept)
+                {
+                    continue;
+                }
+                cv::Point2d p = origin + dir * c.t + nrm * c.u;
+                lens_census::undistortPx(kcx, kcy, params.undistort_kappa, p.x, p.y);
+                q.push_back(p);
+                qx += p.x;
+                qy += p.y;
+            }
+            const int nq = (int)q.size();
+            if (nq >= 2)
+            {
+                qx /= nq;
+                qy /= nq;
+                double qxx = 0.0, qxy = 0.0, qyy = 0.0;
+                for (const cv::Point2d &p : q)
+                {
+                    qxx += (p.x - qx) * (p.x - qx);
+                    qxy += (p.x - qx) * (p.y - qy);
+                    qyy += (p.y - qy) * (p.y - qy);
+                }
+                const double th = 0.5 * std::atan2(2.0 * qxy, qxx - qyy);
+                const cv::Point2d ud(std::cos(th), std::sin(th)), un(-ud.y, ud.x);
+                double s2 = 0.0, stt = 0.0, t0 = 1e18, t1 = -1e18;
+                for (const cv::Point2d &p : q)
+                {
+                    const double t = (p.x - qx) * ud.x + (p.y - qy) * ud.y;
+                    const double r = (p.x - qx) * un.x + (p.y - qy) * un.y;
+                    s2 += r * r;
+                    stt += t * t;
+                    t0 = std::min(t0, t);
+                    t1 = std::max(t1, t);
+                }
+                out.rawCentrelineRmsPx = out.centrelineRmsPx;
+                out.centrelineRmsPx = std::sqrt(s2 / nq);
+                if (nq > 2 && stt > 0.0)
+                {
+                    out.sigmaDeg = std::sqrt((s2 / (nq - 2)) / stt) * 180.0 / CV_PI;
+                }
+                // Transport: the chord through the re-distorted ends of the kept extent,
+                // and on it the foot of the re-distorted centroid.
+                cv::Point2d e0(qx + ud.x * t0, qy + ud.y * t0), e1(qx + ud.x * t1, qy + ud.y * t1);
+                cv::Point2d mid(qx, qy);
+                lens_census::distortPx(kcx, kcy, params.undistort_kappa, e0.x, e0.y);
+                lens_census::distortPx(kcx, kcy, params.undistort_kappa, e1.x, e1.y);
+                lens_census::distortPx(kcx, kcy, params.undistort_kappa, mid.x, mid.y);
+                const cv::Point2d ch = e1 - e0;
+                const double chLen = std::sqrt(ch.x * ch.x + ch.y * ch.y);
+                if (chLen > 1e-9)
+                {
+                    straightDir = ch * (1.0 / chLen);
+                    const double along = (mid - e0).x * straightDir.x + (mid - e0).y * straightDir.y;
+                    straightPoint = e0 + straightDir * along;
+                    straightened = true;
+                }
+                out.undistorted = true;
+            }
+        }
+        if (!out.undistorted)
+        {
+            out.rawCentrelineRmsPx = out.centrelineRmsPx;
+        }
+
         // The settled frame's final small correction, folded into the answer.
         {
             const cv::Point2d nrm(-dir.y, dir.x);
@@ -926,6 +1062,11 @@ namespace shaft_axis
             dir = cv::Point2d(dir.x * cd + nrm.x * sd, dir.y * cd + nrm.y * sd);
             const double norm = std::sqrt(dir.x * dir.x + dir.y * dir.y);
             dir *= 1.0 / norm;
+        }
+        if (straightened)
+        {
+            origin = straightPoint;
+            dir = straightDir;
         }
         mx = origin.x;
         my = origin.y;
@@ -1453,7 +1594,10 @@ namespace shaft_axis
      * extent over median width (the elongation gate's), `scale` the sigma factor an
      * admitted line carries (straightSigmaScale; 1.00 on every refused one). `r` is the
      * published dart's board radius, 1.0 the double's outer wire, `-` where none was
-     * measured. testers/i1911_census.py reads it, and reads the older PATH/LINES stories
+     * measured. turnaus#1905: with OD_UNDISTORT on, each camera whose centreline was
+     * straightened adds `,raw=<px>`, the distorted fit's residual, after `scale` -- `rms` is
+     * then the undistorted one the gate read; off, the line is the old one byte for byte.
+     * testers/i1911_census.py reads it, and reads the older PATH/LINES stories
      * where a log predates it.
      */
     inline std::string refusalCensusLine(long window, const std::string &path, const std::string &score,
@@ -1474,7 +1618,9 @@ namespace shaft_axis
                    refusalReasonOf(c.axis, c.frameAvailable, c.rimOnly) +
                    ",rms=" + detail::fmt("%.2f", c.axis.centrelineRmsPx) +
                    ",elong=" + detail::fmt("%.2f", elongation) +
-                   ",scale=" + detail::fmt("%.2f", scale);
+                   ",scale=" + detail::fmt("%.2f", scale) +
+                   (c.axis.undistorted ? ",raw=" + detail::fmt("%.2f", c.axis.rawCentrelineRmsPx)
+                                       : std::string());
         }
         return out;
     }

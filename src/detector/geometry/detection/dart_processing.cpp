@@ -1955,6 +1955,8 @@ namespace dart_processing
                         axis_params.gated = !axisGateIsOff();
                         axis_params.subtract_shadow = !axisShadowIsOff();
                         axis_params.rescue_composite = axisRescueIsOn();
+                        axis_params.undistort_centre = // turnaus#1905: the frame centre
+                            cv::Point2d(single_thresh.cols * 0.5, single_thresh.rows * 0.5);
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
@@ -2055,6 +2057,8 @@ namespace dart_processing
                         axis_params.gated = !axisGateIsOff();
                         axis_params.subtract_shadow = !axisShadowIsOff();
                         axis_params.rescue_composite = axisRescueIsOn();
+                        axis_params.undistort_centre = // turnaus#1905: the frame centre
+                            cv::Point2d(single_thresh.cols * 0.5, single_thresh.rows * 0.5);
                         const Mat &axis_reference = !working_backgrounds[i].empty()
                                                         ? working_backgrounds[i]
                                                         : background_gray;
