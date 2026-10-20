@@ -2836,7 +2836,8 @@ gain: rig-20260918 window 17 camera 3 (2.43 -> 2.65) drops out, cameras 1 and 2 
 S15 where the three solved T15 across the treble wire (WIRE-UNCERTAIN either way), and S15 is
 the throw, in both windows. The other four (rig-20260922 windows 3, 23 / 25, camera 2) change
 no published score. That is a marginal, wrong-leaning line refused by accident, the opposite
-of the mechanism the issue built: a gate at 2.4 px would have done the same.
+of the mechanism the issue built: a gate lowered under 2.43 px would refuse the same line
+(what else it would refuse is not measured here).
 
 **The default stays off** until the maintainer decides otherwise from these rows. The rows
 argue for off: the +2 is one dart in two windows, reached by refusing a line, not by admitting
