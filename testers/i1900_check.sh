@@ -48,17 +48,21 @@ od_run "1900-check" --network none -v "$OD_TREE_ROOT":/app:ro -w /app "$OD_IMAGE
   rm -rf "$WORK" && mkdir -p "$WORK"
   head -c 300000 /dev/urandom > "$WORK/good.bin"
 
-  python3 /app/testers/i1900_server.py "$PORT" "$WORK/good.bin" "$WORK/access.log" > "$WORK/server.out" 2>&1 &
-  SERVER=$!
-  trap "kill $SERVER 2> /dev/null" EXIT
-  sleep 1
-
-  # <label> <src>: compile the check against a tree and run it with a fresh access log.
+  # <label> <src>: compile the check against a tree and run it against a FRESH server and
+  # access log. The server counts requests per path to pick its answer, so a server kept
+  # from the run before would answer every mutant from the end of its script (measured:
+  # the first draft did, and all three mutants failed on the same eleven lines).
   run() {
     g++ -O1 -std=c++17 -Wall -Wextra -Werror -I "$2" $DEPS /app/testers/i1900_retry_check.cpp \
         -o "$WORK/check-$1" -lpthread || { echo "COMPILE_FAILED ($1)"; return 2; }
     : > "$WORK/access.log"
+    python3 /app/testers/i1900_server.py "$PORT" "$WORK/good.bin" "$WORK/access.log" > "$WORK/server-$1.out" 2>&1 &
+    local server=$!
+    sleep 1
     "$WORK/check-$1" "$PORT" "$WORK" < /dev/null
+    local rc=$?
+    kill "$server" 2> /dev/null; wait "$server" 2> /dev/null
+    return $rc
   }
 
   echo "==== the tree as it is ===="
