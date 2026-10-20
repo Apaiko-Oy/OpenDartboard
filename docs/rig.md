@@ -2582,6 +2582,25 @@ Inside 0.90 `not-straight` dominates, and camera 2 carries three times the other
 the not-straight residuals are over 4 px, so a gate at 3.0 or 4.0 reaches a minority of
 them: 10% / 23% of the vote darts on 2026-10-15 at best.
 
+**The fixtures** (the six bakeoff replays below, at the default gate; the `OD_SCORE_PATH=vote`
+pin left out, every one of its darts being a vote):
+
+| | darts | vote | r > 0.90 | vote at r > 0.90 |
+|---|---|---|---|---|
+| six replays | 151 | 37 (24.5%) | 17 | 15 (88%) |
+
+| reason | cam 1 / 2 / 3 | all (on vote darts) | `<0.58` / treble / `0.63-0.90` / `0.90-0.95` / double / `>1.00` / unknown |
+|---|---|---|---|
+| not-straight | 19 / 34 / 15 | 68 (46) | 25 / 10 / 17 / 10 / 6 / 0 / 0 |
+| rim-only | 13 / 16 / 16 | 45 (35) | 1 / 0 / 12 / 11 / 8 / 0 / 13 |
+| not-a-shaft | 0 / 2 / 2 | 4 (0) | 2 / 0 / 2 / 0 / 0 / 0 / 0 |
+| no-figure | 0 / 1 / 0 | 1 (1) | 0 / 0 / 0 / 0 / 0 / 0 / 1 |
+
+The fixtures' not-straight residuals sit lower than the live board's: median 3.88 px against
+5.10-6.68, 17 of 68 at or under 3.0 and 36 at or under 4.0, and 8 / 15 of the 37 vote darts a
+3.0 / 4.0 gate would give two lines. The gate was set where the fixtures' refusals are, and the
+live board's are further out.
+
 **The experiment.** `OD_STRAIGHT_PX=<px>` (`shaft_axis::straightGatePx`) moves the
 straightness gate; unset, empty, unparsable or not above zero is 2.5. A line admitted above
 2.5 px carries its perpendicular sigma multiplied by rms / 2.5 (`straightSigmaScale`, applied
@@ -2598,6 +2617,41 @@ wherever two plain lines solve. This admits the whole figure's own line as it wa
 weaker in proportion to its scatter, and it joins any solve, including one that already had
 two lines: a third, looser line now re-weighs a solve the rescue would have left alone,
 which is the S15 -> T15 shape #1586 met.
+
+**Bakeoff** (capture clock, `OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, 2026-10-20, one binary, the gate unset then 3.0 then 4.0; 1,259 / 1,131 /
+1,280 s at load 6-14 with other checkouts' work alongside). The census beside each row is the six
+replays' (the pin left out):
+
+| | 2.5 (unset) | `OD_STRAIGHT_PX=3.0` | `OD_STRAIGHT_PX=4.0` |
+|---|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (0 scoring) | 38/40, phantoms 2 (0 scoring) | 38/40, phantoms 2 (0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | **42/46**, 0 phantoms | **42/46**, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | **60..66/72** | **58..64/72** |
+| pooled | 143..149/158 | **140..146/158** | **138..144/158** |
+| r18+r22 | 82/86 | **80/86** | **80/86** |
+| census: vote darts of 151 | 37 | 31 | 26 |
+| census: not-straight refusals (on vote darts) | 68 (46) | 51 (35) | 32 (22) |
+| census: not-straight at r > 0.90 | 16 | 12 | 8 |
+
+**Every newly solved dart reads, and the one that turns is #1586's.** At 3.0 six vote darts
+solve: rig-20260918 v8.3's S20 (both windows: the same score), rig-20260922's two S7s in
+windows 9 / 11 (exact, as the vote was), and **rig-20260922's S7 in windows 15 / 17, exact on
+the vote at 0.90, now S19 at 0.70 across the 7/19 wire, in both windows** -- the dart #1586's
+rescue turned the same way (v5.3) -- and rig-20260929 opening's window 35, a vote T19 now S19.
+At 4.0 the same, plus rig-20260918's S5 (window 25, the same score), and rig-20260929's window 6
+in both windows, a vote T14 now S14. Two vote darts (rig-20260918 window 23, rig-20260929 window
+27) move from TOO-FEW-CONSTRAINTS to NEAR-PARALLEL and still publish the vote. No phantom is
+added, no visit publishes more than was thrown, and no dart the geometry already solved changes
+score (confidence moves on a few, 0.90 / 0.70 on a WIRE-UNCERTAIN solve). So the gate's darts
+are bought at an exact dart each: the vote was already right on every dart the wider gate
+admits that the annotations judge, and the one it turns is turned wrong. **The default stays
+2.5**; the maintainer's call, and these rows are what it is made from.
+
+**Why the fixtures disagree with the live board's appetite.** The live board's 2.5-3.0 band
+holds 309 / 63 / 8 refusals over the three sessions, and those darts are not judged here: the
+live logs carry the corrections (Turnaus's truth line) but no annotation of the lines. A live
+A/B is the measurement this cannot replace.
 
 **Tested** by `1911-straight` (`testers/i1911_check.sh`): the arithmetic, the doubled sigma
 through a planted solve, a displaced widened line pulling the entry less, a widened line
