@@ -81,6 +81,17 @@ tester 1452-pr-build      "bash '$T/i1452_pr_build_check.sh'"
 # the same box (#1828, after the loop came to name its three sources whole so census.sh
 # sees the upload and frames checks reached): 116 s wall, rc=0.
 tester 1787-account       "bash '$T/i1787_check.sh'"
+# turnaus#1912: darts never wait behind an END's log and frames uploads. The scheduling
+# rule's pure check on src/communication/duty_gate.hpp with two mutations (#1787's inline
+# duties: the dart waits behind the upload; a gate never asked: the upload resumes over a
+# dart in flight), then the real TurnausClient against testers/i1912_stub.py -- the END's
+# log and frames still arrive, a dart offered 2 s into a 10 s frames upload is answered
+# under 1 s, the push posts share one kept connection, a 503 and its retry are said at
+# INFO -- and the same harness on ace2ade's src/ as the control, predicted red (it read
+# 7984 ms and 4 posts on 4 connections). No detector binary; OD_SKIP_BUILD changes nothing
+# beyond build/_deps. MEASURED 2026-10-20 on the 4-core box at load ~5, rc=0: 121 s wall,
+# nearly all of it the two -O1 compiles of turnaus_client.cpp and the two 10 s holds.
+tester 1912-push-lane     "bash '$T/i1912_check.sh'"
 # turnaus#1789: what #1787 posts and turnaus#1786 exports, read back here -- a session's
 # truth line recounted into Turnaus's four counts per path, each corrected dart joined to
 # its log window by reference, and its fault class named (#1781, #1707, #1782, #1766,

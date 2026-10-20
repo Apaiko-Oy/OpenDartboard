@@ -197,12 +197,15 @@ namespace
                 }
                 t.say(dart + "_post_start");
                 release_dart.wait();
+                // Said BEFORE the gate hears of it, as the client's 202 is taken before the
+                // queue is popped: saying it after let the duty thread's unit2_start land in
+                // between in the transcript, a race in this model and not in the rule.
+                t.say(dart + "_settled");
                 {
                     std::lock_guard<std::mutex> l(m);
                     queue.pop_front();
                     gate.owed(queue.size());
                 }
-                t.say(dart + "_settled");
             }
         }
 
