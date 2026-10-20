@@ -210,11 +210,27 @@ def report(label, darts, source, out):
         out.write("I1911 RADIUS label=%s | %s | %s\n" % (label, r, " | ".join(str(by_bin[r].get(b, 0)) for b in bins)))
     straight.sort()
     med = straight[len(straight) // 2] if straight else None
-    out.write("I1911 STRAIGHT label=%s n=%d median=%s min=%s max=%s le3.0=%d le4.0=%d gt4.0=%d\n" % (
-        label, len(straight), "%.2f" % med if med is not None else "-",
-        "%.2f" % straight[0] if straight else "-", "%.2f" % straight[-1] if straight else "-",
-        sum(1 for v in straight if v <= 3.0), sum(1 for v in straight if v <= 4.0),
-        sum(1 for v in straight if v > 4.0)))
+
+    def reach(gate):
+        """Vote darts short of two lines that a `gate` px straightness gate would give two:
+        the cameras already used, plus every refusal that was not-straight ALONE at or
+        under the gate. An upper bound: an admitted line can still fail the solve."""
+        n = 0
+        for d in vote:
+            used = d["cameras"] - len(d["cams"])
+            if used >= 2:
+                continue
+            more = sum(1 for (r, rms, _e) in d["cams"].values()
+                       if r == "not-straight" and rms is not None and rms <= gate)
+            n += 1 if used + more >= 2 else 0
+        return n
+
+    out.write("I1911 STRAIGHT label=%s n=%d median=%s min=%s max=%s le3.0=%d le4.0=%d gt4.0=%d "
+              "vote_darts_given_two_lines_at_3.0=%d at_4.0=%d\n" % (
+                  label, len(straight), "%.2f" % med if med is not None else "-",
+                  "%.2f" % straight[0] if straight else "-", "%.2f" % straight[-1] if straight else "-",
+                  sum(1 for v in straight if v <= 3.0), sum(1 for v in straight if v <= 4.0),
+                  sum(1 for v in straight if v > 4.0), reach(3.0), reach(4.0)))
 
 
 def self_test(out):
