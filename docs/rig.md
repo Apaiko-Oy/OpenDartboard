@@ -2507,3 +2507,99 @@ stand-in that records each call -- one request with `0x80000001`, one release wi
 proofs inside the harness (the flags made `ES_DISPLAY_REQUIRED`: 2 red; the pin compared with
 `"of"`: 5 red). The real call is MSVC's and kernel32's, built by release.yml, and runs only
 on a board.
+
+## Why a camera offers no line, counted (turnaus#1911), and `OD_STRAIGHT_PX`, opt-in
+
+**The census.** Every published dart now logs one line naming each camera's reason and the
+figures the gates judged (`shaft_axis::refusalCensusLine`, written by `geometry_detector.cpp`):
+
+    I1911 REFUSALS window=17 path=vote score=D16 r=0.9615 gate=2.50
+      cam1=not-straight,rms=3.03,elong=9.10,scale=1.00 cam2=rim-only,... cam3=ok,...
+
+`rms` is the kept centreline's scatter (the 2.5 px straightness gate's figure), `elong`
+extent over median width (the 3.0 elongation gate's), `scale` the sigma factor an admitted
+line carries, `r` the published board radius (1.0 the double's outer wire). The reasons are
+the refusal's own first words: `not-straight`, `not-a-shaft`, `rim-only` (#1689),
+`no-figure`, `no-frame`, `direction-unusable`, `other` (departure, clean, support floor). The
+binary also writes one for an END, all `other`; the census leaves it out.
+
+`testers/i1911_census.py --log <log> [--log ...] [--label <name>] [--each]` counts them by
+camera, by radius bin and by reason, over a bakeoff replay's `<run>.txt` or a board's log.
+A log without the line (every board before this) is read from the stories every board
+since #1555 writes: the `PATH:` line per dart, the `LINES:` line after it, and the radius
+from the `board_radius` of the `TURNAUS:` push that posted the dart (i1789's join, by
+sector). From the stories an axis the solver itself excluded reads `solver`. Radius bins:
+under the treble (`<0.58`), the treble (99-107 mm), `0.63-0.90`, `0.90-0.95` (the issue's
+split, the run-in to the double), the double (162-170 mm), past it, and `unknown` where no
+radius was published (a vote's MISS, most of the rim-only ones). Refusals are counted per
+camera per dart, so one dart can carry three.
+
+**The three Pi sessions** (device/2, Pelipaikka 6; logs fetched from Turnaus,
+`sessions/<day>/device-2.log`, 2026-10-18's session served under 2026-10-19):
+
+| session | darts | vote | r > 0.90 | vote at r > 0.90 |
+|---|---|---|---|---|
+| 2026-10-15 (0.1.15) | 3090 | 818 (26.5%) | 185 | 153 (83%) |
+| 2026-10-18 (0.1.15) | 470 | 118 (25.1%) | 32 | 22 (69%) |
+| 2026-10-20 (0.1.18) | 92 | 40 (43.5%) | 9 | 6 (67%) |
+
+By reason and camera (refusals; in brackets, those on vote darts):
+
+| reason | 10-15 cam 1 / 2 / 3 | all | 10-18 cam 1 / 2 / 3 | all | 10-20 cam 1 / 2 / 3 | all |
+|---|---|---|---|---|---|---|
+| not-straight | 413 / 1348 / 413 | 2174 (1004) | 81 / 148 / 71 | 300 (191) | 27 / 35 / 23 | 85 (64) |
+| rim-only | 242 / 339 / 331 | 912 (841) | 31 / 22 / 41 | 94 (83) | 9 / 15 / 8 | 32 (29) |
+| not-a-shaft | 20 / 338 / 22 | 380 (145) | 4 / 13 / 1 | 18 (10) | 1 / 3 / 1 | 5 (4) |
+| no-figure | 7 / 3 / 12 | 22 (21) | - | - | - | - |
+| other | 7 / 5 / 6 | 18 (17) | 1 / 2 / 2 | 5 (5) | 1 / 2 / 1 | 4 (4) |
+| solver | 0 / 1 / 0 | 1 (0) | 0 / 0 / 1 | 1 (0) | - | - |
+
+By reason and radius bin (`<0.58` / treble / `0.63-0.90` / `0.90-0.95` / double / `>1.00` / unknown):
+
+| reason | 2026-10-15 | 2026-10-18 | 2026-10-20 |
+|---|---|---|---|
+| not-straight | 751 / 347 / 825 / 48 / 69 / 0 / 134 | 113 / 27 / 116 / 11 / 10 / 0 / 23 | 29 / 8 / 23 / 3 / 4 / 0 / 18 |
+| rim-only | 26 / 21 / 142 / 74 / 173 / 0 / 476 | 5 / 0 / 7 / 12 / 22 / 0 / 48 | 0 / 0 / 2 / 4 / 5 / 0 / 21 |
+| not-a-shaft | 150 / 73 / 128 / 2 / 6 / 0 / 21 | 7 / 1 / 6 / 2 / 0 / 0 / 2 | 2 / 0 / 2 / 0 / 0 / 0 / 1 |
+
+The not-straight residuals, and what a wider gate reaches:
+
+| session | not-straight | median px | at or under 3.0 | at or under 4.0 | vote darts a 3.0 / 4.0 gate gives two lines |
+|---|---|---|---|---|---|
+| 2026-10-15 | 2174 | 5.46 | 309 | 726 | 83 / 192 of 818 |
+| 2026-10-18 | 300 | 5.10 | 63 | 108 | 14 / 27 of 118 |
+| 2026-10-20 | 85 | 6.68 | 8 | 23 | 4 / 9 of 40 |
+
+The last column is an upper bound: a dart short of two lines whose not-straight refusals at
+or under the gate would bring it to two, before the solve says anything about them.
+
+**What the live board says.** Near the double the vote is fed by `rim-only`, not by
+straightness: at r > 0.90 the 2026-10-15 session holds 247 rim-only refusals against 117
+not-straight, and most rim-only refusals are on darts that published no radius at all.
+Inside 0.90 `not-straight` dominates, and camera 2 carries three times the others' share on
+2026-10-15 (1348 of 2174; the same camera holds 338 of the 380 `not-a-shaft`). Two thirds of
+the not-straight residuals are over 4 px, so a gate at 3.0 or 4.0 reaches a minority of
+them: 10% / 23% of the vote darts on 2026-10-15 at best.
+
+**The experiment.** `OD_STRAIGHT_PX=<px>` (`shaft_axis::straightGatePx`) moves the
+straightness gate; unset, empty, unparsable or not above zero is 2.5. A line admitted above
+2.5 px carries its perpendicular sigma multiplied by rms / 2.5 (`straightSigmaScale`, applied
+in `entry_intersection::detail::weighAt` and the seed solve): a 5 px line is a constraint
+with twice the sigma, a quarter of the weight. At or under 2.5 the factor is exactly 1.0, so
+the default cannot move. A widened line is still one constraint: the factor is a weight and
+nothing counts it, so TOO-FEW-CONSTRAINTS still guards #1505's phantom and #1535's re-report.
+The rescue's corridor (`OD_AXIS_RESCUE`, #1586) is drawn at the same gate, so the two
+switches together move both.
+
+**How this differs from #1586's rescue.** The rescue cuts a refused figure down to its
+dominant straight component and fits that, every gate unchanged, as a last resort held back
+wherever two plain lines solve. This admits the whole figure's own line as it was fitted,
+weaker in proportion to its scatter, and it joins any solve, including one that already had
+two lines: a third, looser line now re-weighs a solve the rescue would have left alone,
+which is the S15 -> T15 shape #1586 met.
+
+**Tested** by `1911-straight` (`testers/i1911_check.sh`): the arithmetic, the doubled sigma
+through a planted solve, a displaced widened line pulling the entry less, a widened line
+alone refused as TOO-FEW-CONSTRAINTS, the switch's parse and the census words, then five
+mutations of scratch copies each predicted to turn named assertions red, and the census
+reader's self-test.
