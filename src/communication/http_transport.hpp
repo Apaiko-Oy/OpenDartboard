@@ -27,6 +27,7 @@
 #include "../utils/od_socket.hpp" // winsock2 before anything can pull in windows.h
 #include <string>
 #include <map>
+#include <memory>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -311,4 +312,107 @@ namespace odhttp
         return perform(u, "GET", path, std::string(), std::map<std::string, std::string>(), connect_timeout_s,
                        read_timeout_s, follow_redirects);
     }
+
+    /**
+     * turnaus#1912: one connection to Turnaus, kept open across requests where the
+     * transport allows it, for ONE thread. perform() above opens a connection per request,
+     * and on the Pi's Wi-Fi on 2026-10-20 the TLS handshake alone took 0.1..3.0 s -- paid
+     * again on every dart.
+     *
+     * POSIX: an httplib::Client held between requests with keep-alive on. httplib 0.14.3
+     * asks whether the kept socket is still alive before it reuses it (ClientImpl::send_,
+     * detail::is_socket_alive) and opens a fresh one when the server has closed it, so an
+     * idle connection the server timed out costs one handshake, which is what every request
+     * cost before. On ANY error the kept client is thrown away, so the next request -- the
+     * caller's retry -- is made on a fresh connection; nothing here retries by itself, so
+     * nothing here can post one body twice. A server that answers HTTP/1.0 or says
+     * `Connection: close` is honoured by httplib, which closes and reconnects next time.
+     *
+     * Windows: perform() exactly as before, so the WinHTTP path does not move.
+     *
+     * Not thread-safe by design: httplib serialises concurrent requests on one Client, so
+     * two threads sharing a Session would be the single queue this exists to remove. Each
+     * thread that posts owns its own.
+     */
+    class Session
+    {
+    public:
+        Response perform(const Url &u, const char *method, const std::string &path, const std::string &body,
+                         const std::map<std::string, std::string> &headers, int connect_timeout_s, int read_timeout_s)
+        {
+#ifdef _WIN32
+            return odhttp::perform(u, method, path, body, headers, connect_timeout_s, read_timeout_s);
+#else
+            Response r;
+            if (!u.valid)
+            {
+                r.transport_error = "malformed base url";
+                return r;
+            }
+            if (u.tls && !tlsAvailable())
+            {
+                r.transport_error = "this build has no TLS transport";
+                return r;
+            }
+            const std::string origin = (u.tls ? "https://" : "http://") + u.host + ":" + std::to_string(u.port);
+            if (!client_ || origin_ != origin)
+            {
+                client_.reset(new httplib::Client(origin));
+                origin_ = origin;
+                client_->set_keep_alive(true);
+                client_->set_follow_location(false);
+                clients_built_++;
+            }
+            client_->set_connection_timeout(connect_timeout_s, 0);
+            client_->set_read_timeout(read_timeout_s, 0);
+            client_->set_write_timeout(read_timeout_s, 0);
+            httplib::Headers h;
+            for (const auto &kv : headers)
+            {
+                h.emplace(kv.first, kv.second);
+            }
+            auto res = std::string(method) == "GET" ? client_->Get((u.path_prefix + path).c_str(), h)
+                                                    : client_->Post((u.path_prefix + path).c_str(), h, body,
+                                                                    "application/json");
+            if (!res)
+            {
+                r.transport_error = httplib::to_string(res.error());
+                reset(); // the fallback: whatever comes next is asked on a fresh connection
+                return r;
+            }
+            r.status = res->status;
+            r.body = res->body;
+            if (res->has_header("Retry-After"))
+            {
+                r.retry_after_s = atoi(res->get_header_value("Retry-After").c_str());
+            }
+            return r;
+#endif
+        }
+
+        Response postJson(const Url &u, const std::string &path, const std::string &body,
+                          const std::map<std::string, std::string> &headers, int connect_timeout_s, int read_timeout_s)
+        {
+            return perform(u, "POST", path, body, headers, connect_timeout_s, read_timeout_s);
+        }
+
+        /** Drop the kept connection; the next request opens a fresh one. */
+        void reset()
+        {
+#ifndef _WIN32
+            client_.reset();
+            origin_.clear();
+#endif
+        }
+
+        /** How many clients this session has built (POSIX); a census, never a decision. */
+        int clientsBuilt() const { return clients_built_; }
+
+    private:
+#ifndef _WIN32
+        std::unique_ptr<httplib::Client> client_;
+        std::string origin_;
+#endif
+        int clients_built_ = 0;
+    };
 }

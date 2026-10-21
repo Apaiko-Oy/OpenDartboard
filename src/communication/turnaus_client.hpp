@@ -25,6 +25,7 @@
 #include "score_queue.hpp"
 #include "../utils/board_sight.hpp"
 #include "http_transport.hpp"
+#include "duty_gate.hpp"
 #include "push_answer.hpp"
 #include "../detector/detector_interface.hpp"
 #include "../detector/geometry/detection/frame_keep.hpp"
@@ -36,6 +37,7 @@
 #include <condition_variable>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <set>
@@ -130,6 +132,12 @@ struct OwedPush
     // Wednesday's.
     Binding binding = Binding::Organisation;
     long long contest_id = 0;
+    /**
+     * turnaus#1912: when offer() queued it, the moment the detector said SCORE. Never
+     * spooled, so a push resumed from the spool after a restart carries the epoch and
+     * gets no ANSWER_MS figure -- its wait is not this run's to measure.
+     */
+    std::chrono::steady_clock::time_point offered_at{};
 };
 
 /**
@@ -731,10 +739,14 @@ private:
      * due once per END, tried once, and due again at the next END whatever came of it.
      */
     void endOfRoundDuties();
+    /** turnaus#1912: the duty thread's loop; endOfRoundDuties() is called from here only. */
+    void runDuties();
+    /** turnaus#1912: the queue changed size; tell the gate and, when empty, the duty thread. Call with mutex_ held. */
+    void queueChanged();
     /** Post the log lines written since the last acknowledged offset; at most `most_chunks` posts. */
-    void uploadLog(bool final, int most_chunks);
+    void uploadLog(bool final, int most_chunks, bool yield_to_pushes = false);
     /** Ask the server for pending frame requests and answer each from frame_keep. */
-    void serveFrameRequests();
+    void serveFrameRequests(bool yield_to_pushes = false);
     /**
      * #891. The evening ended: forget the Contest binding, drop what was owed to it, and
      * fall back to the Organisation binding if this board has one.
@@ -762,7 +774,8 @@ private:
     void haltThreads();
     /** #1259: write every queued push the worker never reached to the spool. */
     size_t spoolUnwritten();
-    bool deliver(const OwedPush &item);
+    /** `said` gets the answer ("HTTP 202 COUNTED") or why there was none, for #1912's lines. */
+    bool deliver(const OwedPush &item, std::string &said);
     /** Append one item to the spool and stamp its spool_index; a file that cannot be
      *  written leaves the index -1, which the ledger refuses to count (#1351). */
     void spool(OwedPush &item);
@@ -809,6 +822,13 @@ private:
     std::condition_variable condition_;
     std::deque<OwedPush> queue_;
     std::thread worker_;
+    // turnaus#1912: the END's duties, on their own thread (duty_gate.hpp has the rule), and
+    // one kept connection per posting thread (http_transport.hpp's Session says why one each).
+    std::thread duties_;
+    std::condition_variable duty_condition_;
+    DutyGate duty_gate_;
+    odhttp::Session push_session_;
+    odhttp::Session duty_session_;
 
     // #1276. The round in hand and the door its first dart went out of, under `mutex_`
     // because the scoring thread opens it and the push worker or the beat thread can end
