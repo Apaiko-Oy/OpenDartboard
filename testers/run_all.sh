@@ -1164,6 +1164,14 @@ tester 1885-armed-at-start "bash '$T/i1885_check.sh'"
 # (--mutate, the suffix dropped) inside the harness. Needs loopback, no detector binary;
 # OD_SKIP_BUILD changes nothing about it beyond build/_deps.
 tester 1796-pi-launcher   "bash '$T/i1796_check.sh'"
+# turnaus#1900: the artefact fetch is a bounded series (three attempts, 5 s then 15 s,
+# Retry-After honoured; 404 and a digest mismatch not retried) and a board waits up to 30 s
+# for timesyncd's flag before a look. The launcher's own fetch against a scripted server
+# whose access log counts the requests, the clock wait over a directory of the check's own,
+# three mutation proofs inside the harness. --network none, no detector binary; needs
+# build/_deps. MEASURED 2026-10-20 on the 4-core box at load 4-6: 115-144 s wall, rc=0 --
+# 20 s of it the one scenario that waits on the real clock.
+tester 1900-retry         "bash '$T/i1900_check.sh'"
 tester 1334-networkless   "bash '$T/i1334_run.sh'"
 # #1383: a blind board given a cycle budget ends, and a blind board says so where a
 # supervisor can read it. Six detector runs on #892's blind fixture and the shipped

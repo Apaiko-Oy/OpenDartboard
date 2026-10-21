@@ -59,6 +59,9 @@ int main(int argc, char **argv)
     surroundings.fetch_artefact = launcher::fetchArtefactOverHttp;
     surroundings.unpack = launcher::unpackWithSystemTool;
     surroundings.clock = launcher::wallClock;
+    // #1900: wait for timesyncd's flag, bounded, before a look -- on Linux only, and only
+    // where the flag can be read at all (clock_sync.hpp).
+    surroundings.timesync_dir = launcher::timesyncDirectory();
     // ADR-0077 §7's "for somebody standing at the machine who wants one". OD_UPDATE_NOW is
     // the same thing for a start that has no command line -- a double-click -- exactly as
     // OD_TURNAUS_URL is --turnaus and OD_ALLOW_PLAINTEXT is --allow-plaintext (#1259).

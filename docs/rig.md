@@ -2099,6 +2099,110 @@ followed by one look and one restart with byte-identical argv; the three config 
 byte-identical throughout. `--mutate` (the suffix dropped on a copy of `src/`) turns the
 pure check and the install red.
 
+## A refused fetch is tried again, and the clock is waited for (turnaus#1900)
+
+**Why.** Measured on the Pi 5 on 2026-10-20 (launcher 0.1.15, stable at 0.1.18): the manifest
+read fine, GitHub answered **403** to the one artefact request, and the board started 0.1.15
+-- all three journal lines in the same second. The same url answered 302 then 200 two hours
+later. One request was the whole look, and under `Restart=always` the next look is the next
+06:00 (#1797), so one refused request cost a day. The clock at that boot was 12 h 40 min
+behind (no battery clock; fake-hwclock restored the last shutdown, timesyncd's first sync came
+seconds after the look).
+
+**The series** (`apply_update.hpp`, `fetchWithRetries()`). Three attempts in all, **5 s then
+15 s** apart, inside the one look. Retried: nothing answered (a transport error), any 5xx,
+403, 408, 429. A 429 or 503 carrying `Retry-After` waits what it says instead -- up to
+20 s; one asking for more ends the series rather than being shortened. **Not retried:** a
+404 (the release is not there), any other 4xx, and a 200 whose bytes are wrong -- the length
+and the digest are judged once, after the series, and a second copy of wrong bytes is still
+wrong. Each wait is announced as it starts, in both languages:
+
+    Julkaisua ei saatu haettua (HTTP 403), yritetään uudelleen 2/3 5 sekunnin kuluttua.
+    The release could not be fetched (HTTP 403); trying again, 2 of 3, in 5 seconds.
+
+and after the last failure the board says when it looks next:
+
+    The board starts version 0.1.15, the one it already had; it looks again at the next 06:00 restart, or now with --update-now.
+
+The waits add up to 20 s (40 s at most with `Retry-After`) and each attempt's connect
+timeout is 10 s, so three refusals are over inside a minute and a board stopped at 06:00 is
+scoring again by 06:02. A failure does NOT re-open the quiet rule (ADR-0077 §7): the retry
+lives inside the one look, the manifest read and the beat are not retried here (#1305,
+#1306), and the next look is still 06:00 or a forced one.
+
+**The clock** (`clock_sync.hpp`). Before the manifest is asked for, a launcher on Linux
+looks at timesyncd's flag, `/run/systemd/timesync/synchronized` (what `timedatectl` reads as
+`NTPSynchronized`). The directory present and the file absent means timesyncd is running and
+has not synchronised: the launcher waits for the file, polling once a second, **for at most
+30 s**, then looks either way and says which (`The clock was not yet synchronised; it was
+after 4 s, ...` or `The clock was not synchronised after 30 s, so the look for updates begins
+on a clock that may be wrong.`). With no wait, the clock is mentioned only when the look goes
+on to fetch something (`The clock was synchronised when the look for updates began.`). No
+directory -- Windows, a container, a board on chrony -- means the flag cannot be read: no
+wait and nothing said. `OD_TIMESYNC_DIR` replaces the directory for a harness; set empty it
+turns the wait off.
+
+**Forcing a look by hand on a Pi.** The unit has no command line to add `--update-now` to,
+so the environment carries it (`OD_UPDATE_NOW=1`, `main.cpp`):
+
+    sudo systemctl set-environment OD_UPDATE_NOW=1 && sudo systemctl restart opendartboard && sudo systemctl unset-environment OD_UPDATE_NOW
+
+The look happens in the restart; the unset only stops the NEXT restart being forced too.
+
+**Measured in the container, 2026-10-20** (`testers/i1900_check.sh`, the launcher's own
+`fetchArtefactOverHttp()` against `testers/i1900_server.py` via `OD_UPDATE_ARTEFACT_BASE`,
+requests counted in the server's access log): 403 then 200 installed after 2 requests and
+one 5 s wait; 403 x 3 -- 3 requests, waits 5 and 15, the next-look sentence, the old detector
+untouched; 404 one request; 429 `Retry-After: 7` waited 7; wrong bytes one request;
+503/500/200 installed at the third; 408 retried; a closed port retried; `Retry-After: 99`
+ended the series at one request; 403 x 3 on the real clock took 20.0 s. The clock wait over a
+directory of the check's own: no wait without the directory, none with the flag, 3 s when it
+appeared at 3 s, 30 s and on when it never did. Three mutations on a copy of `src/` each go
+red: a retry announced and waited for but never sent (one request in the log), `Retry-After`
+ignored, 404 retried. `testers/i1796_check.sh` phase 1 now meets one 403 at its redirector
+and a flag that appears 2 s into the look, and installs at the second attempt.
+
+**Not yet measured on the Pi** -- the maintainer's, at the board. The board's launcher must
+be this change's, and its detector must differ from what the channel publishes, or the look
+fetches nothing. A one-shot refuser on the Pi's loopback answers the first request 403 and
+redirects every later one to GitHub, and a forced look is pointed at it:
+
+    cat > /tmp/refuse-once.py <<'PY'
+    import http.server
+    seen = [0]
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen[0] += 1
+            print(seen[0], self.path, flush=True)
+            if seen[0] == 1:
+                self.send_response(403)
+            else:
+                self.send_response(302)
+                self.send_header("Location", "https://github.com" + self.path)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+    http.server.HTTPServer(("127.0.0.1", 8900), H).serve_forever()
+    PY
+    python3 /tmp/refuse-once.py > /tmp/refuse-once.log 2>&1 & REFUSER=$!
+    ls -la /run/systemd/timesync/          # the flag the launcher reads: is the directory there?
+    sudo systemctl set-environment OD_UPDATE_NOW=1 OD_UPDATE_ARTEFACT_BASE=http://127.0.0.1:8900
+    sudo systemctl restart opendartboard
+    sleep 30
+    sudo systemctl unset-environment OD_UPDATE_NOW OD_UPDATE_ARTEFACT_BASE
+    journalctl -u opendartboard --since "-2 min" --no-pager | grep -E "Kello|clock|Julkaisu|release|asennettiin|installed|already had|jo oli"
+    cat /tmp/refuse-once.log               # expected: two lines, the same path
+    kill "$REFUSER"
+
+Expected: the retry sentence (`HTTP 403 ... 2 of 3, in 5 seconds`) and, five seconds later,
+`Version ... was installed`. The clock half is seen at a real boot (`sudo reboot`, then
+`journalctl -u opendartboard -b`), or by deleting the flag before the forced restart
+(`sudo rm /run/systemd/timesync/synchronized`), which makes the launcher wait until timesyncd
+next touches it or 30 s pass.
+
+| date | launcher | detector before | requests at the refuser | journal: retry line | journal: installed | clock line | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| *not yet run* | | | | | | | |
+
 ## A Raspberry Pi pairs over TLS, and which builds can (turnaus#1798)
 
 **Which builds can pair.** Pairing (`--pair`, `--pair-contest`) and every push go to an

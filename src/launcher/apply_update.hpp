@@ -62,10 +62,12 @@
 #include "command_line.hpp"
 #include "install_layout.hpp"
 
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -317,6 +319,134 @@ namespace launcher
         return odhttp::get(parsed, std::string(), /*connect*/ 10, /*read*/ 600, /*follow_redirects*/ true);
     }
 
+    // ------------------------------------------------------------------ trying again (#1900)
+    //
+    // MEASURED ON A PI, 2026-10-20: GitHub answered 403 to one artefact request at boot and
+    // 302-then-200 to the same url from the same board two hours later. One request was the
+    // whole look, so one refusal cost the board a day -- the next look is the next 06:00.
+    //
+    // So the fetch is a SMALL BOUNDED SERIES INSIDE THE ONE LOOK: three attempts in all,
+    // 5 s then 15 s apart, and nothing else changes. The quiet rule (§7) is not re-opened by
+    // a failure -- a crash-restart mid-match that downloads 38 MB is what it exists to stop --
+    // and neither the manifest read nor the beat is retried here; they have their own rules
+    // (#1305, #1306).
+    //
+    // WHAT IS TRIED AGAIN is a failure that is not a definite "no": nothing answered, 5xx,
+    // 403, 408, 429. WHAT IS NOT is everything else: a 404 says the release is not there, and
+    // the bytes of a 200 are judged by the signed manifest after the series -- a second copy
+    // of wrong bytes is still wrong, so a digest mismatch (or a wrong length) ends the look.
+    //
+    // RETRY-AFTER is honoured on a 429 or a 503 that carries one (odhttp reads it as whole
+    // seconds; an HTTP-date reads as 0 and is treated as absent). One that asks for longer
+    // than kLongestHonouredWait ends the series instead of being shortened: the server said
+    // "not soon", and waiting less than it asked is not honouring it. The waits therefore
+    // add up to at most 2 x 20 s, so the series -- with a connect timeout of 10 s an attempt
+    // -- is over inside one minute and a board at 06:00 is scoring again by 06:02.
+
+    const int kArtefactAttempts = 3;
+    /** The wait before attempt 2, then before attempt 3. */
+    const int kArtefactWaits[kArtefactAttempts - 1] = {5, 15};
+    const int kLongestHonouredWait = 20;
+
+    /** Waiting, in whole seconds. A seam, so a harness measures the series without sitting through it. */
+    typedef std::function<void(int seconds)> Wait;
+    /** A sentence said NOW, not after the look: a journal line belongs to the second it happened in. */
+    typedef std::function<void(const Text &)> SayNow;
+
+    inline void waitForReal(int seconds) { std::this_thread::sleep_for(std::chrono::seconds(seconds)); }
+
+    /** True for a failure that is not a definite "no", by the rule above. */
+    inline bool worthAnotherAttempt(const odhttp::Response &response)
+    {
+        if (!response.reached_a_server())
+        {
+            return true;
+        }
+        const int status = response.status;
+        return status >= 500 || status == 403 || status == 408 || status == 429;
+    }
+
+    /** What went wrong with one attempt, as `detail` carries it: a status or a transport error. */
+    inline std::string fetchFailure(const odhttp::Response &response)
+    {
+        if (!response.reached_a_server())
+        {
+            return response.transport_error.empty() ? std::string("nothing answered") : response.transport_error;
+        }
+        return "HTTP " + std::to_string(response.status);
+    }
+
+    /**
+     * Seconds to wait before attempt `next` (2 or 3) after `failed`, or -1 when the series
+     * ends here because the server asked for longer than this look waits.
+     */
+    inline int waitBeforeAttempt(int next, const odhttp::Response &failed)
+    {
+        int seconds = kArtefactWaits[next - 2];
+        if ((failed.status == 429 || failed.status == 503) && failed.retry_after_s > 0)
+        {
+            if (failed.retry_after_s > kLongestHonouredWait)
+            {
+                return -1;
+            }
+            seconds = failed.retry_after_s;
+        }
+        return seconds;
+    }
+
+    /** The line said before every attempt after the first. */
+    inline Text retryText(const std::string &detail, int next, int seconds)
+    {
+        const std::string of = std::to_string(next) + "/" + std::to_string(kArtefactAttempts);
+        return {"Julkaisua ei saatu haettua (" + detail + "), yritetään uudelleen " + of + " " +
+                    std::to_string(seconds) + " sekunnin kuluttua.",
+                "The release could not be fetched (" + detail + "); trying again, " + std::to_string(next) +
+                    " of " + std::to_string(kArtefactAttempts) + ", in " + std::to_string(seconds) + " seconds."};
+    }
+
+    struct Fetched
+    {
+        odhttp::Response response; // the last attempt's
+        int attempts = 0;          // how many requests were really made
+    };
+
+    /** The series. Returns the first 200, or the last failure; never judges the bytes. */
+    inline Fetched fetchWithRetries(const std::string &url, const FetchArtefact &fetch, const Wait &wait,
+                                    const SayNow &say)
+    {
+        Fetched fetched;
+        for (int attempt = 1;; attempt++)
+        {
+            fetched.response = fetch(url);
+            fetched.attempts = attempt;
+            if (fetched.response.reached_a_server() && fetched.response.status == 200)
+            {
+                return fetched;
+            }
+            if (attempt >= kArtefactAttempts || !worthAnotherAttempt(fetched.response))
+            {
+                return fetched;
+            }
+            const int seconds = waitBeforeAttempt(attempt + 1, fetched.response);
+            if (seconds < 0)
+            {
+                return fetched;
+            }
+            if (say)
+            {
+                say(retryText(fetchFailure(fetched.response), attempt + 1, seconds));
+            }
+            if (wait)
+            {
+                wait(seconds);
+            }
+            else
+            {
+                waitForReal(seconds);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ what happened
 
     /** The step an application stopped at. Every one is a different sentence to a tester. */
@@ -344,6 +474,8 @@ namespace launcher
         std::string to_version;   // what the manifest named
         /** True only for the one case a board may not be left in: the detector is gone. */
         bool detector_is_missing = false;
+        /** #1900: artefact requests really made in this application (0 if it stopped before 4). */
+        int attempts = 0;
     };
 
     /**
@@ -359,6 +491,7 @@ namespace launcher
         refused.detail = detail;
         refused.from_version = attempt.from_version;
         refused.to_version = attempt.to_version;
+        refused.attempts = attempt.attempts;
         return refused;
     }
 
@@ -374,7 +507,8 @@ namespace launcher
      */
     inline Application applyUpdate(const Layout &layout, const update_check::Answer &answer,
                                    const std::string &launcher_version, State &state,
-                                   const FetchArtefact &fetch, const Unpack &unpack)
+                                   const FetchArtefact &fetch, const Unpack &unpack, const Wait &wait = Wait(),
+                                   const SayNow &say = SayNow())
     {
         Application application;
         application.from_version = answer.running_version;
@@ -398,19 +532,14 @@ namespace launcher
         removeTree(layout.staging_dir);
         std::remove(layout.download_file.c_str());
 
-        // 4. Into memory. Nothing on this board has been written yet.
-        odhttp::Response response = fetch(answer.published_url);
-        if (!response.reached_a_server())
+        // 4. Into memory. Nothing on this board has been written yet. #1900: a bounded
+        //    series rather than one request, by the rule at fetchWithRetries().
+        const Fetched fetched = fetchWithRetries(answer.published_url, fetch, wait, say);
+        application.attempts = fetched.attempts;
+        const odhttp::Response &response = fetched.response;
+        if (!response.reached_a_server() || response.status != 200)
         {
-            Application refused = stoppedAt(application, Step::CouldNotReach, response.transport_error.empty()
-                                                                     ? std::string("nothing answered")
-                                                                     : response.transport_error);
-            return refused;
-        }
-        if (response.status != 200)
-        {
-            Application refused =
-                stoppedAt(application, Step::CouldNotReach, "HTTP " + std::to_string(response.status));
+            Application refused = stoppedAt(application, Step::CouldNotReach, fetchFailure(response));
             return refused;
         }
 
@@ -647,6 +776,17 @@ namespace launcher
             {
                 said.push_back({"Taulussa ei nyt ole ohjelmaa lainkaan. Asenna julkaisu uudelleen käsin.",
                                 "This board now has no program at all. Install the release again by hand."});
+            }
+            else if (application.step == Step::CouldNotReach)
+            {
+                // #1900: after the last failed attempt, when the board looks next -- so the
+                // person reading the journal knows the day is not lost by accident.
+                said.push_back({"Taulu käynnistyy versiolla " + application.from_version +
+                                    ", joka sillä jo oli; se katsoo päivitykset uudelleen seuraavassa kello 06:00 "
+                                    "uudelleenkäynnistyksessä, tai heti valitsimella --update-now.",
+                                "The board starts version " + application.from_version +
+                                    ", the one it already had; it looks again at the next 06:00 restart, or now "
+                                    "with --update-now."});
             }
             else
             {

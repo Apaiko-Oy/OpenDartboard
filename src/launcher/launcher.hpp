@@ -65,6 +65,7 @@
 #include "../update/update_keys.hpp"
 #include "../utils/console_prompt.hpp"
 #include "apply_update.hpp"
+#include "clock_sync.hpp"
 #include "ending.hpp"
 #include "install_layout.hpp"
 #include "update_moment.hpp"
@@ -116,6 +117,11 @@ namespace launcher
         int looks = 0;
         int scheduled_stops = 0;
         bool refused_to_follow = false;
+
+        // #1900, for a harness: artefact requests made across every look, and the clock as
+        // the latest look found it.
+        int artefact_attempts = 0;
+        ClockAtLook clock;
     };
 
     /**
@@ -146,6 +152,17 @@ namespace launcher
         std::function<long long()> clock;
         bool forced = false;
         long long quiet_seconds = kQuietSeconds;
+        /**
+         * #1900: how the launcher waits -- between artefact attempts and for the clock. Empty
+         * is the real sleep; a harness hands in one that records the seconds instead.
+         */
+        Wait wait;
+        /**
+         * #1900: timesyncd's runtime directory, whose `synchronized` file says the clock is
+         * on time (clock_sync.hpp). EMPTY MEANS DO NOT WAIT, which is what every harness
+         * that names nothing gets; main.cpp names the real one.
+         */
+        std::string timesync_dir;
     };
 
     /** Unix seconds. One place, so a harness replaces one thing. */
@@ -165,8 +182,17 @@ namespace launcher
 
     /** The one door to the network, and everything that follows from going through it. */
     inline void lookForAnUpdate(const Surroundings &surroundings, State &state, Report &report,
-                                std::vector<Text> &said)
+                                const SayNow &say)
     {
+        // #1900: a board not yet on the clock gets a bounded chance to be, before the
+        // manifest -- whose minimumLauncher is read against that clock -- is even asked for.
+        const ClockAtLook clock = waitForTheClock(surroundings.timesync_dir, surroundings.wait);
+        report.clock = clock;
+        if (clock.readable && clock.waited_s > 0)
+        {
+            say(clockText(clock));
+        }
+
         const update_check::Answer answer =
             update_check::ask(surroundings.address, surroundings.channel, installedVersion(state, version()),
                               surroundings.anchors, surroundings.fetch_manifest);
@@ -178,8 +204,8 @@ namespace launcher
         {
             // This one IS news, and #1305 already has the sentence for it: a manifest that
             // will not verify must never read as "there is no update".
-            said.push_back(update_check::refusalText(answer.refusal, answer.refusal_detail));
-            said.push_back(update_check::stillRunning());
+            say(update_check::refusalText(answer.refusal, answer.refusal_detail));
+            say(update_check::stillRunning());
             return;
         }
         if (answer.kind != update_check::Kind::Available)
@@ -187,19 +213,25 @@ namespace launcher
             return;
         }
 
-        said.push_back({"Kanava " + answer.channel + " julkaisee version " + answer.published_version +
-                            ". Se haetaan ja asennetaan ennen käynnistystä.",
-                        "The " + answer.channel + " channel publishes version " + answer.published_version +
-                            ". It is being fetched and installed before starting."});
+        if (clock.readable && clock.waited_s == 0)
+        {
+            say(clockText(clock)); // something is about to be fetched: say what the clock was
+        }
+        say({"Kanava " + answer.channel + " julkaisee version " + answer.published_version +
+                 ". Se haetaan ja asennetaan ennen käynnistystä.",
+             "The " + answer.channel + " channel publishes version " + answer.published_version +
+                 ". It is being fetched and installed before starting."});
 
         const Application application = applyUpdate(surroundings.layout, answer, version(), state,
-                                                    surroundings.fetch_artefact, surroundings.unpack);
+                                                    surroundings.fetch_artefact, surroundings.unpack,
+                                                    surroundings.wait, say);
         const std::vector<Text> lines = applicationLines(application);
         for (size_t i = 0; i < lines.size(); i++)
         {
-            said.push_back(lines[i]);
+            say(lines[i]);
         }
         report.applied_an_update = application.ok;
+        report.artefact_attempts += application.attempts;
     }
 
     /**
@@ -251,7 +283,15 @@ namespace launcher
             {
                 report.looked_for_an_update = true;
                 report.looks++;
-                lookForAnUpdate(surroundings, state, report, before);
+                // #1900: every line of a look is said as it happens. A retry waits 5 or 15 s
+                // between two lines, and a journal that stamped them all with the second the
+                // look ENDED would hide exactly the wait it is reporting.
+                lookForAnUpdate(surroundings, state, report,
+                                [&console, &report](const Text &line)
+                                {
+                                    console.say(line);
+                                    report.said.push_back(line);
+                                });
             }
             else if (surroundings.forced)
             {
