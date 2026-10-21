@@ -9,6 +9,7 @@
 
 #include "../calibration/board_model.hpp"
 #include "shaft_axis.hpp"
+#include "sisal_slide.hpp"
 
 /**
  * #1512: ONE BOARD-PLANE ENTRY POINT FROM EVERY RELIABLE CAMERA CONSTRAINT, SCORED ONCE.
@@ -261,6 +262,12 @@ namespace entry_intersection
         // rig-20260929 window 22 -- two cameras crossing at 9.8 deg, the third on the
         // other new dart -- reads r = 0.01, the lowest on disk.
         double minRedundancy = 0.1;
+
+        // turnaus#1909: the depth below the wires' plane a dart's scoring point is taken at,
+        // mm; the solved entry slides along the dart's 3D axis by it (sisal_slide.hpp). 0 is
+        // off and is the default: score_processing reads OD_SISAL_MM into it, and a caller
+        // that leaves it alone gets the solve every build before this one made.
+        double sisalMm = 0.0;
     };
 
     /**
@@ -329,6 +336,9 @@ namespace entry_intersection
         bool excluded = false;   // was usable, refused by the consistency check
         std::string exclusion;   // the named reason, when !usable or excluded
         bool rescued = false;    // #1586: the axis came from the composite rescue
+        // turnaus#1911: the factor on this line's perpendicular sigma, rms / 2.5 above the
+        // base gate and exactly 1.0 at or under it. A weight, never a count.
+        double sigmaScale = 1.0;
 
         // The transported line, canonical board mm: unit normal (nx,ny) and offset c,
         // a point X on the line satisfying nx*X.x + ny*X.y + c = 0.
@@ -408,9 +418,16 @@ namespace entry_intersection
         // it only as a LAST RESORT: where the plain constraints already number two, it
         // is held back by name.
         bool axisRescued = false;
+        // turnaus#1911: the admitted axis's centreline rms, px; its constraint's sigma is
+        // widened by shaft_axis::straightSigmaScale of it (1.0 at or under 2.5 px).
+        double axisRmsPx = 0.0;
 
         bool tipFound = false;
         cv::Point2f tipImage;
+
+        // turnaus#1909: the frame's size, whose centre is the principal point the sisal
+        // slide recovers this camera's centre with. 0x0 leaves the camera out of the slide.
+        cv::Size imageSize;
     };
 
     /** The whole verdict of one solve. */
@@ -531,6 +548,15 @@ namespace entry_intersection
         // two flag rates are a comparison rather than two runs: `boundaryMm` against the
         // major axis. `OD_WIRE_FLAG=sigma-major` publishes on this one instead.
         bool crudeWireClose = false;
+
+        // ---- turnaus#1909: THE SISAL SLIDE, where Params::sisalMm asked for one ----------
+        // `sisalApplied` where the entry above IS the slid one; `sisalShiftMm` how far it
+        // moved, `sisalElevationDeg` the axis's angle to the board, `sisalStory` the words
+        // (including why it did not slide). All empty / -1 where sisalMm is 0.
+        bool sisalApplied = false;
+        double sisalShiftMm = -1.0;
+        double sisalElevationDeg = -1.0;
+        std::string sisalStory;
     };
 
     /**
@@ -904,7 +930,7 @@ namespace entry_intersection
             const double angular = std::tan(sigmaDir * CV_PI / 180.0) * con.leverMm;
             const double lateral = con.pxPerMm > 0.0 ? p.sigmaLateralPx / con.pxPerMm
                                                      : p.sigmaLateralPx;
-            con.sigmaPerpMm = std::sqrt(angular * angular + lateral * lateral);
+            con.sigmaPerpMm = con.sigmaScale * std::sqrt(angular * angular + lateral * lateral);
         }
 
         /** Weighted least squares over the usable, unexcluded constraints.
@@ -954,6 +980,7 @@ namespace entry_intersection
             Constraint con = constraintFrom(ev);
             con.sigmaDirDeg = ev.axisSigmaDeg;
             con.rescued = ev.axisRescued;
+            con.sigmaScale = shaft_axis::straightSigmaScale(ev.axisRmsPx);
             out.constraints.push_back(con);
         }
 
@@ -1054,7 +1081,7 @@ namespace entry_intersection
             {
                 if (!con->excluded)
                 {
-                    con->sigmaPerpMm = 1.0;
+                    con->sigmaPerpMm = con->sigmaScale; // turnaus#1911: 1.0 on any 2.5 px line
                 }
             }
             if (!detail::solveOnce(out.constraints, Xout, covOut))
@@ -1258,6 +1285,74 @@ namespace entry_intersection
             // read, so nothing downstream can route around it.
             out.sigmaMajorMm = 0.0;
             out.sigmaMinorMm = 0.0;
+        }
+
+        // turnaus#1909: the scoring point is where the axis reaches the sisal, d below the
+        // wires' plane the lines were transported to -- slid before ANYTHING reads X, so the
+        // tips, the score, the wire question and the census all see the slid point.
+        if (params.sisalMm > 0.0)
+        {
+            std::vector<sisal_slide::LineAndCentre> cams;
+            std::string why;
+            for (size_t i = 0; i < evidence.size() && i < out.constraints.size(); i++)
+            {
+                const Constraint &con = out.constraints[i];
+                const CameraEvidence &ev = evidence[i];
+                if (!con.usable || con.excluded || ev.fit == nullptr || !ev.fit->planeBuilt ||
+                    !(ev.fit->unitPerMm > 0.0) || !ev.anchor.resolved)
+                {
+                    continue;
+                }
+                if (ev.imageSize.width <= 0 || ev.imageSize.height <= 0)
+                {
+                    why += " cam " + std::to_string(ev.camera + 1) + ": no frame size;";
+                    continue;
+                }
+                cv::Matx33d Hmm = ev.fit->plane.H;
+                for (int r = 0; r < 3; r++)
+                {
+                    Hmm(r, 0) *= ev.fit->unitPerMm;
+                    Hmm(r, 1) *= ev.fit->unitPerMm;
+                }
+                const sisal_slide::Centre c = sisal_slide::centreOf(
+                    Hmm, cv::Point2d(ev.imageSize.width * 0.5, ev.imageSize.height * 0.5));
+                if (!c.valid)
+                {
+                    why += " cam " + std::to_string(ev.camera + 1) + ": no focal length;";
+                    continue;
+                }
+                const cv::Point2f cc = detail::canonOf(ev.anchor, cv::Point2f((float)c.at[0], (float)c.at[1]));
+                sisal_slide::LineAndCentre lc;
+                lc.point = cv::Vec2d(-con.c * con.nx, -con.c * con.ny);
+                lc.dir = cv::Vec2d(-con.ny, con.nx);
+                lc.centre = cv::Vec3d(cc.x, cc.y, c.at[2]);
+                cams.push_back(lc);
+            }
+            const cv::Vec3d axis = sisal_slide::axisOf(cams);
+            const double sinE = std::fabs(axis[2]);
+            if (cams.size() < 2 || cv::norm(axis) == 0.0)
+            {
+                out.sisalStory = "no slide: " + std::to_string(cams.size()) + " camera(s) placed an axis plane" + why;
+            }
+            else if (sinE < sisal_slide::kMinSinElevation)
+            {
+                out.sisalElevationDeg = std::asin(std::min(1.0, sinE)) * 180.0 / CV_PI;
+                out.sisalStory = "no slide: the axis stands " + detail::fmt("%.1f", out.sisalElevationDeg) +
+                                 " deg to the board, under 30";
+            }
+            else
+            {
+                const cv::Point2d d = sisal_slide::slideOf(axis, params.sisalMm);
+                X.x += (float)d.x;
+                X.y += (float)d.y;
+                out.sisalApplied = true;
+                out.sisalShiftMm = std::sqrt(d.x * d.x + d.y * d.y);
+                out.sisalElevationDeg = std::asin(std::min(1.0, sinE)) * 180.0 / CV_PI;
+                out.sisalStory = "slid " + detail::fmt("%.2f", out.sisalShiftMm) + " mm along the axis at " +
+                                 detail::fmt("%.1f", out.sisalElevationDeg) + " deg, d=" +
+                                 detail::fmt("%.1f", params.sisalMm) + " mm, " +
+                                 std::to_string(cams.size()) + " camera(s)";
+            }
         }
 
         out.solved = true;

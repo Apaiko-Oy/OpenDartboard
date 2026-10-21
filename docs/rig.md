@@ -2507,3 +2507,503 @@ stand-in that records each call -- one request with `0x80000001`, one release wi
 proofs inside the harness (the flags made `ES_DISPLAY_REQUIRED`: 2 red; the pin compared with
 `"of"`: 5 red). The real call is MSVC's and kernel32's, built by release.yml, and runs only
 on a board.
+
+## Why a camera offers no line, counted (turnaus#1911), and `OD_STRAIGHT_PX`, opt-in
+
+**The census.** Every published dart now logs one line naming each camera's reason and the
+figures the gates judged (`shaft_axis::refusalCensusLine`, written by `geometry_detector.cpp`):
+
+    I1911 REFUSALS window=17 path=vote score=D16 r=0.9615 gate=2.50
+      cam1=not-straight,rms=3.03,elong=9.10,scale=1.00 cam2=rim-only,... cam3=ok,...
+
+`rms` is the kept centreline's scatter (the 2.5 px straightness gate's figure), `elong`
+extent over median width (the 3.0 elongation gate's), `scale` the sigma factor an admitted
+line carries, `r` the published board radius (1.0 the double's outer wire). The reasons are
+the refusal's own first words: `not-straight`, `not-a-shaft`, `rim-only` (#1689),
+`no-figure`, `no-frame`, `direction-unusable`, `other` (departure, clean, support floor). An END
+writes none; the binary the bakeoff below measured (the source of 5e939a2) wrote one for each END, every
+camera `other`, and the census leaves such a line out.
+
+`testers/i1911_census.py --log <log> [--log ...] [--label <name>] [--each]` counts them by
+camera, by radius bin and by reason, over a bakeoff replay's `<run>.txt` or a board's log.
+A log without the line (every board before this) is read from the stories every board
+since #1555 writes: the `PATH:` line per dart, the `LINES:` line after it, and the radius
+from the `board_radius` of the `TURNAUS:` push that posted the dart (i1789's join, by
+sector). From the stories an axis the solver itself excluded reads `solver`. Radius bins:
+under the treble (`<0.58`), the treble (99-107 mm), `0.63-0.90`, `0.90-0.95` (the issue's
+split, the run-in to the double), the double (162-170 mm), past it, and `unknown` where no
+radius was published (a vote's MISS, most of the rim-only ones). Refusals are counted per
+camera per dart, so one dart can carry three.
+
+**The three Pi sessions** (device/2, Pelipaikka 6; logs fetched from Turnaus,
+`sessions/<day>/device-2.log`, 2026-10-18's session served under 2026-10-19):
+
+| session | darts | vote | r > 0.90 | vote at r > 0.90 |
+|---|---|---|---|---|
+| 2026-10-15 (0.1.15) | 3090 | 818 (26.5%) | 185 | 153 (83%) |
+| 2026-10-18 (0.1.15) | 470 | 118 (25.1%) | 32 | 22 (69%) |
+| 2026-10-20 (0.1.18) | 92 | 40 (43.5%) | 9 | 6 (67%) |
+
+By reason and camera (refusals; in brackets, those on vote darts):
+
+| reason | 10-15 cam 1 / 2 / 3 | all | 10-18 cam 1 / 2 / 3 | all | 10-20 cam 1 / 2 / 3 | all |
+|---|---|---|---|---|---|---|
+| not-straight | 413 / 1348 / 413 | 2174 (1004) | 81 / 148 / 71 | 300 (191) | 27 / 35 / 23 | 85 (64) |
+| rim-only | 242 / 339 / 331 | 912 (841) | 31 / 22 / 41 | 94 (83) | 9 / 15 / 8 | 32 (29) |
+| not-a-shaft | 20 / 338 / 22 | 380 (145) | 4 / 13 / 1 | 18 (10) | 1 / 3 / 1 | 5 (4) |
+| no-figure | 7 / 3 / 12 | 22 (21) | - | - | - | - |
+| other | 7 / 5 / 6 | 18 (17) | 1 / 2 / 2 | 5 (5) | 1 / 2 / 1 | 4 (4) |
+| solver | 0 / 1 / 0 | 1 (0) | 0 / 0 / 1 | 1 (0) | - | - |
+
+By reason and radius bin (`<0.58` / treble / `0.63-0.90` / `0.90-0.95` / double / `>1.00` / unknown):
+
+| reason | 2026-10-15 | 2026-10-18 | 2026-10-20 |
+|---|---|---|---|
+| not-straight | 751 / 347 / 825 / 48 / 69 / 0 / 134 | 113 / 27 / 116 / 11 / 10 / 0 / 23 | 29 / 8 / 23 / 3 / 4 / 0 / 18 |
+| rim-only | 26 / 21 / 142 / 74 / 173 / 0 / 476 | 5 / 0 / 7 / 12 / 22 / 0 / 48 | 0 / 0 / 2 / 4 / 5 / 0 / 21 |
+| not-a-shaft | 150 / 73 / 128 / 2 / 6 / 0 / 21 | 7 / 1 / 6 / 2 / 0 / 0 / 2 | 2 / 0 / 2 / 0 / 0 / 0 / 1 |
+
+The not-straight residuals, and what a wider gate reaches:
+
+| session | not-straight | median px | at or under 3.0 | at or under 4.0 | vote darts a 3.0 / 4.0 gate gives two lines |
+|---|---|---|---|---|---|
+| 2026-10-15 | 2174 | 5.46 | 309 | 726 | 83 / 192 of 818 |
+| 2026-10-18 | 300 | 5.10 | 63 | 108 | 14 / 27 of 118 |
+| 2026-10-20 | 85 | 6.68 | 8 | 23 | 4 / 9 of 40 |
+
+The last column is an upper bound: a dart short of two lines whose not-straight refusals at
+or under the gate would bring it to two, before the solve says anything about them.
+
+**What the live board says.** Near the double the vote is fed by `rim-only`, not by
+straightness: at r > 0.90 the 2026-10-15 session holds 247 rim-only refusals against 117
+not-straight, and most rim-only refusals are on darts that published no radius at all.
+Inside 0.90 `not-straight` dominates, and camera 2 carries three times the others' share on
+2026-10-15 (1348 of 2174; the same camera holds 338 of the 380 `not-a-shaft`). Two thirds of
+the not-straight residuals are over 4 px, so a gate at 3.0 or 4.0 reaches a minority of
+them: 10% / 23% of the vote darts on 2026-10-15 at best.
+
+**The fixtures** (the six bakeoff replays below, at the default gate; the `OD_SCORE_PATH=vote`
+pin left out, every one of its darts being a vote):
+
+| | darts | vote | r > 0.90 | vote at r > 0.90 |
+|---|---|---|---|---|
+| six replays | 151 | 37 (24.5%) | 17 | 15 (88%) |
+
+| reason | cam 1 / 2 / 3 | all (on vote darts) | `<0.58` / treble / `0.63-0.90` / `0.90-0.95` / double / `>1.00` / unknown |
+|---|---|---|---|
+| not-straight | 19 / 34 / 15 | 68 (46) | 25 / 10 / 17 / 10 / 6 / 0 / 0 |
+| rim-only | 13 / 16 / 16 | 45 (35) | 1 / 0 / 12 / 11 / 8 / 0 / 13 |
+| not-a-shaft | 0 / 2 / 2 | 4 (0) | 2 / 0 / 2 / 0 / 0 / 0 / 0 |
+| no-figure | 0 / 1 / 0 | 1 (1) | 0 / 0 / 0 / 0 / 0 / 0 / 1 |
+
+The fixtures' not-straight residuals sit lower than the live board's: median 3.88 px against
+5.10-6.68, 17 of 68 at or under 3.0 and 36 at or under 4.0, and 8 / 15 of the 37 vote darts a
+3.0 / 4.0 gate would give two lines. The gate was set where the fixtures' refusals are, and the
+live board's are further out.
+
+**The experiment.** `OD_STRAIGHT_PX=<px>` (`shaft_axis::straightGatePx`) moves the
+straightness gate; unset, empty, unparsable or not above zero is 2.5. A line admitted above
+2.5 px carries its perpendicular sigma multiplied by rms / 2.5 (`straightSigmaScale`, applied
+in `entry_intersection::detail::weighAt` and the seed solve): a 5 px line is a constraint
+with twice the sigma, a quarter of the weight. At or under 2.5 the factor is exactly 1.0, so
+the default cannot move. A widened line is still one constraint: the factor is a weight and
+nothing counts it, so TOO-FEW-CONSTRAINTS still guards #1505's phantom and #1535's re-report.
+The rescue's corridor (`OD_AXIS_RESCUE`, #1586) is drawn at the same gate, so the two
+switches together move both.
+
+**How this differs from #1586's rescue.** The rescue cuts a refused figure down to its
+dominant straight component and fits that, every gate unchanged, as a last resort held back
+wherever two plain lines solve. This admits the whole figure's own line as it was fitted,
+weaker in proportion to its scatter, and it joins any solve, including one that already had
+two lines: a third, looser line now re-weighs a solve the rescue would have left alone,
+which is the S15 -> T15 shape #1586 met.
+
+**Bakeoff** (capture clock, `OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, 2026-10-20, one binary, the gate unset then 3.0 then 4.0; 1,259 / 1,131 /
+1,280 s at load 6-14 with other checkouts' work alongside). The census beside each row is the six
+replays' (the pin left out):
+
+| | 2.5 (unset) | `OD_STRAIGHT_PX=3.0` | `OD_STRAIGHT_PX=4.0` |
+|---|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (0 scoring) | 38/40, phantoms 2 (0 scoring) | 38/40, phantoms 2 (0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | **42/46**, 0 phantoms | **42/46**, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | **60..66/72** | **58..64/72** |
+| pooled | 143..149/158 | **140..146/158** | **138..144/158** |
+| r18+r22 | 82/86 | **80/86** | **80/86** |
+| census: vote darts of 151 | 37 | 31 | 26 |
+| census: not-straight refusals (on vote darts) | 68 (46) | 51 (35) | 32 (22) |
+| census: not-straight at r > 0.90 | 16 | 12 | 8 |
+
+**Every newly solved dart that changes the published score turns it wrong.** At 3.0 six vote
+darts solve. Three publish the vote's own score (rig-20260918 window 26's S20 in both windows,
+rig-20260922's S7 in windows 9 / 11). Two are **rig-20260922's S7 in windows 15 / 17, exact on
+the vote at 0.90 and now S19 at 0.70 across the 7/19 wire, in both windows**: the dart #1586's
+rescue turned the same way (opening v5.3). The sixth is rig-20260929 opening's window 35, a vote
+T19 now S19, judged wrong by the ordinal join. At 4.0, the same six, plus rig-20260918 window 25's
+S5 in both windows (the same score) and rig-20260929's window 6 in both windows, a vote T14 now
+S14, judged wrong. Two vote darts (rig-20260918 window 23, rig-20260929 window 27) move from
+TOO-FEW-CONSTRAINTS to NEAR-PARALLEL and still publish the vote. No phantom is added, no visit
+publishes more than was thrown, and no dart the geometry already solved changes score
+(confidence moves on a few between 0.90 and 0.70). On the fixtures, then, the wider gate gains no
+dart: where its line agrees with the vote nothing changes, and where it disagrees the vote was
+right. **The default stays 2.5.** That is the maintainer's call, made from these rows.
+
+**Why the fixtures disagree with the live board's appetite.** The live board's 2.5-3.0 band
+holds 309 / 63 / 8 refusals over the three sessions, and those darts are not judged here: the
+live logs carry the corrections (Turnaus's truth line) but no annotation of the lines. A live
+A/B is the measurement this cannot replace.
+
+**Tested** by `1911-straight` (`testers/i1911_check.sh`): the arithmetic, the doubled sigma
+through a planted solve, a displaced widened line pulling the entry less, a widened line
+alone refused as TOO-FEW-CONSTRAINTS, the switch's parse and the census words, then five
+mutations of scratch copies each predicted to turn named assertions red, and the census
+reader's self-test.
+
+## The sisal census (turnaus#1909): the solve's error, radial and tangential, and `OD_SISAL_MM`, opt-in
+
+**The question.** A dart's tip rests 1..3 mm into the sisal below the wires' plane, and a
+line transported to that plane meets it short of or past the scoring point by the depth
+times the cotangent of the dart's angle to the board. Before building a term for it, the
+census asks whether the solved entry's error is radial at all.
+
+`testers/i1909_census.py --run <bakeoff dir> [--label <name>] [--rows] [--sisal 1 2 3]`
+reads the four annotated replays a `testers/i1555_run.sh` bakeoff leaves (r18 dev/open,
+r22 dev/open), binds every matched, solved dart to its annotated throw with i1647's
+`collect` (i1511's matcher, imported), and splits *solved minus reference* at the reference
+into radial (+ = the solve lies further out) and tangential, in i1911's radius bins (on the
+reference's radius). Two references: `tip`, the annotated board-contact pixel of every
+camera carried to canonical mm through that camera's own logged model (`I1647FIT`) and
+averaged, which is where the dart visibly meets the board and carries each camera's
+parallax; and `annX`, the crossing of the annotated shaft lines, which is the fit's error
+alone and has the same blind spot for depth the solve has. `VECTOR` is the mean error in
+fixed board directions (`up` the 20, `right` toward the 1): a depth term slides every dart
+along its own lean, and darts from one oche lean alike, so it would show as a mean vector,
+not as a radial bias.
+
+**Measured** over #1911's unset bakeoff (`runs-wt-1911/bake-unset`, `OD_WINDOW_UNIT=cycles
+OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on`; unset `OD_STRAIGHT_PX`, the solve this branch
+leaves byte-identical), 63 solved matched darts. Medians of the absolute parts, then the
+signed means, mm; `share` is sum rad² over sum |e|²:
+
+| ref | bin | n | rad med | tan med | rad mean | tan mean | rad rms | tan rms | share |
+|---|---|---|---|---|---|---|---|---|---|
+| tip | `<0.58` | 32 | 1.10 | 1.85 | +1.15 | +0.68 | 2.03 | 3.00 | 0.31 |
+| tip | treble | 14 | 2.73 | 1.69 | +1.28 | +1.91 | 3.52 | 2.23 | 0.71 |
+| tip | `0.63-0.90` | 16 | 3.90 | 3.08 | +2.01 | +1.51 | 5.29 | 5.46 | 0.48 |
+| tip | `0.90-0.95` | 1 | 2.09 | 3.02 | +2.09 | -3.02 | 2.09 | 3.02 | 0.32 |
+| tip | all | 63 | 1.69 | 1.95 | +1.41 | +1.11 | 3.47 | 3.66 | 0.47 |
+| annX | `<0.58` | 31 | 1.02 | 0.61 | +0.32 | +0.28 | 1.45 | 1.64 | 0.44 |
+| annX | treble | 14 | 1.34 | 1.34 | +0.28 | +1.33 | 1.72 | 1.61 | 0.53 |
+| annX | `0.63-0.90` | 17 | 0.82 | 0.95 | +0.46 | -3.33 | 1.47 | 10.44 | 0.02 |
+| annX | all | 63 | 1.13 | 0.77 | +0.36 | -0.50 | 1.51 | 5.60 | 0.07 |
+
+(annX's `0.63-0.90` tangential rms is r18 v2.3's annotated lines, which cross 30 mm off in
+both windows; the medians are the figure to read.) No double-bin dart solved and matched.
+The mean vector against `tip` is (up +0.65, right -0.41) mm, |0.76| mm, against a scatter of
+4.98 mm rms; against `annX` |1.07| mm against 5.70.
+
+**The radial part does not dominate.** Over all 63 it is 47% of the squared error against
+the tip and 7% against the annotated crossing; only the treble bin leans radial (71%
+against the tip, median 2.73 mm radial to 1.69 tangential), and its radial mean is +1.28 mm
+OUTWARD, which no depth term produces (a slide follows the dart's lean, not the radius).
+
+**And the term would be small on these fixtures whatever the census said.** The
+transported lines lie in the board plane and all pass through the entry, so they fix the
+entry and say nothing about the dart's angle to the board -- the issue's premise that "the
+axis's angle to the plane is what the transported lines give" does not hold. The angle needs
+each camera's centre. `--sisal` recovers it from the camera's own homography (a pinhole with
+square pixels and the principal point at the frame's centre leaves the focal length the one
+unknown, and `r1 . r2 = 0`, `|r1| = |r2|` answer it), takes the dart's 3D axis as the line
+common to every used camera's plane through its centre and its fitted line, and slides the
+solved entry along it by d / sin(elevation). On the same 63 darts: focal 757-854 px (median
+789) on every camera of both rigs, and the darts stand at **median 81.3 degrees to the
+board** (p10 73.9, p90 85.9; the shallowest 56.7). So the slide is d x cot(81 deg), about a
+sixth of the depth:
+
+| d (mm) | shift med / max (mm) | tip rad med / tan med (all) | tip treble rad med | annX rad med | ring calls moved (spec radii) |
+|---|---|---|---|---|---|
+| unset | 0 / 0 | 1.69 / 1.95 | 2.73 | 1.13 | - |
+| 1 | 0.15 / 0.66 | 1.79 / 1.96 | 2.77 | 1.07 | 2 |
+| 2 | 0.30 / 1.31 | 1.89 / 1.94 | 2.82 | 1.04 | 2 |
+| 3 | 0.46 / 1.97 | 1.98 / 1.94 | 2.86 | 1.21 | 2 |
+
+The radial error against the tip grows with d, the tangential holds, and the only ring call
+any depth moves is r22 v8.1's T1 (solved 99.03 mm, 0.03 mm outside the treble's inner wire),
+in both windows, from the right answer to the wrong one. The two surviving fixture errors are
+untouched: r18 v5.1 (thrown S15, solved T15 at 96.3 mm, standing at 84-85 degrees) would
+need about 3 mm inward and moves 0.1-0.3 mm.
+
+**`OD_SISAL_MM=<d>` is built anyway, opt-in, so the rows could be measured rather than
+modelled** (`sisal_slide.hpp`, applied in `solveEntry` before anything reads the entry, so the
+tips, the score, the wire question and the census lines all see the slid point). Unset
+(`Params::sisalMm` 0) nothing in it runs and every solve is byte-identical. It refuses by
+name -- fewer than two cameras placing an axis plane, no frame size, no focal length, an axis
+under 30 degrees to the board -- and the BOARD line gains `| sisal=<mm>mm (<story>)` only
+where it is set; under `OD_GEO_SCORE=on` an `I1909SISAL` line carries the shift and elevation.
+`i1555_run.sh` forwards it.
+
+**The bakeoff, replayed** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+OD_SISAL_MM=<d> testers/i1555_run.sh`, all seven replays, one binary built from 304f74d;
+`unset` is #1911's run of the same solve, `runs-wt-1911/bake-unset`):
+
+| OD_SISAL_MM | pooled | r18+r22 | r29 | shift med / max (mm) | tip rad / tan med (all) | darts that changed their call |
+|---|---|---|---|---|---|---|
+| unset | 143..149/158 | 82/86 | 61..67/72 | 0 / 0 | 1.69 / 1.95 | - |
+| 1 | 142..148/158 | 82/86 | 60..66/72 | 0.18 / 0.66 | 1.79 / 1.95 | r29-dev v6.1 S20 -> S1 (wedge) |
+| 2 | 141..147/158 | 82/86 | 59..65/72 | 0.35 / 1.31 | 1.89 / 1.94 | r29 v6.1 S20 -> S1 (wedge), both windows |
+| 3 | 140..146/158 | 82/86 | 58..64/72 | 0.53 / 1.97 | 1.98 / 1.95 | r29 v6.1 S20 -> S1, both windows; r29-dev v5.3 S3 -> S19 |
+
+(Shift over the solved darts of the six measured replays; the 37 `applied=0` lines at each
+d are darts the solve refused before any entry existed, which carry no story.)
+
+The replayed census reproduces the offline model to a hundredth of a millimetre on the
+annotated darts (tip radial median 1.89 replayed against 1.89 modelled at d = 2, 1.98 against
+1.98 at d = 3), so the model's rows above are the instrument's. No depth fixes a dart: the
+annotated fixtures hold at 82/86 at every d, its four misses (three wrong
+scores, r18 v5.1's T15 over S15 among them, and one undetected dart) stay what they were, and on rig-20260929 -- the fixture no constant
+was fitted to -- every call the slide moves it moves from right to wrong, in the WEDGE, the
+direction the census says carries as much error as the ring. A slide that only adds
+tangential error to the darts it moves is what a census with no depth signal in it predicts.
+
+**Tested** by `1909-sisal` (`testers/i1909_check.sh`): on the host, the census model's
+self-test (the acceptance's plant -- a known axis at 45 degrees and d = 2 moves the entry 2.0
+mm radially, the way the dart travels -- and the same dart end to end through two planted
+pinholes, centres and focal recovered from H alone to 1e-6) with two mutations (the slide's
+sign flipped: 3 named checks red; the axis oriented out of the board: 2); then in a container
+`testers/i1909_sisal_check.cpp`, the detector's term through `solveEntry` on three planted
+pinhole boards fitted and anchored as the pipeline does it (focal 800 recovered to 0.001 px,
+heights to 0.3 mm, the 45-degree dart slid 2.000 mm radially and 0.000 across), with four
+mutations of scratch copies (sign flipped: `slide:` and `solve:` red; axis flipped: `solve:`;
+the slide computed and not applied: `solve:`; the default moved to 2.0: `plant:`, `off:` and
+`solve:`). A rig that throws at a shallower angle, or a board whose wires stand proud of a
+worn sisal, is where the census is worth re-running; the default is the maintainer's call
+from these rows.
+
+## `OD_UNDISTORT` (turnaus#1905): #1560's kappa on the dart axis, opt-in -- the residual does not move
+
+**What it does.** `OD_UNDISTORT=on` takes the kept centreline's column points through
+`lens_census::undistortPx` with `MEASURED_KAPPA` (-2.45e-7 px^-2) before the straightness gate
+and the line fit (`shaft_axis::observeShaftAxisOnce`); the gate, the sigma and the line are the
+undistorted fit's. The line is taken back to the pixels calibration lives in (the wire fit and
+the bull are untouched) as the chord through the re-distorted ends of the kept extent. A number
+instead of `on` is that kappa (an experiment's knob); unset, empty, `off` or unparsable is off,
+and off is the old fit byte for byte. **The distortion centre is the frame centre**, (640, 360)
+on these 1280x720 cameras: no camera here has a measured principal point, and this is
+turnaus#1909's assumption (focal lengths 757-854 px recovered from the homographies, the
+principal point taken at the centre). With the pin on, each camera's slot on the
+`I1911 REFUSALS` line adds `,raw=<px>`, the distorted fit's residual, beside `rms` (then the
+undistorted one the gate read), and `testers/i1911_census.py` prints `I1905 RESIDUAL` lines from
+the pair: by camera, by radius bin, and how many lines crossed the gate each way.
+
+**Bakeoff** (capture clock, `OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, 2026-10-21, one binary, unset then `OD_UNDISTORT=on`; 766 / 722 s at load
+about 2). Unset is the baseline exactly, and its I1911 / SCORE / PATH / I1512 lines are
+#1911's unset run's line for line (bar the takeout `END` lines #1911 itself later dropped):
+
+| | unset | `OD_UNDISTORT=on` |
+|---|---|---|
+| rig-20260918 (2 windows) | 38/40, phantoms 2 (0 scoring) | **40/40**, phantoms 2 (0 scoring) |
+| rig-20260922 (2 windows) | 44/46, 0 phantoms | 44/46, 0 phantoms |
+| rig-20260929 (2 windows) | 61..67/72 | 61..67/72 |
+| pooled | 143..149/158 | **145..151/158** |
+| r18+r22 | 82/86 | **84/86** |
+| census: vote darts of 151 | 37 | 37 |
+| census: not-straight refusals (on vote darts) | 68 (46) | 73 (46) |
+| census: not-straight median | 3.88 px | 3.67 px (five more, all marginal) |
+
+**The residual, raw against undistorted, over every camera with a centreline (407 lines):**
+
+| | n | raw median | undistorted median | median raw - undistorted | best | worst |
+|---|---|---|---|---|---|---|
+| all | 407 | 1.09 | 1.14 | -0.02 px | +0.05 | -0.91 |
+| cam 1 / 2 / 3 | 138 / 134 / 135 | 1.06 / 1.54 / 0.90 | 1.09 / 1.58 / 0.93 | -0.02 / -0.03 / -0.02 | | |
+| r < 0.58 | 212 | 1.16 | 1.18 | -0.02 | +0.04 | -0.27 |
+| 0.90-0.95 | 22 | 2.02 | 2.03 | -0.09 | +0.01 | -0.19 |
+| double | 10 | 4.53 | 4.69 | -0.16 | +0.02 | -0.42 |
+| the not-straight ones | 73 | 3.63 | 3.67 | -0.07 | +0.04 | -0.91 |
+
+**The measured kappa does not straighten a single dart.** No line anywhere improves by more
+than 0.05 px, no refused line crosses under the gate, and near the frame edge, where the issue
+expected the bow, the darts get slightly LESS straight (double ring median -0.16 px). The
+largest single move, -0.91 px, is rig-20260929 window 35 camera 1, a 40 px composite. So
+kappa is not what puts the fixtures' not-straight residuals at 3.9 px, and it cannot be what
+puts the live board's at 5-7 px: it bends a 230 px rod at this frame's edge by under a pixel
+(the pure check prints 0.32 -> 0.21 px rms for one), against refusals measured in pixels.
+
+**Why the bakeoff moves anyway, and why that is not the pin working.** Five lines cross the
+gate the other way, 2.31-2.45 px raw to 2.53-2.65 px undistorted. One of them is the whole
+gain: rig-20260918 window 17 camera 3 (2.43 -> 2.65) drops out, cameras 1 and 2 alone solve
+S15 where the three solved T15 across the treble wire (WIRE-UNCERTAIN either way), and S15 is
+the throw, in both windows. The other four (rig-20260922 windows 3, 23 / 25, camera 2) change
+no published score. That is a marginal, wrong-leaning line refused by accident, the opposite
+of the mechanism the issue built: a gate lowered under 2.43 px would refuse the same line
+(what else it would refuse is not measured here).
+
+**The default stays off** until the maintainer decides otherwise from these rows. The rows
+argue for off: the +2 is one dart in two windows, reached by refusing a line, not by admitting
+a curved one, and the transform's own premise (a curved silhouette that undistortion makes
+straight) is falsified on all 407 lines. What would be worth measuring next: the same census
+at `OD_UNDISTORT=+2.45e-7` (sign flipped). If the residual falls there, the darts' curvature
+is lens-like and the census's sign or centre is wrong for these cameras; if it does not, the
+residual is not lens at all (a shadow lobe, a flight, the morphology), which is #1911's
+conclusion reached from the other side.
+
+**Tested** by `1905-undistort` (`testers/i1905_check.sh`): a 230 px rod drawn through kappa
+-1.1e-6 (lens_census.hpp's worst corner) at the edge of a 640x480 frame bows 4.1 px and
+scatters 1.26 px raw, so a 1.0 px gate refuses it; straightened it scatters 0.33 px and is an
+axis; its line is the chord of the distorted true ends (0.000 deg, 0.03 px); off and a kappa
+with no centre answer the default observation field for field; the parse and the census slot.
+Then three mutations of a scratch copy of `shaft_axis.hpp`, each predicted to turn named
+assertions red: kappa's sign flipped (5: `straight:` 2, `transport:` 2, `census:` 1), the line
+never transported back (2: `transport:`), and the default moved to `on` (1: `parse:`). The
+plant's gate is 1.0 px and not 2.5 because a stronger kappa thins the drawn rod under two pixels
+before it bends it past 2.5 (measured at -1.8e-6..-3e-6: 59-70 px rms of fragments either way).
+
+## `OD_SHAFT_ONLY` (turnaus#1907): the silhouette cut at the flight, the shaft fitted, opt-in
+
+**What it does.** A dart's figure is a thin shaft and a wide flight, and the whole figure's
+centreline bends where the flight begins, so the 2.5 px straightness gate refuses a dart one
+line explains everywhere but in its flight. With `OD_SHAFT_ONLY=on` the figure is binned along
+the whole fit's line, the tip end is found (the pipeline's own tip, projected onto the line;
+the narrower end where no tip was found), and walking from it the figure is cut at the first
+column where the width reaches 2.0x the shaft's median (the tip-side quarter of the columns)
+and stays there for 4 columns. The tip-side piece is kept and fitted again with every gate
+unchanged. No step, or a kept piece under 12 columns, and the answer is the whole figure's.
+`OD_SHAFT_ONLY=refused` cuts only a figure the whole fit refused. Unset is today's fit byte
+for byte. The tip's own extraction (`detectTipAndCenter`) reads nothing new: the hint goes
+from the tip to the axis, never back. With the pin on, every camera on the `I1911 REFUSALS`
+line adds `,cut=<px|->,ratio=<x|->,whole=<px>` (the cut's distance from the tip end, the
+cut-off piece's median width over the shaft's, and the whole figure's residual), and
+`testers/i1911_census.py` prints `I1907 SHAFT` lines from them.
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, one binary, seven replays, runs-wt-1907). Off is the baseline: its
+`I1911`, `SCORE`, `PATH`, `I1512` and `I1511AXIS` lines are #1905's off run's line for line
+(1,767 lines over the seven replays, with the `Processing: <ms>` wall time stripped).
+
+| | off | on |
+|---|---|---|
+| pooled | 143..149/158 | **147..153/158** |
+| r18+r22 | 82/86 | **83/86** |
+| rig-20260918 | 38/40 | 38/40 |
+| rig-20260922 | 44/46 | **45/46** |
+| rig-20260929 | 61..67/72 | **64..70/72** |
+| r18 pin (vote) | 17/20 | 17/20 |
+
+Six published calls change, and the off run's and the on run's darts are counted separately:
+**five wrong to right** (rig-20260922 dev v7.2 S19 -> S3; rig-20260929 v3.1 S6 -> S13 and
+v10.3 S3 -> S17, each in both windows), **one right to wrong** (rig-20260929 opening v9.3,
+T19 -> S19, a ring call). No undetected, phantom or off-board count moves. The v7.2 fix is the
+issue's case exactly: cams 1 and 2 were refused not straight at 5.05 and 5.30 px whole, and were
+cut at 125 and 112 px from the tip at width ratio 5.9 and 6.3, where they scatter 0.59 and 1.24 px.
+The v9.3 loss is the case to watch: cams 2 and 3 were cut at 40 and 48 px at ratio 2.16 and
+2.13, just over the step. That is most likely the barrel's step, not the flight's. Elongation
+fell from 11.1/12.3 to 5.5/5.8, and the shorter line solved to r 0.6457 against the triple's
+outer wire at 0.629.
+
+**The census** (the six bakeoff replays, the pin left out; `I1911`/`I1907` lines):
+
+| | off | on |
+|---|---|---|
+| darts / vote | 151 / 37 | 151 / **22** |
+| not-straight (cam 1/2/3) | 19/34/15 = 68, 46 on vote darts | 5/11/4 = **20**, 7 on vote darts |
+| not-straight median residual | 3.88 px | 3.43 px |
+| not-a-shaft | 4 | 5 |
+| rim-only | 45 | 45 |
+
+Of 407 cameras with a figure, 336 were cut. The median cut is 138 px from the tip (cam 3: 80
+px) at a width ratio of 3.66. The median residual goes from 1.09 px whole to 0.55 px after (cut
+cameras: 1.19 to 0.53). 68 whole figures were over the gate and 20 answers are. 48 cut figures
+crossed under the gate, **none crossed over**, and the cut answers read 318 ok, 13 not straight
+and 5 not a shaft. On vote darts: 24 cut, residual 2.89 to 0.98 px, 10 admitted. 142 of the
+336 cuts have a ratio under 3.0, 61 of those leave an elongation under 6, and 93 cuts are under
+60 px. That is the barrel population the v9.3 loss belongs to. A higher `shaft_step_ratio`
+(3.0) is the next knob to measure. It is a field of `AxisParams` and is not read from the
+environment.
+
+**The default stays off** until the maintainer decides otherwise from these rows. This is the
+first pin in the #1911/#1909/#1905 stack that admits straighter lines and solves more darts
+right: +4 pooled, net of one ring call lost.
+
+**Tested** by `1907-shaft-only` (`testers/i1907_check.sh`). The plant is a synthetic shaft
+(5 px wide) whose flight (24 px wide, sitting 9 px off the shaft's line and drifting 0.3 px/px)
+begins 120 px from the tip. The whole figure scatters 5.23 px and is refused not straight. With
+the hint, without it (the narrower end) and drawn reversed, it is cut at 120.0 px (truth 120,
+gate 2 px) at ratio 4.53, and the kept shaft scatters 0.22-0.27 px on the shaft's own line
+(0.00-0.01 deg). A plain rod is never cut and answers the off fit field for field. `refused`
+leaves an admitted figure whole. The default and the census slot are checked too. Then two
+mutations of a scratch copy of `shaft_axis.hpp`, each predicted to turn named assertions red.
+The cut taken from the wrong end (the issue's mutation, 15: `cut:` 3, `straight:` 3, `angle:`
+3, `ratio:` 3, `mode:` 2, `census:` 1): the flight's width is read as the shaft's, no step is
+ever found, and the bent whole is the answer. The default moved to `on` (2: `parse:` 1, `off:` 1).
+
+## `OD_VOTE_WEIGHT` (turnaus#1908): the string vote weighed by each camera's evidence, opt-in
+
+**What it does.** On the degraded path the string vote counts cameras. With
+`OD_VOTE_WEIGHT=fit` every reading that votes (it may vote and its wedge is not asserted) is
+weighed, and the score string with the largest total is the weighted winner. The weight is the
+product of three factors. The axis factor is 1.00 for an admitted line, gate/rms held to
+[0.25, 0.90] for not straight, 0.25 for rim only and 0.50 for any other refusal. The ring factor
+is 0.50 where a ring was zeroed (#1517). The sectors factor is the calibration's twenty-fold R,
+held to [0.50, 1.00]. The weighted winner publishes only where all four hold: it is a different
+string from the majority's, it beats the majority's total by 0.10, its own total is at least
+0.50, and one camera in its group saw the dart in the scoring area. Otherwise the majority's
+choice publishes field for field. No reading is ever added. A MISS still does not vote (#1505),
+an asserted 20 is not weighed (#1346) and a re-report has already abstained (#1535). With the pin
+on, the "Consensus score" and "No consensus" sentences end with
+`-- weighted (turnaus#1908): D12=1.00[cam3 1.00] S12=0.50[cam1 0.25,cam2 0.25]; kept (same)`,
+and every called dart prints an `I1908VOTE` line. Unset is today's vote byte for byte.
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, one binary, seven replays, runs-wt-1908). Off is the baseline: its
+`I1911`, `SCORE`, `PATH`, `I1512` and `I1511AXIS` lines are #1907's off run's, line for line
+(1,767 lines, with `Processing: <ms>` stripped).
+
+| | off | fit | shaft (#1907) | fit + shaft |
+|---|---|---|---|---|
+| pooled | 143..149/158 | 139..145/158 | 147..153/158 | 145..151/158 |
+| r18+r22 | 82/86 | 80/86 | 83/86 | 81/86 |
+| rig-20260918 | 38/40 | 38/40 | 38/40 | 38/40 |
+| rig-20260922 | 44/46 | 42/46 | 45/46 | 43/46 |
+| rig-20260929 | 61..67/72 | 59..65/72 | 64..70/72 | 64..70/72 |
+
+Fit against off changes four calls, **all right to wrong, none wrong to right**. In
+rig-20260922 v3.2, D20 became D1 in both windows. In rig-20260929 v2.3, T11 became S11 in both
+windows. Fit + shaft against shaft changes two calls, the same v3.2 pair, both right to wrong.
+Every overturn is on a dart where no two cameras agreed (`agreeing=1`). The #1517 fallback took
+the first complete camera, and it was right. The weighting moved the call to the one camera with
+an admitted line (1.00), and that camera's tip was wrong. On v3.2 cam 3's D1 sat 1.83 mm from a
+wedge wire (`I1628LONE near=1`). On v2.3 cam 3 read S11 against cam 1's T11 and cam 2's S8. No
+consensus was overturned in any replay. The issue's case, two weak cameras agreeing against one
+strong camera, never happens on the fixtures. Under fit, 87 + 24 geometry darts and 40 + 5 vote
+darts read `same` or `tie`.
+
+**What the factors measure.** A straight axis is evidence about the line. It is not evidence
+about where that camera put the tip. On the degraded path a camera with an admitted line is
+usually the only line the solve had, so "TOO-FEW-CONSTRAINTS" is already a statement that its
+tip could not be checked. The sectors factor is inert on the live board, where every calibration
+printed `sectors R=1.000` (10-15, 10-19 and 10-20).
+
+**The live census** (`testers/i1908_vote_census.py`, the session logs joined to the operator
+API's truth line). A shipped log names each camera's axis refusal in its `PATH: DEGRADED`
+sentence, so each weight can be recovered. It does not carry each camera's score string, and it
+does not say whether a dissenting camera voted or read a MISS: `I1628LONE` is behind the census
+pin. So the weighted winner cannot be replayed, and the census counts where an overturn is
+structurally possible. 840 vote-path COUNTED darts were joined: 801 on 10-15, 0 on 10-19 (every
+row is DROPPED) and 39 of 40 on 10-20. Of those, 819 stood and 21 were corrected. An overturn is
+possible on 4 corrected darts and on **129 that stood**. Of the 21 corrections, 9 were a double
+published for a single, 6 were a dart off the board published as a hit, and 6 were something
+else. No weighting can reach 17 of them. On those the published camera already outweighs every
+other voter, or it is the only camera that could vote.
+
+**The default stays off.** On every measurement the pin made it is a loss, and the live bound
+puts 129 standing darts within its reach against 4 corrected ones.
+
+**Tested** by `1908-vote-weight` (`testers/i1908_check.sh`). The tree must pass whole. Two
+rim-only S12 (0.25 each) do not outvote one admitted D12 (1.00), against a control where the
+majority alone publishes S12. The three factors are checked, and same, tie and floor publish the
+majority's choice. A winner only rim-only cameras read, a MISS and an asserted 20 are never
+weighed into a publish. Then three mutations of a scratch copy of `score_processing.hpp`, each
+predicted to turn named assertions red. Weights ignored (the issue's mutation, 10: `issue:` 1,
+`account:` 2, `weight:` 3, `keep:` 2, `guard:` 2). The default moved to `fit` (`parse:` 1). The
+rim guard removed (`guard:` 1).

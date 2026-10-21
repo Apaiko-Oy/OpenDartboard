@@ -798,8 +798,13 @@ namespace score_processing
             ev.axisDir = r.axis.direction;
             ev.axisSigmaDeg = r.axis.sigmaDeg;
             ev.axisRescued = r.axis.rescued; // #1586: a last resort, see solveEntry
+            ev.axisRmsPx = r.axis.centrelineRmsPx; // turnaus#1911: the widened sigma
             ev.tipFound = r.frame_available && r.tip_found;
             ev.tipImage = r.tip_position;
+            if (i < background_frames.size())
+            {
+                ev.imageSize = background_frames[i].size(); // turnaus#1909's principal point
+            }
             evidence.push_back(ev);
             if (r.axis.windowOrdinal >= 0)
             {
@@ -807,8 +812,18 @@ namespace score_processing
             }
         }
 
+        // turnaus#1909: OD_SISAL_MM, 0 (off) unset -- and then Params is the default the
+        // solve has always been called with.
+        entry_intersection::Params params;
+        params.sisalMm = sisal_slide::depthFromEnvironment();
         const entry_intersection::EntrySolution sol =
-            entry_intersection::solveEntry(profile, evidence);
+            entry_intersection::solveEntry(profile, evidence, params);
+        if (geoScoreShadowed() && params.sisalMm > 0.0)
+        {
+            log_info("I1909SISAL window=" + to_string(window) + " applied=" + (sol.sisalApplied ? "1" : "0") +
+                     " shift_mm=" + to_string(sol.sisalShiftMm) + " elevation_deg=" + to_string(sol.sisalElevationDeg) +
+                     " story=" + sol.sisalStory);
+        }
         if (geoScoreShadowed())
         {
             log_info(entry_intersection::censusEntryLine(sol, window, publishedScore, publishedConfidence));
@@ -1082,7 +1097,36 @@ namespace score_processing
             // measured, at 0.5. #796 measured the failure this removes: S20 S20 S20
             // published over a hand-verified 36, two constants outvoting the camera
             // that measured.
-            const ScoreChoice vote_choice = chooseScore(point_scores, may_vote);
+            ScoreChoice vote_choice = chooseScore(point_scores, may_vote);
+
+            // turnaus#1908: under OD_VOTE_WEIGHT=fit each reading is weighed by its own
+            // camera's evidence and the weighted winner may replace the majority's string
+            // (weighVote, pure in the header). Unset, nothing below this block runs and the
+            // vote is chooseScore's, byte for byte.
+            const bool vote_weighed = voteWeightMode() == VoteWeightMode::Fit;
+            const string majority_score = vote_choice.camera >= 0 ? point_scores[vote_choice.camera].score : string();
+            WeightedVote weighted;
+            if (vote_weighed)
+            {
+                const board_model::BoardProfile profile =
+                    board_model::profileFromSpec(perspective_processing::DartboardSpec());
+                vector<VoteEvidence> evidence(point_scores.size());
+                for (size_t i = 0; i < point_scores.size(); i++)
+                {
+                    const dart_processing::CameraDetectionResult &r = dart_result.camera_results[i];
+                    evidence[i].reason = shaft_axis::refusalReasonOf(r.axis, r.frame_available, r.rim_only);
+                    evidence[i].rms_px = r.axis.centrelineRmsPx;
+                    evidence[i].gate_px = shaft_axis::straightGatePx();
+                    if (may_vote[i] && i < calibrations.size())
+                    {
+                        const board_model::BoardFit fit = board_model::fitBoardToCamera(
+                            profile, calibrations[i], wire_processing::conicOfDoublesFor(calibrations[i]));
+                        evidence[i].sectors_r = fit.wireBoundaries == wire_model::kFold ? fit.wireCoherence : -1.0;
+                    }
+                }
+                weighted = weighVote(point_scores, may_vote, evidence, vote_choice);
+                vote_choice = weighted.choice;
+            }
 
             // #1628: where no two cameras agree, the fallback's reading is checked against
             // the wedge wires by its own rulers and the log says how close it was. The
@@ -1396,7 +1440,14 @@ namespace score_processing
                          " | ring=" + result.ring +
                          " | segment=" + to_string(result.segment) +
                          " | radius=" + (result.board.has_radius ? to_string(result.board.radius) : string("none")) +
-                         " | angle=" + (result.board.has_angle ? to_string(result.board.angle) : string("none")));
+                         " | angle=" + (result.board.has_angle ? to_string(result.board.angle) : string("none")) +
+                         // turnaus#1909: the slide, said where it was asked for and nowhere else.
+                         (sisal_slide::depthFromEnvironment() > 0.0
+                              ? " | sisal=" + (solution.sisalApplied
+                                                   ? entry_intersection::detail::fmt("%.2f", solution.sisalShiftMm) + "mm"
+                                                   : string("none")) +
+                                    " (" + solution.sisalStory + ")"
+                              : string()));
             }
             else if (choice.camera >= 0)
             {
@@ -1405,7 +1456,8 @@ namespace score_processing
 
                 if (choice.agreeing >= 2)
                 {
-                    log_info("Consensus score: " + final_score + " from " + to_string(choice.agreeing) + " cameras");
+                    log_info("Consensus score: " + final_score + " from " + to_string(choice.agreeing) + " cameras" +
+                             (vote_weighed ? weightedVoteAccount(weighted) : string()));
                 }
                 else if (!choice.by_default)
                 {
@@ -1416,7 +1468,8 @@ namespace score_processing
                     log_info("No consensus, using single camera score: " + final_score + " from camera " + to_string(best_camera) +
                              (choice.preferred_complete
                                   ? " (preferred: it fitted every ring, a lower camera did not)"
-                                  : ""));
+                                  : "") +
+                             (vote_weighed ? weightedVoteAccount(weighted) : string()));
                     lone_reading_published = true;
                 }
                 else
@@ -1667,6 +1720,16 @@ namespace score_processing
                     result.alternative_score = lone_unchecked.alternative;
                     result.confidence = std::min(result.confidence, geometricConfidence(true));
                 }
+            }
+
+            // turnaus#1908: the weighting's census, on every called dart under the pin --
+            // the geometry path's too, where the vote is not what published, so a reader
+            // can count both. testers/i1908_vote_census.py reads it.
+            if (vote_weighed)
+            {
+                log_info(weightedVoteCensusLine(result.window_ordinal,
+                                                decision.path == ScorePath::Geometry ? "geometry" : "vote",
+                                                majority_score, weighted));
             }
 
             // #1555: the machine-readable half of the same fact, for every called dart

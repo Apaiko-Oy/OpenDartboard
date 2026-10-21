@@ -1202,6 +1202,47 @@ slow 2400
 # on the 4-core box at load 5-6: 17 s wall. At the end of the list only to keep clear of
 # the lines two sibling branches were adding at the same time.
 tester 1886-keep-awake    "bash '$T/i1886_check.sh'"
+# turnaus#1911: OD_STRAIGHT_PX (the straightness gate, 2.5 px unset) and the sigma a line
+# admitted above 2.5 px carries, widened by rms / 2.5 and never counted as a second
+# constraint; and the I1911 REFUSALS words. One compile of the tree plus five of a mutated
+# scratch copy of shaft_axis.hpp / entry_intersection.hpp (the widening kept flat, dropped
+# from weighAt, never handed to the constraint, a widened line counted twice, the default
+# moved), each predicted to turn
+# named assertions red; then i1911_census.py --self-test. No detector binary; needs
+# build/_deps. At the end of the list for #1886's reason: two sibling branches add rows.
+tester 1911-straight      "bash '$T/i1911_check.sh'"
+# turnaus#1909: the sisal slide's geometry, pure, on the host (python3 alone, no build, no
+# container): the radial/tangential split, the acceptance's plant (a known axis at 45 degrees
+# and d = 2 moves the entry 2.0 mm radially, the way the dart travels) and the same dart end
+# to end through two planted pinhole cameras; two mutation proofs (the slide's sign flipped,
+# the axis oriented out of the board), each predicted to turn named checks red. OD_SISAL_MM
+# is not in the detector: the census argues against it (docs/rig.md, "The sisal census").
+tester 1909-sisal         "bash '$T/i1909_check.sh'"
+# turnaus#1905: OD_UNDISTORT (off unset), the kept centreline straightened through #1560's
+# kappa before the straightness gate and the fit, the line taken back to the distorted pixels
+# as the chord of its kept ends. One compile of the tree (a rod drawn through kappa -1.1e-6 at
+# the frame edge: 1.26 px raw, 0.33 px straightened, the line on the distorted chord, off
+# answering the old fit field for field) plus three of a mutated scratch copy of
+# shaft_axis.hpp (kappa's sign flipped, the line never transported, the default moved), each
+# predicted to turn named assertions red; then i1911_census.py --self-test. Compiles only.
+tester 1905-undistort     "bash '$T/i1905_check.sh'"
+# turnaus#1907: OD_SHAFT_ONLY (off unset), the silhouette cut where its width steps up to the
+# flight's and the tip-side shaft fitted under every gate unchanged. One compile of the tree (a
+# shaft-plus-flight figure of known cut point, 120 px from the tip, bent to 5.23 px whole, cut
+# within 2 px hinted, unhinted and reversed; a plain rod never cut; off answering the old fit
+# field for field) plus two of a mutated scratch copy of shaft_axis.hpp (the cut taken from
+# the wrong end, the default moved), each predicted to turn named assertions red; then
+# i1911_census.py --self-test. Compiles only.
+tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
+# turnaus#1908: OD_VOTE_WEIGHT=fit (off unset), the string vote weighing each reading by its
+# camera's axis verdict (the I1911 REFUSALS word and residual), its ring set and its sectors R;
+# the weighted winner replaces the majority's string only past the tie margin, the floor and
+# the scoring-area guard. One compile of the tree (two rim-only S12 do not outvote one
+# admitted D12; same, tie and floor keep the majority's choice; a MISS, an asserted 20 and a
+# rim-only winner are never weighed into a publish) plus three of a mutated scratch copy of
+# score_processing.hpp (weights ignored, the default moved, the rim guard removed), each
+# predicted to turn named assertions red. Compiles only.
+tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
