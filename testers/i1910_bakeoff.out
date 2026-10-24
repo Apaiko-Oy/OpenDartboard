@@ -1,0 +1,82 @@
+# turnaus#1910: the bakeoff at OD_SETTLE_FRAMES = 1 (unset), 3, 5, printed output. Command, each n:
+#   OD_CYCLE_COST=cpu OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on [OD_SETTLE_FRAMES=n] bash testers/i1555_run.sh
+# Refusals and three-camera lines are counted off the I1911 REFUSALS lines of the six pooled runs (the pin excluded).
+# Cycle cost is testers/i1686_cost.py over the same six logs, CPU time, on the x86 dev box under --cpus=2 at load ~7 -- NOT the Pi.
+
+==== n=1
+RUN=1555 rc=0 wall_s=933.1 host_busy_pct=87.8 load_at_end=7.06 dir=/home/mikko/opendartboard/runs-wt-1910/1555
+darts(I1911 lines, 6 runs)=151 three-camera-lines=80
+refusals by name: {'not-straight': 68, 'rim-only': 45, 'not-a-shaft': 4, 'no-figure': 1}
+settle: {} average-refused-but-a-frame-admitted= 0
+I1555 POOLED over 6 run(s), 147 matched darts: vote 123/147 (83.7%) | geometry-first 139/147 (94.6%) | published 139/147 (94.6%) | geometry solved 114/147
+I1555 ACCURACY POOLED clock=capture over 6 run(s): correct 143..149/158 (90.5%) | target 96% = 152/158, short 9 | wrong-score 8, undetected 1, off-board-scored 0, ambiguous 6 | phantoms 2 (0 scoring; not measured on 2 not-annotated run(s))
+I1555 ACCURACY fixture=rig-20260918 clock=capture over 2 run(s): correct 38/40 (95.0%) | target 96% = 39/40, short 1 | wrong-score 2, undetected 0, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1555 ACCURACY fixture=rig-20260922 clock=capture over 2 run(s): correct 44/46 (95.7%) | target 96% = 45/46, short 1 | wrong-score 1, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 0 (0 scoring)
+I1555 ACCURACY fixture=rig-20260929 clock=capture over 2 run(s): correct 61..67/72 (84.7%) | target 96% = 70/72, short 9 | wrong-score 5, undetected 0, off-board-scored 0, ambiguous 6 | phantoms not measured (2 not-annotated run(s))
+I1536 CAMERA POOLED over 6 run(s): arrivals=158 cam1_saw=136 cam2_saw=132 cam3_saw=135 cam1_constraint=119 cam2_constraint=97 cam3_constraint=120 seen_by_3=115 seen_by_2=26 seen_by_1=6 seen_by_0=5 constrained_by_3=79 constrained_by_2=37 constrained_by_1=25 constrained_by_0=11 unseen_nothing_between=3 unseen_unattributed_window=2 unseen_unplaced=6
+I1555 ACCURACY POOLED-r18+r22 clock=capture over 4 run(s): correct 82/86 (95.3%) | target 96% = 83/86, short 1 | wrong-score 3, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1536 CAMERA POOLED-r18+r22 over 4 run(s): arrivals=86 cam1_saw=74 cam2_saw=72 cam3_saw=75 cam1_constraint=67 cam2_constraint=53 cam3_constraint=69 seen_by_3=61 seen_by_2=18 seen_by_1=2 seen_by_0=5 constrained_by_3=45 constrained_by_2=20 constrained_by_1=14 constrained_by_0=7 unseen_nothing_between=3 unseen_unattributed_window=2
+I1555 ACCURACY POOLED-r18+r22 clock=capture over 4 run(s): correct 82/86 (95.3%) | target 96% = 83/86, short 1 | wrong-score 3, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1555 ACCURACY fixture=rig-20260918 window=dev clock=capture correct 19/20 (95.0%) 
+I1555 ACCURACY fixture=rig-20260918 window=opening clock=capture correct 19/20 (95.0%) 
+I1555 ACCURACY fixture=rig-20260922 window=dev clock=capture correct 21/23 (91.3%) 
+I1555 ACCURACY fixture=rig-20260922 window=opening clock=capture correct 23/23 (100.0%) 
+I1555 ACCURACY fixture=rig-20260929 window=dev clock=capture join=ordinal correct 30..33/36 (83.3%) 
+I1555 ACCURACY fixture=rig-20260929 window=opening clock=capture join=ordinal correct 31..34/36 (86.1%) 
+kind    n     loop          read          process       m_gray        m_blur        m_diff        m_morph       m_region      m_clone       m_state       d_accum       d_close       d_cumul       d_fresh       d_axis        score         decode_bg     proc_cpu     
+window  1010  9.6/15.8      3.4/7.2       5.4/9.2       0.6/1.0       0.6/0.9       0.2/0.4       0.4/0.6       1.0/1.3       0.0/0.0       0.0/0.1       1.9/3.7       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       29.1/42.0    
+close   202   50.0/75.4     3.4/6.8       46.2/69.8     0.7/1.1       0.7/1.0       0.2/0.4       0.4/0.6       1.0/1.2       0.0/0.0       0.0/0.0       1.9/3.4       38.4/59.5     14.5/22.8     0.0/16.2      11.8/19.6     2.0/3.4       0.0/0.0       76.7/109.0   
+all     20851 7.0/12.6      3.3/6.6       3.2/6.0       0.6/1.0       0.6/0.9       0.2/0.4       0.4/0.6       1.0/1.3       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       25.6/38.7    
+mean loop 8.7 ms over 20851 cycles; off-loop decode 0.0 ms per cycle
+
+==== n=3
+RUN=1555 rc=0 wall_s=854.2 host_busy_pct=82.8 load_at_end=6.83 dir=/home/mikko/opendartboard/runs-wt-1910/1555
+darts(I1911 lines, 6 runs)=151 three-camera-lines=84
+refusals by name: {'not-straight': 64, 'rim-only': 45, 'not-a-shaft': 4, 'no-figure': 1}
+settle: {'lines': 408, 'won-average': 172, 'won-frame': 235} average-refused-but-a-frame-admitted= 4
+I1555 POOLED over 6 run(s), 147 matched darts: vote 123/147 (83.7%) | geometry-first 140/147 (95.2%) | published 140/147 (95.2%) | geometry solved 114/147
+I1555 ACCURACY POOLED clock=capture over 6 run(s): correct 144..150/158 (91.1%) | target 96% = 152/158, short 8 | wrong-score 7, undetected 1, off-board-scored 0, ambiguous 6 | phantoms 2 (0 scoring; not measured on 2 not-annotated run(s))
+I1555 ACCURACY fixture=rig-20260918 clock=capture over 2 run(s): correct 38/40 (95.0%) | target 96% = 39/40, short 1 | wrong-score 2, undetected 0, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1555 ACCURACY fixture=rig-20260922 clock=capture over 2 run(s): correct 44/46 (95.7%) | target 96% = 45/46, short 1 | wrong-score 1, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 0 (0 scoring)
+I1555 ACCURACY fixture=rig-20260929 clock=capture over 2 run(s): correct 62..68/72 (86.1%) | target 96% = 70/72, short 8 | wrong-score 4, undetected 0, off-board-scored 0, ambiguous 6 | phantoms not measured (2 not-annotated run(s))
+I1536 CAMERA POOLED over 6 run(s): arrivals=158 cam1_saw=136 cam2_saw=132 cam3_saw=135 cam1_constraint=119 cam2_constraint=101 cam3_constraint=120 seen_by_3=115 seen_by_2=26 seen_by_1=6 seen_by_0=5 constrained_by_3=83 constrained_by_2=33 constrained_by_1=25 constrained_by_0=11 unseen_nothing_between=3 unseen_unattributed_window=2 unseen_unplaced=6
+I1555 ACCURACY POOLED-r18+r22 clock=capture over 4 run(s): correct 82/86 (95.3%) | target 96% = 83/86, short 1 | wrong-score 3, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1536 CAMERA POOLED-r18+r22 over 4 run(s): arrivals=86 cam1_saw=74 cam2_saw=72 cam3_saw=75 cam1_constraint=67 cam2_constraint=55 cam3_constraint=69 seen_by_3=61 seen_by_2=18 seen_by_1=2 seen_by_0=5 constrained_by_3=47 constrained_by_2=18 constrained_by_1=14 constrained_by_0=7 unseen_nothing_between=3 unseen_unattributed_window=2
+I1555 ACCURACY POOLED-r18+r22 clock=capture over 4 run(s): correct 82/86 (95.3%) | target 96% = 83/86, short 1 | wrong-score 3, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1555 ACCURACY fixture=rig-20260918 window=dev clock=capture correct 19/20 (95.0%) 
+I1555 ACCURACY fixture=rig-20260918 window=opening clock=capture correct 19/20 (95.0%) 
+I1555 ACCURACY fixture=rig-20260922 window=dev clock=capture correct 21/23 (91.3%) 
+I1555 ACCURACY fixture=rig-20260922 window=opening clock=capture correct 23/23 (100.0%) 
+I1555 ACCURACY fixture=rig-20260929 window=dev clock=capture join=ordinal correct 30..33/36 (83.3%) 
+I1555 ACCURACY fixture=rig-20260929 window=opening clock=capture join=ordinal correct 32..35/36 (88.9%) 
+kind    n     loop          read          process       m_gray        m_blur        m_diff        m_morph       m_region      m_clone       m_state       d_accum       d_close       d_cumul       d_fresh       d_axis        score         decode_bg     proc_cpu     
+window  1010  8.9/14.3      3.4/7.0       5.0/8.0       0.6/0.9       0.5/0.8       0.2/0.3       0.4/0.5       0.9/1.2       0.0/0.0       0.0/0.1       1.8/3.1       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       28.4/39.5    
+close   202   96.4/131.4    3.3/6.7       91.7/125.7    0.6/0.9       0.5/0.8       0.2/0.3       0.4/0.5       0.9/1.3       0.0/0.0       0.0/0.0       1.8/3.1       84.0/117.7    14.2/19.6     0.0/13.7      59.1/83.0     2.0/3.0       0.0/0.0       129.4/172.3  
+all     20851 6.5/11.5      3.2/6.5       2.9/5.0       0.6/0.9       0.5/0.8       0.2/0.3       0.4/0.5       0.9/1.2       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       24.9/37.5    
+mean loop 8.5 ms over 20851 cycles; off-loop decode 0.0 ms per cycle
+
+==== n=5
+RUN=1555 rc=0 wall_s=874.4 host_busy_pct=83.5 load_at_end=8.23 dir=/home/mikko/opendartboard/runs-wt-1910/1555
+darts(I1911 lines, 6 runs)=151 three-camera-lines=84
+refusals by name: {'not-straight': 64, 'rim-only': 45, 'not-a-shaft': 4, 'no-figure': 1}
+settle: {'lines': 408, 'won-average': 125, 'won-frame': 282} average-refused-but-a-frame-admitted= 4
+I1555 POOLED over 6 run(s), 147 matched darts: vote 122/147 (83.0%) | geometry-first 139/147 (94.6%) | published 139/147 (94.6%) | geometry solved 114/147
+I1555 ACCURACY POOLED clock=capture over 6 run(s): correct 143..149/158 (90.5%) | target 96% = 152/158, short 9 | wrong-score 8, undetected 1, off-board-scored 0, ambiguous 6 | phantoms 2 (0 scoring; not measured on 2 not-annotated run(s))
+I1555 ACCURACY fixture=rig-20260918 clock=capture over 2 run(s): correct 38/40 (95.0%) | target 96% = 39/40, short 1 | wrong-score 2, undetected 0, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1555 ACCURACY fixture=rig-20260922 clock=capture over 2 run(s): correct 44/46 (95.7%) | target 96% = 45/46, short 1 | wrong-score 1, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 0 (0 scoring)
+I1555 ACCURACY fixture=rig-20260929 clock=capture over 2 run(s): correct 61..67/72 (84.7%) | target 96% = 70/72, short 9 | wrong-score 5, undetected 0, off-board-scored 0, ambiguous 6 | phantoms not measured (2 not-annotated run(s))
+I1536 CAMERA POOLED over 6 run(s): arrivals=158 cam1_saw=136 cam2_saw=132 cam3_saw=135 cam1_constraint=119 cam2_constraint=101 cam3_constraint=120 seen_by_3=115 seen_by_2=26 seen_by_1=6 seen_by_0=5 constrained_by_3=83 constrained_by_2=33 constrained_by_1=25 constrained_by_0=11 unseen_nothing_between=3 unseen_unattributed_window=2 unseen_unplaced=6
+I1555 ACCURACY POOLED-r18+r22 clock=capture over 4 run(s): correct 82/86 (95.3%) | target 96% = 83/86, short 1 | wrong-score 3, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1536 CAMERA POOLED-r18+r22 over 4 run(s): arrivals=86 cam1_saw=74 cam2_saw=72 cam3_saw=75 cam1_constraint=67 cam2_constraint=55 cam3_constraint=69 seen_by_3=61 seen_by_2=18 seen_by_1=2 seen_by_0=5 constrained_by_3=47 constrained_by_2=18 constrained_by_1=14 constrained_by_0=7 unseen_nothing_between=3 unseen_unattributed_window=2
+I1555 ACCURACY POOLED-r18+r22 clock=capture over 4 run(s): correct 82/86 (95.3%) | target 96% = 83/86, short 1 | wrong-score 3, undetected 1, off-board-scored 0, ambiguous 0 | phantoms 2 (0 scoring)
+I1555 ACCURACY fixture=rig-20260918 window=dev clock=capture correct 19/20 (95.0%) 
+I1555 ACCURACY fixture=rig-20260918 window=opening clock=capture correct 19/20 (95.0%) 
+I1555 ACCURACY fixture=rig-20260922 window=dev clock=capture correct 21/23 (91.3%) 
+I1555 ACCURACY fixture=rig-20260922 window=opening clock=capture correct 23/23 (100.0%) 
+I1555 ACCURACY fixture=rig-20260929 window=dev clock=capture join=ordinal correct 29..32/36 (80.6%) 
+I1555 ACCURACY fixture=rig-20260929 window=opening clock=capture join=ordinal correct 32..35/36 (88.9%) 
+kind    n     loop          read          process       m_gray        m_blur        m_diff        m_morph       m_region      m_clone       m_state       d_accum       d_close       d_cumul       d_fresh       d_axis        score         decode_bg     proc_cpu     
+window  1010  9.0/14.2      3.4/6.8       5.0/8.2       0.6/0.9       0.6/0.8       0.2/0.3       0.4/0.5       0.9/1.2       0.0/0.0       0.0/0.1       1.8/3.3       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       28.6/41.1    
+close   202   149.2/201.6   3.4/6.7       145.2/191.7   0.6/0.9       0.5/0.8       0.2/0.3       0.4/0.6       0.9/1.2       0.0/0.0       0.0/0.0       1.8/3.0       137.9/185.0   14.5/24.0     0.0/14.0      110.6/151.8   2.0/3.3       0.0/0.0       189.8/255.5  
+all     20851 6.5/11.6      3.2/6.5       3.0/5.1       0.6/0.9       0.5/0.8       0.2/0.3       0.4/0.5       0.9/1.2       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       0.0/0.0       25.0/37.9    
+mean loop 9.0 ms over 20851 cycles; off-loop decode 0.0 ms per cycle
