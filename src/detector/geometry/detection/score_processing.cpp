@@ -812,6 +812,25 @@ namespace score_processing
             }
         }
 
+        // turnaus#1936: OD_TREBLE_BORROW=on -- a camera with no inner treble edge of its own
+        // judges the solved entry at the one the other cameras measured. Off unset, and then
+        // every fit's borrowed correction is the 0.0 it is born with.
+        static const bool trebleBorrow = board_model::trebleBorrowFrom(std::getenv("OD_TREBLE_BORROW"));
+        if (trebleBorrow && board_model::borrowInnerTrebleEdge(profile, fits) > 0)
+        {
+            string who;
+            for (size_t i = 0; i < fits.size(); i++)
+            {
+                if (fits[i].borrowedInnerTrebleMm != 0.0)
+                {
+                    who += " cam" + to_string(i + 1) + "=" +
+                           board_model::detail::fmt("%.2f", (double)profile.innerTripleRadiusMm + fits[i].borrowedInnerTrebleMm) + "mm";
+                }
+            }
+            log_info("I1936 TREBLE BORROW window=" + to_string(window) +
+                     " -- no inner treble edge of their own, judged at the other cameras' median:" + who);
+        }
+
         // turnaus#1909: OD_SISAL_MM, 0 (off) unset -- and then Params is the default the
         // solve has always been called with.
         entry_intersection::Params params;

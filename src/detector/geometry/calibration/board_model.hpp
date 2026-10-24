@@ -250,6 +250,11 @@ namespace board_model
         int heldOutInBand = 0;
 
         RingResidual rings[ellipse_processing::kRingCount + 1]; // +1: the outer doubles reference
+
+        // turnaus#1936: the inner treble correction this camera judges at when it has no
+        // held-out inner treble measurement of its own, borrowed from the cameras that do
+        // (borrowInnerTrebleEdge). 0.0 -- the spec edge -- unless OD_TREBLE_BORROW=on.
+        double borrowedInnerTrebleMm = 0.0;
     };
 
     /** Where a board point (mm, board angle) lands in this camera's image. */
@@ -813,7 +818,9 @@ namespace board_model
         const RingResidual &r = fit.rings[ring];
         if (!r.observed || !r.heldOut || !r.inBand || r.rays < kMinSupportRays)
         {
-            return 0.0;
+            // turnaus#1936: no measurement of its own -- the inner edge the other cameras
+            // measured, where OD_TREBLE_BORROW put one there; 0.0 (the spec edge) otherwise.
+            return ring == ellipse_processing::kInnerTriple ? fit.borrowedInnerTrebleMm : 0.0;
         }
         const double widen = (ring == ellipse_processing::kInnerTriple) ? -1.0 : 1.0;
         const double bloomMm = r.signedMedianMm * widen; // positive where the band widened
@@ -823,6 +830,92 @@ namespace board_model
         }
         const double boundMm = (double)profile.outerTripleRadiusMm - (double)profile.innerTripleRadiusMm;
         return widen * std::min(bloomMm, boundMm);
+    }
+
+    /** turnaus#1936: whether this camera measured its own edge of `ring` (#1553's four tests). */
+    inline bool trebleEdgeMeasured(const BoardFit &fit, int ring)
+    {
+        const RingResidual &r = fit.rings[ring];
+        return r.observed && r.heldOut && r.inBand && r.rays >= kMinSupportRays;
+    }
+
+    /**
+     * turnaus#1936: A CAMERA WITH NO TREBLE EDGE OF ITS OWN JUDGES AT THE ONE ITS
+     * NEIGHBOURS MEASURED. Off unless OD_TREBLE_BORROW=on (trebleBorrowFrom).
+     *
+     * The solved entry is ONE point in one board frame, and scoreFromModel reads its ring
+     * through the reference camera's edges. #1553 corrects those edges by the camera's own
+     * held-out residual and by nothing where there is none, so the same point is judged
+     * against 96.4 mm through a camera that traced the treble ring and against the spec
+     * 99.0 mm through one that did not. On the Pi board camera 1 traces no treble ring
+     * (its rings line names the bull, the 25 and the inner doubles only) and is the
+     * reference on most solves.
+     *
+     * THE CENSUS (testers/i1936_census.py over the live sessions 2026-10-10..23): every
+     * geometric treble lost to the single at the inner edge on 10-16, 10-17 and 10-23 --
+     * 15, solved at 97.1..99.0 mm -- was read through camera 1 with no treble measurement,
+     * and every one sits between the other cameras' measured edge (95.5..96.6) and 99.0.
+     * Borrowing the median of the measured inner corrections re-calls 15 corrected darts
+     * right and 4 uncorrected presumed singles (all 2026-10-17) the other way.
+     *
+     * WHY THE INNER EDGE ONLY: borrowed the same way, the OUTER edge re-calls 1 corrected
+     * dart right and 6 presumed singles at 107.1..108.1 mm wrong -- net loss, so it is not
+     * borrowed. WHY NOT A SCALE FIT on doubles and treble (the issue's first idea): the
+     * held-out treble residuals are -2.4..-3.5 mm inner and +0.8..+1.8 mm OUTER on the
+     * same look -- the band reads WIDER on both sides, which is #1553's bloom, not a
+     * scale error, and no single scale moves the two edges in opposite directions.
+     *
+     * A camera that MEASURED its edge keeps it, refused anti-bloom (a 0.0 correction from
+     * a real measurement) included; only the cameras whose four #1553 tests fail borrow.
+     * The donors are the other ACCEPTED fits that measured a widening inner edge; their
+     * corrections are already bounded by the band's width, so the median is too. Returns
+     * how many fits borrowed.
+     */
+    inline int borrowInnerTrebleEdge(const BoardProfile &profile, std::vector<BoardFit> &fits)
+    {
+        const int kIn = ellipse_processing::kInnerTriple;
+        int borrowed = 0;
+        for (size_t i = 0; i < fits.size(); i++)
+        {
+            fits[i].borrowedInnerTrebleMm = 0.0;
+        }
+        for (size_t i = 0; i < fits.size(); i++)
+        {
+            if (!fits[i].planeBuilt || trebleEdgeMeasured(fits[i], kIn))
+            {
+                continue;
+            }
+            std::vector<double> donors;
+            for (size_t j = 0; j < fits.size(); j++)
+            {
+                if (j == i || !fits[j].planeBuilt || !fits[j].geometryAccepted ||
+                    !trebleEdgeMeasured(fits[j], kIn))
+                {
+                    continue;
+                }
+                const double adj = trebleBloomAdjustMm(profile, fits[j], kIn);
+                if (adj < 0.0)
+                {
+                    donors.push_back(adj);
+                }
+            }
+            if (donors.empty())
+            {
+                continue;
+            }
+            std::sort(donors.begin(), donors.end());
+            const size_t n = donors.size();
+            fits[i].borrowedInnerTrebleMm =
+                (n % 2) ? donors[n / 2] : 0.5 * (donors[n / 2 - 1] + donors[n / 2]);
+            borrowed++;
+        }
+        return borrowed;
+    }
+
+    /** turnaus#1936's switch: exactly "on" turns the borrow on; unset or anything else is off. */
+    inline bool trebleBorrowFrom(const char *value)
+    {
+        return value != nullptr && std::string(value) == "on";
     }
 
     /**

@@ -1262,6 +1262,16 @@ tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
 # score_processing.hpp (weights ignored, the default moved, the rim guard removed), each
 # predicted to turn named assertions red. Compiles only.
 tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
+# turnaus#1936: OD_TREBLE_BORROW=on (off unset), a camera with no inner treble edge of its own
+# judging the solved entry at the median of the inner edges the other cameras measured (#1553's
+# bloom correction, borrowed; the outer edge never). The census (i1936_census.py) put every
+# geometric treble lost at the inner edge on the Pi board's 10-16/17/23 through camera 1 with no
+# treble measurement, between the others' edge and 99 mm. One compile of the tree (a synthetic
+# board whose camera A traces no treble ring and whose B sees the inner edge 2.5 mm inward:
+# trebles at 97.0/98.0/98.9 mm read S1 off and T1 on) plus three of a mutated scratch copy of
+# board_model.hpp (borrow ignored, the default moved, measured cameras borrowing), each
+# predicted to turn named assertions red. Compiles only.
+tester 1936-treble-borrow "bash '$T/i1936_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
