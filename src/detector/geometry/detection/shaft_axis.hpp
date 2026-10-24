@@ -659,6 +659,14 @@ namespace shaft_axis
         long windowOpenedCycle = -1;
         long windowClosedCycle = -1;
 
+        // turnaus#1910: OD_SETTLE_FRAMES -- how many pictures of the window this camera's
+        // line was chosen among (0: the switch is off, one picture as always), which one
+        // won (0 the average, k the k-th newest settled frame) and the residual spread.
+        int settleTried = 0;
+        int settleWinner = 0;
+        double settleRmsMin = 0.0;
+        double settleRmsMax = 0.0;
+
         std::vector<AxisColumn> columnsDetail; // for overlays and testers
     };
 
@@ -1834,6 +1842,8 @@ namespace shaft_axis
      * was taken. turnaus#1905: with OD_UNDISTORT on, each camera whose centreline was
      * straightened adds `,raw=<px>`, the distorted fit's residual, after `scale` -- `rms` is
      * then the undistorted one the gate read; off, the line is the old one byte for byte.
+     * turnaus#1910: with OD_SETTLE_FRAMES above 1, each camera that fitted more than one
+     * picture adds `,settle=<won>/<n>,spread=<min>..<max>` last (0 the window's average).
      * testers/i1911_census.py reads it, and reads the older PATH/LINES stories
      * where a log predates it.
      */
@@ -1863,6 +1873,15 @@ namespace shaft_axis
                               ",ratio=" +
                               (c.axis.shaftCut ? detail::fmt("%.2f", c.axis.shaftWidthRatio) : std::string("-")) +
                               ",whole=" + detail::fmt("%.2f", c.axis.shaftWholeRmsPx)
+                        : std::string()) +
+                   // turnaus#1910: with OD_SETTLE_FRAMES above 1, last: which picture won
+                   // (0 the average, k the k-th newest settled frame) of how many, and the
+                   // residual spread across them.
+                   (c.axis.settleTried > 1
+                        ? ",settle=" + std::to_string(c.axis.settleWinner) + "/" +
+                              std::to_string(c.axis.settleTried) + ",spread=" +
+                              detail::fmt("%.2f", c.axis.settleRmsMin) + ".." +
+                              detail::fmt("%.2f", c.axis.settleRmsMax)
                         : std::string());
         }
         return out;

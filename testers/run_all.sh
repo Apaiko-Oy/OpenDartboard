@@ -1262,6 +1262,15 @@ tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
 # score_processing.hpp (weights ignored, the default moved, the rim guard removed), each
 # predicted to turn named assertions red. Compiles only.
 tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
+# turnaus#1910: OD_SETTLE_FRAMES=<n> (1 unset, capped at 5), each arriving camera's tip and
+# axis found in the window's average and in its last n-1 settled frames, the admitted fit
+# with the lowest straightness residual its line and the tip from that same picture. One
+# compile of the tree (three synthetic pictures of one dart, bowed 14 and 11 px by its swing
+# and at rest, fitted by the real observeShaftAxis: n = 1 refuses, n = 3 is the third's line)
+# plus three of a mutated scratch copy of settle_frames.hpp (the first picture always wins,
+# the default moved, a refused fit allowed to win), each predicted to turn named assertions
+# red. Compiles only.
+tester 1910-settle-frames "bash '$T/i1910_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")

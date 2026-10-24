@@ -1,5 +1,7 @@
 #include "dart_processing.hpp"
 #include "frame_keep.hpp"
+#include "settle_frames.hpp"
+#include <deque>
 #include "utils/cycle_cost.hpp"
 #include <iostream>
 #include <cstdlib>
@@ -388,6 +390,10 @@ namespace dart_processing
     static vector<Rect> window_areas;
     static vector<Size> window_frame_sizes;
     static vector<Mat> whole_accumulated;
+    // turnaus#1910: OD_SETTLE_FRAMES=<n>, each camera's last n-1 settled frames of the
+    // window in flight, oldest first, the grey of the window's area (settle_frames.hpp:
+    // at most 4 x 2.7 MB for three 1280x720 cameras). Empty, and never written, at n = 1.
+    static vector<std::deque<Mat>> settle_kept;
     static long window_check_compared = 0;
     static long window_check_mismatches = 0;
 
@@ -1320,11 +1326,13 @@ namespace dart_processing
             reported_tips.size() != current_frames.size() ||
             window_areas.size() != current_frames.size() ||
             window_frame_sizes.size() != current_frames.size() ||
-            whole_accumulated.size() != current_frames.size())
+            whole_accumulated.size() != current_frames.size() ||
+            settle_kept.size() != current_frames.size())
         {
             window_areas.resize(current_frames.size());
             window_frame_sizes.resize(current_frames.size());
             whole_accumulated.resize(current_frames.size());
+            settle_kept.resize(current_frames.size());
             previous_states.resize(current_frames.size(), DartBoardState::CLEAN);
             accumulated_frames.resize(current_frames.size());
             frames_accumulated.resize(current_frames.size(), 0);
@@ -1411,6 +1419,10 @@ namespace dart_processing
                     accumulated_frames[i] = Mat::zeros(area.size(), CV_32F);
                     whole_accumulated[i] = (crop == 2 && area.size() != frame) ? Mat::zeros(frame, CV_32F) : Mat();
                 }
+                if (i < settle_kept.size())
+                {
+                    settle_kept[i].clear(); // turnaus#1910: a window keeps only its own frames
+                }
             }
         };
 
@@ -1453,6 +1465,16 @@ namespace dart_processing
                         Mat current_gray;
                         cvtColor(current_frames[i](area), current_gray, COLOR_BGR2GRAY);
                         accumulate(current_gray, accumulated_frames[i]); // Accumulate sum
+                        // turnaus#1910: and the frame itself, the last n-1 of the window.
+                        const int settle_n = settle_frames::settleFrames();
+                        if (settle_n > 1 && i < settle_kept.size())
+                        {
+                            settle_kept[i].push_back(current_gray);
+                            while ((int)settle_kept[i].size() > settle_n - 1)
+                            {
+                                settle_kept[i].pop_front();
+                            }
+                        }
                     }
                     else
                     {
@@ -1805,6 +1827,11 @@ namespace dart_processing
             }
             else if (cumulative_share >= decide_threshold) // the board is occupied
             {
+                // turnaus#1910: the reference this branch's fresh diff is cut against below,
+                // kept as a header so the settled frames are cut against the same one even
+                // where the falsifier moves the working background before the tip is found.
+                const Mat settle_reference = !working_backgrounds[i].empty() ? working_backgrounds[i] : background_gray;
+                const bool settle_on_area = cropped && !compare && settle_reference.size() == frame_size;
                 if (!working_backgrounds[i].empty())
                 {
                     cycle_cost::Scope fresh_timer(cycle_cost::D_FRESH);
@@ -1967,6 +1994,75 @@ namespace dart_processing
                         shaft_axis::AxisObservation observed = shaft_axis::observeShaftAxis(
                             shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size()),
                             averaged_frame, axis_reference, axis_params);
+
+                        // turnaus#1910: OD_SETTLE_FRAMES=<n>, the window's last n-1 settled
+                        // frames cut, tipped and fitted exactly as the average just was; the
+                        // admitted fit with the lowest residual is the line, and the tip is
+                        // the one found in that same picture (settle_frames.hpp).
+                        const int settle_n = settle_frames::settleFrames();
+                        if (settle_n > 1 && i < settle_kept.size() && !settle_kept[i].empty())
+                        {
+                            std::vector<shaft_axis::AxisObservation> fits{observed};
+                            std::vector<pair<Point2f, Point2f>> tips{tip_and_center};
+                            std::vector<double> gaps{gap_to_figure};
+                            std::vector<vector<vector<Point>>> figures{axis_pieces[i]};
+                            const std::deque<Mat> &kept = settle_kept[i];
+                            for (auto it = kept.rbegin(); it != kept.rend() && (int)fits.size() < settle_n; ++it)
+                            {
+                                Mat candidate_frame, candidate_area;
+                                if (it->size() == frame_size)
+                                {
+                                    candidate_frame = *it;
+                                    candidate_area = cropped ? (*it)(area) : *it;
+                                }
+                                else if (cropped && it->size() == area.size())
+                                {
+                                    candidate_frame = averaged_frame.clone();
+                                    it->copyTo(candidate_frame(area));
+                                    candidate_area = *it;
+                                }
+                                else
+                                {
+                                    continue; // a frame of another size than the window's
+                                }
+                                Mat candidate_thresh =
+                                    settle_on_area
+                                        ? inFrame(windowDiffMask(candidate_area, settle_reference(area), params, nullptr),
+                                                  frame_size, area)
+                                        : windowDiffMask(candidate_frame, settle_reference, params, nullptr);
+                                if (decides_on_board)
+                                {
+                                    Mat on_board;
+                                    bitwise_and(candidate_thresh, region.tip_mask, on_board);
+                                    candidate_thresh = on_board;
+                                }
+                                vector<Mat> scratch_tips;
+                                vector<vector<Point>> pieces;
+                                double gap = 0;
+                                auto tc = detectTipAndCenter(candidate_thresh, false, static_cast<int>(i), scratch_tips,
+                                                             &gap, &pieces);
+                                shaft_axis::AxisParams candidate_params = axis_params;
+                                candidate_params.tip_hint = norm(tc.first) > 0
+                                                                ? cv::Point2d(tc.first.x, tc.first.y)
+                                                                : shaft_axis::AxisParams().tip_hint;
+                                fits.push_back(shaft_axis::observeShaftAxis(
+                                    shaft_axis::pixelsOfPieces(pieces, candidate_thresh.size()),
+                                    candidate_frame, axis_reference, candidate_params));
+                                tips.push_back(tc);
+                                gaps.push_back(gap);
+                                figures.push_back(std::move(pieces));
+                            }
+                            const settle_frames::SettledChoice choice = settle_frames::chooseSettledFit(fits, settle_n);
+                            log_info(settle_frames::settleLine(window_serial, (int)i, choice, fits));
+                            observed = fits[choice.winner];
+                            tip_and_center = tips[choice.winner];
+                            gap_to_figure = gaps[choice.winner];
+                            axis_pieces[i] = figures[choice.winner];
+                            observed.settleTried = choice.tried;
+                            observed.settleWinner = choice.winner;
+                            observed.settleRmsMin = choice.rmsMin;
+                            observed.settleRmsMax = choice.rmsMax;
+                        }
                         observed.camera = (int)i;
                         observed.windowOrdinal = window_serial;
                         observed.windowOpenedCycle = window_opened_at;
