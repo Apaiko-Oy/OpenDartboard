@@ -2442,6 +2442,40 @@ dart line (23 fields where the columns line names 22) with no count printed; the
 END struck from the log moves exactly the two phantoms, to `phantom-unplaced` (before
 #1819, to `rim-one-tip` and `ring-wire`: a removed dart is no longer put in a wire class).
 
+## A dart on the surround does not vote (turnaus#1505), and visit 6 re-measured (turnaus#1864)
+
+#1505 measured that a tip on the surround reads `MISS` and does not vote (`may_vote = tip_found
+&& score != "MISS"`), and refused letting it vote (`OD_SURROUND=votes` is the pin that
+re-measures the refusal). Its census held one on-board error: rig-20260918's visit 6, thrown
+`miss, 7, 2`, publishing `S7@0.70` for the miss, read as a parallax phantom (camera 1 at
+215 mm on the surround, camera 3 at 150 mm inside the board). `1505-surround` asserted that
+census and went red when #1682 lowered `OD_SPIKE_THRESHOLD` from 0.011 to 0.006.
+
+Measured 2026-10-26 on fork main bf98151 with the row's pins (`OD_MOTION_CLOCK=capture`,
+`OD_WINDOW_UNIT=cycles`), `OD_SPIKE_THRESHOLD=0.011` alone brings the `S7@0.70` back (triage restored each candidate
+alone on d7494fa: `OD_LONE_CAMERA=off` and `OD_FLAG_SIGMAS=off` move nothing, and #1855's rule
+runs only under `OD_RIM_FALLBACK=on`, which main leaves off). The edge probe's darts, by cycle:
+
+| | darts | visit 6 | visit 7 |
+| --- | --- | --- | --- |
+| 0.011 | 20 | `S7@0.70` (1439), `S2@0.70` (1468) | `S5` (1617), `S20` (1647), `MISS@0.50` (1653) |
+| main, 0.006 | 21 | `MISS@0.50` (1386), `S7@0.70` (1439), `S2@0.70` (1468) | the same three |
+
+**The 21st dart is visit 6's miss, and it is real.** At 0.006 the miss opens its own event at
+cycle 1386 (the arrival #1587 found on the footage); no camera finds a tip and it publishes
+`MISS` by default. At 0.011 it opens none, and the event at cycle 1439 is the thrown 7: camera
+3's tip there is (488,457), the pixel it reports for the 7 at the same cycle on main, and
+camera 1's 215 mm tip is the miss, still in its difference because no event had taken it. So
+the `S7@0.70` #1505 called a phantom was the 7, correct, published in the miss's slot --
+#1504's misalignment, not a wrong score. Visit 7's third (cycle 1653, no tip, `MISS@0.50`) is
+in both runs and is not #1682's; it is the throw the ground truth says cannot arrive, which
+`i1535_inside.sh` records as a real 20 beside the second.
+
+The refusal still holds, on a different dart: under `OD_SURROUND=votes` main's visit 6 reads
+`MISS, S7, MISS` -- the pin has nothing left to repair, and camera 2's surround reading of the
+correct 2 (radius 1.23) carries it to `MISS`. The row now asserts `MISS, S7, S2` and that
+pinned result.
+
 ## Real-time replay (turnaus#1683)
 
 A file source hands over the next frame whenever the loop asks, so the bakeoff never

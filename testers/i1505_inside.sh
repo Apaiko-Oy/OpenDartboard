@@ -56,6 +56,12 @@ set -u
 #
 # Each plant flips its own half and no plant is caught by everything, which is what says
 # the claims are load-bearing rather than decorative.
+#
+# turnaus#1864 OVERTOOK visit 6's half of the story above. Since #1682's entry threshold
+# the miss is its own event and publishes MISS, and the S7 #1505 read as a phantom was the
+# thrown 7 in the miss's slot (the census claim below has the measurement). The probe's two
+# visit-6 claims were rewritten to today's census; the proof above was run against the old
+# wording and was not re-run for the new.
 
 RIG_DIR=/app/mocks/rig-20260918
 CLIPS="$RIG_DIR/cam_1.mp4 $RIG_DIR/cam_2.mp4 $RIG_DIR/cam_3.mp4"
@@ -197,24 +203,38 @@ for v in range(min(len(tree), len(pinned))):
 if failed:
     sys.exit(failed)
 
-# The issue's dart, and today's census, reproduced rather than remembered: visit 6's
-# first dart is thrown OFF the board (GROUND-TRUTH.md) and the tree publishes an
-# on-board single for it -- the census's one on-board error, kept KNOWINGLY (the
-# refusal in aVoteIsCast), and this claim is what notices if the tip machinery's
-# repair ever lands and this harness's story goes stale.
+# The issue's dart, and today's census, reproduced rather than remembered. Visit 6 is
+# thrown miss, 7, 2 (GROUND-TRUTH.md), the miss resting in the number ring off the board.
+#
+# THE EARLIER CENSUS, and what it really was (turnaus#1864, measured 2026-10-26 on fork
+# main bf98151, capture clock, cycle windows). Until #1682 lowered OD_SPIKE_THRESHOLD from
+# 0.011 to 0.006 this row asserted that visit 6's first dart published S7@0.70, and #1505
+# called it a parallax phantom: camera 1 read the miss at 215 mm, on the surround, and
+# camera 3 read 150 mm, inside the board. Re-run with OD_SPIKE_THRESHOLD=0.011 alone, the
+# clip reads 20 darts and visit 6 TWO: the miss opens no event of its own, and the first
+# event (cycle 1439) is the THROWN 7 -- camera 3's tip is (488,457), the pixel it reports
+# for the 7 at that same cycle on main, and camera 1's 215 mm tip is the miss, still in its
+# diff because no event had taken it. So S7@0.70 was the 7, correct, published in the
+# miss's slot: #1504's misalignment, not a wrong score. On main the lower entry opens the
+# miss's own event (cycle 1386, no camera finds a tip, MISS@0.50 by default), visit 6
+# reads MISS, S7, S2 -- the ground truth -- and the clip reads 21: the 20 arrivals plus
+# visit 7's third (cycle 1653), which both thresholds publish.
 ok = len(tree) >= 6 and len(pinned) >= 6 and tree[5] and pinned[5]
 if not ok:
     say(False, "visit 6 is missing from a run, so the issue's own dart cannot be judged")
     sys.exit(failed)
-t0, p0 = tree[5][0], pinned[5][0]
-say(t0[1].startswith("S"),
-    "the tree reproduces today's census: visit 6's off-board dart publishes %s@%s -- "
-    "the one on-board error, kept knowingly; if this is now MISS, the tip machinery "
-    "has moved and #1505's refusal should be re-measured" % (t0[1], t0[2]))
-say(p0[1] == "MISS",
-    "under OD_SURROUND=votes the same dart publishes MISS at %s -- the repair "
-    "mechanism is real, which is what makes the refusal a measurement and not a "
-    "shrug" % p0[2])
+t6 = [d[1] for d in tree[5]]
+say(t6 == ["MISS", "S7", "S2"],
+    "the tree reproduces today's census: visit 6 publishes %s for the thrown miss, 7, 2 "
+    "-- the off-board dart is its own event and publishes MISS (#1682's entry threshold); "
+    "the earlier census, S7@0.70 in its slot, was the thrown 7 with the miss unseen"
+    % ", ".join("%s@%s" % (d[1], d[2]) for d in tree[5]))
+p6 = [d[1] for d in pinned[5]]
+say(len(p6) == 3 and p6[0] == "MISS" and p6[2] == "MISS",
+    "under OD_SURROUND=votes visit 6 publishes %s: the pin has no phantom left to repair, "
+    "and what it reaches is the CORRECT 2 (camera 2's surround reading of it votes) -- "
+    "the repair mechanism is live, and #1505's refusal of it still holds on today's tree"
+    % ", ".join("%s@%s" % (d[1], d[2]) for d in pinned[5]))
 
 # Every difference the pin makes is a dart it publishes as MISS: the pin admits one
 # reading class and changes nothing else. Aligned per visit, as far as both runs
