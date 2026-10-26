@@ -159,6 +159,18 @@ at start, from the reading it holds. `OD_BOARD=auto` restores the measured board
   `mocks/DO-NOT-USE-cam_1-cam_2-cam_3.md`.
 - A lit, clean, complete re-recording is wanted: turnaus#1558.
 
+**Five mock-era testers were retired, 2026-10-13 (turnaus#1478, removed in turnaus#1941).**
+`1321-reason`, `1339-denominator`, `1345-figures`, `1445-looks` and `1449-anchoring` were
+deleted rather than re-pointed at the rig. Each asked its question of the shipped mocks and
+could not ask it of `rig-20260918` as written: `1445-looks` keyed its falsification on the
+mocks answering 3 of 3 without the retry, `1339-denominator` shrank the board in frame and
+the rig has 1.07x of headroom, `1449-anchoring` and `1321-reason` built their fixture from a
+measured property of the mocks' board, and `1345-figures` needed a control that refuses a
+window, which the rig does not by design (#1358). Their questions were answered on the mocks,
+and the rig fixture supersedes them. `i1321_dark_footage.cpp` went with `1321-reason`, its
+only caller; `i1339_scaled_footage.cpp`, `i1362_broken_ring_footage.cpp` and
+`i1445_look_census.cpp` stay, because other testers still compile them.
+
 **Frame rate, measured 2026-09-27 (turnaus#1655).** Every fixture video, both rigs and
 all three cameras, is constant-rate **30 fps**: the MP4 `stts` table holds a single
 frame duration of 512/15360 s = **33.333 ms** for every frame (1800-1801 frames per

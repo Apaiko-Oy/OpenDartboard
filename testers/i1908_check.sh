@@ -19,6 +19,10 @@
 #   4. guard removed   a winner only rim-only cameras read may publish -- PREDICTION: exactly
 #                      1 FAIL, `guard:` 1 (the rim case)
 #
+# Then testers/i1908_vote_census.py --self-test, which holds the live census's reading of a
+# PATH: DEGRADED sentence and its weights (turnaus#1941; i1907_check.sh's shape for
+# i1911_census.py). The census itself reads session logs kept off GitHub and is run by hand.
+#
 # The script ends on `exit`, never on an `echo`: #1463, #1479.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/tester_paths.sh"
@@ -95,4 +99,6 @@ PY
   echo "ALL FOUR HELD"
   exit 0
 '
-exit $?
+RC=$?
+python3 -I "$(dirname "${BASH_SOURCE[0]}")/i1908_vote_census.py" --self-test || RC=1
+exit $RC

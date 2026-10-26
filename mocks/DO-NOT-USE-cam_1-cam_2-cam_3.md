@@ -47,3 +47,7 @@ Two of the 55 **cannot** simply re-point and need a decision rather than a slice
   *is* the falsification.
 - **`1339-denominator`** makes the board smaller in frame; the rig's largest region is
   already 1.07x from not calibrating at all, so there is nothing smaller to make from it.
+
+**Decided 2026-10-13 (#1478) and done in #1941:** both were retired rather than re-pointed,
+with `1321-reason`, `1345-figures` and `1449-anchoring`. `docs/rig.md` (Fixtures) says why.
+Other testers still read these clips, so this file still stands.

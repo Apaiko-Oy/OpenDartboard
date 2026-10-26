@@ -361,11 +361,9 @@ tester 1258-choice        "bash '$T/i1258_check.sh'"
 tester 1319-findings      "bash '$T/i1319_run.sh'"
 tester 1320-speck         "bash '$T/i1320_run.sh'"
 tester 1323-offaim        "bash '$T/i1323_run.sh'"
-tester 1321-reason        "bash '$T/i1321_run.sh'"
 tester 1318-webcam        "bash '$T/i1318_run.sh'"
 tester 1338-partial       "bash '$T/i1338_run.sh'"
 tester 1331-framing       "bash '$T/i1331_run.sh'"
-tester 1339-denominator   "bash '$T/i1339_run.sh'"
 tester 1340-floor         "bash '$T/i1340_run.sh'"
 tester 1392-annulus       "bash '$T/i1392_run.sh'"
 tester 1393-carve         "bash '$T/i1393_run.sh'"
@@ -447,29 +445,6 @@ slow 1500
 # the detector binary, so OD_SKIP_BUILD makes no difference to it. Measured on the
 # 4-core box at load 9: 269 seconds.
 tester 1467-wiremodel     "bash '$T/i1467_run.sh'"
-# #1445: a camera refused on one averaged frame is looked at again. Two censuses of the
-# calibration stage -- the averaged frame the board really calibrates on, then the single
-# frames after it -- which is where the budget's size comes from; then four detector runs
-# for the od_fix pair (#1340) and two more that nudge the camera the retry calibrated, to
-# show ADR-0080's refusal still fires about it. MEASURED 2026-09-20 on the 4-core box,
-# to completion, rc=0: wall 146 s at load 2.1-2.6, so it takes no `slow` and sits well
-# inside the default 1200.
-# #1632: that was before #1498's number reader ran on every calibration (#1629); phase B's
-# 287 census calibrations are now most of the cost, and the gate of 2026-09-26 killed it
-# at 1200 s partway through B. MEASURED 2026-09-27 on the 4-core box, to completion: wall
-# 2166 s at load 5.5-11.7 (median 7.2; another session's replays alongside), so this is a
-# CEILING -- A 5 min, B 24 min, C 4.5 min, D 2.5 min. The budget is twice it. The row is
-# still red, on phase A, C's rig-20260918 arm and D4: all three rest on rig-20260918/cam_3's
-# averaged frame being refused, and it no longer is (it reads 20 wires, as #1645 found for
-# the same clip). That is a finding and not a budget: #1661.
-# #1661 (2026-09-28): phase A, the refusal half of C's rig-20260918 arm, and D4 are
-# retired, because the footage no longer refuses that camera; B is the cost and it is
-# kept. MEASURED 2026-09-28 on the 4-core box, to completion, rc=0: wall 2269 s at load
-# 5.8-12.3 (median 10.5; #1662's replays alongside), so again a CEILING, and a louder one
-# than #1632's -- A and D4 were a few minutes of it. Twice it is 4538, so the budget is
-# 4600.
-tester 1445-looks         "bash '$T/i1445_run.sh'"
-slow 4600
 # #1733: a camera a later look sealed is not the board's fault. Three detector runs with
 # the Turnaus stub and #1383's notify listener attached: 1331's edge clip (rescued, then
 # refused by the vote -- BOARD FAULTED and STATUS= must be the gate's sentence), 1331's cut
@@ -479,27 +454,10 @@ slow 4600
 # since turnaus#1882: about the build, never the fault). Red on 778dd19 on
 # exactly the rescued halves. MEASURED 2026-10-03 at load ~5-6: 178-193 s wall.
 tester 1733-rescued       "bash '$T/i1733_run.sh'"
-tester 1345-figures       "bash '$T/i1345_run.sh'"
 tester 1358-window        "bash '$T/i1358_run.sh'"
 tester 1355-bounds        "bash '$T/i1355_run.sh'"
 tester 1348-quorum        "bash '$T/i1348_run.sh'"
 tester 1372-cached        "bash '$T/i1372_run.sh'"
-# #1449: whether the board says AT START how many of its cameras can be read for a wedge.
-# Four detector runs on shipped footage and no instrumentation -- an unanchored board is
-# three slots filled from the two mocks that are not the star camera -- plus a compile of
-# the branch point, which is the "before": admitted, READY, and every dart the asserted 20
-# with nothing said until after one had been published. MEASURED 2026-09-20 on the 4-core
-# box, to completion, rc=0: wall 180.2 s at host_busy_pct=41.2, so it takes no `slow` --
-# it sits well inside the default 1200, and the number is here rather than in nobody's
-# head, which is how 1317-asan's 1200 got to be wrong.
-# #1679 (2026-09-29): #1629's number reader reads cam_1 and cam_3 too, so the unanchored
-# board reads 3 of 3 and the shipped mocks are no longer 1 of 3. NONE's "0 of 3", its WARN
-# and what the WARN names, SOME's "1 of 3" and its unread cameras, and ALL's "anchored by
-# configuration" are retired; BEFORE, admission, READY, "not warned" and the census-darts
-# agreement are kept. MEASURED 2026-09-29 on the 4-core box, to completion, rc=0: wall
-# 366.2 s at host_busy_pct=85.2, load 10.7 at start and 6.7 at end (#1677's replays
-# alongside) -- a ceiling, still well inside the default 1200.
-tester 1449-anchoring     "bash '$T/i1449_run.sh'"
 # #1451: whether the board says AT START how many of its cameras a dart can be SCORED
 # from. #1449 one field over and worse -- a camera refused by `scorePoint` contributes
 # nothing at all rather than an asserted 20, and the refusal is log_debug. Six detector
@@ -1260,7 +1218,8 @@ tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
 # admitted D12; same, tie and floor keep the majority's choice; a MISS, an asserted 20 and a
 # rim-only winner are never weighed into a publish) plus three of a mutated scratch copy of
 # score_processing.hpp (weights ignored, the default moved, the rim guard removed), each
-# predicted to turn named assertions red. Compiles only.
+# predicted to turn named assertions red. Compiles only. Then i1908_vote_census.py
+# --self-test (turnaus#1941): the live census's sentence reader and weights, a tenth of a second.
 tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
