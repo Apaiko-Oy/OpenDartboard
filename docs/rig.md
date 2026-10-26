@@ -3303,7 +3303,15 @@ light segments are well lit but not white-clipped.
 board's cameras and prints each camera's lines (set `OD_IMAGE` to the board's arm64 image).
 `1904-exposure` holds the mapping with seven mutations. `i1555_run.sh` forwards both pins.
 
-**The bakeoff is unchanged, because a file is never given the pin.** BAKEOFF-PLACEHOLDER
+**The bakeoff is unchanged, because a file is never given the pin.** Capture clock,
+`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on testers/i1555_run.sh` with
+`OD_EXPOSURE=100 OD_GAIN=4` (runs-wt-1904/bake-pin, 2026-10-27, 955 s, started at load 3.8)
+against #1906's unset run of the same settings (runs-wt-1906/bake-unset, main b087835's
+parent; #1906 changed nothing that scores). Every `SCORE`, `PATH`, `I1911`, `I1512` and
+`I1511AXIS` line of the seven replays is the same, line for line (3,618 lines, ANSI colour,
+`Processing: <ms>` and the END OF FOOTAGE wall time stripped): pooled 143..149/158 and
+r18+r22 82/86 in both. Each replay's log carries the no-op line exactly once and no other line
+naming the pin.
 
 **Not measured here, and the reason this section exists:** whether a fixed exposure reduces
 the "not straight" refusals (centreline scatter against the 2.5 px gate), the "rim only" and
