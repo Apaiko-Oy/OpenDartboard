@@ -65,6 +65,8 @@ Type=simple
 # refused to follow), and Restart= below does what it always did. A scheduled stop (exit
 # 60, #1797) is followed INSIDE the launcher -- one look, one restart with the same
 # arguments -- so a day's restart costs this unit no start and StartLimitBurst nothing.
+# A recalibration stop (exit 61, turnaus#1929: somebody at the board asked for one between
+# legs) is followed inside the launcher the same way, with no look for an update.
 # Where the launcher keeps what, and how a Pi is installed once and never touched by hand
 # again, is docs/rig.md, "A Pi updates through the launcher".
 #

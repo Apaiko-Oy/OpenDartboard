@@ -704,6 +704,24 @@ public:
      */
     void beat();
 
+    /**
+     * turnaus#1929: the start this process is was asked for by a recalibration request,
+     * with this reference (recalibration.hpp's marker). Called by main before start(). The
+     * reference is never answered or acted on again in this run, and the beat says each
+     * step of the start as it happens -- INITIALISING, then CALIBRATING the moment the
+     * cameras open, then what it came back as -- rather than at the server's interval,
+     * because the server follows a confirmed request through the first CALIBRATING it hears
+     * and a calibration shorter than one interval would otherwise be heard as nothing.
+     */
+    void rememberRecalibration(const std::string &reference);
+
+    /**
+     * turnaus#1929: true once, with the reference, after a request has been ACCEPTED and the
+     * server took the confirmation. The scoring thread asks once a cycle and stops the board
+     * for its restart; nothing else reads it.
+     */
+    bool takeRecalibration(std::string &reference);
+
     // Counters, for the run's own summary line. None of them is a secret.
     uint64_t queued() const { return queued_; }
     uint64_t delivered() const { return delivered_; }
@@ -747,6 +765,15 @@ private:
     void uploadLog(bool final, int most_chunks, bool yield_to_pushes = false);
     /** Ask the server for pending frame requests and answer each from frame_keep. */
     void serveFrameRequests(bool yield_to_pushes = false);
+    /**
+     * turnaus#1929: ask whether the tablet at this board's Station has asked it to
+     * recalibrate, decide with recalibration::decide, and confirm what was decided once.
+     * On the duty thread, raised by each answered beat: the frame requests' shape, at the
+     * beat's cadence rather than at an END's, because the moment this exists for -- between
+     * legs -- is exactly when no END is coming.
+     */
+    void serveRecalibrations();
+    static const char *recalibrationsPath();
     /**
      * #891. The evening ended: forget the Contest binding, drop what was owed to it, and
      * fall back to the Organisation binding if this board has one.
@@ -877,6 +904,19 @@ private:
     bool said_log_upload_failed_ = false; // a failure is said ONCE in the log, not once per END
     bool log_upload_off_ = false;         // a refusal (401, 403, 404, 422): nothing more this run
     bool frames_route_off_ = false;       // the deployment has no frame-request route: said once
+    // turnaus#1929. Raised by each answered beat, taken by the duty thread. The rest is the
+    // duty thread's alone, except where it says otherwise.
+    std::atomic<bool> recal_poll_due_{false};
+    bool recal_route_off_ = false;               // 404: a deployment before API 60.1.0, said once
+    uint64_t darts_at_last_poll_ = 0;            // darts_offered_ as of the last poll that answered
+    std::string recal_waited_on_;                // the reference put off by one poll, or empty
+    std::set<std::string> recal_said_ignored_;   // an answered reference listed again, said once
+    std::atomic<uint64_t> darts_offered_{0};     // darts (not ENDs) that entered the queue; offer()
+    std::mutex recal_mutex_;                     // the two below: main, the duty and scoring threads
+    std::set<std::string> recal_answered_;       // confirmed, this run or (by the marker) the last
+    std::string recal_due_;                      // accepted and taken; the scorer stops on it
+    // The start this process is was a recalibration: beat each step as it happens (beat()).
+    std::atomic<bool> beat_promptly_{false};
     // turnaus#1793: a DROPPED answer to a dart has been said at INFO since the last takeout
     // was delivered (OD_PAST_THREE=on only; droppedAnswerIsSaid). Push thread only.
     bool dropped_said_this_round_ = false;

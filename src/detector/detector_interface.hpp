@@ -171,6 +171,14 @@ public:
      */
     virtual string scoringWith() const { return ""; }
 
+    /**
+     * turnaus#1929: the geometry this detector sealed at the end of `initialize`, one line
+     * per board (geometry_agreement::fingerprint: each camera's bull, scoring flag, angle and
+     * radius), or empty for a detector that holds none. Read when a board stops to
+     * recalibrate, so the start after can log BEFORE and AFTER for each camera.
+     */
+    virtual string heldGeometry() const { return ""; }
+
     // Initialize the detector. A detector is given the frames it calibrates on and the
     // rate they arrive at; it is not given the device they came from.
     virtual bool initialize(const vector<camera::Frame> &calibration_frames, double capture_fps) = 0;

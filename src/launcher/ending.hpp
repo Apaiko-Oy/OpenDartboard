@@ -36,6 +36,7 @@
 
 #include "../utils/console_prompt.hpp"
 #include "../utils/scheduled_stop.hpp"
+#include "../utils/recalibration.hpp"
 
 #include <csignal>
 #include <cstdio>
@@ -56,6 +57,12 @@ namespace launcher
      */
     const unsigned long kScheduledStop = static_cast<unsigned long>(scheduled_stop::kExitCode);
 
+    /**
+     * turnaus#1929: the status a detector returns when it stopped itself because somebody at
+     * the board asked it to recalibrate, between legs. From the header both programs read.
+     */
+    const unsigned long kRecalibrateStop = static_cast<unsigned long>(recalibration::kExitCode);
+
     /** How one run of the detector ended. */
     enum class Ending
     {
@@ -64,6 +71,7 @@ namespace launcher
         Killed,       // somebody or something stopped it
         NeverStarted, // the launcher could not start it at all
         Scheduled,    // #1797: it stopped itself at 06:00 so the launcher can look, then start it again
+        Recalibrating, // turnaus#1929: it stopped itself to calibrate afresh; started again, no look
     };
 
     /**
@@ -127,6 +135,10 @@ namespace launcher
         {
             return Ending::Scheduled;
         }
+        if (outcome.code == kRecalibrateStop)
+        {
+            return Ending::Recalibrating;
+        }
         return Ending::Faulted;
     }
 
@@ -150,6 +162,11 @@ namespace launcher
      * to follow -- and that is its own morning, so its own number.
      */
     const int kScheduledNotFollowed = 43;
+    /**
+     * turnaus#1929: a recalibration stop is always followed by another start, so this is a
+     * number the table needs to be whole rather than one a board is expected to show.
+     */
+    const int kRecalibrationNotFollowed = 44;
 
     inline int exitCodeFor(Ending ending)
     {
@@ -163,6 +180,8 @@ namespace launcher
             return kKilled;
         case Ending::Scheduled:
             return kScheduledNotFollowed;
+        case Ending::Recalibrating:
+            return kRecalibrationNotFollowed;
         case Ending::Faulted:
         default:
             return kFaulted;
@@ -299,6 +318,14 @@ namespace launcher
                                  "), jotta päivitykset voidaan katsoa. Se käynnistetään uudelleen.",
                              "The program stopped on schedule at 06:00 (exit code " + codeAsText(outcome.code) +
                                  ") so that updates can be looked at. It is being started again."});
+            break;
+
+        case Ending::Recalibrating:
+            // turnaus#1929. Said between the stop and the next start.
+            lines.push_back({"Ohjelma pysähtyi, koska taulua pyydettiin kalibroimaan uudelleen (paluukoodi " +
+                                 codeAsText(outcome.code) + "). Se käynnistetään uudelleen ja kalibroi alusta.",
+                             "The program stopped because the board was asked to recalibrate (exit code " +
+                                 codeAsText(outcome.code) + "). It is being started again and calibrates afresh."});
             break;
 
         case Ending::Killed:

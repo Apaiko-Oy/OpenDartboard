@@ -2,6 +2,7 @@
 #include "utils/args.hpp"
 #include "utils/cache.hpp"
 #include "utils/geometry_fault.hpp"
+#include "utils/recalibration.hpp"
 #include "utils/debug.hpp"
 #include "utils/signals.hpp"
 #include "utils/logging.hpp"
@@ -434,12 +435,30 @@ int main(int argc, char **argv)
   // #1274: it used to be started after #1189's announcement as well, and is no longer,
   // because the announcement moved below the Scorer. Nothing is lost: the reason above is
   // the token's `return 1`, and publishing a service file returns from nothing.
+  // turnaus#1929: a previous run stopped to recalibrate, and left what it was scoring on.
+  // Read here -- after every flag that pairs, prints or asks and returns, so none of them
+  // spends it, and before the client starts and the Scorer calibrates. This start does not
+  // reuse a cached calibration whatever the command line says (#1330's flag would make the
+  // restart recalibrate nothing), and the client is told the reference so the request is
+  // never confirmed or acted on twice.
+  const recalibration::Marker recalibrating = recalibration::takeMarker();
+  if (!recalibrating.reference.empty())
+  {
+    log_info("I1929 RECALIBRATION " + recalibrating.reference +
+             ": this start was asked for by a recalibration request, so it calibrates afresh" +
+             (cache::geometry::calibrationMayBeReused() ? " and does not reuse the cached calibration "
+                                                          "--reuse-calibration names"
+                                                        : ""));
+    cache::geometry::allowReuse(false);
+    turnaus->rememberRecalibration(recalibrating.reference);
+  }
   turnaus->start();
   TurnausClient *turnaus_view = turnaus.get(); // owned by the Scorer from here to the end of main
 
   // Initialise the scorer with debug mode if requested
   Scorer scorer(model_path, width, height, fps, cams, debug_mode, detector_type, socket);
   scorer.attachTurnaus(std::move(turnaus));
+  scorer.recalibratedFrom(recalibrating); // turnaus#1929
 
   // #1189: announced through the host's responder while - and only while - the
   // socket is on the network. A loopback-only start withdraws what an earlier
@@ -568,7 +587,13 @@ int main(int argc, char **argv)
   // below -- and differs in nothing but this number, which the launcher reads as the word
   // "scheduled": not a fault, and the one ending it follows with a look for an update and
   // another start. See Scorer::kScheduledStop.
+  //
+  // turnaus#1929: and a third. A run that stopped itself because it accepted a request to
+  // recalibrate, between legs, left by the same unwind and returns the number the launcher
+  // reads as "recalibrating": followed by another start, with no look for an update.
   if (scorer.endedBlindOnTheBudget())
     return Scorer::kCouldNotSee;
+  if (scorer.stoppedToRecalibrate())
+    return Scorer::kRecalibrateStop;
   return scorer.stoppedOnSchedule() ? Scorer::kScheduledStop : 0;
 }

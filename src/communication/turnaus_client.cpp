@@ -2,6 +2,8 @@
 #include "beat_body.hpp"
 #include "../utils/logging.hpp"
 #include "../utils/od_paths.hpp"
+#include "../utils/geometry_fault.hpp"
+#include "../utils/recalibration.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
@@ -1057,6 +1059,10 @@ bool TurnausClient::offer(const DetectorResult &result)
         }
         queue_.push_back(item);
         queued_++;
+        if (result.score != "END")
+        {
+            darts_offered_++; // turnaus#1929: "a dart since the last poll" is read off this
+        }
         if (result.score == "END")
         {
             log_upload_due_ = !config_.log_file.empty();
@@ -1800,7 +1806,8 @@ void TurnausClient::runDuties()
                                      [this]
                                      {
                                          return !running_ ||
-                                                (queue_.empty() && (log_upload_due_.load() || frames_poll_due_.load()));
+                                                (queue_.empty() && (log_upload_due_.load() || frames_poll_due_.load() ||
+                                                                    recal_poll_due_.load()));
                                      });
             if (!running_)
             {
@@ -1808,7 +1815,7 @@ void TurnausClient::runDuties()
             }
             // #1787's order, kept: nothing of an END's duties starts before the darts and
             // the takeout it follows are delivered.
-            if (!queue_.empty() || !(log_upload_due_.load() || frames_poll_due_.load()))
+            if (!queue_.empty() || !(log_upload_due_.load() || frames_poll_due_.load() || recal_poll_due_.load()))
             {
                 continue;
             }
@@ -1826,6 +1833,12 @@ void TurnausClient::endOfRoundDuties()
     if (frames_poll_due_.exchange(false) && paired_.load())
     {
         serveFrameRequests(true);
+    }
+    // turnaus#1929: not an END's duty -- raised by the beat -- but the same thread and the
+    // same rule, for the same reason: a dart queued now goes first.
+    if (recal_poll_due_.exchange(false) && paired_.load())
+    {
+        serveRecalibrations();
     }
 }
 
@@ -1999,6 +2012,185 @@ void TurnausClient::serveFrameRequests(bool yield_to_pushes)
             said += " -- the answer was not taken (HTTP " + std::to_string(posted.status) + ")";
         }
         log_info(said);
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// turnaus#1929: a recalibration asked of this board from its Station's tablet. The rule is
+// recalibration.hpp's; this is where it meets the wire.
+// ---------------------------------------------------------------------------------
+
+const char *TurnausClient::recalibrationsPath()
+{
+    // The club's door only. turnaus#1928 serves no Casual address for it, and the request is
+    // addressed to "the club's own board at that Station" -- a board on somebody's evening
+    // is asked nothing, and is asked it with the club's credential when it holds one.
+    return "/api/v1/autoscorer/recalibrations";
+}
+
+void TurnausClient::rememberRecalibration(const std::string &reference)
+{
+    if (reference.empty())
+    {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(recal_mutex_);
+        recal_answered_.insert(reference);
+    }
+    beat_promptly_ = true;
+}
+
+bool TurnausClient::takeRecalibration(std::string &reference)
+{
+    std::lock_guard<std::mutex> lock(recal_mutex_);
+    if (recal_due_.empty())
+    {
+        return false;
+    }
+    reference = recal_due_;
+    recal_due_.clear();
+    return true;
+}
+
+void TurnausClient::serveRecalibrations()
+{
+    if (recal_route_off_ || credential_.empty())
+    {
+        return;
+    }
+    if (!duty_gate_.awaitClear())
+    {
+        return;
+    }
+    std::map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer " + credential_;
+    headers["Accept"] = "application/json";
+    odhttp::Response res = duty_session_.perform(url_, "GET", recalibrationsPath(), std::string(), headers,
+                                                 config_.connect_timeout_s, config_.read_timeout_s);
+    if (res.status == 404)
+    {
+        recal_route_off_ = true;
+        log_info("TURNAUS: this deployment has no recalibration route (404 at " + std::string(recalibrationsPath()) +
+                 "); a recalibration is a restart by hand here (turnaus#1928)");
+        return;
+    }
+    if (res.status != 200)
+    {
+        return; // asked again after the next beat; a request waits at the server, it is not lost
+    }
+    std::vector<std::string> references;
+    try
+    {
+        json j = json::parse(res.body);
+        for (const json &r : j["data"])
+        {
+            if (r.contains("reference") && r["reference"].is_string())
+            {
+                references.push_back(r["reference"].get<std::string>());
+            }
+        }
+    }
+    catch (const std::exception &)
+    {
+        return;
+    }
+
+    // The poll ANSWERED, so it is the line "since the last poll" is drawn from -- whether
+    // or not it listed anything. A request listed now was not listed at the last one.
+    const uint64_t darts_now = darts_offered_.load();
+    const bool darts_since = darts_now != darts_at_last_poll_;
+    darts_at_last_poll_ = darts_now;
+
+    if (references.empty())
+    {
+        recal_waited_on_.clear();
+        return;
+    }
+
+    for (const std::string &reference : references)
+    {
+        recalibration::Facts facts;
+        facts.moved = geometry_fault::held();
+        facts.sight_suspended = board_sight::sightSuspended().load();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            facts.round_in_hand = round_ == RoundInHand::Open;
+        }
+        facts.darts_since_last_poll = darts_since;
+        facts.waited_once = recal_waited_on_ == reference;
+        {
+            std::lock_guard<std::mutex> lock(recal_mutex_);
+            facts.already_answered = recal_answered_.count(reference) > 0;
+        }
+        const recalibration::Decision decision = recalibration::decide(facts);
+        const std::string facts_said = std::string("round in hand ") + (facts.round_in_hand ? "yes" : "no") +
+                                       ", darts since the last poll " + (facts.darts_since_last_poll ? "yes" : "no") +
+                                       ", Moved held " + (facts.moved.empty() ? "no" : "yes") +
+                                       ", sight suspended " + (facts.sight_suspended ? "yes" : "no");
+
+        if (decision.verdict == recalibration::Verdict::Ignore)
+        {
+            if (recal_said_ignored_.insert(reference).second)
+            {
+                log_info("I1929 RECALIBRATION " + reference + " " + recalibration::verdictWord(decision.verdict) +
+                         ": listed again after this board confirmed it; it is not confirmed or acted on twice");
+            }
+            continue;
+        }
+        if (decision.verdict == recalibration::Verdict::Wait)
+        {
+            recal_waited_on_ = reference;
+            log_info("I1929 RECALIBRATION " + reference + " " + recalibration::verdictWord(decision.verdict) +
+                     " to the next poll: a dart was thrown since the last one, so a leg may have begun after it "
+                     "was asked (" + facts_said + ")");
+            continue;
+        }
+
+        const bool accepted = decision.verdict == recalibration::Verdict::Accept;
+        json body;
+        body["accepted"] = accepted;
+        if (!accepted)
+        {
+            body["refusal"] = decision.words.substr(0, recalibration::kMostRefusal);
+        }
+        if (!duty_gate_.awaitClear())
+        {
+            return; // stopping; the request is still pending at the server
+        }
+        odhttp::Response posted =
+            duty_session_.postJson(url_, std::string(recalibrationsPath()) + "/" + reference, body.dump(), headers,
+                                   config_.connect_timeout_s, config_.read_timeout_s);
+        if (posted.status != 202 && posted.status != 200)
+        {
+            // Not taken, so not acted on: the board restarts only on a confirmation the
+            // server has, or the screen would be told nothing while the board went away.
+            // Still listed at the next poll, and decided again then.
+            log_warning("I1929 RECALIBRATION " + reference + " " + recalibration::verdictWord(decision.verdict) +
+                        " but the confirmation was not taken (" +
+                        (posted.reached_a_server() ? "HTTP " + std::to_string(posted.status) : posted.transport_error) +
+                        "); decided again at the next poll");
+            continue;
+        }
+        recal_waited_on_.clear();
+        {
+            std::lock_guard<std::mutex> lock(recal_mutex_);
+            recal_answered_.insert(reference);
+            if (accepted)
+            {
+                recal_due_ = reference;
+            }
+        }
+        if (accepted)
+        {
+            log_info("I1929 RECALIBRATION " + reference + " " + recalibration::verdictWord(decision.verdict) +
+                     " and confirmed (" + facts_said + "); the board stops and starts again to calibrate");
+        }
+        else
+        {
+            log_warning("I1929 RECALIBRATION " + reference + " " + recalibration::verdictWord(decision.verdict) +
+                        " and confirmed: " + decision.words + " (" + facts_said + ")");
+        }
     }
 }
 
@@ -2211,6 +2403,11 @@ void TurnausClient::beat()
             beats_++;
             last_answer = std::chrono::steady_clock::now();
             warned_about_silence = false;
+            // turnaus#1929: a server that answered a beat is asked, on the duty thread,
+            // whether this board has been asked to recalibrate. The beat's cadence is the
+            // server's own, so the poll's is too.
+            recal_poll_due_ = true;
+            duty_condition_.notify_all();
 
             if (interval_s > 0)
             {
@@ -2288,6 +2485,38 @@ void TurnausClient::beat()
                                 "should mark by hand until this line stops.");
                     warned_about_silence = true;
                 }
+            }
+        }
+
+        if (beat_promptly_.load())
+        {
+            // turnaus#1929: a start that is a recalibration says each step as it happens.
+            // The wait is cut short when the word changes, and the promptness ends with the
+            // first word that is not a step on the way (READY, ERROR): from there the beat
+            // is every board's beat again. A few beats more than usual, once, at a start.
+            if (condition != board_sight::Condition::Initialising &&
+                condition != board_sight::Condition::Calibrating)
+            {
+                beat_promptly_ = false;
+            }
+            else
+            {
+                uint64_t peek_frames = frames_at_last_beat;
+                bool peek_asked = asked_since_calibration;
+                const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
+                while (running_.load() && std::chrono::steady_clock::now() < until)
+                {
+                    peek_frames = frames_at_last_beat;
+                    peek_asked = asked_since_calibration;
+                    if (board_sight::conditionSince(peek_frames, peek_asked) != condition)
+                    {
+                        break;
+                    }
+                    std::unique_lock<std::mutex> lock(beat_mutex_);
+                    beat_condition_.wait_for(lock, std::chrono::milliseconds(250),
+                                             [this] { return !running_.load(); });
+                }
+                continue;
             }
         }
 

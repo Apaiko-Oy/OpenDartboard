@@ -111,6 +111,19 @@ namespace board_sight
     }
 
     /**
+     * turnaus#1929: #899's suspended scoring, published. Set where the scoring loop
+     * suspends (sight lost) and cleared where it resumes on the held geometry. Read by the
+     * client deciding a recalibration request, which is refused while it is set: a start
+     * taken in the middle of a knock calibrates on the rig mid-knock (ADR-0080 §2). The beat
+     * does not read it; the ladder below already says ERROR for a board reading no frames.
+     */
+    inline std::atomic<bool> &sightSuspended()
+    {
+        static std::atomic<bool> v{false};
+        return v;
+    }
+
+    /**
      * #1321: the sentence `BOARD FAULTED` says instead of offering two alternatives and
      * committing to neither. It is written where the fault is observed -- the camera
      * branch of Scorer's constructor names the sources it tried, the calibration path

@@ -116,6 +116,8 @@ namespace launcher
         // a minute of being started again, which the launcher does not follow.
         int looks = 0;
         int scheduled_stops = 0;
+        // turnaus#1929: the recalibration stops followed by another start, with no look.
+        int recalibration_stops = 0;
         bool refused_to_follow = false;
 
         // #1900, for a harness: artefact requests made across every look, and the clock as
@@ -384,6 +386,23 @@ namespace launcher
                 console.say(stuck);
                 report.said.push_back(stuck);
                 break;
+            }
+
+            // ---- turnaus#1929: a recalibration stop is followed too, and with no look ------
+            // The state file says "recalibrating", which opens no door in decideMoment(): the
+            // next round is a QuickRestart of the same build. No bound like the one below: a
+            // second recalibration needs a second request, which only a person pressing the
+            // screen between legs makes, and the detector never acts on one reference twice.
+            if (endingOf(outcome) == Ending::Recalibrating)
+            {
+                report.recalibration_stops++;
+                const std::vector<Text> recalibration_lines = endingLines(outcome);
+                for (size_t i = 0; i < recalibration_lines.size(); i++)
+                {
+                    console.say(recalibration_lines[i]);
+                    report.said.push_back(recalibration_lines[i]);
+                }
+                continue;
             }
 
             // ---- #1797: a scheduled stop is followed; anything else is the end ------------
