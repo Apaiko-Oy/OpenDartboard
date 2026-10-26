@@ -36,6 +36,27 @@ Modes, by environment variable:
                           making while a tester is watching it stay paired (turnaus#1853).
   STUB_RATE_LIMIT_FIRST   answer the first n pairing requests, at either door, with 429 and
                           `Retry-After: STUB_RETRY_AFTER` (default 37), as `api-pairing` does.
+
+turnaus#1929 adds turnaus#1928's two board-facing addresses (API 60.1.0), modelled on
+`App\\Autoscoring\\Recalibrations` and `RecalibrationController` to the comparison:
+  GET  /api/v1/autoscorer/recalibrations             the one unconfirmed request from the last
+                                                     STUB_RECALIBRATION_EXPIRES seconds (600)
+  POST /api/v1/autoscorer/recalibrations/{reference} `accepted` (a boolean) and an optional
+                                                     `refusal` (a string, at most 200); 404 for
+                                                     a reference not this board's; the first
+                                                     confirmation stands
+and the tablet's press, which is a harness control here rather than a door:
+  POST /stub/recalibration  {"force": false}         refused 409 while the board holds darts of a
+                                                     round (legInPlayAt's second half; the stub
+                                                     has no Leg to ask the first half of); a
+                                                     press while one is pending answers that
+                                                     one. "force": true skips the 409, which is
+                                                     the race the board must close itself: a leg
+                                                     begun between the press and its poll.
+  STUB_RECALIBRATION_RELIST=1  go on listing a request after its confirmation, which is what the
+                          board meets when its confirmation was taken and the answer lost.
+And `Recalibrations::heard()`: the first CALIBRATING beat after an accepted confirmation, then
+the first READY or ERROR after that, recorded as `recalibration_heard` with the camera report.
 """
 import hashlib
 import json
@@ -149,6 +170,11 @@ CLUB_CODES = [c for c in os.environ.get("STUB_CLUB_CODES", PIN).split(",") if c]
 REVOKE_CLUB_AFTER_BEATS = int(os.environ.get("STUB_REVOKE_CLUB_AFTER_BEATS", "0"))
 RATE_LIMIT_FIRST = int(os.environ.get("STUB_RATE_LIMIT_FIRST", "0"))
 RETRY_AFTER = os.environ.get("STUB_RETRY_AFTER", "37")
+# turnaus#1929 / #1928
+RECALIBRATION_EXPIRES = float(os.environ.get("STUB_RECALIBRATION_EXPIRES", "600"))
+RECALIBRATION_RELIST = os.environ.get("STUB_RECALIBRATION_RELIST", "0") == "1"
+RECALIBRATIONS_PATH = "/api/v1/autoscorer/recalibrations"
+ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
 def club_token(generation):
@@ -236,7 +262,56 @@ state = {
     "casual_given_up": False,
     "casual_checked_at": None,
     "casual_condition": None,
+    # turnaus#1929: the rows `board_recalibrations` holds, oldest first.
+    "recalibrations": [],
 }
+
+
+def new_reference():
+    """A 26-character reference in the ULID alphabet, as `Str::ulid()` mints them."""
+    millis = int(time.time() * 1000)
+    head = ""
+    for _ in range(10):
+        head = ULID_ALPHABET[millis % 32] + head
+        millis //= 32
+    tail = "".join(ULID_ALPHABET[b % 32] for b in os.urandom(16))
+    return head + tail
+
+
+def pending_recalibration(now):
+    """`Recalibrations::pendingFor`: unconfirmed and younger than the expiry, newest first.
+    Under STUB_RECALIBRATION_RELIST a confirmed one is listed too, as a lost answer leaves it."""
+    for row in reversed(state["recalibrations"]):
+        if now - row["created_at"] >= RECALIBRATION_EXPIRES:
+            continue
+        if row["confirmed_at"] is None or RECALIBRATION_RELIST:
+            return row
+    return None
+
+
+def heard_recalibration(condition, cameras):
+    """`Recalibrations::heard`, to the comparison: CALIBRATING starts it, READY or ERROR after
+    that finishes it, and anything else (INITIALISING on a restart) is on the way."""
+    followed = None
+    for row in reversed(state["recalibrations"]):
+        if row["accepted"] is True and row["finished_at"] is None:
+            followed = row
+            break
+    if followed is None:
+        return
+    now = time.time()
+    if condition == "CALIBRATING":
+        if followed["calibrating_at"] is None:
+            followed["calibrating_at"] = now
+            record({"event": "recalibration_heard", "reference": followed["reference"],
+                    "condition": condition, "cameras": cameras, "screen": "CALIBRATING"})
+        return
+    if followed["calibrating_at"] is not None and condition in ("READY", "ERROR"):
+        followed["finished_at"] = now
+        followed["finished_condition"] = condition
+        record({"event": "recalibration_heard", "reference": followed["reference"],
+                "condition": condition, "cameras": cameras,
+                "screen": "CALIBRATED" if condition == "READY" else "FAILED"})
 
 
 write_lock = threading.Lock()
@@ -280,6 +355,23 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def do_GET(self):
+        auth = self.headers.get("Authorization", "")
+        presented = auth[7:] if auth.startswith("Bearer ") else ""
+        auth_digest = hashlib.sha256(presented.encode()).hexdigest()[:16] if presented else None
+        if self.path != RECALIBRATIONS_PATH:
+            # What this stub answered every GET before turnaus#1929: nothing was served.
+            return self.send_error(501)
+        if presented != state["club_token"]:
+            record({"event": "autoscorer_refused", "path": self.path, "auth_sha256_16": auth_digest})
+            return self.reply(401, {"message": "Unauthenticated."})
+        with lock:
+            row = pending_recalibration(time.time())
+            listed = [] if row is None else [{"reference": row["reference"]}]
+        record({"event": "recalibrations_listed", "references": [r["reference"] for r in listed],
+                "round": list(state["round"]), "condition": state["condition"]})
+        return self.reply(200, {"data": listed})
+
     def reply(self, status, payload):
         body = json.dumps(payload).encode()
         self.send_response(status)
@@ -306,6 +398,25 @@ class Handler(BaseHTTPRequestHandler):
         # deletes the token at that moment and there is nothing left for the guard to
         # admit. A board meets a 401 and not an explanation.
         # ------------------------------------------------------------------
+        if self.path == "/stub/recalibration":
+            # The tablet's press (#1928's requestRecalibration), as a harness control.
+            with lock:
+                if state["round"] and not body.get("force"):
+                    record({"event": "recalibration_ask_refused", "round": list(state["round"])})
+                    return self.reply(409, {"message": "A Leg is in play at this Station. Ask between Legs."})
+                now = time.time()
+                row = pending_recalibration(now)
+                if row is not None and row["confirmed_at"] is None:
+                    record({"event": "recalibration_ask_repeated", "reference": row["reference"]})
+                    return self.reply(202, {"data": {"reference": row["reference"], "outcome": "pending"}})
+                row = {"reference": new_reference(), "created_at": now, "confirmed_at": None,
+                       "accepted": None, "refusal": None, "confirmations": 0,
+                       "calibrating_at": None, "finished_at": None, "finished_condition": None}
+                state["recalibrations"].append(row)
+            record({"event": "recalibration_asked", "reference": row["reference"],
+                    "forced": bool(body.get("force")), "round": list(state["round"])})
+            return self.reply(202, {"data": {"reference": row["reference"], "outcome": "pending"}})
+
         if self.path in ("/api/v1/casual/boards", "/api/v1/autoscorer/devices"):
             state["pairing_requests"] += 1
             if state["pairing_requests"] <= RATE_LIMIT_FIRST:
@@ -542,6 +653,8 @@ class Handler(BaseHTTPRequestHandler):
                     # it came over the wire.
                     "version": version, "version_why": ver_why,
                     "version_raw": body.get("version")})
+            with lock:
+                heard_recalibration(condition, cam_report)  # turnaus#1929
             # turnaus#1853: once. Until then every generation was revoked after its own
             # count, so the second token #1259's midrun case pairs with was revoked ~8 s
             # after it was issued -- inside that case's 8 s look for a second question --
@@ -555,6 +668,39 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"data": {"condition": condition,
                                              "intervalSeconds": INTERVAL_SECONDS,
                                              "silenceSeconds": SILENCE_SECONDS}})
+
+        if self.path.startswith(RECALIBRATIONS_PATH + "/"):
+            reference = self.path[len(RECALIBRATIONS_PATH) + 1:]
+            with lock:
+                row = next((r for r in state["recalibrations"] if r["reference"] == reference), None)
+                if row is None or len(reference) != 26 or not reference.isalnum():
+                    record({"event": "recalibration_unknown", "reference": reference})
+                    return self.reply(404, {"message": "Not Found"})
+                accepted = body.get("accepted")
+                refusal = body.get("refusal")
+                if not isinstance(accepted, bool):
+                    record({"event": "recalibration_refused_422", "reference": reference, "why": "accepted",
+                            "body": body})
+                    return self.reply(422, {"message": "The given data was invalid.",
+                                            "errors": {"accepted": ["a boolean"]}})
+                if refusal is not None and (not isinstance(refusal, str) or len(refusal) > 200):
+                    record({"event": "recalibration_refused_422", "reference": reference, "why": "refusal",
+                            "body": body})
+                    return self.reply(422, {"message": "The given data was invalid.",
+                                            "errors": {"refusal": ["at most 200 characters"]}})
+                row["confirmations"] += 1
+                first = row["confirmed_at"] is None
+                if first:
+                    row["confirmed_at"] = time.time()
+                    row["accepted"] = accepted
+                    row["refusal"] = None if accepted else refusal
+                outcome = "accepted" if row["accepted"] else "refused"
+            # `round` is what this stub holds of the board's round in hand at the moment the
+            # confirmation arrived, and `listed_round` nothing: the board's own facts are in its log.
+            record({"event": "recalibration_confirmed", "reference": reference, "accepted": accepted,
+                    "refusal": refusal, "first": first, "confirmations": row["confirmations"],
+                    "round": list(state["round"]), "body_keys": sorted(body.keys())})
+            return self.reply(202, {"data": {"reference": reference, "outcome": outcome}})
 
         if self.path == "/api/v1/autoscorer/takeouts":
             had = list(state["round"])

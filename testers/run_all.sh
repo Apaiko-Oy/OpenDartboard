@@ -1240,6 +1240,16 @@ tester 1904-exposure      "bash '$T/i1904_check.sh'"
 # set: over two files the no-op is said once and nothing is set, unset says nothing, a word is
 # refused once. Its device half runs only where OD_PROBE_DEVICES names cameras.
 tester 1904-capture       "bash '$T/i1904_run.sh'"
+# turnaus#1929: somebody at the board asks it to recalibrate between legs (turnaus#1928, API
+# 60.1.0), and the board does it by stopping with exit 61 and starting again. Pure half:
+# recalibration.hpp's rule and marker and the launcher following a 61 with another start and
+# no update look, then four mutated scratch copies of src/ each predicted red by name (round
+# in hand, Moved, an answered reference, endingOf). Board half: build/opendartboard on the
+# mocks against the stub's two recalibration addresses -- refused mid-leg, accepted after the
+# takeout and confirmed once, exit 61, started again by the harness: afresh under
+# --reuse-calibration, CALIBRATING then READY with the camera report, BEFORE and AFTER per
+# camera, no repeat while the stub lists the answered request again; Moved refused.
+tester 1929-recalibrate   "bash '$T/i1929_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
