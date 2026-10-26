@@ -29,8 +29,11 @@ Modes, by environment variable:
                           admitted, so a re-paired board is provably using its second credential.
   STUB_CASUAL_CODES       the same for the Casual door (default 571643); a redemption also
                           un-ends the evening, because it is a new binding.
-  STUB_REVOKE_CLUB_AFTER_BEATS  revoke the current club token after this many club beats made
-                          with it (0: never) -- #1246's revocation, met as #822's 401.
+  STUB_REVOKE_CLUB_AFTER_BEATS  revoke the FIRST club token after this many club beats made
+                          with it (0: never) -- #1246's revocation, met as #822's 401. Once per
+                          run: a credential issued after the revocation is never revoked, so a
+                          re-paired board's second token cannot meet a 401 of the stub's own
+                          making while a tester is watching it stay paired (turnaus#1853).
   STUB_RATE_LIMIT_FIRST   answer the first n pairing requests, at either door, with 429 and
                           `Retry-After: STUB_RETRY_AFTER` (default 37), as `api-pairing` does.
 """
@@ -206,6 +209,7 @@ state = {
     "club_generation": 0,
     "club_token": None,       # the one club token admitted now; None before pairing or once revoked
     "club_token_beats": 0,
+    "club_revoked_once": False,  # turnaus#1853: STUB_REVOKE_CLUB_AFTER_BEATS revokes once
     "casual_spent": [],
     "pairing_requests": 0,
     # The two columns this slice is about. `checked_at` is what a beat writes and
@@ -538,7 +542,12 @@ class Handler(BaseHTTPRequestHandler):
                     # it came over the wire.
                     "version": version, "version_why": ver_why,
                     "version_raw": body.get("version")})
-            if REVOKE_CLUB_AFTER_BEATS and token_beats >= REVOKE_CLUB_AFTER_BEATS:
+            # turnaus#1853: once. Until then every generation was revoked after its own
+            # count, so the second token #1259's midrun case pairs with was revoked ~8 s
+            # after it was issued -- inside that case's 8 s look for a second question --
+            # and the board asked again whenever a push landed after it. One run in seven.
+            if REVOKE_CLUB_AFTER_BEATS and token_beats >= REVOKE_CLUB_AFTER_BEATS and not state["club_revoked_once"]:
+                state["club_revoked_once"] = True
                 # #1246's revocation: the token row is gone, and the next request meets 401.
                 record({"event": "club_revoked", "generation": state["club_generation"],
                         "after_beats": token_beats, "token_sha256_16": digest(state["club_token"])})

@@ -101,13 +101,24 @@ class Stub:
             pass
         return out
 
-    def wait_event(self, predicate, timeout):
+    def wait_event(self, predicate, timeout, board):
+        """Waits on the transcript while READING THE BOARD'S TERMINAL (turnaus#1853).
+
+        The board's stdout and stderr are a pseudo-terminal this harness is the only reader
+        of, and a pty holds about 14 KB (measured on the 6.18 WSL kernel: 13,888 bytes
+        written before the writer blocks). A wait that sleeps instead of draining it lets
+        the detector's next log line block in write() -- on the scoring thread, so no dart
+        is published until the wait gives up and stop() drains it. The club case met
+        exactly that: the board logs about 15 KB between its cameras opening and its first
+        score (8 KB on 2026-09-21), so the dart sat in a 107 s 'cycle' and reached the stub
+        after the check had failed. `board` is required so no wait can forget it.
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             for ev in self.events():
                 if predicate(ev):
                     return ev
-            time.sleep(0.2)
+            board.pump()
         return None
 
     def stop(self):
@@ -243,9 +254,9 @@ def case_club():
     check(stored is not None and stored.get("token") == TOKEN1 and stored.get("label") == HOSTNAME,
           "club: the credential is written where --pair writes it")
     check(board.wait_for("initialized successfully", 1, 60), "club: it goes straight on to the cameras, no restart")
-    beat = stub.wait_event(lambda e: e["event"] == "beat" and e["auth_sha256_16"] == sha16(TOKEN1), 60)
+    beat = stub.wait_event(lambda e: e["event"] == "beat" and e["auth_sha256_16"] == sha16(TOKEN1), 60, board)
     check(beat is not None, "club: and beats with the new credential")
-    dart = stub.wait_event(lambda e: e["event"] == "counted" and e["auth_sha256_16"] == sha16(TOKEN1), 120)
+    dart = stub.wait_event(lambda e: e["event"] == "counted" and e["auth_sha256_16"] == sha16(TOKEN1), 120, board)
     check(dart is not None, "club: and a dart it saw is counted at the club door")
     check(board.output().count(QUESTION) == 2, "club: asked exactly twice (the bad code and the good one)")
     rc = board.stop()
@@ -269,7 +280,7 @@ def case_casual():
     stored = read_credential(board)
     check(stored is not None and "contest" in stored and "token" not in stored,
           "casual: a Contest binding is written, and no club one")
-    beat = stub.wait_event(lambda e: e["event"] == "casual_beat", 60)
+    beat = stub.wait_event(lambda e: e["event"] == "casual_beat", 60, board)
     check(beat is not None, "casual: and beats at the Casual door without a restart")
     check(board.output().count(QUESTION) == 1, "casual: asked once")
     board.stop()
@@ -303,7 +314,7 @@ def case_midrun():
     check(board.wait_for(QUESTION, 1, 30), "midrun: asks")
     board.type(CLUB)
     check(board.wait_for("The board is paired to its club (device 1).", 1, 20), "midrun: paired as device 1")
-    revoked = stub.wait_event(lambda e: e["event"] == "club_revoked", 90)
+    revoked = stub.wait_event(lambda e: e["event"] == "club_revoked", 90, board)
     check(revoked is not None, "midrun: the stub revoked the credential after three beats")
     check(board.wait_for("the board was unpaired", 1, 60), "midrun: the board says it was unpaired")
     check("taulu on irrotettu" in board.output(), "midrun: in Finnish too")
@@ -313,7 +324,7 @@ def case_midrun():
     board.type(CLUB2)
     check(board.wait_for("The board is paired to its club (device 2).", 1, 20), "midrun: re-paired as device 2")
     check(board.wait_for("again, after a new pairing", 1, 20), "midrun: pushing resumes with no restart")
-    beat = stub.wait_event(lambda e: e["event"] == "beat" and e["auth_sha256_16"] == sha16(TOKEN2), 30)
+    beat = stub.wait_event(lambda e: e["event"] == "beat" and e["auth_sha256_16"] == sha16(TOKEN2), 30, board)
     check(beat is not None, "midrun: and beats with the second credential")
     # The stub revoked after a READY beat, so the board was seeing; its first beat under the
     # new credential must say so. A beat thread that snapshots the frame count at resume and
@@ -331,6 +342,10 @@ def case_midrun():
     # beat thread can see the same 401, and a second flag outliving the pairing asked the
     # person for another code the moment the first had worked (measured on Windows, #1259).
     board.settle(8)
+    # turnaus#1853: the stub revokes once, so a third question here is the board's own and
+    # not a second revocation the stub made (which it did, ~8 s after the second pairing).
+    check([e["generation"] for e in stub.events("club_revoked")] == [1],
+          "midrun: the stub revoked the first credential and only the first")
     check(board.output().count(QUESTION) == 2, "midrun: asked twice in the whole run, not again after pairing")
     check("the board was unpaired" not in board.output().split("device 2")[-1],
           "midrun: it does not say the board was unpaired again after the pairing worked")
