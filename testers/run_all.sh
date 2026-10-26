@@ -1229,6 +1229,17 @@ tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
 # point's axes swapped, the default moved), each predicted to turn named assertions red.
 # Compiles only.
 tester 1906-focal         "bash '$T/i1906_check.sh'"
+# turnaus#1904: OD_EXPOSURE / OD_GAIN (unset: no property is set, the camera's own auto), the
+# exposure and gain set on every capture device at open. One compile of the tree (the pins'
+# parse, V4L2's 1/3 mode convention against MSMF's 0/1, mode before exposure before gain, a
+# file planned nothing, the per-start line) plus seven of a mutated scratch copy of
+# exposure_pin.hpp, each predicted to turn named assertions red. Compiles only. The device half
+# -- a capture opened with the pin and read back -- is i1904_run.sh, run by hand on the rig.
+tester 1904-exposure      "bash '$T/i1904_check.sh'"
+# turnaus#1904: i1904_capture_probe.cpp opens captures through OpenCvCaptureSource with the pin
+# set: over two files the no-op is said once and nothing is set, unset says nothing, a word is
+# refused once. Its device half runs only where OD_PROBE_DEVICES names cameras.
+tester 1904-capture       "bash '$T/i1904_run.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")

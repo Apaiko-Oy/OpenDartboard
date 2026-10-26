@@ -2,6 +2,7 @@
 
 #include "capture.hpp"
 #include "capture_realtime.hpp"
+#include "exposure_pin.hpp"
 #include "logging.hpp"
 #include "od_clock.hpp"
 #include "od_fix.hpp"
@@ -188,6 +189,28 @@ namespace camera
 
             log_info("Initializing " + log_string(sources.size()) + " cameras...");
 
+            // turnaus#1904: OD_EXPOSURE / OD_GAIN. A refused value is said once and is no
+            // pin; a pin over file sources is a no-op, said once. Unset says nothing here.
+            const exposure_pin::Pin &exposure = exposure_pin::exposurePin();
+            const exposure_pin::Pin &gain = exposure_pin::gainPin();
+            {
+                static bool refusal_said = false;
+                if (!refusal_said && (exposure.kind == exposure_pin::Pin::Refused || gain.kind == exposure_pin::Pin::Refused))
+                {
+                    refusal_said = true;
+                    log_warning("OD_EXPOSURE / OD_GAIN: \"" + (exposure.kind == exposure_pin::Pin::Refused ? exposure.text : gain.text) +
+                                "\" is not a number" + std::string(exposure.kind == exposure_pin::Pin::Refused ? " or auto" : "") +
+                                "; that pin is ignored and the camera keeps its own setting (#1904)");
+                }
+                static bool file_said = false;
+                if (!file_said && exposure_pin::asksAnything(exposure, gain) && !sources.empty() &&
+                    std::all_of(sources.begin(), sources.end(), [](const std::string &s) { return isVideoFile(s); }))
+                {
+                    file_said = true;
+                    log_info("OD_EXPOSURE / OD_GAIN set, but every source is a video file: nothing to set, the pin is a no-op (#1904)");
+                }
+            }
+
             for (size_t i = 0; i < sources.size(); i++)
             {
                 cv::VideoCapture cap;
@@ -325,6 +348,26 @@ namespace camera
                     asked_fps = captureRateRequest((double)fps, captureRateFloor());
                     cap.set(cv::CAP_PROP_FPS, asked_fps);
 
+                    // turnaus#1904: the exposure pin, after the format and the rate (a rate
+                    // set on MSMF renegotiates the media type). Unset: no set() at all.
+                    if (cap.isOpened())
+                    {
+                        const exposure_pin::Backend backend =
+                            deviceBackend() == cv::CAP_MSMF ? exposure_pin::Backend::MSMF : exposure_pin::Backend::V4L2;
+                        for (const exposure_pin::Set &step : exposure_pin::plan(backend, exposure, gain))
+                        {
+                            const bool taken = cap.set(step.prop, step.value);
+                            const double back = cap.get(step.prop);
+                            const std::string line = "Camera " + log_string(i + 1) + " " + step.name + ": asked " +
+                                                     exposure_pin::num(step.value) + ", got " + exposure_pin::got(back) +
+                                                     (taken ? "" : " (the backend refused the set)") + " (#1904)";
+                            if (taken)
+                                log_info(line);
+                            else
+                                log_warning(line);
+                        }
+                    }
+
                     clock = deviceClock();
 
                     // Only about a camera that is actually there. A device that never
@@ -374,6 +417,12 @@ namespace camera
                     // no floor, and where there is one, holding a camera to a request
                     // nobody made of it is how a working board grows a standing warning.
                     sayFinding(rateFinding((int)(i + 1), actual_fps, asked_fps, /*is_device*/ true));
+
+                    // turnaus#1904: what this session's pictures are taken at, every start.
+                    log_info(exposure_pin::startLine(
+                        (int)(i + 1), deviceBackend() == cv::CAP_MSMF ? exposure_pin::Backend::MSMF : exposure_pin::Backend::V4L2,
+                        exposure, gain, cap.get(cv::CAP_PROP_EXPOSURE), cap.get(cv::CAP_PROP_GAIN),
+                        cap.get(cv::CAP_PROP_AUTO_EXPOSURE)));
 
                     OpenedCamera device;
                     device.code = (int)fourcc;
