@@ -3,6 +3,12 @@
 *#1480. A census, and the rule that produced it. Nothing under `testers/` was changed to
 write this — see the end of the file.*
 
+*Since 2026-10-13 (turnaus#1478, removed in turnaus#1941): five of the files below are gone —
+`phases1321/1321-reason.sh`, `phases1339/1339-denominator.sh`, `phases1345/1345-figures.sh`,
+`phases1445/1445-looks.sh` and `phases1449/1449-anchoring.sh` — with `i1321_dark_footage.cpp`.
+Their rows are marked **retired** and kept, because the counts are a measurement on `9d699de`.
+`docs/rig.md` (Fixtures) says why they were retired.*
+
 `mocks/cam_{1,2,3}.mp4` is upstream OpenDartboard footage, and
 [`mocks/rig-20260918/README.md`](../mocks/rig-20260918/README.md) says every calibration
 constant in this repository was fitted against it. A tester that asserts a geometric
@@ -112,13 +118,13 @@ mocks half* than to taking a new number.
 | `i1331_inside.sh` | the same three bulls; full-frame `radius 291/314/308 px, centre (612,338)/(619,370)/(676,374)`; edge margins `121/148/119 px`; fitted boards `183859 173006 175444`; region `663 px around (619,370)`; off-centre bull `(846,432)`, board `287.7 px`; cut board `176 px, centre (1046,304)` | yes |
 | `i1392_look_check.cpp` | a hard-coded table of the six cameras: `mocks/cam_1..3` at flood/ring/span/rays `38532,32580,291.0,97` etc. Reads no video | yes |
 | `phases1320/1320-speck.sh` | the same three bulls, pinned; `96 px` between bull and speck | yes |
-| `phases1321/1321-reason.sh` | fixture parameters `612 338 45 430 0,220` — camera 1's board on the shipped mocks — and the `0.18` dim scale swept on it | no |
-| `phases1339/1339-denominator.sh` | §5 floors the shipped mocks at `MB >= 10` dart events in 1500 cycles; the `0.6` scale and the "the mocks have room, the rig is 1.07x from not calibrating" premise | yes |
+| ~~`phases1321/1321-reason.sh`~~ **retired** | fixture parameters `612 338 45 430 0,220` — camera 1's board on the shipped mocks — and the `0.18` dim scale swept on it | no |
+| ~~`phases1339/1339-denominator.sh`~~ **retired** | §5 floors the shipped mocks at `MB >= 10` dart events in 1500 cycles; the `0.6` scale and the "the mocks have room, the rig is 1.07x from not calibrating" premise | yes |
 | `phases1340/1340-floor.sh` | the three mock bulls before and after; the `OD_BOARD=frame` reproductions of #1320's numbers; `36864` floor; speck `700,380`; `96 px` | yes |
 | `phases1392/1392-annulus.sh` | crop centres `616,283 / 651,313 / 654,293` are the mock bulls; per-camera expected ring shares pinned per fixture | yes |
 | `phases1393/1393-carve.sh` | carves `27 29 29` on boards `291 315 309`; red carved `364 364 355`; fitted `183859 173006 175444`; half-size bull `(628,322)`, `89` points, `171/354 px`, triples `17976/12503/5319` | yes |
 | `phases1394/1394-windows.sh` | fitted `183859 173006 175444`; spans `289/312/306`; bull's-eye `168/182/178`; centrality `459/496/486`; connectivity `140/152/149`; kept `38563/39763/48386` | yes |
-| `phases1449/1449-anchoring.sh` | the unanchored board is `cam_1,cam_3,cam_1` *because* `cam_2` is this fixture's only star camera — a measured per-clip property, and the whole construction | no |
+| ~~`phases1449/1449-anchoring.sh`~~ **retired** | the unanchored board is `cam_1,cam_3,cam_1` *because* `cam_2` is this fixture's only star camera — a measured per-clip property, and the whole construction | no |
 
 ### A2 — shape or presence only (16)
 
@@ -132,14 +138,14 @@ No shipped-mock figure is pinned. Change the path and re-run.
 | `phases1318/1318-webcam.sh` | B: the mocks calibrate 3 of 3, `0` ERROR/WARN; A/C/D: the two mock cameras beside the face calibrate; the probe chooses the three mock paths, asserted as literal path strings |
 | `phases1330/1330-ownership.sh` | phase 4: the mocks calibrate with `0` ERROR/WARN, write a cache, and a `--reuse-calibration` start reads it |
 | `phases1338/1338-partial.sh` | D control: the mocks calibrate 3 of 3 and the scorer repeats the census, `0` ERROR/WARN; A/C build boards out of mock cameras |
-| `phases1345/1345-figures.sh` | the mocks calibrate 3 of 3, produce `0` ERROR, and refuse `>= 1` window so a refusal is shown possible |
+| ~~`phases1345/1345-figures.sh`~~ **retired** | the mocks calibrate 3 of 3, produce `0` ERROR, and refuse `>= 1` window so a refusal is shown possible |
 | `phases1348/1348-reduced.sh` | A control: the mocks calibrate, all three, `0` ERROR/WARN |
 | `phases1372/1372-cached.sh` | S seed: the mocks calibrate 3 of 3, `0` ERROR/WARN, and write the cache every later phase reads |
 | `phases1388/1388-budget.sh` | phase 6 control: the mocks calibrate, `0` ERROR/WARN. Phase 1's budget and phase 3's `WORST` are both derived in the run |
 | `phases1389/1389-floor.sh` | A control: the mocks calibrate, `0` ERROR/WARN; D: a two-camera mock board publishes `>= 1` score |
 | `phases1441/1441-region.sh` | §C: every mock clip answers identically with and without `OD_WIRE_REGION=doubles`. Differential against the same binary |
 | `phases1442/1442-count.sh` | §B: the three count relationships over every frame of both fixtures, and `TOT_OVER`/`TOT_EXACT` non-zero. Differential |
-| `phases1445/1445-looks.sh` | §C: **see the blocker below** |
+| ~~`phases1445/1445-looks.sh`~~ **retired** | §C: **see the blocker below** |
 | `phases1451/1451-scoring.sh` | the closing control: `mocks/cam_*.mp4` still calibrates 3 of 3. Its subject is the rig's 21-wire camera 3 |
 | `phases899/899-recover.sh` | §9: the mocks calibrate, `0` ERROR/WARN, and say nothing about sight. The two arms are cut from the mocks by `i1388`'s tool with synthetic `20,15` displacement |
 
@@ -161,7 +167,7 @@ prose. Nothing here asks what the detector saw.
 | `i1282_inside.sh` | end-of-footage: `rc != 124`, `rc = 0`, stdout `< 2 MB`, three `END OF FOOTAGE cam=`, one `Initializing 3 cameras`, no `BOARD SIGHT LOST`, `CAPDROP > 0`. The mocks are cut into 300-frame clips |
 | `i1282_windows.sh` | the same on real Windows, plus subscriber sockets. `unrun-tester:` |
 | `i1319_run.sh` | container harness; exits on the inside script. **Prose only** |
-| `i1321_dark_footage.cpp` | parameterised darkening tool, `argv`-driven. **Prose only** |
+| ~~`i1321_dark_footage.cpp`~~ **retired** | parameterised darkening tool, `argv`-driven. **Prose only** |
 | `i1362_broken_ring_footage.cpp` | parameterised annular-occlusion tool, `argv`-driven. **Prose only** |
 | `i1393_run.sh` | container harness. **Prose only** |
 | `i1394_run.sh` | container harness. **Prose only** |
