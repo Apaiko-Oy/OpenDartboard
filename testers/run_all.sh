@@ -1221,6 +1221,14 @@ tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
 # predicted to turn named assertions red. Compiles only. Then i1908_vote_census.py
 # --self-test (turnaus#1941): the live census's sentence reader and weights, a tenth of a second.
 tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
+# turnaus#1906: OD_FOCAL_PX (unset: the 120-degree guess), the focal length perspective
+# processing's solvePnP is given, one value or a comma list per camera. One compile of the tree
+# (the pin's parse refusing every malformed list whole, slot i reaching camera i, the guess past
+# the list's end, the intrinsic matrix, a planted f = 690 board solved back to 388 mm) plus four
+# of a mutated scratch copy of focal_pin.hpp (half a pin kept, the wrong slot, the principal
+# point's axes swapped, the default moved), each predicted to turn named assertions red.
+# Compiles only.
+tester 1906-focal         "bash '$T/i1906_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
 WANTED=("$@")
