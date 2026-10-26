@@ -3157,3 +3157,86 @@ weighed into a publish. Then three mutations of a scratch copy of `score_process
 predicted to turn named assertions red. Weights ignored (the issue's mutation, 10: `issue:` 1,
 `account:` 2, `weight:` 3, `keep:` 2, `guard:` 2). The default moved to `fit` (`parse:` 1). The
 rim guard removed (`guard:` 1).
+
+## `OD_FOCAL_PX` (turnaus#1906): the focal solvePnP is given -- and nothing that scores reads that pose
+
+**What it does.** `OD_FOCAL_PX=<f>` gives `perspective_processing.cpp`'s solvePnP the focal
+length `f` px on every camera; `OD_FOCAL_PX=<f1>,<f2>,<f3>` gives camera i (in `--cams` order)
+slot i, and a camera past the list's end keeps the guess. Unset, empty or unparsable (a word,
+zero, a negative, an empty slot, over 100000) is no pin on any camera -- a malformed list is
+refused whole, said once at WARN, never half-applied. The matrix is square pixels, the
+principal point at the frame's centre, no skew (`focal_pin.hpp`). The per-start calibration
+line says which f each camera's pose was solved with:
+`Camera 2 reprojection: 32.18 px mean, 41.34 px worst, over 20 points, solved at f=455.0 px
+(the 120-degree guess)` -- or `(OD_FOCAL_PX)`. `i1555_run.sh` forwards it.
+
+**The unset value is not 424 px.** The guess is `(cols / 2) / tan(60 deg)` scaled by the
+imaged doubles radius over 170 mm, so it is a focal that stands every board at the same
+369.5 mm (on a 1280-wide frame) and reads 424 px only for a board imaged at 195 px radius. On
+the bakeoff it was **406-457 px**: 425-443 on rig-20260918, 453-457 on cameras 1 and 2 of
+rig-20260922 / rig-20260929 and 406-411 on their camera 3. The "300 mm standoff" above came
+from a different division and is not this constant's either.
+
+**What the pose reaches.** `processPerspective` returns a rectified image that
+`geometry_calibration.cpp` assigns to `rectifiedImage` and never reads (orientation takes the
+original frame); its rvec / tvec go to the reprojection line and the debug JPEG and nowhere
+else. The wire model is a plane fit with no intrinsics (`wire_model.hpp`), and the dart solve
+recovers its own focal from the homographies (`sisal_slide.hpp`, 757-854 px). So no figure the
+bakeoff scores can move with this pin, and none did.
+
+**The bakeoff** (capture clock, `OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006
+OD_LONE_CAMERA=on testers/i1555_run.sh`, 2026-10-26, one binary, seven replays,
+runs-wt-1906/bake-unset then bake-690 with `OD_FOCAL_PX=690`; 1,000 / 971 s, started at load
+3.9 / 3.2). Every `SCORE`, `PATH`, `I1911`, `I1512` and `I1511AXIS` line of the seven replays is
+the same in both runs, line for line (3,646 lines, `Processing: <ms>` and the END OF FOOTAGE
+wall time stripped):
+
+| | unset (guess, 406-457 px) | `OD_FOCAL_PX=690` |
+|---|---|---|
+| pooled | 143..149/158 | 143..149/158 |
+| r18+r22 | 82/86 | 82/86 |
+| rig-20260918 / 22 / 29 | 38/40, 44/46, 61..67/72 | 38/40, 44/46, 61..67/72 |
+| wire residual (`wire model: ... rms`), every camera-start | identical (0.86-5.07 deg) | identical |
+| solved position, tip ref, 63 darts: radial / tangential median | 1.69 / 1.95 mm | 1.69 / 1.95 mm |
+| solved position, annX ref: radial / tangential median | 1.13 / 0.77 mm | 1.13 / 0.77 mm |
+| PnP reprojection, 39 camera-starts: median mean / median worst | 32.57 / 48.08 px | 32.18 / 44.98 px |
+
+**The reprojection cannot choose f either.** It is about 32 px mean on every camera at both
+focal lengths, and the reason is the correspondences rather than the lens: `findAll
+RingWireIntersections` uses one ring (the outer doubles) and builds each model point on a 170
+mm circle at the wire's IMAGE angle about the imaged bull, not at its board angle on the
+eighteen-degree grid. A perspective-foreshortened angle set laid on a true circle is not a
+board any pose can image, so the fit carries a structural ~32 px whatever f is; and twenty
+points on one circle constrain f and distance only weakly in any case. The planted check
+(`1906-focal`) shows what the same instrument does with true correspondences: a board imaged
+at f = 690 from 388 mm solves back to 388.000 mm and 0.000 px at 690, and to 252 mm and 11.1 px
+at 424.
+
+| first calibration per replay | guess f | unset mean / worst px | 690 mean / worst px |
+|---|---|---|---|
+| r18-dev cam 1 / 2 / 3 | 430 / 435 / 425 | 32.99/52.90, 32.59/49.12, 33.24/48.40 | 31.99/43.33, 32.03/42.94, 32.61/47.07 |
+| r18-open cam 1 / 2 / 3 | 434 / 443 / 426 | 32.15/51.82, 31.27/48.08, 33.07/49.27 | 31.09/41.83, 30.54/38.95, 32.20/46.32 |
+| r22-dev cam 1 / 2 / 3 | 455 / 455 / 407 | 32.57/47.44, 32.18/41.34, 33.53/52.43 | 32.13/47.21, 32.20/44.77, 32.39/43.65 |
+| r22-open cam 1 / 2 / 3 | 456 / 453 / 408 | 32.46/48.22, 32.36/41.33, 33.23/51.41 | 31.89/45.42, 32.41/45.13, 32.22/42.16 |
+| r29-dev cam 1 / 2 / 3 | 456 / 455 / 410 | 32.17/47.23, 32.18/41.28, 33.14/49.35 | 31.69/45.63, 32.22/45.34, 32.43/44.68 |
+| r29-open cam 1 / 2 / 3 | 456 / 455 / 411 | 32.13/47.18, 31.97/40.65, 33.07/50.00 | 31.66/45.56, 32.04/45.14, 32.22/44.22 |
+
+690 lowers the worst point on every camera but camera 2 of rig-20260922 / rig-20260929 --
+which is the one camera #1560 measured at 690 -- and moves the mean by at most 1 px. Read
+against a 32 px structural floor that is not evidence that the cameras differ, nor that 690 is
+right or wrong: this fit cannot tell. The default stays the guess; choosing it is the
+maintainer's call, and on these rows it changes no score. A question that would answer f is a
+PnP over the board's own grid angles (or #1560's ring census per camera), and the tape measures
+below.
+
+**Tape measures, Pi board (Pelipaikka 6).** Not yet taken: distance from each camera to the
+bull, height above the board face, and angle to the face, beside the Windows rig's figures
+above. They settle f and the standoff at once.
+
+**Tested** by `1906-focal` (`testers/i1906_check.sh`): one compile of the tree
+(`testers/i1906_focal_check.cpp`: the parse, the default, the guess's formula -- 1280 wide,
+doubles 390 px across, 423.8 px -- slot i to camera i and the guess past the list, the matrix,
+the planted pose, the line's words) plus four mutations of a scratch copy of `focal_pin.hpp`,
+each predicted exactly: a bad slot ending the list instead of refusing it (3 `parse:`), camera
+i given the last slot (2 `camera:`), the principal point's axes swapped (1 `matrix:`), the
+default moved to 690 (2 `default:`). Compiles only.
