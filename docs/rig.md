@@ -3240,3 +3240,74 @@ the planted pose, the line's words) plus four mutations of a scratch copy of `fo
 each predicted exactly: a bad slot ending the list instead of refusing it (3 `parse:`), camera
 i given the last slot (2 `camera:`), the principal point's axes swapped (1 `matrix:`), the
 default moved to 690 (2 `default:`). Compiles only.
+
+## `OD_EXPOSURE` / `OD_GAIN` (turnaus#1904): the cameras' exposure and gain, pinned at open
+
+**What it does.** Unset, nothing in the program touches exposure or gain: every camera runs
+its own auto, exactly as before this section existed. Set, every capture *device* is given
+them once at open, after the format and the rate (`exposure_pin.hpp`, called from
+`capture_opencv.hpp`):
+
+| | `OD_EXPOSURE=<n>` | `OD_EXPOSURE=auto` | `OD_GAIN=<n>` |
+|---|---|---|---|
+| V4L2 (the Pi, Linux) | `auto_exposure=1` (manual), then `exposure=<n>`, in `exposure_absolute`'s 100 us steps: 100 = 10 ms | `auto_exposure=3` (aperture priority, the UVC auto) | `gain=<n>`, the camera's raw unit |
+| MSMF (Windows) | `auto_exposure=0` (manual), then `exposure=<n>`, in log2 seconds: -7 = 7.8 ms, -6 = 15.6 ms | `auto_exposure=1` | `gain=<n>` |
+
+The mode is set before the exposure on both, and on MSMF that order is load-bearing: OpenCV's
+`CAP_PROP_AUTO_EXPOSURE` there writes its own value as the exposure too, so a mode set after
+the exposure would overwrite it with 0. A value that is not a number (`OD_EXPOSURE=bright`,
+`156abc`) is no pin, said once at WARN; the gain does not take `auto`, because OpenCV has no
+generic auto-gain switch.
+
+**What a session log says.** With a pin, one line per property per camera, what was asked and
+what the camera reports back -- `Camera 1 exposure: asked 100, got 100 (#1904)`, at WARN with
+`(the backend refused the set)` where `set()` returned false. And on every start, pinned or
+not, one line per camera saying what the pictures are taken at:
+
+    Camera 1 exposure: manual (OD_EXPOSURE), asked 100, got 100; mode reads manual; gain asked 4, got 4 (V4L2)
+    Camera 2 exposure: camera's own (OD_EXPOSURE unset), reads 312; mode reads auto (V4L2 3); gain reads 0 (V4L2)
+
+On MSMF the mode is reported as `mode not readable on MSMF`: OpenCV's read-back of
+`CAP_PROP_AUTO_EXPOSURE` there compares the exposure *value* with the auto flag's number
+(4.5.1 and 4.14.0 alike), so it would say "auto" exactly when the exposure happens to be 1.
+A video file is never given either pin; with a pin set over file sources the log says once
+`the pin is a no-op` and nothing else, and unset over files it says nothing at all.
+
+**A UVC camera remembers.** On V4L2 the controls belong to the camera, not to the process: a
+board started once with `OD_EXPOSURE=100` and then restarted with the pin unset keeps running
+at 100, and its start line says `mode reads manual` under `OD_EXPOSURE unset`. That line is
+the tell. `OD_EXPOSURE=auto` for one start hands exposure back (as does unplugging it).
+
+**Picking a value at a venue.** The aim is the one every published-accuracy system takes: the
+light bright and even, the exposure short, the dart a crisp dark silhouette on a board whose
+light segments are well lit but not white-clipped.
+
+1. Lights on, as they will be for play. Start once unset and read each camera's start line;
+   with the camera in auto its `reads` value is where it settled -- a starting point, though
+   some UVC firmware reports the last manual value there instead of the live one.
+2. See each camera's range: `v4l2-ctl -d /dev/video0 -L` (`exposure_absolute` min/max/step,
+   `gain`, `power_line_frequency`). On Windows the range is the camera's driver dialog.
+3. Pick the shortest exposure that keeps the light sisal segments clearly lit with nothing
+   clipped, a dart in the board reading black. Shorter is a sharper silhouette and less blur
+   on an arriving dart. On V4L2 stay under one frame period (333 at 30 fps): a longer
+   exposure cuts the frame rate, which the per-camera rate line would then report.
+4. Under mains-driven light (50 Hz here) make it a multiple of 10 ms -- 100, 200, 300 on V4L2
+   -- or the picture beats with the flicker and the motion detector sees it. LED rings on a
+   steady supply do not care. MSMF's log2 steps cannot land on 10 ms; -7 is the nearer.
+5. Gain last and as low as the light allows: it brightens the noise with the picture.
+6. Start with the pin and check every camera's start line says `got` what was asked and
+   `mode reads manual`. A camera that rounds the value says so there.
+
+`testers/i1904_run.sh` opens captures through `OpenCvCaptureSource` with the pin set;
+`OD_PROBE_DEVICES="0 1 2" OD_EXPOSURE=100 OD_GAIN=4 testers/i1904_run.sh` does it on the
+board's cameras and prints each camera's lines (set `OD_IMAGE` to the board's arm64 image).
+`1904-exposure` holds the mapping with seven mutations. `i1555_run.sh` forwards both pins.
+
+**The bakeoff is unchanged, because a file is never given the pin.** BAKEOFF-PLACEHOLDER
+
+**Not measured here, and the reason this section exists:** whether a fixed exposure reduces
+the "not straight" refusals (centreline scatter against the 2.5 px gate), the "rim only" and
+"not a shaft" readings, and raises the share of three-camera solves on the live board. That is
+the maintainer's measurement on the rig -- same box, lights on, auto against fixed -- and its
+figures belong here when it is made. A fixed exposure should also make #1646's settle hold
+fire less; the hold itself is unchanged.
