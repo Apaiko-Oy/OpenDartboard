@@ -1,4 +1,5 @@
 #include "perspective_processing.hpp"
+#include "focal_pin.hpp"
 #include "logging.hpp"
 #include "geometry_calibration.hpp"
 #include "utils.hpp"
@@ -201,15 +202,20 @@ namespace perspective_processing
         log_debug("Using " + log_string(objectPoints.size()) + " point correspondences for PnP");
 
         // Step 3: Set up camera matrix (approximation)
-        double fx = (rawImage.cols / 2.0) / tan(120.0 * CV_PI / 360.0) * (calib.ellipses.outerDoubleEllipse.size.width * 0.5) / 170.0; // scale factor
-        double fy = fx;
-        double cx = rawImage.cols * 0.5;
-        double cy = rawImage.rows * 0.5;
-        // Mat cameraMatrix = (Mat_<double>(3, 3) << fx, 0, cx, 0, fx, cy, 0, 1);
-        Mat cameraMatrix = (Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
-        // Mat cameraMatrix = (Mat_<double>(3, 3) << rawImage.cols, 0, rawImage.cols * 0.5,
-        //                     0, rawImage.cols, rawImage.rows * 0.5, // Assume square pixels
-        //                     0, 0, 1);
+        // turnaus#1906: the 120-degree guess unless OD_FOCAL_PX pins it (focal_pin.hpp).
+        if (focal_pin::focalPinRefused())
+        {
+            static bool told = false;
+            if (!told)
+            {
+                told = true;
+                log_warning("OD_FOCAL_PX is not a focal length or a comma list of them; every camera "
+                            "keeps the 120-degree guess");
+            }
+        }
+        const focal_pin::Focal focal = focal_pin::focalFor(
+            focal_pin::focalPin(), calib.camera_index, rawImage.cols, calib.ellipses.outerDoubleEllipse.size.width);
+        Mat cameraMatrix = focal_pin::cameraMatrixFor(focal.px, rawImage.cols, rawImage.rows);
 
         // Step 4: Solve PnP
         Mat rvec, tvec;
@@ -251,7 +257,7 @@ namespace perspective_processing
         const double avgError = totalError / imagePoints.size();
         log_info("Camera " + log_string(calib.camera_index + 1) + " reprojection: " + log_string(avgError) +
                  " px mean, " + log_string(worstError) + " px worst, over " +
-                 log_string(imagePoints.size()) + " points");
+                 log_string(imagePoints.size()) + " points, " + focal_pin::focalClause(focal));
 
         // Step 5: Rectify the board
         Mat rectified = rectifyBoard(rawImage, rvec, tvec, cameraMatrix, spec);
