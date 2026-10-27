@@ -1249,6 +1249,8 @@ tester 1904-capture       "bash '$T/i1904_run.sh'"
 # takeout and confirmed once, exit 61, started again by the harness: afresh under
 # --reuse-calibration, CALIBRATING then READY with the camera report, BEFORE and AFTER per
 # camera, no repeat while the stub lists the answered request again; Moved refused.
+# MEASURED 2026-10-27 on the 4-core box (load 3.8), rc=0: 154 s wall; 25 pure lines, four
+# mutations red as predicted, 43 board checks.
 tester 1929-recalibrate   "bash '$T/i1929_check.sh'"
 
 # ---- which of them this run is about ---------------------------------------------------
