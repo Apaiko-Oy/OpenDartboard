@@ -381,6 +381,36 @@ request to it simply ages out on the server -- turnaus#1786 calls the whole thin
 effort). The answer is the only thing that ever leaves the buffer; nothing about a
 correction is kept on the board.
 
+**A recalibration asked from the screen (turnaus#1928, turnaus#1929).** The tablet at the
+board's Station asks between legs; the board polls the way it polls for frames, but **after
+every beat the server answered** rather than at an END, because between legs is exactly when
+no END comes. The club's door only, with the club's credential (there is no Casual address):
+
+```
+GET /api/v1/autoscorer/recalibrations
+-> 200 {"data":[{"reference":"01J9X..."}]}           at most one, listed for ten minutes
+
+POST /api/v1/autoscorer/recalibrations/{reference}
+{"accepted":true}
+{"accepted":false,"refusal":"A leg is in play: this board holds darts of a round ..."}
+-> 202
+```
+
+Each reference is confirmed **once**; a reference listed again after it was confirmed is
+ignored and said once in the log. The board refuses, in its own words (ASCII, at most 200
+characters, never translated), when it holds a **Moved** verdict (clearing it is
+`--clear-geometry-fault`, an operator's act), while it is confirming its geometry after
+losing sight, while a **round is in hand**, and when darts arrive at two polls running after
+the request could have been made -- one such poll only puts it off. An accepted request is
+acted on only once the server has taken the confirmation: the board **stops with exit 61 and
+starts again** (src/utils/recalibration.hpp says why a restart is the recalibration), the
+launcher following it with no look for an update. The start calibrates afresh even under
+`--reuse-calibration`, beats `INITIALISING`, `CALIBRATING` and then `READY` or `ERROR` as each
+happens -- the server follows a confirmed request through the first `CALIBRATING` it hears --
+and the `READY` beat carries the camera report below, which is the outcome the screen draws.
+The log says `I1929 RECALIBRATED <reference> before:` and `after:` with each camera's sealed
+geometry. A deployment without the route (404) is said once and not asked again.
+
 ### The heartbeat, and what it states (#892, #1474, turnaus#1882)
 
 Every interval Turnaus names, a paired board posts a beat to

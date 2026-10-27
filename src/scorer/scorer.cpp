@@ -435,6 +435,62 @@ bool Scorer::scheduledStopIsDue()
     }
 }
 
+bool Scorer::recalibrationIsDue()
+{
+    string reference;
+    if (!turnaus_ || !turnaus_->takeRecalibration(reference))
+    {
+        return false;
+    }
+    recalibration::Marker marker;
+    marker.reference = reference;
+    marker.census_before = detector ? detector->scoringWith() : string();
+    marker.geometry_before = detector ? detector->heldGeometry() : string();
+    log_info(recalibration::stopSentence(reference, marker.census_before));
+    log_info("I1929 RECALIBRATION " + reference + " before: " +
+             (marker.geometry_before.empty() ? string("no geometry held") : marker.geometry_before));
+    if (!recalibration::writeMarker(marker))
+    {
+        // The restart still recalibrates by #1330's default. What is lost is the BEFORE
+        // line at the next start, and the refusal to reuse a cache under --reuse-calibration.
+        log_warning("I1929 RECALIBRATION " + reference + ": could not write " + recalibration::markerPath() +
+                    "; the next start calibrates afresh unless it was started with --reuse-calibration");
+    }
+    stopped_to_recalibrate_ = true;
+    return true;
+}
+
+void Scorer::sayRecalibrated()
+{
+    if (recalibrated_from_.reference.empty())
+    {
+        return;
+    }
+    const string &reference = recalibrated_from_.reference;
+    const string census_after = detector ? detector->scoringWith() : string();
+    const string geometry_after = detector ? detector->heldGeometry() : string();
+    if (!canSee())
+    {
+        log_error("I1929 RECALIBRATED " + reference + ": the start came back unable to see (" +
+                  (board_sight::faultDetail().empty() ? string("nothing said why") : board_sight::faultDetail()) +
+                  "); before it was scoring with " +
+                  (recalibrated_from_.census_before.empty() ? string("an unknown census")
+                                                            : recalibrated_from_.census_before));
+    }
+    else
+    {
+        log_info("I1929 RECALIBRATED " + reference + ": scoring with " +
+                 (census_after.empty() ? string("an unknown census") : census_after) + ", before " +
+                 (recalibrated_from_.census_before.empty() ? string("an unknown census")
+                                                           : recalibrated_from_.census_before));
+    }
+    log_info("I1929 RECALIBRATED " + reference + " before: " +
+             (recalibrated_from_.geometry_before.empty() ? string("no geometry held")
+                                                         : recalibrated_from_.geometry_before));
+    log_info("I1929 RECALIBRATED " + reference + " after: " +
+             (geometry_after.empty() ? string("no geometry held") : geometry_after));
+}
+
 void Scorer::sendResult(const DetectorResult &result)
 {
     // Push to queue for WebSocket broadcasting
@@ -558,6 +614,7 @@ void Scorer::run()
     if (!canSee())
     {
         log_error("Detector not initialized - cannot run");
+        sayRecalibrated(); // turnaus#1929
         runFaultVigil();
         return;
     }
@@ -627,6 +684,7 @@ void Scorer::run()
                                                  ? to_string(camera_sources.size()) + " camera sources, census unknown"
                                                  : census));
     }
+    sayRecalibrated(); // turnaus#1929
     cout << "-------------------------------------" << endl;
 
     // ---- harness, not upstream: one cycle budget, so two runs stop on the same frame.
@@ -670,6 +728,13 @@ void Scorer::run()
         // #1797: the scheduled stop, by the same flag and the same exit path, polled once a
         // cycle after the signal so a SIGTERM that lands at 06:00 is reported as what it was.
         if (scheduledStopIsDue())
+        {
+            running = false;
+            break;
+        }
+        // turnaus#1929: a recalibration the client accepted and the server took. The same
+        // exit path again; recalibration.hpp says why a restart is the recalibration.
+        if (recalibrationIsDue())
         {
             running = false;
             break;
@@ -831,6 +896,7 @@ void Scorer::run()
             if (blind_for >= kSightLostAfterSeconds)
             {
                 scoring_suspended = true;
+                board_sight::sightSuspended() = true; // turnaus#1929
                 recovery_attempts = 0;
                 disagreements = 0;
                 backoff_seconds = kFirstRetryBackoffSeconds;
@@ -867,6 +933,7 @@ void Scorer::run()
                 }
                 disagreements = 0;
                 scoring_suspended = false;
+                board_sight::sightSuspended() = false; // turnaus#1929
                 last_sight = chrono::steady_clock::now();
             }
             else if (review.verdict == GeometryReview::Verdict::Moved)
@@ -1066,6 +1133,13 @@ void Scorer::runFaultVigil()
         // one thing that lets the launcher look for the release that might give it its
         // sight back. No darts, so the guard never fires; the vigil is otherwise #895's.
         if (scheduledStopIsDue())
+        {
+            running = false;
+            break;
+        }
+        // turnaus#1929: and a board that came up blind may be asked to start again. Not one
+        // holding a Moved verdict -- the client refused that before it could get here.
+        if (recalibrationIsDue())
         {
             running = false;
             break;

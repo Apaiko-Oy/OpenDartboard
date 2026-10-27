@@ -32,6 +32,9 @@ public:
     // #1338: the census this detector decided, for whoever has to print it.
     virtual string scoringWith() const override { return scoring_with; }
 
+    // turnaus#1929: the line `initialize` sealed, for the recalibration's BEFORE and AFTER.
+    virtual string heldGeometry() const override { return sealed_geometry; }
+
     // #1445: where another look comes from, for a camera the averaged frame refused.
     // Held, not called, until `initialize` has been through its first pass -- and never
     // called at all once the geometry is sealed. See `lookAgainAtRefusedCameras`.

@@ -237,6 +237,7 @@ namespace launcher
         case Ending::Killed:
         case Ending::Cleanly:
         case Ending::Scheduled: // #1797: a board that reached 06:00 started, whenever that was
+        case Ending::Recalibrating: // turnaus#1929: a board asked to recalibrate had started
         default:
             return false;
         }
@@ -255,6 +256,11 @@ namespace launcher
             return "never-started";
         case Ending::Scheduled:
             return "scheduled"; // #1797: the word decideMoment() opens its fourth door on
+        case Ending::Recalibrating:
+            // turnaus#1929: NOT "scheduled", so no door opens: the board stopped seconds ago,
+            // in the middle of an evening, and the quiet rule (ADR-0077 §7) answers
+            // QuickRestart -- the same build starts again with no look for an update.
+            return "recalibrating";
         case Ending::Faulted:
         default:
             return "faulted";

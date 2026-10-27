@@ -9,6 +9,7 @@
 #include "../communication/score_queue.hpp"
 #include "../communication/turnaus_client.hpp"
 #include "../utils/scheduled_stop.hpp"
+#include "../utils/recalibration.hpp"
 #include "visit_fill.hpp"
 #include <memory>
 
@@ -65,6 +66,24 @@ public:
    * the status above. False on every other route out, including a vigil left by SIGTERM.
    */
   bool stoppedOnSchedule() const { return stopped_on_schedule_; }
+
+  /**
+   * turnaus#1929: the exit status of a board that stopped ITSELF because somebody at the
+   * board asked it to recalibrate, between legs, and it accepted. The number lives in
+   * src/utils/recalibration.hpp, which the launcher reads too; that header says why the
+   * recalibration is a restart. Same flag and same unwind as SIGTERM, like the 06:00 stop.
+   */
+  static constexpr int kRecalibrateStop = recalibration::kExitCode;
+
+  /** Whether this run ended to be started again and recalibrate. Read once, by main. */
+  bool stoppedToRecalibrate() const { return stopped_to_recalibrate_; }
+
+  /**
+   * turnaus#1929: this start is the recalibration a previous run stopped for, and this is
+   * what that run left (recalibration.hpp's marker). run() says BEFORE and AFTER for each
+   * camera once the start has calibrated, or that it came back unable to see.
+   */
+  void recalibratedFrom(const recalibration::Marker &marker) { recalibrated_from_ = marker; }
 
   /**
    * Whether this run ended because a cycle budget ended a board that could not see.
@@ -156,6 +175,13 @@ private:
   // #1797: one poll of the schedule, said in the log when the answer changed. True means
   // stop now, by the same flag a signal sets; the caller clears `running` and leaves.
   bool scheduledStopIsDue();
+
+  /** turnaus#1929: one ask of the client, once a cycle, in the scoring loop and the vigil. */
+  bool recalibrationIsDue();
+  /** turnaus#1929: the start after a recalibration says what it came back with. */
+  void sayRecalibrated();
+  bool stopped_to_recalibrate_{false};
+  recalibration::Marker recalibrated_from_;
 
   std::shared_ptr<ScoreQueue> score_queue_;
   std::unique_ptr<WebSocketService> websocket_service_;
