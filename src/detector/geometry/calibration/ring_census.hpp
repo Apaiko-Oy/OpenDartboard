@@ -132,21 +132,22 @@ namespace ring_census
             return true;
         }
 
-        /** Mean, turning and what is left, after dropping what stands off its neighbours. */
-        inline Reading readingOf(std::vector<std::pair<double, double>> rows)
+        /**
+         * A wire along the ray, a number, a dart: an edge point more than 2 mm off the
+         * median of its eleven neighbours in angle is not the ring's. Sorted by angle.
+         * (turnaus#1997 took this out of readingOf whole, so the refit drops what the
+         * reading drops.)
+         */
+        inline std::vector<std::pair<double, double>> withNeighbours(std::vector<std::pair<double, double>> rows)
         {
-            Reading out;
             const int n = (int)rows.size();
-            if (n < kMinRays)
-            {
-                out.rays = n;
-                return out;
-            }
-            // A wire along the ray, a number, a dart: an edge point more than 2 mm off the
-            // median of its eleven neighbours in angle is not the ring's.
             std::sort(rows.begin(), rows.end());
             std::vector<std::pair<double, double>> kept;
             kept.reserve(rows.size());
+            if (n < 11)
+            {
+                return kept;
+            }
             for (int i = 0; i < n; i++)
             {
                 double near[11];
@@ -160,6 +161,20 @@ namespace ring_census
                     kept.push_back(rows[i]);
                 }
             }
+            return kept;
+        }
+
+        /** Mean, turning and what is left, after dropping what stands off its neighbours. */
+        inline Reading readingOf(std::vector<std::pair<double, double>> rows)
+        {
+            Reading out;
+            const int n = (int)rows.size();
+            if (n < kMinRays)
+            {
+                out.rays = n;
+                return out;
+            }
+            std::vector<std::pair<double, double>> kept = withNeighbours(std::move(rows));
             for (int pass = 0; pass < 2; pass++)
             {
                 double mean = 0.0, c = 0.0, s = 0.0;
@@ -200,21 +215,18 @@ namespace ring_census
     }
 
     /**
-     * Read the four ring edges of one frame through one map.
-     *
-     * `Hinv` is image -> board plane and `unitPerMm` the plane's units per millimetre
-     * (`BoardFit::plane.Hinv`, `BoardFit::unitPerMm`); `ringMm` the four radii, innermost
-     * first. A frame that is not 8-bit BGR, or a map with no scale, reads nothing.
+     * Every edge point of the four rings, as (board angle, millimetres off the ring's own
+     * radius) through `Hinv` -- what `read` summarises, before anything is dropped. False
+     * where the frame or the map cannot be read at all.
      */
-    inline Census read(const cv::Mat &frame, const cv::Matx33d &Hinv, double unitPerMm,
-                       const cv::Point2f &bull, const double ringMm[4])
+    inline bool trace(const cv::Mat &frame, const cv::Matx33d &Hinv, double unitPerMm,
+                      const cv::Point2f &bull, const double ringMm[4],
+                      std::vector<std::pair<double, double>> rows[4])
     {
-        Census out;
         if (frame.empty() || frame.type() != CV_8UC3 || !(unitPerMm > 0.0))
         {
-            return out;
+            return false;
         }
-        std::vector<std::pair<double, double>> rows[4];
         std::vector<detail::Sample> samples, win;
         for (int i = 0; i < kRays; i++)
         {
@@ -300,6 +312,25 @@ namespace ring_census
                     rows[2 * band + e].emplace_back(std::atan2(Y, X), std::sqrt(X * X + Y * Y) - ringMm[2 * band + e]);
                 }
             }
+        }
+        return true;
+    }
+
+    /**
+     * Read the four ring edges of one frame through one map.
+     *
+     * `Hinv` is image -> board plane and `unitPerMm` the plane's units per millimetre
+     * (`BoardFit::plane.Hinv`, `BoardFit::unitPerMm`); `ringMm` the four radii, innermost
+     * first. A frame that is not 8-bit BGR, or a map with no scale, reads nothing.
+     */
+    inline Census read(const cv::Mat &frame, const cv::Matx33d &Hinv, double unitPerMm,
+                       const cv::Point2f &bull, const double ringMm[4])
+    {
+        Census out;
+        std::vector<std::pair<double, double>> rows[4];
+        if (!trace(frame, Hinv, unitPerMm, bull, ringMm, rows))
+        {
+            return out;
         }
         for (int ring = 0; ring < 4; ring++)
         {

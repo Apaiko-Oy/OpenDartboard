@@ -238,6 +238,8 @@ namespace board_model
         double unitPerMm = 0.0;    // plane units per millimetre (de-biased, #1499)
         double pxPerMmAtCentre = 0.0; // geometric-mean pixel scale at the bull
         double deBias = 1.0;       // boardReach / outer traced reach, 1.0 where unavailable
+        bool ringRefitted = false; // turnaus#1997: the plane is the one refitted through the rings
+        bool specTreble = false;   // ... and the treble is scored at the spec's edges (no #1553 adjust)
 
         // The twenty-fold sector check over the calibration's own wire boundaries.
         double wireCoherence = 0.0;   // R of the endpoints at fold twenty
@@ -441,6 +443,19 @@ namespace board_model
         const double a = calib.ellipses.outerDoubleEllipse.size.width * 0.5 * conicOfDoubles;
         const double b = calib.ellipses.outerDoubleEllipse.size.height * 0.5 * conicOfDoubles;
         fit.pxPerMmAtCentre = std::sqrt(a * b) * fit.deBias / (double)profile.outerDoubleRadiusMm;
+
+        // turnaus#1997: a camera that carries a map refitted through its four rings
+        // (OD_RING_REFIT, ring_refit.hpp) is read through THAT plane from here on -- every
+        // residual below, the comb's offset, and every dart boardPointOf carries. The
+        // plane's units are unchanged, so unitPerMm is too. A camera carrying none is
+        // untouched: nothing below this line knows the switch exists.
+        fit.ringRefitted = ring_refit::applyTo(calib.ringRefit, fit.plane.H, fit.plane.Hinv);
+        fit.specTreble = fit.ringRefitted && ring_refit::dropsBloom(calib.ringRefit);
+        if (fit.ringRefitted)
+        {
+            scaleStory += "; refitted through the four rings (#1997, " +
+                          std::string(ring_refit::wordOf(calib.ringRefit.state)) + ")";
+        }
 
         std::vector<std::string> refusals;
 
@@ -812,6 +827,12 @@ namespace board_model
         // fitBoardToCamera's ringOf keeps slot == ring index for every held-out ring.
         const RingResidual &r = fit.rings[ring];
         if (!r.observed || !r.heldOut || !r.inBand || r.rays < kMinSupportRays)
+        {
+            return 0.0;
+        }
+        // turnaus#1997: a map refitted through the treble's own half-height edges has
+        // them at the spec's radii; the mask's traced edge is bloom and moves nothing.
+        if (fit.specTreble)
         {
             return 0.0;
         }

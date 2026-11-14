@@ -154,7 +154,13 @@ namespace cache
                     return {};
                 }
 
-                if (header.record_bytes != (uint32_t)sizeof(DartboardCalibration))
+                // turnaus#1997: the struct grew by its ring refit, LAST, so a record written
+                // before that is this struct without its tail. It is still read -- the tail
+                // stays as constructed, which is "no refit, written with the switch unset"
+                // -- so a cache or a kept window (#1991) from before the change is not
+                // thrown away by the change. Any other size is still refused.
+                const bool beforeTheRefit = header.record_bytes == (uint32_t)kCalibrationRecordBytesBefore1997;
+                if (header.record_bytes != (uint32_t)sizeof(DartboardCalibration) && !beforeTheRefit)
                 {
                     // The struct changed since this file was written. Every field after
                     // the first difference is at the wrong offset, and none of it would
@@ -176,12 +182,36 @@ namespace cache
 
                 // Read calibration data
                 vector<DartboardCalibration> calibrations(header.count);
-                file.read((char *)calibrations.data(), sizeof(DartboardCalibration) * header.count);
+                if (beforeTheRefit)
+                {
+                    for (DartboardCalibration &calibration : calibrations)
+                    {
+                        file.read((char *)&calibration, kCalibrationRecordBytesBefore1997);
+                    }
+                }
+                else
+                {
+                    file.read((char *)calibrations.data(), sizeof(DartboardCalibration) * header.count);
+                }
 
                 if (!file.good())
                 {
                     log_error("Failed to read calibration data");
                     return {};
+                }
+
+                // turnaus#1997: a cache is read only under the OD_RING_REFIT it was written
+                // under -- its maps are today's or the refitted ones, and a start that asked
+                // for the other must not score on them. Refused by name.
+                for (const DartboardCalibration &calibration : calibrations)
+                {
+                    const string refusal = ring_refit::cacheRefusal(calibration.ringRefit.asked,
+                                                                    (int32_t)ring_refit::asked());
+                    if (!refusal.empty())
+                    {
+                        log_warning(refusal);
+                        return {};
+                    }
                 }
 
                 // The frame size each calibration was measured at, against the frame that
@@ -250,8 +280,14 @@ namespace cache
                 header.count = (uint32_t)calibrations.size();
                 file.write((char *)&header, sizeof(header));
 
-                // Write calibration data
-                file.write((char *)calibrations.data(), sizeof(DartboardCalibration) * calibrations.size());
+                // Write calibration data. turnaus#1997: every record says which
+                // OD_RING_REFIT it was written under, a camera that saw no board included.
+                vector<DartboardCalibration> records(calibrations);
+                for (DartboardCalibration &record : records)
+                {
+                    record.ringRefit.asked = (int32_t)ring_refit::asked();
+                }
+                file.write((char *)records.data(), sizeof(DartboardCalibration) * records.size());
 
                 if (!file.good())
                 {
