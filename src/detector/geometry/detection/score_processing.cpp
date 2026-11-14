@@ -816,6 +816,10 @@ namespace score_processing
         // solve has always been called with.
         entry_intersection::Params params;
         params.sisalMm = sisal_slide::depthFromEnvironment();
+        // turnaus#1994: OD_FUSE, off unset -- `on` a tip where the camera gave no line,
+        // `all` every camera's tip on the board.
+        params.fuseTips = entry_intersection::fuseModeFromEnvironment() != entry_intersection::FuseMode::Off;
+        params.fuseEveryTip = entry_intersection::fuseModeFromEnvironment() == entry_intersection::FuseMode::Every;
         const entry_intersection::EntrySolution sol =
             entry_intersection::solveEntry(profile, evidence, params);
         if (geoScoreShadowed() && params.sisalMm > 0.0)
@@ -833,6 +837,10 @@ namespace score_processing
             log_info(entry_intersection::censusFlagLine(sol, window));
             // #1681: whether the lines check each other, and a tip where they do not.
             log_info(entry_intersection::censusControlLine(sol, window));
+            if (sol.fuseAsked)
+            {
+                log_info(entry_intersection::censusFuseLine(sol, window)); // turnaus#1994
+            }
             for (const entry_intersection::Constraint &con : sol.constraints)
             {
                 log_info(entry_intersection::censusCameraLine(con, window));
@@ -1285,6 +1293,12 @@ namespace score_processing
                     log_info(missing);
                 }
             }
+            // turnaus#1994: under OD_FUSE, which constraints entered and at what weight --
+            // or why a tip did not -- whichever path publishes. Never printed without it.
+            if (solution.fuseAsked)
+            {
+                log_info(entry_intersection::fusionAccount(solution));
+            }
 
             // turnaus#1821: a dart the rim-only votes carried, that no camera read, where the
             // one camera that cleared the scoring floor offered a line and a tip with a read
@@ -1423,7 +1437,9 @@ namespace score_processing
                 // the crossing angle #1766 showed is the whole of its across-wire sigma.
                 for (const entry_intersection::Constraint &con : solution.constraints)
                 {
-                    if (con.usable && con.camera >= 0)
+                    // turnaus#1994: a camera whose tip entered the solve is in it too
+                    // (tipEntered is never set without OD_FUSE).
+                    if ((con.usable || con.tipEntered) && con.camera >= 0)
                     {
                         result.cameras_used.push_back(con.camera + 1);
                     }
