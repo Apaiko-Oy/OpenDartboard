@@ -9,6 +9,7 @@
 #include "entry_intersection.hpp"
 #include "dart_candidates.hpp"
 #include "rim_offer.hpp"
+#include "plane_agreement.hpp"
 
 using namespace cv;
 using namespace std;
@@ -968,6 +969,106 @@ namespace score_processing
                       perspective_processing::DartboardSpec{}.outerTripleRadius == kOuterTrebleWireMm &&
                       perspective_processing::DartboardSpec{}.innerDoubleRadius == kInnerDoubleWireMm,
                   "#1773: the ring wires are the board spec's; change both or neither");
+
+    int agreeInBoardPlane(dart_processing::DartStateResult &dart_result,
+                          const vector<DartboardCalibration> &calibrations)
+    {
+        if (!plane_agreement::wanted())
+        {
+            return 0;
+        }
+        const size_t n = std::min(calibrations.size(), dart_result.camera_results.size());
+        bool any_figure = false;
+        for (size_t i = 0; i < n; i++)
+        {
+            any_figure = any_figure || !dart_result.camera_results[i].plane_support.empty();
+        }
+        if (!any_figure)
+        {
+            return 0;
+        }
+        // Each camera's pixels to sequence space, by the same map and anchor the solve uses.
+        const board_model::BoardProfile profile =
+            board_model::profileFromSpec(perspective_processing::DartboardSpec());
+        vector<vector<Point2f>> subject(n), fresh(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            const dart_processing::CameraDetectionResult &r = dart_result.camera_results[i];
+            if (r.plane_fresh.empty() || !r.frame_available)
+            {
+                continue;
+            }
+            const board_model::BoardFit fit = board_model::fitBoardToCamera(
+                profile, calibrations[i], wire_processing::conicOfDoublesFor(calibrations[i]));
+            int wedge20 = -1;
+            if (orientation_processing::wedgeCanBeRead(calibrations[i].orientation))
+            {
+                wedge20 = calibrations[i].orientation.wedge20WireIndex;
+            }
+            else if (anchorFor(i).trusted)
+            {
+                wedge20 = anchorFor(i).wedge20WireIndex;
+            }
+            vector<Point2f> endpoints(calibrations[i].wires.wireEndpoints.begin(),
+                                      calibrations[i].wires.wireEndpoints.end());
+            const board_model::ModelAnchor anchor = board_model::anchorOnBoard(fit, endpoints, wedge20);
+            if (!fit.planeBuilt || !anchor.resolved)
+            {
+                continue; // no common frame: this camera is compared with nothing
+            }
+            const auto carry = [&](const vector<Point> &pixels, vector<Point2f> &out)
+            {
+                out.reserve(pixels.size());
+                for (const Point &p : pixels)
+                {
+                    out.push_back(entry_intersection::detail::canonOf(
+                        anchor, board_model::boardPointOf(fit, Point2f((float)p.x, (float)p.y))));
+                }
+            };
+            carry(r.plane_fresh, fresh[i]);
+            carry(r.plane_support, subject[i]);
+        }
+        const double tolerance = plane_agreement::toleranceMm();
+        const vector<plane_agreement::Agreement> agreed = plane_agreement::agree(subject, fresh, tolerance);
+        int adopted_axes = 0;
+        for (size_t i = 0; i < n; i++)
+        {
+            dart_processing::CameraDetectionResult &r = dart_result.camera_results[i];
+            if (r.plane_support.empty() || subject[i].empty())
+            {
+                continue;
+            }
+            const plane_agreement::Agreement &a = agreed[i];
+            const string reason = shaft_axis::refusalReasonOf(r.axis, r.frame_available, r.rim_only);
+            const bool retried = plane_agreement::retries(reason, a, r.plane_support.size());
+            shaft_axis::AxisObservation second;
+            if (retried)
+            {
+                second = shaft_axis::observeShaftAxis(plane_agreement::without(r.plane_support, a),
+                                                      r.plane_current, r.plane_reference, r.plane_params);
+                second.camera = r.axis.camera;
+                second.windowOrdinal = r.axis.windowOrdinal;
+                second.windowOpenedCycle = r.axis.windowOpenedCycle;
+                second.windowClosedCycle = r.axis.windowClosedCycle;
+            }
+            const bool adopted = plane_agreement::adopts(plane_agreement::dropIsOn(), retried, second.valid);
+            char line[400];
+            snprintf(line, sizeof(line),
+                     "I1993 PLANE window=%ld cam=%d reason=%s px=%d co=%d ext=%.1f others=%d tol=%.1f "
+                     "rms=%.2f retry=%s retry_rms=%.2f retry_reason=%s adopted=%d",
+                     r.axis.windowOrdinal, (int)i + 1, reason.c_str(), (int)r.plane_support.size(), a.count,
+                     a.extentMm, a.others, tolerance, r.axis.centrelineRmsPx,
+                     !retried ? "-" : second.valid ? "pass" : "refused", retried ? second.centrelineRmsPx : 0.0,
+                     !retried ? "-" : shaft_axis::refusalReasonOf(second, true, false).c_str(), adopted ? 1 : 0);
+            log_info(line);
+            if (adopted)
+            {
+                r.axis = second;
+                adopted_axes++;
+            }
+        }
+        return adopted_axes;
+    }
 
     ScoreResult processScore(const vector<Mat> &background_frames, const dart_processing::DartStateResult &dart_result, const vector<DartboardCalibration> &calibrations, bool debug_mode)
     {

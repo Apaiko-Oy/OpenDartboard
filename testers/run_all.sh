@@ -1294,6 +1294,14 @@ tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
 # the default moved), each predicted to turn named assertions red. Then i1994_census.py
 # --self-test. Compiles only.
 tester 1994-fuse          "bash '$T/i1994_check.sh'"
+# turnaus#1993: OD_PLANE_DROP (off unset) and OD_PLANE_CENSUS, fresh change that agrees in the
+# board plane across cameras. One compile of the tree (two pictures of one dart coincide only
+# at its entry; a lobe both cameras see coincides whole; the tolerance; a camera never compared
+# with itself; which figure is fitted again and when the second fit is adopted; a shaft with a
+# lobe refused, then an axis without it) plus five of a mutated scratch copy of
+# plane_agreement.hpp, each predicted to turn named assertions red. Then i1993_census.py
+# --self-test. Compiles only; no build/ needed.
+tester 1993-plane         "bash '$T/i1993_check.sh'"
 # turnaus#1906: OD_FOCAL_PX (unset: the 120-degree guess), the focal length perspective
 # processing's solvePnP is given, one value or a comma list per camera. One compile of the tree
 # (the pin's parse refusing every malformed list whole, slot i reaching camera i, the guess past

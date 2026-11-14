@@ -1904,6 +1904,10 @@ namespace dart_processing
                     bitwise_and(single_thresh, region.tip_mask, tip_image);
                     single_thresh = tip_image;
                     result.camera_results[i].fresh_physical_pixels = countNonZero(tip_image);
+                    if (plane_agreement::wanted()) // turnaus#1993
+                    {
+                        cv::findNonZero(tip_image, result.camera_results[i].plane_fresh);
+                    }
                 }
                 else
                 {
@@ -1997,6 +2001,14 @@ namespace dart_processing
                         shaft_axis::AxisObservation observed = shaft_axis::observeShaftAxis(
                             shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size()),
                             averaged_frame, axis_reference, axis_params);
+                        if (plane_agreement::wanted()) // turnaus#1993: the second fit's inputs
+                        {
+                            CameraDetectionResult &kept = result.camera_results[i];
+                            kept.plane_support = shaft_axis::pixelsOfPieces(axis_pieces[i], single_thresh.size());
+                            kept.plane_current = averaged_frame;
+                            kept.plane_reference = axis_reference.clone();
+                            kept.plane_params = axis_params;
+                        }
                         observed.camera = (int)i;
                         observed.windowOrdinal = window_serial;
                         observed.windowOpenedCycle = window_opened_at;

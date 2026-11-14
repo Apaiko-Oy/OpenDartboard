@@ -10,6 +10,7 @@
 #include "detector/geometry/camera_quorum.hpp"
 #include "motion_processing.hpp"
 #include "shaft_axis.hpp"
+#include "plane_agreement.hpp"
 
 using namespace cv;
 using namespace std;
@@ -1041,6 +1042,13 @@ namespace dart_processing
         // #1689: this camera's fresh change cleared the floor only out to the rim, so it
         // voted the arrival and offered no tip or axis ("rim only").
         bool rim_only = false;
+        // turnaus#1993: what plane_agreement needs to compare this camera's fresh change with
+        // the others' on the board and to fit its figure a second time. Filled only under
+        // OD_PLANE_CENSUS=1 or OD_PLANE_DROP=on (plane_agreement::wanted); otherwise empty.
+        std::vector<cv::Point> plane_fresh;   // every fresh on-board pixel of this window
+        std::vector<cv::Point> plane_support; // the linked figure the axis was fitted to
+        cv::Mat plane_current, plane_reference;
+        shaft_axis::AxisParams plane_params;
         // turnaus#1821: this camera voted the arrival and was counted toward the scoring-area
         // quorum (#1707's moves_up_in_scoring), by its own figure or as a #1678 corroborator.
         bool cleared_scoring_floor = false;
