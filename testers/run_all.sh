@@ -129,6 +129,17 @@ tester 1991-windows       "bash '$T/i1991_check.sh'"
 # 527 s wall, two detector runs of 2000 cycles under --cpus=2 (20 darts, 20 accounts, 81
 # pictures, 30,982,459 bytes: 1.55 MB a dart). No `slow`: inside the default 1200.
 tester 1991-rig           "bash '$T/i1991_run.sh'"
+# turnaus#1995: a kept window replays through the current binary. mocks/rig-20260918 pushed
+# at the Turnaus stub once with OD_KEEP_WINDOWS set, the directory read again by
+# `opendartboard --replay-windows` (dart_processing::closeKeptWindow, the seat; no camera, no
+# stub), and every kept dart held to the body the stub counted for its reference: sector,
+# path, cameras, and radius and angle to four places. A calibration stating another record
+# size and a removed picture are each refused by name. Two predicted mutations, each an
+# incremental rebuild of a COPY of the tree and its build inside the container (the checkout
+# is mounted read-only): the working background not seated, and the stated record size not
+# held to the struct. Needs build/ as well as the binary. Windows pinned to cycles inside.
+# MEASURED @@MEASURED@@
+tester 1995-replay        "bash '$T/i1995_run.sh'"
 # turnaus#1992: the wire-crossing census's arithmetic (i1992_crossing_census.py --synthetic:
 # the residual's sign and split, the lens round trip, a planted homography and kappa
 # fitted back, held-out wires predicted, the wire naming, a drawn band's edges read at half
