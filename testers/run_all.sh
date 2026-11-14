@@ -147,6 +147,17 @@ tester 1992-crossings     "bash '$T/i1992_check.sh'"
 # no detector binary. MEASURED 2026-11-14 on the 4-core box at load about 4, to
 # completion, rc=0: 36 s. No `slow`.
 tester 1992-ringline      "bash '$T/i1992_ring_check.sh'"
+# turnaus#1997: OD_RING_REFIT (ring_refit.hpp, and where board_model.hpp applies it), pure --
+# a board drawn through a known map and seen wrong the way #1992's census found the rig's
+# cameras (doubles 2% large, the bull three pixels off): the refit carried on the calibration
+# reads the four rings back to 0.3 mm and 48 true points to 0.4 mm through fitBoardToCamera,
+# the comb keeps every wedge, `on` drops #1553's bloom adjustment and `bloom` keeps it, a
+# calibration carrying none builds today's plane bit for bit, a black or a clipped frame
+# keeps today's map by name, and the cache's refusal names both settings. Then four
+# predicted mutations of a scratch copy of src/: the refit computed and not applied (3
+# labels), a cache from the other setting accepted (1), unset reading on (2), any arc
+# allowed missing (1). Five compiles with wire_model.cpp, no detector binary.
+tester 1997-refit         "bash '$T/i1997_refit_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
