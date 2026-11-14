@@ -8,6 +8,7 @@
 #include "look_choice.hpp"
 #include "calibration/board_look.hpp"
 #include "calibration/board_model.hpp"
+#include "calibration/ring_census.hpp"
 #include "calibration/geometry_calibration.hpp"
 #include "calibration/wire_processing.hpp"
 #include "detection/dart_processing.hpp"
@@ -935,6 +936,36 @@ bool GeometryDetector::initialize(const vector<camera::Frame> &calibration_frame
                                          to_string(age_minutes) + " minutes ago"
                                    : "") +
                  ". Delete cache/ to calibrate again.");
+
+        // turnaus#1992: a start on the cache (--reuse-calibration) looks at no board, so
+        // the ring line a fresh look prints (geometry_calibration.cpp, STEP 10) would
+        // never be said on it -- and a cached map is the one a nudged camera makes wrong
+        // while it looks right. Under OD_RING_CENSUS=on it is said here: this start's own
+        // frames, through the cached map. Measurement only; unset, nothing.
+        if (ring_census::isOn())
+        {
+            const board_model::BoardProfile profile =
+                board_model::profileFromSpec(perspective_processing::DartboardSpec());
+            const double ringMm[4] = {profile.innerTripleRadiusMm, profile.outerTripleRadiusMm,
+                                      profile.innerDoubleRadiusMm, profile.outerDoubleRadiusMm};
+            for (size_t i = 0; i < calibrations.size() && i < initial_frames.size(); i++)
+            {
+                if (initial_frames[i].empty() || !calibrations[i].sees_board)
+                {
+                    continue;
+                }
+                const board_model::BoardFit fit = board_model::fitBoardToCamera(
+                    profile, calibrations[i], wire_processing::conicOfDoublesFor(calibrations[i]));
+                if (!fit.planeBuilt)
+                {
+                    continue;
+                }
+                log_info("Camera " + to_string(i + 1) + " (cached map) " +
+                         ring_census::story(ring_census::read(
+                             initial_frames[i], fit.plane.Hinv, fit.unitPerMm,
+                             geometry_calibration::planeBullOf(calibrations[i]), ringMm)));
+            }
+        }
 
         // Load background frames
         background_frames = cache::geometry::loadBackgroundFrames();

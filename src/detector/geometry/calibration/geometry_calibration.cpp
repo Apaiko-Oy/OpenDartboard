@@ -20,6 +20,7 @@
 #include "ring_identity.hpp"
 #include "wire_model.hpp"
 #include "board_model.hpp"
+#include "ring_census.hpp"
 
 using namespace cv;
 using namespace std;
@@ -891,6 +892,17 @@ namespace geometry_calibration
             // says aloud anyway (#1456), and it is the fit quality of a geometry this board
             // may seal -- which cannot be known here. A refused look never gets this far.
             log_info("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(boardFit.story));
+            // turnaus#1992: the same rings read off the frame at half height, through the
+            // same map -- one more line, only under OD_RING_CENSUS=on. Measurement only.
+            if (ring_census::isOn() && boardFit.planeBuilt)
+            {
+                const double ringMm[4] = {profile.innerTripleRadiusMm, profile.outerTripleRadiusMm,
+                                          profile.innerDoubleRadiusMm, profile.outerDoubleRadiusMm};
+                log_info("Camera " + log_string(cameraIdx + 1) + " " +
+                         log_string_src(ring_census::story(ring_census::read(
+                             orginalFrame, boardFit.plane.Hinv, boardFit.unitPerMm,
+                             geometry_calibration::planeBullOf(calibration), ringMm))));
+            }
             if (debugMode && boardFit.planeBuilt)
             {
                 Mat overlay = orginalFrame.clone();

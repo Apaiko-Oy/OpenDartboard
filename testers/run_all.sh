@@ -129,6 +129,24 @@ tester 1991-windows       "bash '$T/i1991_check.sh'"
 # 527 s wall, two detector runs of 2000 cycles under --cpus=2 (20 darts, 20 accounts, 81
 # pictures, 30,982,459 bytes: 1.55 MB a dart). No `slow`: inside the default 1200.
 tester 1991-rig           "bash '$T/i1991_run.sh'"
+# turnaus#1992: the wire-crossing census's arithmetic (i1992_crossing_census.py --synthetic:
+# the residual's sign and split, the lens round trip, a planted homography and kappa
+# fitted back, held-out wires predicted, the wire naming, a drawn band's edges read at half
+# height bright or dim) and four predicted mutations of a scratch copy -- the radial sign,
+# undistort a no-op, the naming one wire on, the edge at 0.3 of the height. Python in the
+# image, no detector binary, no footage: the census's MEASUREMENT of the fixtures is an
+# instrument (docs/rig.md) and is not run here. MEASURED 2026-11-14 on the 4-core box,
+# alone at load about 2, to completion, rc=0: 14 s. No `slow`.
+tester 1992-crossings     "bash '$T/i1992_check.sh'"
+# turnaus#1992: OD_RING_CENSUS's reading (ring_census.hpp), pure -- a board drawn through a
+# known map with the treble band 2 mm inward all round and the doubles band turned 3 mm
+# with the angle, read back to 0.1 mm bright and at a third of the brightness; the parse
+# and the default; the line's words; a black frame reading nothing. Then three predicted
+# mutations of a scratch copy of the header: the edge at 0.3 of the height (5 labels), the
+# residual's sign (3), unset reading on (2). Four compiles of one header against OpenCV,
+# no detector binary. MEASURED 2026-11-14 on the 4-core box at load about 4, to
+# completion, rc=0: 36 s. No `slow`.
+tester 1992-ringline      "bash '$T/i1992_ring_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
