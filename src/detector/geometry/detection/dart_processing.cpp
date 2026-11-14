@@ -1610,6 +1610,7 @@ namespace dart_processing
                 k.fresh = working_backgrounds[i];
                 k.previous_state = static_cast<int>(previous_states[i]);
                 k.previous_board_change = previous_board_change[i];
+                k.reversion_memory = reversion_memory[i];
                 k.frames = frames_accumulated[i];
                 k.reported_tips = reported_tips[i];
                 if (i < boards.size())

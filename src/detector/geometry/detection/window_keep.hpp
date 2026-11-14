@@ -17,7 +17,8 @@
 //
 // -- and then decides on four numbers that are not in any picture: the state each camera
 // held before the window, its cumulative board change one window ago (#1518's reversion,
-// #1648), the tips it already reported this visit (#1535), and its fitted board. The solve
+// #1648) and the vote's memory of a reversion (#1552), the tips it already reported this
+// visit (#1535), and its fitted board. The solve
 // and the vote then read the calibration. So a replayable window is, per camera: the
 // settled picture, the clean reference and the working background AS THEY WERE WHEN THE
 // WINDOW CLOSED, those scalars, and the calibration the start measured. That is what this
@@ -89,6 +90,7 @@ namespace window_keep
         cv::Mat fresh;   // the working background the fresh diff was cut against; empty on a clean board
         int previous_state = 0;        // DartBoardState before the window, as its integer
         int previous_board_change = 0; // the cumulative figure one window ago
+        int reversion_memory = 0;      // #1552: what the vote remembers of this camera's reversion
         int frames = 0;                // frames this camera brought to the average
         bool board_known = false;
         cv::RotatedRect board;
@@ -303,7 +305,8 @@ namespace window_keep
             };
             o << (i ? "," : "") << "{\"camera\":" << (i + 1) << ",\"settled\":" << name(0) << ",\"clean\":" << name(1)
               << ",\"fresh\":" << name(2) << ",\"previous_state\":" << c.previous_state
-              << ",\"previous_board_change\":" << c.previous_board_change << ",\"frames\":" << c.frames
+              << ",\"previous_board_change\":" << c.previous_board_change << ",\"reversion_memory\":" << c.reversion_memory
+              << ",\"frames\":" << c.frames
               << ",\"board\":";
             if (c.board_known)
             {

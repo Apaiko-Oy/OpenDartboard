@@ -195,6 +195,7 @@ static window_keep::Window windowOf(const Visit &visit, int d, long ordinal)
         k.fresh = d == 0 ? cv::Mat() : visit.settled[d - 1][c];
         k.previous_state = d;
         k.previous_board_change = 1000 * d + (int)c;
+        k.reversion_memory = 7 + (int)c;
         k.frames = 9;
         k.board_known = true;
         k.board = cv::RotatedRect(cv::Point2f(640.5f, 360.25f), cv::Size2f(500, 420), 12.5f);
@@ -280,7 +281,7 @@ int main()
         const std::string third = slurp(fs::path(dir) / "darts" / "REF2.json");
         say(third.find("\"reference\":\"REF2\",\"window\":12,\"board_state_before\":2") != std::string::npos &&
                 third.find("\"camera\":2,") != std::string::npos &&
-                third.find("\"previous_state\":2,\"previous_board_change\":2001,\"frames\":9") != std::string::npos &&
+                third.find("\"previous_state\":2,\"previous_board_change\":2001,\"reversion_memory\":8,\"frames\":9") != std::string::npos &&
                 third.find("\"board\":{\"cx\":640.5,\"cy\":360.25,\"w\":500,\"h\":420,\"angle\":12.5}") != std::string::npos &&
                 third.find("\"reported_tips\":[[100.5,201],[101.5,201]]") != std::string::npos,
             "one visit: dart 3's account carries the window, the state before, camera 2's scalars, its board and its two reported tips");
