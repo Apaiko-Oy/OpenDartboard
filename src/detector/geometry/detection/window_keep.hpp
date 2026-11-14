@@ -77,7 +77,11 @@
 #include "../../../utils/logging.hpp"
 
 #if !defined(_WIN32)
-extern char **environ;
+#include <unistd.h>
+extern "C"
+{
+    extern char **environ; // C linkage, as <unistd.h> declares it where it declares it at all
+}
 #endif
 
 namespace window_keep
