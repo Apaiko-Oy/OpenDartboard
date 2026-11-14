@@ -82,7 +82,7 @@ def read_run(root, run):
             f = kv(body)
             f["run"], f["window"] = run, int(m.group(2))
             plane.append(f)
-    darts = []
+    darts, joined = [], set()
     for line in open(os.path.join(root, "census-%s.txt" % run)):
         if "CAMERA-DART" not in line:
             continue
@@ -91,8 +91,11 @@ def read_run(root, run):
         if not m or not f.get("win", "-").isdigit():
             continue
         w = log.get(int(f["win"]))
-        if w is None:
+        # An unannotated fixture's ordinal join can name one window for two darts of a short
+        # visit; the window is one dart's, and it is counted once, as the first named.
+        if w is None or int(f["win"]) in joined:
             continue
+        joined.add(int(f["win"]))
         at, placed = w["entry"], "solved"
         if at is None:
             at, placed = cell_middle(f["thrown"], w["r"]), "radius" if w["r"] is not None else "cell"
