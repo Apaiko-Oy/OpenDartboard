@@ -607,11 +607,6 @@ namespace window_keep
         if (s.enabled)
         {
             detail::adopt(s);
-            if (!s.thread_started)
-            {
-                s.thread_started = true;
-                std::thread(detail::writer).detach();
-            }
         }
     }
 
@@ -684,6 +679,19 @@ namespace window_keep
             }
             else
             {
+                // The writer is started HERE and nowhere else, on the first dart there is to
+                // write. commit() is called by the Turnaus client alone, and this header is
+                // also included by dart_processing.cpp, which sixteen testers compile and
+                // link by hand with no -pthread: a std::thread in configure() -- reached from
+                // enabled(), which that file calls -- put pthread_create in its object and
+                // none of them linked (1510-fitcensus: "DSO missing from command line").
+                // An inline function is emitted only where it is used, so with the thread
+                // here that object names no thread symbol at all.
+                if (!s.thread_started)
+                {
+                    s.thread_started = true;
+                    std::thread(detail::writer).detach();
+                }
                 detail::Job job;
                 job.reference = reference;
                 job.window = std::move(s.pending_window);
