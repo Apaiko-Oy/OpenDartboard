@@ -2,6 +2,8 @@
 // testers/i1992_crossing_census.py. The image holds no ffmpeg and no cv2 for python, so
 // the one footage step of the census is this file: read `count` frames from `start`,
 // average them as the detector's own calibration does, write P6. Measurement tooling;
+// unrun-tester: it makes the census instrument's input frames from footage and asserts
+// nothing; run by hand before testers/i1992_crossing_census.py --frames (docs/rig.md).
 // nothing in the detector includes it.
 //
 //   i1992_frames <clip.mp4> <start frame> <count> <out.ppm>
