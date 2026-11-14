@@ -3653,3 +3653,145 @@ line's words and a black frame. Three mutations of a scratch copy of the header,
 predicted: the edge at 0.3 of the height (5 labels: `treble:` `doubles:` `width:` `dim:`
 `story:`), the residual's sign (3: `treble:` `dim:` `story:`), unset reading on (2: `parse:`
 `default:`).
+
+## `OD_RING_REFIT` (turnaus#1997): the map refitted through the four rings, opt-in -- the rings come right, and the fixtures' darts do not
+
+**What it is.** `OD_RING_REFIT=on` (or `bloom`): after today's fit, each passed look's map
+is corrected by one projective map of the board plane, least squares, so that the four ring
+edges `ring_census.hpp` measures (half the band's own height, 720 rays) sit on the spec's
+99 / 107 / 162 / 170 mm (`ring_refit.hpp`). No lens term. The correction is fitted with no
+rotation in it and `fitBoardToCamera` re-fits the comb's offset to the calibration's own
+twenty boundaries through the refitted plane, so the comb keeps the rotation. The refitted
+map rides on `DartboardCalibration::ringRefit` and every `fitBoardToCamera` of that
+calibration builds it -- the solve, `scoreFromModel`, `I1647FIT`, the `OD_RING_CENSUS` line.
+The vote path's per-ring ellipses are untouched. One line a look says which happened:
+
+`Camera 3 ring refit (#1997): the map refitted through 2739 edge points of the four rings,
+1.18 mm rms about the spec's radii, no lens term; the treble scored at the spec's own edges`
+
+and the `board model` line is said again of the map that will score. `on` drops #1553's
+bloom adjustment on a refitted camera (the treble boundary moved to the mask's traced
+edge); `bloom` keeps it, so the two can be told apart on one binary. Unset, empty or any
+other word is off and nothing in it runs. `i1555_run.sh` forwards it.
+
+**A camera whose rings do not read keeps today's map and says so**: a ring read on under
+180 rays, an arc of more than 90 degrees missing from a ring, a fit that does not settle,
+or the census still reading a ring more than 2.0 mm off all round or 1.0 mm turning through
+the refitted map. On the fixtures that happened on three of rig-20260929 camera 3's ten
+opening looks (`an arc wider than 90 degrees is missing from the doubles ring (92
+degrees)`); its other seven refitted. **So one camera's looks are not all on one map**, and
+which is sealed decides. The live Pi's clipped camera 2 was not measured.
+
+**It assumes the spec's radii, and does not fit the treble's.** 102.2 against 103 mm
+cannot be told from these edges (#1992) and is not fitted. A band's two half-height edges
+are taken for its two wires.
+
+**The rings, with the switch on** (`OD_RING_CENSUS=on OD_RING_REFIT=on`, dev build,
+`OD_MAX_CYCLES=40`, `runs-wt-1997/ringline/on2-*`; the opening window, mm, all round, and
+the largest turning of the four):
+
+| fixture cam | treble inner / outer | doubles inner / outer | turning, at most | today (#1992's ring line): treble inner, doubles outer turning |
+|---|---|---|---|---|
+| r18 1 | -0.8 / -0.2 | -0.6 / +1.2 | 0.2 | -3.3, 4.7 |
+| r18 2 | -0.9 / -0.3 | -0.4 / +1.1 | 0.4 | -3.9, 4.6 |
+| r18 3 | -0.9 / +0.1 | -0.8 / +1.2 | 0.3 | -2.5, 3.9 |
+| r22 1 | -0.7 / -0.4 | -0.3 / +1.0 | 0.3 | (-1.0 in the census) |
+| r22 2 | -0.9..-0.8 / -0.3..-0.2 | -0.5 / +1.1 | 0.2 | -1.7..-2.1, 1.7..2.5 |
+| r22 3 | -1.3 / -0.2 | -0.5 / +1.4 | 0.6 | -4.2, 4.2 |
+| r29 1 | -0.6 / -0.4 | -0.4 / +1.0 | 0.2 | |
+| r29 2 | -0.9 / -0.3 | -0.5 / +1.1 | 0.2 | |
+| r29 3 (7 looks of 10) | -1.2 / -0.4..-0.3 | -0.7..-0.6 / +1.5..+1.6 | 0.5 | -3.6..-4.0, 3.2..3.7 on the three looks kept |
+
+The dev windows read the same to 0.1 mm (r22 camera 3 +1.5, r29 camera 3 +1.6 at the
+doubles). **Turning is under 0.6 mm on every camera: the tilt is gone.** **All round is
+not within the millimetre the issue asked, and the exceptions are one pattern, not nine
+faults**: the doubles ring's outer edge reads +1.0..+1.6 on every camera (past 1.0 on seven
+of nine) and the treble's inner edge -0.6..-1.3 (past 1.0 on r22 camera 3 and r29 camera
+3). The doubles band reads 9.3-9.9 mm wide where the spec's is 8 and the treble sits about
+0.9 mm in of the doubles -- #1992's 102.2 against 103. That is the board's paint against
+the spec's radii and no projective map removes it; a 1.0 mm all-round bound refused seven
+cameras of nine for it, which is why the bound in the code is 2.0 (`kAllRoundMm`).
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, capture clock, 2026-11-14, `runs-wt-1997/bake-{unset,on,bloom}`):
+
+| | r18+r22 | wrong / undetected | scoring phantoms | r29 (ordinal) |
+|---|---|---|---|---|
+| unset | **82/86** | 3 / 1 | 0 | 61..67/72 |
+| `on` | **79/86** | 6 / 1 | 0 | 62..68/72 |
+| `bloom` | **81/86** | 4 / 1 | 0 | 62..68/72 |
+
+Unset is `runs-wt-1906/bake-unset` line for line: the 937 census lines are identical and
+every replay's log differs from it only in its own clock (`Processing: N ms`, the three
+`CAPANCHOR` host times, the footage's wall milliseconds).
+
+Every dart whose published score or geometric reading moved, radius before and after:
+
+| replay, window | thrown | unset | `on` | `bloom` |
+|---|---|---|---|---|
+| r18 dev 17 (v5.1) | S15 | T15, 96.30 | **S15, 97.13: fixed** | T15, 97.13 |
+| r18 opening 17 (v5.1) | S15 | T15, 95.67 | **S15, 97.26: fixed** | T15, 97.26 |
+| r18 opening 22 | S7 | S7, 157.97 (geometry) | S7 by the vote: the solve refuses, near-parallel 12.5 deg against 15 | the same |
+| r22 dev 2 (v2.2) | T9 | T9, 107.08 | **S9, 108.50: lost** | T9 |
+| r22 dev 3 (v2.3) | T8 | T8, 97.35 | **S8, 95.75: lost** | **S8, 95.75: lost** |
+| r22 dev 23 (v7.3) | T9 | T9, 106.35 | **S9, 107.26: lost** | T9 |
+| r22 opening 4 (v2.2) | T9 | T9, 107.59 | **S9, 108.47: lost** | T9 |
+| r22 opening 25 (v7.3) | T9 | T9, 106.39 | **S9, 107.22: lost** | T9 |
+| r29 dev 9, opening 9 (v3.1) | S13 | S6, 92.61 / 92.95 at 90.2 / 90.0 deg | **S13, 93.32 / 93.35 at 89.7 / 89.8: fixed (wedge)** | the same |
+| r29 opening 42 (v11.2) | S17 | S17, 149.86 at 163.07 deg | **S2, 150.79 at 162.00: lost (wedge)** | the same |
+
+r22 v8.1 (T1, 99.03 / 99.02 mm, the dart #1936 worried about) stays T1 and moves out to
+101.52 / 101.46. Across all solved darts the radius moves out by a median 0.1-0.8 mm a
+replay and by up to 7.1 mm (r22 dev window 5, S20 from 152.5 to 159.6, on the side #1992
+found read 6-7 mm inward); tangentially by a median 0.3-1.0 mm.
+
+**Against the prediction (f2f4f0b, before any bakeoff).** Held: r18 v5.1 fixed under `on`
+in both windows (predicted about 97.4 and 98.1 mm; 97.13 and 97.26) and not under `bloom`;
+r22 v8.1 stays T1 further from the wire; the four T9 readings at 106.35-107.59 pass the
+spec's 107 under `on` (predicted at least two; all four); about 80/86 under `on` (79).
+Did not hold: r22 dev window 3 was predicted to move OUT too little and it moved IN 1.6 mm,
+so it is lost under `bloom` as well (81, not 82); and "no wedge call moves" -- three do,
+on r29, two fixed and one broken, each within 0.3 mm of arc of a wire.
+
+**What this says.**
+
+- **The hypothesis that the refit recovers #1936's trebles is not supported on the
+  fixtures.** With the rings right to a millimetre, three thrown trebles on rig-20260922
+  solve OUTSIDE the band: T9 at 107.2-108.5 mm twice over, T8 at 95.75. They are trebles
+  today because #1553 scores the treble at the mask's traced edges (the band 10-18 mm wide)
+  and because today's map reads 1-3 mm inward. The solved entry's own sigma on these darts
+  is 4-5 mm (`I1512ENTRY sigma=`); the map's error was inside it.
+- **The one dart the refit fixes is a single read as a treble** (r18 v5.1), and it is
+  fixed by dropping the bloom adjustment on a right map, not by the map alone.
+- **Wedge calls move, both ways.** The rings do not constrain rotation (#1992) and the
+  comb re-fitted through a refitted plane is not the same comb.
+- **The solve's conditioning moves too**: one dart falls from the geometry path to the vote.
+
+**The cache.** `DartboardCalibration` grew by the map, last (560 to 728 bytes), and
+`utils/cache.hpp` stamps every record with the setting it was written under. A cache is
+read only under its own setting; otherwise, by name (`runs-wt-1997/cache.log`, the real
+binary):
+
+`Calibration cache was written with OD_RING_REFIT on and this start runs with OD_RING_REFIT
+unset: its maps are not the ones this start would fit, so it is not read. Recalibrating.`
+
+A cache from before the change (560-byte records) is still read with the switch unset --
+`Loaded 3 calibrations from cache` on issue-1992's own `ringcache-1` -- and refused under
+`on` as `written with OD_RING_REFIT unset`. So **a window kept before this change
+(`window_keep.hpp` copies the `.dat` raw, #1991) still reads**; one kept after carries the
+maps and the setting. With the switch unset the file is 168 bytes a camera longer than it
+was (2200 for three cameras, from 1696) and a build from before this refuses it by size.
+
+**Tested** by `1997-refit` (`testers/i1997_refit_check.sh`, five compiles with
+`wire_model.cpp`, no detector binary): a board drawn through a known map and seen wrong the
+way the census found the rig (doubles 2% large, the bull three pixels off) -- thirteen
+labels -- and four mutations of a scratch copy of `src/`: the refit computed and not
+applied (`rings:` `darts:` `wedge:` `bloom:`; first predicted as three, `wedge:` was not
+foreseen), a cache from the other setting accepted (`cache:`), unset reading on (`parse:`
+`default:`), any arc allowed missing (`clipped:`).
+
+**Not built, not measured.** The default: unset, the maintainer's call, and these rows
+argue against `on`. The live board. A refit of the vote path's ellipses. `1450-seal` is red
+on this branch by its own rule -- it fails on any diff to `geometry_calibration.hpp`
+against main -- and says `boards will recalibrate`, which is true of a cache read by an
+older build and not of an older cache read by this one.
