@@ -885,13 +885,34 @@ namespace geometry_calibration
         // this fit is #1510's second half.
         {
             const board_model::BoardProfile profile = board_model::profileFromSpec(perspectiveSpec);
-            const board_model::BoardFit boardFit = board_model::fitBoardToCamera(
+            board_model::BoardFit boardFit = board_model::fitBoardToCamera(
                 profile, calibration, wire_processing::conicOfDoublesFor(calibration));
             // #1457: deliberately NOT narration, for the reason the CUT-region WARN is not.
             // It is reached only by a look that PASSED, whose candidate line its caller
             // says aloud anyway (#1456), and it is the fit quality of a geometry this board
             // may seal -- which cannot be known here. A refused look never gets this far.
             log_info("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(boardFit.story));
+            // turnaus#1997: under OD_RING_REFIT the map is refitted through the four
+            // rings of this same frame and carried on the calibration, so every later
+            // fitBoardToCamera of it builds the refitted plane. Said in one line either
+            // way -- refitted, or which ring kept this camera on today's map -- and the
+            // board model line is said again of the map that will score. Unset: nothing.
+            if (ring_refit::asked() != ring_refit::Off && boardFit.planeBuilt)
+            {
+                const double ringMm[4] = {profile.innerTripleRadiusMm, profile.outerTripleRadiusMm,
+                                          profile.innerDoubleRadiusMm, profile.outerDoubleRadiusMm};
+                const ring_refit::Result refit = ring_refit::fit(
+                    orginalFrame, boardFit.plane.Hinv, boardFit.unitPerMm,
+                    geometry_calibration::planeBullOf(calibration), ringMm, ring_refit::asked());
+                calibration.ringRefit = refit.map;
+                log_info("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(refit.story));
+                if (refit.map.state != ring_refit::Off)
+                {
+                    boardFit = board_model::fitBoardToCamera(
+                        profile, calibration, wire_processing::conicOfDoublesFor(calibration));
+                    log_info("Camera " + log_string(cameraIdx + 1) + " " + log_string_src(boardFit.story));
+                }
+            }
             // turnaus#1992: the same rings read off the frame at half height, through the
             // same map -- one more line, only under OD_RING_CENSUS=on. Measurement only.
             if (ring_census::isOn() && boardFit.planeBuilt)

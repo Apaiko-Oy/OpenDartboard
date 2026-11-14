@@ -9,6 +9,8 @@
 #include "orientation_processing.hpp" // Include orientation data
 #include "board_look.hpp"             // #1318: whether this camera saw a dartboard at all
 #include "bull_processing.hpp"        // #1656: OD_BULL_SUBPIXEL
+#include "ring_refit.hpp"             // turnaus#1997: OD_RING_REFIT
+#include <cstddef>
 
 using namespace std;
 using namespace cv;
@@ -49,7 +51,17 @@ struct DartboardCalibration
     // above keep their offsets; it still moves sizeof, so a cache written before it is
     // refused once and the board recalibrates (#1330).
     Point2f bullSubpixel{0.f, 0.f};
+
+    // turnaus#1997: this camera's map refitted through the four rings, where
+    // OD_RING_REFIT asked and the rings read (ring_refit.hpp); state Off otherwise, and
+    // board_model::fitBoardToCamera then builds today's plane and nothing else. Last, so
+    // the members above keep their offsets: a record written before it is this struct
+    // without its tail, and utils/cache.hpp still reads one (kCalibrationRecordBytesBefore1997).
+    ring_refit::Map ringRefit;
 };
+
+/** What one calibration was on disk before turnaus#1997: the struct without its ring refit. */
+inline constexpr size_t kCalibrationRecordBytesBefore1997 = offsetof(DartboardCalibration, ringRefit);
 
 /**
  * #1330: THE WHOLE STRUCT, HELD TO OWNING NOTHING.
