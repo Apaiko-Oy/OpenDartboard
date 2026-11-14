@@ -4050,7 +4050,7 @@ the two darts `OD_VOTE_WEIGHT=fit` broke (#1908); here both keep their score.
 **The kept windows** (`opendartboard --replay-windows runs-wt-1995/1995/windows`, the 20
 rig-20260918 darts, under five seconds a pass): unset, `on` and `all` publish the same 20
 sectors. `on` moves three darts (one tip into a crossing, 3.2 mm; two vote darts to a
-solved entry). `all` moves 17 of the 20 by up to 2.6 mm of radius and changes no sector --
+solved entry). `all` moves 15 of the 20 by up to 2.7 mm of radius and changes no sector --
 v5.1 stays T15 (radius 0.5665 to 0.5667). **No live kept window exists** (#1991's corpus
 is still unmade), so the switch has been graded on fixtures alone, and **the fixture rows do
 not decide the default**: 147 rows hold one dart of difference, and the live classes the
