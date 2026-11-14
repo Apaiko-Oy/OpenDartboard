@@ -3796,3 +3796,107 @@ argue against `on`. The live board. A refit of the vote path's ellipses. `1450-s
 on this branch by its own rule -- it fails on any diff to `geometry_calibration.hpp`
 against main -- and says `boards will recalibrate`, which is true of a cache read by an
 older build and not of an older cache read by this one.
+
+## A kept window, closed again by the current binary (turnaus#1995)
+
+**Why.** #1991 put every published dart's window on disk and built the grader; nothing read
+a window back, so no change could be graded on a kept dart. This is the reader.
+
+**How it is asked for.** `opendartboard --replay-windows <directory>`, and nothing else
+reaches it: no `OD_` switch, no camera, no calibration, no stub, no socket, no one-board
+claim; it prints and exits (0 every account closed, 1 any refused, 2 none found). A board
+that is scoring never runs a line of it, and **`processDartState` was not edited**: the seat
+is a new function beside it, `dart_processing::closeKeptWindow`, which puts every static the
+close reads back to what a fresh process holds, seats what the account kept (state before,
+the cumulative figure one window ago, #1552's memory, the tips reported this visit, the
+working background, the clean reference, the board's state), and then calls
+`processDartState` once with the settled picture as the one frame of a window one frame
+long -- so the average is the picture and the #1687 area is cut as the live window cut it.
+`GeometryDetector::replayKeptWindows` then hands the result to `processScore` with the kept
+calibration, `OD_CAMERA_WEDGES` applied to it as a start applies it. Reset first, seat
+second, on purpose: a replay walks a visit in order, and what dart 1's close leaves in a
+static is usually what dart 2's account says, so without the reset a seat that was never
+made is covered by the dart before it.
+
+**The line.** One a dart, plain, on stdout, in the shape `i1991_grade.py --replay` reads,
+with five fields after it that the grader ignores:
+
+`I1991 REPLAY ref=01M7DE5W4BBZCQ9WHAK2XCDSSC sector=S19 path=geometry cameras=1,3 reason=-
+window=2 state=DART_1>DART_2 radius=0.3218 angle=193.0621
+cannot=reversion-clock,before-close,unpublished-windows`
+
+`reason` is `-`, or why no dart is on the line: `no-dart-called`, `read-as-takeout`,
+`calibration-refused`, `calibration-cameras`, `picture-missing`, `picture-altered`,
+`account-unreadable`, `account-version` -- each with an `I1991 REPLAY-REFUSED` line in words.
+
+**What a replay cannot reproduce, said on every line (`cannot=`).** Always:
+`reversion-clock` (`last_reversion_clean_ms` is a reading of the motion clock; the replay
+holds "no END yet", so `OD_BODY_WINDOW`'s too-soon clause never holds a replayed dart),
+`before-close` (the motion event, the frames the average was taken of, exposure), and
+`unpublished-windows` (a window that called no dart has no account; what it left is in the
+next account's references, so that dart replays, but the window cannot be asked). Where it
+applies: `derived-anchor:N` (camera N cannot read its wedge from its own calibration and the
+scorer leans on #1486's anchor derived from earlier darts, a static of `score_processing.cpp`
+no account holds; the replay derives it again from the darts replayed before, which is the
+same only if the directory starts where the session did), `board:N` (the account's board is
+not the kept calibration's -- a `--reuse-calibration` start that set a camera aside),
+`switches:A+B` (an `OD_` switch the board ran under and the replay did not, or the reverse;
+they are read once a process, so the caller sets them from the account), `reread-hold`
+(`OD_REREAD_HOLD=on`: its memory is a clock, and a dart it held was never published and has
+no account).
+
+**Is the account enough? Measured, on rig-20260918: yes.** Nothing was added to what
+`OD_KEEP_WINDOWS` keeps.
+
+| directory | accounts | read as pushed: sector, path, cameras, radius and angle to four places | differing |
+|---|---|---|---|
+| `runs-wt-1991/1991/windows` (kept by #1991's binary, before #1997) | 20 | 20 | 0 |
+| `runs-wt-1995/1995/windows` (kept by this binary, 2000 cycles) | 20 | 20 | 0 |
+
+"As pushed" is the body the Turnaus stub counted for the same reference (the first row's
+from that run's own `TURNAUS: COUNTED` log lines): 13 geometry and 7 vote darts, two of them
+`None`. The replay of 20 darts takes under five seconds. The three cameras of this rig each
+anchor themselves, so `derived-anchor` never appears here and **that static is unmeasured**;
+no window on this clip reads a reversion (`reversion_memory` and a falling
+`previous_board_change` are seated and **not exercised**), and `OD_BODY_WINDOW`,
+`OD_REREAD_HOLD`, `OD_HELD_REBASE`, `OD_CAMERA_WEDGES` and `OD_RING_REFIT=on` were not run.
+
+**The calibration is the build's own struct, held to the size the file states.** The reader
+(`window_replay.hpp`) writes no size: a record stating `sizeof(DartboardCalibration)` is
+read; one stating `kCalibrationRecordBytesBefore1997` (an `offsetof`, #1997) is read without
+the ring refit's tail, as `utils/cache.hpp` reads a cache -- which is how the first row
+above, a 560-byte-record file, replays on a 728-byte build, and the run says so
+(`I1991 REPLAY-CALIBRATION ddcc51e046d2b524 cameras=3 records=before-the-ring-refit`). Any
+other stated size refuses every dart that names the file, with both numbers:
+
+`I1991 REPLAY-REFUSED calibration=... the kept calibration ....dat states records of 736
+bytes and this build's DartboardCalibration is 728 bytes (560 before its ring refit, which
+is also read): another layout of the struct, so it is refused rather than read at the wrong
+offsets`
+
+A record written under the other `OD_RING_REFIT` is refused by name too (written, not run).
+A picture read back is hashed again and held to its own name.
+
+**Tested** by `1995-replay` (`testers/i1995_run.sh`, 201 s at load about 2 with both
+mutations, one rig run of 2000 cycles): 21 checks -- the table's second row, the `cannot=`
+tokens on all 20 lines, the kept directory untouched by the replay, the altered record size
+(20 of 20 `calibration-refused`, both sizes read from the run), a removed settled picture
+(the 2 darts naming it `picture-missing`, the other 18 as pushed) -- and two mutations, each
+an incremental rebuild of a copy of the tree inside the container:
+
+- *M1, the working background not seated.* Predicted: red, naming the first dart pushed on a
+  board already holding one, in radius and angle at least; the darts with no working
+  background unmoved. **Held**: that dart read `cameras 1,3->1,2,3; radius 0.3218->0.3309;
+  angle 193.0621->191.7849` (its sector did not move, which is why the check holds five
+  fields); 13 of 20 moved, 6 in sector, and none of the 7 with no working background.
+- *M2, the stated record size not held to the struct.* Predicted: the altered file is read
+  and no dart refused. **Wrong in its mechanism**: the mutant believes the stated size and
+  runs off the end of the file, so all 20 are still refused -- as `ends before its records
+  do`, naming neither size. The check went red on the naming, which is what it holds.
+
+**Not run, not met.** #1991's criterion -- a marked live session of 300 darts or more
+replayed -- **stays open**: no board has run with `OD_KEEP_WINDOWS`, and the rig clip is a
+fixture, not a substitute. Unset byte-identity was argued, not measured (no line of the
+live path changed; `--help` gains three lines). The whole `run_all.sh`, the bakeoff, and the
+hand-linked testers other than `1510-fitcensus` were not run. The grader was not run on a
+replay of a marked day, because there is none.

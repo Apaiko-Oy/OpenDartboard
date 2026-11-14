@@ -47,6 +47,14 @@ public:
     // lines that differ. See detector_interface.hpp for why anything asks.
     virtual string geometryBreach() const override;
 
+    /**
+     * turnaus#1995: `--replay-windows <directory>`. Every dart OD_KEEP_WINDOWS kept under
+     * the directory is closed again by this binary and scored through the calibration its
+     * start kept; one `I1991 REPLAY` line a dart on stdout. No camera, no calibration, no
+     * network. geometry_detector.cpp says what a line means and what a replay cannot know.
+     */
+    int replayKeptWindows(const string &directory);
+
 protected:
     // #1363: apply OD_CAMERA_WEDGES -- the operator's stated orientation anchors -- to
     // the calibrations this start holds. Called on both the fresh and the cached path.

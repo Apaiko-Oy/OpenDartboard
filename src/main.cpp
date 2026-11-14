@@ -21,6 +21,7 @@
 // #1886: a Windows board asks not to sleep while it runs; OD_KEEP_AWAKE=off is the pin.
 #include "utils/keep_awake.hpp"
 #include "communication/turnaus_client.hpp"
+#include "detector/geometry/geometry_detector.hpp" // turnaus#1995: --replay-windows
 #include "communication/pairing_prompt.hpp"
 #include "utils/console_prompt.hpp"
 // #1305: --check-update. Reads the manifest this board's channel publishes, verifies it,
@@ -163,6 +164,19 @@ int main(int argc, char **argv)
   if (!log_file.empty())
   {
     logging::setFileLogging(true, log_file);
+  }
+
+  // turnaus#1995: read the darts OD_KEEP_WINDOWS kept under a directory again, with this
+  // binary, and exit. Above the startup banner and everything below it on purpose: a
+  // replay opens no camera, pairs with nothing, binds no socket and claims no board, so it
+  // runs beside a board that is scoring. The lines it prints are for testers/i1991_grade.py.
+  {
+    const string replay_dir = getArg(argc, argv, "--replay-windows", string(""));
+    if (!replay_dir.empty())
+    {
+      GeometryDetector replay(false, width, height, fps);
+      return replay.replayKeptWindows(replay_dir);
+    }
   }
 
   // Print startup and configuration information

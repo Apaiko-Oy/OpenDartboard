@@ -2901,4 +2901,62 @@ namespace dart_processing
             }
         }
     }
+
+    // turnaus#1995: see dart_processing.hpp. Each seat is one line so that a seat dropped
+    // is one line dropped (testers/i1995_run.sh drops one and names the dart that moves).
+    DartStateResult closeKeptWindow(const window_keep::Window &kept,
+                                    const vector<motion_processing::BoardExtent> &boards,
+                                    const DartParams &params)
+    {
+        const size_t n = kept.cameras.size();
+
+        // What a process that has closed no window holds.
+        collecting_frames = false;
+        window_pending = false;
+        frames_collected = 0;
+        stability_frame_count = 0;
+        accumulated_frames.assign(n, Mat());
+        frames_accumulated.assign(n, 0);
+        whole_accumulated.assign(n, Mat());
+        window_areas.resize(n);
+        window_frame_sizes.resize(n);
+        previous_states.assign(n, DartBoardState::CLEAN);
+        best_previous_state = DartBoardState::CLEAN;
+        working_backgrounds.assign(n, Mat());
+        clean_references.assign(n, Mat());
+        reported_tips.assign(n, vector<Point2f>());
+        previous_board_change.assign(n, -1);
+        reversion_memory.assign(n, 0);
+        last_reversion_clean_ms = -1; // a clock: not kept, not seated
+
+        // What the account kept.
+        best_previous_state = static_cast<DartBoardState>(kept.board_state_before);
+        vector<Mat> settled(n), background(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            const window_keep::Camera &k = kept.cameras[i];
+            previous_states[i] = static_cast<DartBoardState>(k.previous_state);
+            previous_board_change[i] = k.previous_board_change;
+            reversion_memory[i] = k.reversion_memory;
+            reported_tips[i] = k.reported_tips;
+            working_backgrounds[i] = k.fresh;
+            clean_references[i] = k.clean;
+            // The pictures are grey and the window takes a camera's frame: BGR2GRAY of
+            // three equal channels is the channel (its weights sum to 1 << 14).
+            if (!k.settled.empty())
+            {
+                cvtColor(k.settled, settled[i], COLOR_GRAY2BGR);
+            }
+            if (!k.clean.empty())
+            {
+                cvtColor(k.clean, background[i], COLOR_GRAY2BGR);
+            }
+        }
+
+        // One frame long in either unit (#1685), so the call that opens the window closes it.
+        DartParams one_frame = params;
+        one_frame.stability_frames = 1;
+        one_frame.stability_ms = 0;
+        return processDartState(settled, background, boards, true, false, one_frame);
+    }
 }

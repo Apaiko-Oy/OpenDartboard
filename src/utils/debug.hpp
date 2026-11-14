@@ -100,6 +100,9 @@ namespace debug
         std::cout << "                       back measuring a rig somewhere other than where it was calibrated -- and\n";
         std::cout << "                       went on measuring it there -- records that, refuses to calibrate on every\n";
         std::cout << "                       start afterwards, and says so. Say this once the frame has been looked at\n";
+        std::cout << "  --replay-windows <dir>\n";
+        std::cout << "                       Read every dart OD_KEEP_WINDOWS kept under <dir> again with this binary,\n";
+        std::cout << "                       print one I1991 REPLAY line a dart, and exit. Opens no camera and no socket\n";
         std::cout << "  --debug, -d          Enable debug mode (saves frames to debug_frames/ directory)\n";
         std::cout << "  --quiet, -q          Quiet mode (only show errors)\n";
         std::cout << "  --log-file <path>    Also append the log to a file (off unless asked for; --debug implies debug_frames/opendartboard.log)\n";
