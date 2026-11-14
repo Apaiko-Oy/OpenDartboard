@@ -3373,6 +3373,7 @@ so. Unset, a window costs one static bool and no output moves.
 | a three-dart visit, content-named | 4,634,943 (12 pictures, not 27) | MEASURED by the check |
 | one dart, content-named | 1,544,981 fixture, **about 1.60 MB live** (x 400,085 / 385,844) | 4 pictures a dart |
 | one dart if every picture were written every time | about 3.1 MB fixture, 3.2 MB live | 8 pictures a dart (6, 9, 9) |
+| the real binary on rig-20260918, 20 published darts | 30,982,459: **1,549,123 a dart**, 81 pictures (4.05 a dart) | MEASURED by `i1991_rig.py` |
 | a 3,090-dart day | **about 4.9 GB** content-named, 9.9 GB otherwise | arithmetic on the above |
 | one marked span (2026-10-15, 486 darts) | about 780 MB | the same |
 
@@ -3382,6 +3383,14 @@ frame answer is base64 in JSON, one dart a request. **Not measured on the Pi:** 
 writer's twelve PNG encodes a visit, and what they do to a scoring cycle beside it. That
 is the first thing to measure when the switch is first set on device/2, with #1685's cycle
 lines.
+
+**On the real binary.** `testers/i1991_rig.py` pushes rig-20260918 at the Turnaus stub
+with the switch set and again unset: 20 darts counted, 20 accounts, every picture and the
+start's calibration on disk, no settled picture equal to its own reference in 60
+camera-windows, and all 39 links from a dart to the one before it hold -- a later dart's
+working background is the previous kept dart's settled picture, byte for byte. Unset, no
+file and no `I1991` line; both runs pushed the same 20 sectors, which is printed and not
+asserted, because two replays are not one (#1826).
 
 **Getting a span onto a development machine: copy the directory**, for now --
 `rsync -a root@<board>:<directory>/ sessions/<day>/windows/` after the session, with the

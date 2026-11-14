@@ -119,6 +119,16 @@ tester 1789-truth         "bash '$T/i1789_check.sh'"
 # load ~5, rc=0: 79 s wall (three -O1 compiles of the keep check; the python is under a
 # second). No `slow`: well inside the default 1200.
 tester 1991-windows       "bash '$T/i1991_check.sh'"
+# turnaus#1991: the same switch on the real binary -- mocks/rig-20260918 pushed at the
+# Turnaus stub with OD_KEEP_WINDOWS set, then unset (i1991_rig.py, on #1366's Stub and
+# Board). Every dart the stub counted has an account whose pictures and calibration are on
+# disk, no settled picture is its own reference, and a later dart's fresh reference is the
+# previous kept dart's settled picture; unset writes nothing and prints no I1991 line. The
+# two runs' sectors are printed and not compared (#1826). Windows pinned to cycles inside,
+# on the board's own environment. MEASURED 2026-11-14 on the 4-core box at load ~3, rc=0:
+# 527 s wall, two detector runs of 2000 cycles under --cpus=2 (20 darts, 20 accounts, 81
+# pictures, 30,982,459 bytes: 1.55 MB a dart). No `slow`: inside the default 1200.
+tester 1991-rig           "bash '$T/i1991_run.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
