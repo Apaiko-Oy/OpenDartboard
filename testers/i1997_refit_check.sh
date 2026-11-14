@@ -8,8 +8,11 @@
 # mutations, each predicted BEFORE it runs:
 #
 #   not_applied   board_model.hpp computes nothing from the carried map (the refit computed
-#                 and not applied): rings:, darts: and bloom: go red (3) -- refit: stays
-#                 green, because the refit itself was computed
+#                 and not applied): rings:, darts:, wedge: and bloom: go red (4) -- refit:
+#                 stays green, because the refit itself was computed. (First predicted as
+#                 three: wedge: was not foreseen. Through today's map, seen three pixels
+#                 off, a mid-wedge point reads 0.72 of half a wedge from its wire, and the
+#                 label holds the refit to 0.85 -- so it is red where no refit is applied.)
 #   cache_accepts ring_refit.hpp's cacheRefusal lets every setting through (a cache from the
 #                 other setting accepted): cache: (1)
 #   default_on    unset reads on: parse: and default: (2)
@@ -65,7 +68,7 @@ PY
   run_mutation not_applied detector/geometry/calibration/board_model.hpp \
     "fit.ringRefitted = ring_refit::applyTo(calib.ringRefit, fit.plane.H, fit.plane.Hinv);" \
     "fit.ringRefitted = false;" \
-    3 rings: darts: bloom: || BAD=1
+    4 rings: darts: wedge: bloom: || BAD=1
   run_mutation cache_accepts detector/geometry/calibration/ring_refit.hpp \
     "        if (written == now)" "        if (written == now || written != now)" \
     1 cache: || BAD=1

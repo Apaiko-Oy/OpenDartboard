@@ -154,7 +154,7 @@ tester 1992-ringline      "bash '$T/i1992_ring_check.sh'"
 # the comb keeps every wedge, `on` drops #1553's bloom adjustment and `bloom` keeps it, a
 # calibration carrying none builds today's plane bit for bit, a black or a clipped frame
 # keeps today's map by name, and the cache's refusal names both settings. Then four
-# predicted mutations of a scratch copy of src/: the refit computed and not applied (3
+# predicted mutations of a scratch copy of src/: the refit computed and not applied (4
 # labels), a cache from the other setting accepted (1), unset reading on (2), any arc
 # allowed missing (1). Five compiles with wire_model.cpp, no detector binary.
 tester 1997-refit         "bash '$T/i1997_refit_check.sh'"
