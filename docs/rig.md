@@ -3441,133 +3441,168 @@ exposure hold, which frames were averaged -- and a window that published no dart
 as the caution it is -- and not on the 158 alone. Until then the 158 are what there is,
 and a 2-to-5-dart difference on them is a hypothesis.
 
-## The wire-crossing census (turnaus#1992): how the board is fitted, where its crossings land, and what one homography with a radial term would buy -- measured, nothing switched
+## The wire-crossing census (turnaus#1992): how the board is fitted, where its crossings land on all nine cameras, and what a joint fit would buy -- measured, nothing switched
 
 **How the board is fitted today, read from the source.** One camera's map
 (`board_model::fitBoardToCamera`, the `BoardFit` every dart is carried through by
-`boardPointOf` -- the solve in `entry_intersection.hpp` and the `I1647FIT` line) is #1467's
-construction and no solver: the ray-traced outer-doubles **mask** ellipse (five numbers, from
-up to 120 rays) is the unit circle, the detected bull (two) is the origin, and that pins the
-projective map up to a rotation; the comb's offset (one) comes from the wire candidates, and
-the millimetre scale (one) from the two doubles marks (#1499). **Nine numbers, none of them a
-wire crossing.** The twenty boundaries on a calibration are *generated* from that plane
-(`wire_model.hpp`), so no stage of the detector locates a crossing at all, and the solvePnP
-that does build "ring-wire intersections" (`perspective_processing.cpp`) lays them on that
-same ellipse at image angles and feeds nothing that scores (#1906). The per-ring residuals
-the start-up line already prints (`Camera N board model [...]: residuals ... [held-out] ...`,
-`fitBoardToCamera`'s `story`) are of the mask's traced ring edges against that map.
+`boardPointOf` -- the solve in `entry_intersection.hpp`, `scoreFromModel`, the `I1647FIT`
+line) is #1467's construction and no solver: the ray-traced outer-doubles **mask** ellipse
+(five numbers, from up to 120 rays) is the unit circle, the detected bull (two, an integer
+pixel) is the origin, and that pins the projective map up to a rotation; the comb's offset
+(one) comes from the wire candidates, and the millimetre scale (one) from the two doubles
+marks (#1499). **Nine numbers, none of them a wire crossing.** The twenty boundaries on a
+calibration are *generated* from that plane (`wire_model.hpp`), so no stage of the detector
+locates a crossing at all, and the solvePnP that does build "ring-wire intersections"
+(`perspective_processing.cpp`) lays them on that same ellipse at image angles and feeds
+nothing that scores (#1906). The per-ring residuals the start-up line already prints
+(`Camera N board model [...]: residuals ... [held-out] ...`, `fitBoardToCamera`'s `story`)
+are of the mask's traced ring edges against that map -- and #1553 already reads those as
+bloom, which they are (below).
 
 **The instrument.** `testers/i1992_crossing_census.py --frames <dir> --fits <tag>=<replay
-log>` takes i1560's extraction (imported): the four band edges along rays from the bull,
-each a trimmed conic, and the twenty bed-boundary luminance edges traced between the rings.
-A crossing is a line through one wire's trace points near a ring, met with that ring's
-conic -- interpolated at the treble pair, **extrapolated 5-10% of a radius at the doubles
-pair**, 80 at most. Each is carried through the detector's own map (the `I1647FIT` of a real
-replay of the same clip, here #1906's `runs-wt-1906/bake-unset`) and split into radial
-(+ = read further out than the wire is) and tangential mm. `testers/i1992_frames.cpp` makes
-the frames (30-frame mean of each clip's opening; the image has no ffmpeg).
+log>`. The detector's own map is the `I1647FIT` of a real replay of the same clip (here
+#1906's `runs-wt-1906/bake-unset`, the `-open` replays). The four band edges are taken along
+720 rays from the bull at **half the band's own height** on that ray, the band sought within
+9 mm of where the map puts it (the map says where to look and is in none of the points);
+each ring is a trimmed conic. The twenty bed-boundary luminance edges are i1560's wire
+tracer, imported. A crossing is a line through one wire's trace points near a ring, met with
+that ring's conic -- interpolated at the treble pair, **extrapolated 5-10% of a radius at
+the doubles pair** -- 80 at most, split into radial (+ = read further out than the ring is)
+and tangential mm. A **band's middle** is the mean of one wire's two crossings of one band
+(103 and 166 mm by the spec), 40 at most. `testers/i1992_frames.cpp` makes the frames (the
+30-frame mean of each clip's opening; the image has no ffmpeg). rig-20260922 camera 2's
+opening has a dart standing in the 1/18 treble; its rays are trimmed with the rest.
 
 **The prediction, committed before the count (fb20565):** (a) the logged -3 / +2 mm ring
-residuals are the mask's bloom, and a crossing would instead sit about +0.7 mm out on both
+residuals are the mask's bloom, and a crossing would instead sit about +0.7 mm OUT on both
 treble edges, which is what kappa = -2.45e-7 does to a map scaled on the doubles; (b) the
 angles carry as much error as the radii; (c) a homography through every crossing takes most
-of it and the radial term adds tenths; held-out under 1 mm rms; (d) kappa is not resolved
-per camera. **(a) was wrong, (b) and (d) held, (c) held in its first half only.**
+of it, the radial term adds tenths, held-out under 1 mm rms; (d) kappa is not resolved per
+camera. **Result: the bloom half of (a) held and its sign did not -- every camera reads
+both treble edges INWARD; (b) did not hold -- the radii are worse; (c) held with no lens
+term; (d) held in an unexpected way -- nine cameras agree on a kappa of the other sign, and
+the board's paint explains it better.**
 
-**Count before fitting: one camera position of the nine camera-fixtures can be read.**
+**Two counts, and why the first is not the census.** The first run used i1560's ring
+extraction as it stands, which cuts every ray at one fixed bandness (26): seven of nine
+camera-fixtures' ring conics scattered 4-6 px and gave 47-66 crossings whose "residuals"
+were tens of millimetres of extraction failure, and on the two that read (camera 2 of
+rig-20260922 / 29) every band came back widened 2.3-2.8 mm -- the same bloom the mask has
+(`runs-wt-1992/census-1.txt` .. `-3.txt`, `--edges threshold` reproduces it). A fixed cut
+moves out as a band brightens. The half-height edge does not, and with it **all nine read:
+72-80 crossings of 80, ring conics 0.61-1.30 px rms, wire traces 0.11-0.23 px about their
+lines** (`census-5.txt`). The band now reads 8.2-8.9 mm wide at the treble. Everything below
+is that count.
 
-| fixture (opening) | cam | crossings of 80 | ring conic rms, px (t_in / t_out / d_in / d_out) | usable |
-|---|---|---|---|---|
-| rig-20260918 | 1 / 2 / 3 | 62 / 47 / 58 | 4.7-6.1 / 3.3-5.2 / 4.9-5.8 | no |
-| rig-20260922 | 1 / 3 | 60 / 53 | 5.7-6.3 / 4.7-5.7 | no |
-| rig-20260922 | 2 | **80** | 1.03 / 2.16 / 0.99 / 1.68 | yes |
-| rig-20260929 | 1 | 62 | 5.3-6.2 | no |
-| rig-20260929 | 2 | **80** | 1.11 / 2.26 / 1.11 / 1.73 | yes |
-| rig-20260929 | 3 | 66 | 1.20 / 1.88 / 3.98 / 4.09 | treble only, not used |
+**The census: today's map, mm.** `all` is every crossing, rms. `middle` is the radial
+residual of the band's middle split into the part that is the same all the way round and
+the amplitude of the part that turns once with the angle (a tilt or a centre). `ring alone`
+is the outer-doubles edge's 450-690 points through the map with no wire in it and nothing
+extrapolated, the same split.
 
-On the seven others the extraction's ring conics scatter 4-6 px and the "residuals" are tens
-of millimetres of extraction failure, under today's map and under any fit alike; they are
-printed and mean nothing. This is #1560's finding again (one camera clean enough to bound f)
-and it is the first answer to the issue: **the fixtures do not hold 81 keypoints a camera;
-with the extraction in this tree they hold them on camera 2.** The census below is that one
-camera on two days.
+| fixture cam | crossings | all: radial / tangential rms | treble middle: all round / turning | doubles middle (extrap.) | outer doubles, ring alone | fitted centre off the bull, px |
+|---|---|---|---|---|---|---|
+| r18 1 | 80 | 4.32 / 1.55 | -2.88 / 1.48 | -3.30 / 5.31 | -2.40 / 4.60 | +0.0, -1.4 |
+| r18 2 | 72 | 4.54 / 2.16 | -3.17 / 1.39 | -3.63 / 5.98 | -2.48 / 4.60 | -0.2, -1.5 |
+| r18 3 | 80 | 3.04 / 2.06 | -1.99 / 1.47 | -2.15 / 3.85 | -1.53 / 3.93 | -3.8, -1.0 |
+| r22 1 | 74 | 1.27 / 1.39 | -1.01 / 0.48 | -0.35 / 1.38 | +0.30 / 1.69 | +0.2, -1.3 |
+| r22 2 | 80 | 2.08 / 1.10 | -1.70 / 0.60 | -1.40 / 2.13 | -0.93 / 2.32 | -0.3, -0.7 |
+| r22 3 | 76 | 5.15 / 2.34 | -3.40 / 2.59 | -3.74 / 6.70 | -1.87 / 4.25 | -3.2, -0.7 |
+| r29 1 | 80 | 1.51 / 1.24 | -1.18 / 0.64 | -0.70 / 1.73 | -0.13 / 1.96 | +0.5, -1.0 |
+| r29 2 | 76 | 2.25 / 1.30 | -1.83 / 0.64 | -1.62 / 2.03 | -1.15 / 2.23 | +0.3, -0.9 |
+| r29 3 | 72 | 3.94 / 2.01 | -3.05 / 1.37 | -3.08 / 4.90 | -1.67 / 3.34 | +0.1, -1.0 |
 
-**The census, camera 2, mm (median / rms), today's map:**
+- **Every camera reads the treble band 1.0-3.4 mm nearer the bull than it is**, all the way
+  round, both edges (inner -1.1..-4.2, outer -0.9..-3.7 on the ring alone). That is the
+  direction of #1936's losses -- a dart just inside the treble read as the single below it
+  -- on fixtures; the live board is not measured here.
+- **The larger error turns with the angle, and it is at the doubles**: 1.4-6.7 mm of
+  first harmonic on the doubles middle, 1.7-4.6 mm on the outer-doubles edge with no wire in
+  it, against 0.5-2.6 mm at the treble. That is a tilt, not a scale and not a lens: on the
+  three worst cameras one side of the outer doubles edge is read 6-7 mm inward. The map
+  is *built* from that ring -- from the mask's trace of it.
+- **The sealed line's own numbers are bloom plus this.** The mask reads the same cameras'
+  treble at -2.9..-7.2 inner and -1.4..+3.1 outer (the same replays' start-up lines): a band
+  10-18 mm wide. The middle of those is -0.7..-3.0 mm, the same sign as here.
+- The radial error (1.3-5.2 mm rms) is larger than the tangential (1.1-2.3) on eight of
+  nine.
 
-| | rig-20260922 radial | tangential | rig-20260929 radial | tangential |
-|---|---|---|---|---|
-| treble inner edge, 99 | -2.60 / 3.24 | +0.38 / 1.13 | -2.98 / 3.59 | +0.03 / 1.20 |
-| treble outer edge, 107 | -0.31 / 1.28 | +0.43 / 1.11 | -0.82 / 1.36 | -0.20 / 1.18 |
-| doubles inner edge, 162 (extrap.) | -1.79 / 2.86 | +0.12 / 0.96 | -2.19 / 3.12 | -0.11 / 1.39 |
-| doubles outer edge, 170 (extrap.) | +1.05 / 2.02 | -0.02 / 1.03 | +0.59 / 2.13 | -0.25 / 1.55 |
-| **treble band's middle, 103** | **-1.88 / 1.99** | +0.36 / 1.12 | **-2.14 / 2.31** | -0.09 / 1.19 |
-| doubles band's middle, 166 | -0.22 / 2.20 | +0.13 / 0.98 | -0.70 / 2.37 | -0.17 / 1.47 |
+**One homography through the band middles (36-40 a camera), rms mm.** `held out` fits the
+odd wires and reads the even, then the reverse, pooled.
 
-The edges came back widened both ways (inner edges in, outer edges out, 2.3-2.8 mm of extra
-band) -- the extraction's fixed bandness threshold blooms as the detector's mask does -- so
-an edge crossing carries the edge's definition and not the map's error. The **band's
-middle** (the mean of a wire's two crossings of one band; added after the first count for
-that reason) cancels a symmetric widening, and it is the row to read: **today's map reads
-the treble band 1.9-2.1 mm nearer the bull than it is, the same on both days, with the
-doubles band within 0.2-0.7 mm.** That is the opposite sign to prediction (a), it is not
-what #1560's kappa draws (+0.7 mm), and it is the direction of #1936's losses -- a dart just
-inside the treble's inner wire read as the single below it. One camera on fixtures; the live
-board's cameras are not measured here.
+| fixture cam | today: radial / tangential | kappa 0, in-sample | kappa 0, held out | held out, treble middle: median / rms | kappa -2.45e-7 (#1560), held out radial | kappa fitted (in-sample radial) | held out radial | kappa 0, treble's middle fitted: mm (radial rms) |
+|---|---|---|---|---|---|---|---|---|
+| r18 1 | 4.32 / 1.55 | 0.55 / 0.92 | 0.56 / 1.59 | -0.53 / 0.62 | 1.27 | +1.99e-7 (0.16) | 0.19 | 102.20 (0.25) |
+| r18 2 | 4.54 / 2.16 | 0.56 / 0.99 | 0.57 / 1.77 | -0.62 / 0.67 | 1.32 | +1.68e-7 (0.21) | 0.25 | 102.15 (0.22) |
+| r18 3 | 3.04 / 2.06 | 0.48 / 1.10 | 0.50 / 2.07 | -0.44 / 0.50 | 1.22 | +1.42e-7 (0.19) | 0.23 | 102.35 (0.29) |
+| r22 1 | 1.27 / 1.39 | 0.53 / 0.95 | 0.55 / 1.37 | -0.47 / 0.66 | 1.29 | +1.21e-7 (0.28) | 0.31 | 102.20 (0.22) |
+| r22 2 | 2.08 / 1.10 | 0.55 / 0.87 | 0.55 / 1.45 | -0.59 / 0.64 | 1.47 | +1.18e-7 (0.25) | 0.26 | 102.15 (0.21) |
+| r22 3 | 5.15 / 2.34 | 0.65 / 1.21 | 0.66 / 2.19 | -0.83 / 0.79 | 1.36 | +1.41e-7 (0.39) | 0.38 | 101.90 (0.11) |
+| r29 1 | 1.51 / 1.24 | 0.50 / 0.86 | 0.50 / 1.35 | -0.51 / 0.57 | 1.27 | +1.20e-7 (0.22) | 0.23 | 102.25 (0.22) |
+| r29 2 | 2.25 / 1.30 | 0.54 / 0.89 | 0.55 / 1.58 | -0.63 / 0.60 | 1.50 | +1.34e-7 (0.22) | 0.23 | 102.20 (0.22) |
+| r29 3 | 3.94 / 2.01 | 0.68 / 1.25 | 0.70 / 2.39 | -0.78 / 0.87 | 1.47 | +1.78e-7 (0.35) | 0.38 | 101.90 (0.14) |
 
-**One homography through the crossings (band middles, 40 per day), in-sample and with the
-odd wires fitted and the even read (then the reverse, pooled), rms mm:**
-
-| camera 2 | r22 radial / tangential | r22 held out | r29 radial / tangential | r29 held out | held out, treble middle radial (median / rms) |
-|---|---|---|---|---|---|
-| today's map | 2.10 / 1.05 | - | 2.34 / 1.34 | - | -1.88 / 1.99, -2.14 / 2.31 |
-| homography, kappa 0 | 0.71 / 0.87 | 0.71 / 1.36 | 0.79 / 0.96 | 0.80 / 1.62 | -0.65 / 0.87, -0.77 / 0.97 |
-| homography, kappa -2.45e-7 (#1560) | 1.53 / 1.17 | 1.53 / 1.57 | 1.60 / 1.33 | 1.60 / 1.86 | -1.50 / 1.67, -1.63 / 1.75 |
-| homography, kappa fitted | 0.52 / 0.88 | 0.53 / 1.37 | 0.58 / 0.91 | 0.59 / 1.59 | fitted +1.12e-7, +1.45e-7 |
-
-(Today's row pools the two middles; its tangential is the comb's own, fitted on all twenty.)
+(`today` is the 80-crossing row above, for scale; the fits are on the middles.)
 
 **What held and what did not.**
 
-- *A joint fit takes the radial error from 2.1-2.3 mm to 0.7-0.8 mm, held out, with no
-  lens term at all.* The treble middle held out reads 0.87-0.97 mm rms -- under the issue's
-  1 mm by a tenth, with a median of -0.7 mm still inward.
-- *The measured radial term makes it worse*, on both days, in-sample and held out (0.71 ->
-  1.53, 0.79 -> 1.60 mm). A kappa fitted to these crossings is **+1.1e-7..+1.5e-7, the other
-  sign from #1560's -2.45e-7**, and buys 0.2 mm. #1905 asked for exactly this after the
-  dart axis got no straighter under -2.45e-7; it is one camera, 40 points, and a fit that
-  can trade kappa against perspective, so it is a question put to #1560 and not an answer.
-  The issue's "fit every wire crossing *with distortion*" is not supported: on the only
-  camera that can be read, the distortion term in the tree is the wrong thing to add.
-- *The angles do not improve.* Held-out tangential is 1.4-1.6 mm rms against today's
-  1.0-1.3 mm: twenty wires' angles from 20 fitted points predict the other 20 no better
-  than the comb does.
-- *The floor is the locator.* 0.7 mm rms is about a pixel on this camera, and the ring half
-  of every crossing is a conic through threshold edges with a known 2-3 mm widening.
-  Nothing here locates a *wire*.
+- **The issue's hypothesis holds, without its lens.** A projective map fitted to the
+  crossings reads the held-out wires' radii to **0.50-0.70 mm rms on all nine cameras**,
+  the treble middle to 0.50-0.87, against 1.3-5.2 mm today -- with kappa 0.
+- **#1560's kappa makes every camera worse** (held-out radial 1.22-1.50 mm, from
+  0.50-0.70). A kappa fitted per camera is **positive on all nine, +1.2e-7..+2.0e-7**, and
+  takes the radial residual to 0.19-0.38 mm held out. #1905 asked for this sign after the
+  dart axis got no straighter under -2.45e-7.
+- **But a kappa fitted on two radii is one number about the treble against the doubles,
+  and the paint says it better.** Leave kappa at 0 and let the treble band's middle be
+  somewhere other than 103 mm: **nine cameras put it at 101.90-102.35 mm** (six of them at
+  102.15-102.25) with 0.11-0.29 mm rms -- as good as the fitted kappa or better, and tighter
+  across cameras whose boards sit at different places in the frame. These crossings cannot
+  tell a +1.5e-7 lens from a treble band painted 0.8 mm inside the spec's middle (or a
+  doubles band 1.3 mm outside it); a board's bands need not be centred between its wires,
+  and nothing here locates a *wire*. Either way the residual the issue wanted a distortion
+  term for is 0.5 mm, it has the sign of pincushion, and it is not #1560's.
+- **The angles do not improve.** Held-out tangential is 1.35-2.39 mm rms, where today's
+  comb reads 1.10-2.34 on the same crossings; in-sample 0.86-1.25. Twenty wires' angles
+  from twenty fitted points predict the other twenty no better than the comb does, and the
+  floor near 1 mm is the bed's luminance edge or the spider's own tolerance.
+- **The detected bull is 0.7-1.5 px below where the fit puts the board's centre on all
+  nine**, and 3-4 px to one side on camera 3 of rig-20260918 / 22. The map takes the bull
+  as its origin and the bull's offset in the doubles ellipse as its whole tilt.
 
-**What was not built, and why.** The `OD_` switch (a joint fit replacing the doubles-conic
-map) and a new start-up line were not built: a fit needs crossings, and on eight of nine
-camera-fixtures there is no locator that finds them to a pixel -- the switch would have had
-one camera to be measured on, and on the live Pi board camera 2 clips the doubles ring
-(#1913). The start-up line the issue asks for exists already in the mask's terms (above),
-and on 2026-10-23 it printed no treble row at all for the cameras whose treble ring #1485
-refused. The bakeoff was not run: no switch exists, so off and on are the same binary. The
-2026-10-23 darts were not re-read (no replay of that session exists, #1991).
+**What was not built, and why.** No `OD_` switch and no new start-up line. The fit this
+census argues for is not the one the issue describes: it wants no radial term, and its input
+is the frame (band edges at half height), which `fitBoardToCamera` never sees -- it is pure
+over `DartboardCalibration`, recomputed at five call sites, so a refitted map has to be
+carried on the calibration and through the cache (#1330), with the cache refusing a
+calibration written under the other setting. That is a slice of its own and it needs both
+bakeoffs. **The bakeoff was not run**: no switch exists, so off and on are one binary. The
+2026-10-23 darts were not re-read (no replay of that session exists, #1991). `OD_UNDISTORT`
+(#1905) is untouched and independent: it bends the dart's axis by #1560's kappa and leaves
+the map alone; this census says that kappa has the wrong sign for the board's rings, which
+is the experiment #1905 named (`OD_UNDISTORT=+1.5e-7`) and nobody has run.
 
-**What would be worth building next, in order.** (1) A crossing locator inside the
-detector's own calibration that works on every camera -- the wire is a bright line a few
-pixels wide, and a ridge fit along the generated ring and boundary would find the *wire*
-and not the paint; its acceptance is this census reading 60+ of 80 at under a pixel on all
-nine. (2) Then the joint fit behind a switch, kappa pinned at 0 unless (1)'s crossings say
-otherwise, with the cache refusing a calibration written under the other setting. (3) The
-band-middle row as a start-up line: `treble middle -1.9 mm` is the number this census says a
-reader should see before a dart is thrown.
+**What to build next, in order, each measurable against this census.**
 
-**Tested** by `1992-crossings` (`testers/i1992_check.sh`, 12 s, python in the image): the
-census's arithmetic on a planted homography and kappa -- eleven named checks -- and three
-mutations of a scratch copy, each predicted by name and each turning exactly those red: the
-radial sign flipped (`residual: sign and split`, `holdout: a doubles-only flat fit reads the
-treble outward`); undistort a no-op (four `lens:` / `holdout:` checks); the naming one wire
-on (`naming:`). The measurement itself is an instrument and is not registered; its two
-transcripts are `runs-wt-1992/census-1.txt` (the edges) and `census-2.txt` (with the
-middles).
+1. *The start-up line, in the detector.* The `ring alone` rows need no wire: half-height
+   band edges along rays guided by the fit, through the fit, mean and first harmonic per
+   ring. `Camera 3 rings: outer doubles -1.9 mm all round, 4.3 mm turning` is the line that
+   would have named rig-20260922 camera 3 before a dart was thrown, and switched on at
+   Pelipaikka it answers #1936's premise on the live board without a replay.
+2. *The refit, behind a switch.* The projective map through the four rings' half-height
+   edges (circles fix the plane and its centre without the bull; the comb keeps the
+   rotation), kappa 0, treble radii as the spec has them. Acceptance: this census's `today`
+   column falls to its `kappa 0` column on all nine, then the bakeoff off / on.
+3. *Only then* the question of 102.2 against 103 mm -- which is a question about where the
+   treble's **wires** are, and wants a wire locator (the spider is a bright ridge; this
+   census reads paint).
+
+**Tested** by `1992-crossings` (`testers/i1992_check.sh`, python in the image, no detector
+binary): the census's arithmetic on a planted homography and kappa and a drawn band --
+fourteen named checks -- and four mutations of a scratch copy, each predicted by name and
+each turning exactly those red: the radial sign flipped (`residual: sign and split`,
+`holdout: a doubles-only flat fit reads the treble outward`); undistort a no-op (three
+`lens:` checks and `holdout: the even wires are predicted from the odd`); the naming one
+wire on (`naming:`); the band's edge taken at 0.3 of its height (`edges: half height reads
+the edges of a band, bright or dim`). The measurement itself is an instrument and is not
+registered: about a minute for the nine frames.
