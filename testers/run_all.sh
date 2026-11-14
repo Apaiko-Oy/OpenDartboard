@@ -129,6 +129,14 @@ tester 1991-windows       "bash '$T/i1991_check.sh'"
 # 527 s wall, two detector runs of 2000 cycles under --cpus=2 (20 darts, 20 accounts, 81
 # pictures, 30,982,459 bytes: 1.55 MB a dart). No `slow`: inside the default 1200.
 tester 1991-rig           "bash '$T/i1991_run.sh'"
+# turnaus#1992: the wire-crossing census's arithmetic (i1992_crossing_census.py --synthetic:
+# the residual's sign and split, the lens round trip, a planted homography and kappa
+# fitted back, held-out wires predicted, the wire naming) and three predicted mutations of
+# a scratch copy -- the radial sign, undistort a no-op, the naming one wire on. Python in
+# the image, no detector binary, no footage: the census's MEASUREMENT of the fixtures is
+# an instrument (docs/rig.md) and is not run here. MEASURED 2026-11-14 on the 4-core box,
+# alone at load about 2, to completion, rc=0: 12 s. No `slow`.
+tester 1992-crossings     "bash '$T/i1992_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down

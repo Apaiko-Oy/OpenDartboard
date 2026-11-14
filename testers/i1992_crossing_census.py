@@ -256,6 +256,19 @@ def locate_crossings(frame, seed):
     return found, report, len(traces)
 
 
+def band_middles(crossings):
+    """One point per wire per band: the mean of its inner and outer edge crossing."""
+    by = {(c["ring"], c["wire"]): c for c in crossings}
+    out = []
+    for band, mm in (("t", 103.0), ("d", 166.0)):
+        for wire in range(20):
+            a, b = by.get((band + "_in", wire)), by.get((band + "_out", wire))
+            if a and b:
+                out.append({"px": (0.5 * (a["px"][0] + b["px"][0]), 0.5 * (a["px"][1] + b["px"][1])),
+                            "ring": band + "_mid", "mm": mm, "wire": wire})
+    return out
+
+
 def read_fits(path):
     """cam -> the last I1647FIT of a replay log (they do not move within one)."""
     fits = {}
@@ -352,6 +365,35 @@ def measure(tag, cam, frames_dir, fit):
         for label, k in (("kappa 0", 0.0), ("kappa #1560", MEASURED_KAPPA)):
             print(fmt_row(label, summarise(residuals_under(test, fit_joint(train, k), 1.0, k, 0.0, 1.0))))
 
+    # THE BAND'S MIDDLE (added after the first count, and said so in docs/rig.md: the
+    # edges came back widened both ways -- the extraction's fixed bandness threshold
+    # blooms as the detector's mask does -- so an edge crossing carries the edge's
+    # definition. The mean of a wire's inner and outer crossing of one band is the band's
+    # middle, 103 and 166 mm, and a widening equal on both sides cancels in it.)
+    mids = band_middles(crossings)
+    if len(mids) < 12:
+        return
+    today = residuals_under(mids, hinv, fit["unit"], 0.0, fit["theta20"], fit["advance"])
+    print(" BAND MIDDLES, TODAY (%d of 40):" % len(mids))
+    print(fmt_row("treble middle, 103 mm", summarise(today, "t_mid")))
+    print(fmt_row("doubles middle, 166 mm (extrap.)", summarise(today, "d_mid")))
+    print(" BAND MIDDLES, ONE HOMOGRAPHY (in-sample, then held out odd/even wires):")
+    for label, k in (("kappa 0", 0.0), ("kappa #1560", MEASURED_KAPPA), ("kappa fitted", None)):
+        kk = fit_kappa(mids)[0] if k is None else k
+        res = residuals_under(mids, fit_joint(mids, kk), 1.0, kk, 0.0, 1.0)
+        print(fmt_row("in-sample, " + label + (" %+.2e" % kk if k is None else ""), summarise(res)))
+        pooled = []
+        for parity in (0, 1):
+            train = [c for c in mids if c["wire"] % 2 != parity]
+            test = [c for c in mids if c["wire"] % 2 == parity]
+            if len(train) < 12 or not test:
+                continue
+            kh = fit_kappa(train)[0] if k is None else k
+            pooled += residuals_under(test, fit_joint(train, kh), 1.0, kh, 0.0, 1.0)
+        print(fmt_row("held out,  " + label, summarise(pooled)))
+        if k is not None:
+            print(fmt_row("  held out, treble middle", summarise(pooled, "t_mid")))
+
 
 # ---------------------------------------------------------------------------- the check
 
@@ -437,7 +479,8 @@ def run_synthetic():
         c.pop("wire")
     name_wires(names, inv3(h0), 1.0, 0.0, 1.0)
     check("naming: every crossing is given its own wire",
-          all(a["wire"] == b["wire"] for a, b in zip(names, cr0)), "80 of 80")
+          all(a["wire"] == b["wire"] for a, b in zip(names, cr0)),
+          "%d of 80" % sum(1 for a, b in zip(names, cr0) if a["wire"] == b["wire"]))
 
     # line x conic: a line through a circle's centre meets it at the radius
     circle = [(500 + 120 * math.cos(t / 10.0), 300 + 120 * math.sin(t / 10.0)) for t in range(63)]
