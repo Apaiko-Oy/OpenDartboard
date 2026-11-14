@@ -3854,7 +3854,7 @@ no account).
 | `runs-wt-1995/1995/windows` (kept by this binary, 2000 cycles) | 20 | 20 | 0 |
 
 "As pushed" is the body the Turnaus stub counted for the same reference (the first row's
-from that run's own `TURNAUS: COUNTED` log lines): 14 geometry and 6 vote darts, two of them
+from that run's own `TURNAUS: COUNTED` log lines): 13 geometry and 7 vote darts, two of them
 `None`. The replay of 20 darts takes under five seconds. The three cameras of this rig each
 anchor themselves, so `derived-anchor` never appears here and **that static is unmeasured**;
 no window on this clip reads a reversion (`reversion_memory` and a falling

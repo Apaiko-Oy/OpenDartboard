@@ -138,7 +138,9 @@ tester 1991-rig           "bash '$T/i1991_run.sh'"
 # incremental rebuild of a COPY of the tree and its build inside the container (the checkout
 # is mounted read-only): the working background not seated, and the stated record size not
 # held to the struct. Needs build/ as well as the binary. Windows pinned to cycles inside.
-# MEASURED @@MEASURED@@
+# MEASURED 2026-11-14 on the 4-core box at load about 2, to completion, rc=0: 201 s wall under
+# --cpus=2 (one rig run of 2000 cycles, 20 darts kept and 20 replayed as pushed, two
+# rebuilds of one translation unit and a link each). No `slow`: inside the default 1200.
 tester 1995-replay        "bash '$T/i1995_run.sh'"
 # turnaus#1992: the wire-crossing census's arithmetic (i1992_crossing_census.py --synthetic:
 # the residual's sign and split, the lens round trip, a planted homography and kappa
