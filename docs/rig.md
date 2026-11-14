@@ -4090,3 +4090,49 @@ the switch was then graded on. The whole `run_all.sh`, and the hand-linked teste
 than `1510-fitcensus`. The live census infers "placed a tip" from the refusal's words; it
 was not checked against a log that carries `I1512CAM`. The binary the bakeoff ran differs
 from the pushed tree by one comment line in `entry_intersection.hpp`.
+
+## Not-straight silhouettes (turnaus#1993): the census of shadows that agree in the board plane and of neighbours in the visit, before any switch
+
+**What was already there, read before anything was counted.** The issue calls both mechanisms
+untried. The second is not: `OD_AXIS_STACK` (turnaus#1684, branch `issue-stacked-axis` at
+4ea4474, never merged) subtracted the standing figures of the visit's earlier darts from a
+refused figure and fitted again. It fired 1 / 9 / 10 times on r18 / r22 / r29, adopted
+0 / 1 / 4, recovered one camera of three on its target dart (r29 v10.3), and its only changed
+score was a loss (r29 opening v9.3, T19 to S19). Its finding was that a landing dart knocks
+the standing one, so the older dart is outlined a few pixels beside its own earlier figure.
+And a shadow test exists already: #1554's, by intensity polarity, inside the axis fit
+(`shadowPx`, `applied` on every `I1511AXIS` line).
+
+**The live kept frames, measured:** `sessions/2026-10-15/frames` holds 123 pictures, 41 darts
+by three cameras, each one settled picture (#1787's `frame_keep`). No reference picture and
+no calibration is beside them, so no fresh change can be cut from them and nothing can be
+carried to a board plane: count (a) cannot be made on any live dart today. The first live
+windows that can answer it are #1991's `OD_KEEP_WINDOWS`, and none has been collected.
+
+**The two counts, and what each is.** Over the six graded replays of the bakeoff (the pin
+left out), every camera-window refused `not-straight`:
+
+- (a) *the shadow signature.* The camera's figure pixels and every other camera's fresh
+  on-board change are carried to the board plane (each camera's own map and anchor, sequence
+  space, millimetres). A figure pixel COINCIDES when another camera has fresh change within
+  6 mm of it there. Two cameras' pictures of one dart cross at its tip and nowhere else (the
+  lines cross at about 60 degrees), so every dart coincides near its entry: about 22 mm of
+  each streak at this tolerance. The signature is therefore stated as: coincident pixels at
+  least 10% of the figure AND spread over at least 40 mm of the board (the diagonal of their
+  2nd-98th percentile box). The valid figures are counted the same way as the control.
+- (b) *a neighbour.* An earlier dart of the same visit entered within 25 mm on the board
+  (15 and 40 beside it); a dart's place is its solved entry, or the middle of the thrown
+  cell where nothing solved.
+
+**Predictions, written before either count** (2026-11-14):
+
+1. (b) 35-45% of the not-straight refusals have a neighbour within 25 mm (#1684 counted 13
+   of 32 within 30 px on the dev windows), and the first dart of a visit is refused less
+   often per camera than the second and third.
+2. (a) at most 15% of the not-straight refusals carry the signature, and the valid figures
+   carry it at about the same rate -- that is, I expect the board plane NOT to separate a
+   shadow from a dart at a 6 mm tolerance. If the refused figures carry it at three times
+   the valid figures' rate or more, the prediction is wrong and the mechanism is supported.
+3. Dropping the coincident pixels and fitting again passes the gate on at most 5 of the
+   refusals pooled over the six replays.
+4. #1554's intensity test already `applied` on fewer than 10% of the refused figures.
