@@ -8,11 +8,13 @@
 # recovering it, the even wires predicted from the odd, a doubles-only flat fit reading
 # the treble OUTWARD under barrel distortion, the wire naming, and a line meeting a conic.
 #
-# Then three mutations of a scratch copy, each predicted before it is run, by name:
+# Then four mutations of a scratch copy, each predicted before it is run, by name:
 #   sign      the radial residual subtracted the other way: `residual: sign and split`
 #             and `holdout: a doubles-only flat fit reads the treble outward`
 #   no-lens   undistort returning its argument: the four checks that need the lens gone
 #   naming    every crossing named one wire on: `naming: every crossing is given its own wire`
+#   half-height  the band's edge taken at 0.3 of its height: `edges: half height reads the
+#             edges of a band, bright or dim`
 # A mutation that turns a different set red is a FAIL here, with both sets printed.
 #
 # Python in $OD_IMAGE (the host has none, #1560's rule), tree read-only, no network, no
@@ -69,7 +71,10 @@ mutate naming "        c[\"wire\"] = int(round(advance * (th - theta20) / SECTOR
   "        c[\"wire\"] = (int(round(advance * (th - theta20) / SECTOR)) + 1) % 20" \
   "naming: every crossing is given its own wire"
 
-[ $FAILED -eq 0 ] && echo "I1992 check: the tree green, three mutations red as predicted"
+mutate half-height "            half = 0.5 * peak" "            half = 0.3 * peak" \
+  "edges: half height reads the edges of a band, bright or dim"
+
+[ $FAILED -eq 0 ] && echo "I1992 check: the tree green, four mutations red as predicted"
 exit $FAILED
 ' < /dev/null
 RC=$?

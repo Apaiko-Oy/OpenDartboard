@@ -215,17 +215,73 @@ def line_meets_conic(line, fit):
     return mx + t * ux, my + t * uy
 
 
-def locate_crossings(frame, seed):
+def half_height_edges(frame, bull, hinv, unit, floor=14.0):
+    """The four band edges at HALF the band's own height on each ray, guided by a map.
+
+    i1560's extraction cuts every ray at one fixed bandness (26), so its edge moves out
+    as a band gets brighter and in as it dims, and the first count of this census came
+    back with every band widened 2-3 mm and seven cameras' conics scattered 4-6 px. The
+    half-height crossing of a blurred band is the band's edge whatever its brightness
+    (while the blur is narrower than the band). The map only says WHERE TO LOOK: the
+    band is sought within 9 mm of where today's model puts it, the peak found there, and
+    the two half-height crossings walked out from the peak -- so a map a few millimetres
+    out still finds the band, and its error is in none of the points."""
+    edges = {name: [] for name, _ in RINGS}
+    for i in range(720):
+        th = 2.0 * math.pi * i / 720.0
+        dx, dy = math.cos(th), math.sin(th)
+        samples = []
+        r = 20.0
+        while True:
+            x, y = bull[0] + r * dx, bull[1] + r * dy
+            if x < 1 or y < 1 or x >= frame.w - 2 or y >= frame.h - 2:
+                break
+            q = apply(hinv, x, y)
+            mm = math.hypot(q[0], q[1]) / unit
+            if mm > 190.0:
+                break
+            if mm >= 85.0:
+                samples.append((r, mm, frame.bandness(x, y)))
+            r += 0.5
+        for inner, outer, lo, hi in (("t_in", "t_out", 99.0, 107.0), ("d_in", "d_out", 162.0, 170.0)):
+            win = [s for s in samples if lo - 9.0 <= s[1] <= hi + 9.0]
+            if len(win) < 12 or win[0][1] > lo - 6.0 or win[-1][1] < hi + 6.0:
+                continue  # the frame's edge cut the search window short: not a whole band
+            k = max(range(len(win)), key=lambda j: win[j][2])
+            peak = win[k][2]
+            if peak < floor:
+                continue
+            half = 0.5 * peak
+            j = k
+            while j > 0 and win[j][2] >= half:
+                j -= 1
+            m = k
+            while m < len(win) - 1 and win[m][2] >= half:
+                m += 1
+            if win[j][2] >= half or win[m][2] >= half:
+                continue  # the band runs off the window: no edge on that side
+            r_in = win[j][0] + (half - win[j][2]) / (win[j + 1][2] - win[j][2]) * 0.5
+            r_out = win[m - 1][0] + (win[m - 1][2] - half) / (win[m - 1][2] - win[m][2]) * 0.5
+            if r_out - r_in < 3.0:
+                continue
+            edges[inner].append((bull[0] + r_in * dx, bull[1] + r_in * dy))
+            edges[outer].append((bull[0] + r_out * dx, bull[1] + r_out * dy))
+    return edges
+
+
+def locate_crossings(frame, seed, guide=None):
     """Every crossing this frame gives: ([{px, ring, mm, extrapolated, line_rms}],
-    {ring: (points kept, conic rms px)}, traces found)."""
-    edges = lens.extract_ring_edges(frame, seed)
+    {ring: (points kept, conic rms px)}, traces found). `guide` = (hinv, unitPerMm) takes
+    the edges at half height; None is i1560's fixed threshold (the first count's)."""
+    edges = (half_height_edges(frame, seed, guide[0], guide[1]) if guide
+             else lens.extract_ring_edges(frame, seed))
     conics, report = {}, {}
     for name, _ in RINGS:
         if len(edges[name]) < 40:
-            report[name] = (len(edges[name]), 0.0)
+            report[name] = (len(edges[name]), 0.0, [])
             continue
         kept, fit, res = lens.trim_conic(lens.median_prefilter(edges[name], seed))
-        report[name] = (len(kept), lens.rms(res))
+        report[name] = (len(kept), lens.rms(res), kept)
         if len(kept) >= 40:
             conics[name] = fit
     if "d_out" not in conics:
@@ -254,6 +310,18 @@ def locate_crossings(frame, seed):
             found.append({"px": hit, "ring": name, "mm": mm, "extrapolated": extrapolated,
                           "line_rms": line[4]})
     return found, report, len(traces)
+
+
+def first_harmonic(rows):
+    """Least squares v = mean + c cos t + s sin t over [(t, v)]: (mean, amplitude, peak angle)."""
+    n = len(rows)
+    m = [[n, sum(math.cos(t) for t, _ in rows), sum(math.sin(t) for t, _ in rows)],
+         [0, sum(math.cos(t) ** 2 for t, _ in rows), sum(math.cos(t) * math.sin(t) for t, _ in rows)],
+         [0, 0, sum(math.sin(t) ** 2 for t, _ in rows)]]
+    m[1][0], m[2][0], m[2][1] = m[0][1], m[0][2], m[1][2]
+    rhs = [sum(v for _, v in rows), sum(v * math.cos(t) for t, v in rows), sum(v * math.sin(t) for t, v in rows)]
+    mean, c, s = lens.solve(m, rhs)
+    return mean, math.hypot(c, s), math.atan2(s, c)
 
 
 def band_middles(crossings):
@@ -304,14 +372,15 @@ def fmt_row(label, s):
                                 s["tan_rms"], s["worst"]))
 
 
-def measure(tag, cam, frames_dir, fit):
+def measure(tag, cam, frames_dir, fit, edges="half"):
     path = os.path.join(frames_dir, "%s-cam%d.ppm" % (tag, cam))
     if not os.path.exists(path):
         print("I1992 %s cam%d: no frame at %s" % (tag, cam, path))
         return
     frame = lens.Frame(path)
-    crossings, report, traces = locate_crossings(frame, fit["bull"])
     hinv = inv3(fit["H"])
+    crossings, report, traces = locate_crossings(
+        frame, fit["bull"], (hinv, fit["unit"]) if edges == "half" else None)
     name_wires(crossings, hinv, fit["unit"], fit["theta20"], fit["advance"])
     # one crossing per (ring, wire): a wire traced twice is a tracker artefact, kept once
     seen, unique = set(), []
@@ -321,10 +390,13 @@ def measure(tag, cam, frames_dir, fit):
             unique.append(c)
     dup = len(crossings) - len(unique)
     crossings = unique
-    px_per_mm = math.sqrt(abs(fit["H"][0] * fit["H"][4] - fit["H"][1] * fit["H"][3])) * fit["unit"] / abs(fit["H"][8])
-    print("I1992 %s cam%d: %d crossings of 80 on %d traced wires (%d duplicates dropped); "
+    o = apply(fit["H"], 0.0, 0.0)
+    ex, ey = apply(fit["H"], fit["unit"], 0.0), apply(fit["H"], 0.0, fit["unit"])
+    px_per_mm = math.sqrt(math.hypot(ex[0] - o[0], ex[1] - o[1]) * math.hypot(ey[0] - o[0], ey[1] - o[1]))
+    print("I1992 %s cam%d [edges: %s]: %d crossings of 80 on %d traced wires (%d duplicates dropped); "
           "%.2f px/mm at the bull; ring conics %s; trace scatter about its line median %.2f px" %
-          (tag, cam, len(crossings), traces, dup, px_per_mm,
+          (tag, cam, "half height" if edges == "half" else "fixed threshold (i1560's)",
+           len(crossings), traces, dup, px_per_mm,
            ", ".join("%s %d pts rms %.2f px" % (n, report[n][0], report[n][1]) for n, _ in RINGS),
            sorted(c["line_rms"] for c in crossings)[len(crossings) // 2] if crossings else 0.0))
     if len(crossings) < 12:
@@ -336,6 +408,20 @@ def measure(tag, cam, frames_dir, fit):
         print(fmt_row(name + (" (extrapolated)" if name.startswith("d") else ""), summarise(today, name)))
     print(fmt_row("all", summarise(today)))
 
+    # THE RINGS ALONE: every kept edge point of each ring through today's map, no wire in
+    # it and nothing extrapolated -- so the doubles rows above can be checked against it.
+    print(" RING EDGE POINTS ALONE, TODAY (no wire, nothing extrapolated; radial mm):")
+    for name, mm in RINGS:
+        rows = []
+        for x, y in report[name][2]:
+            q = apply(hinv, x, y)
+            rows.append((math.atan2(q[1], q[0]), math.hypot(q[0], q[1]) / fit["unit"] - mm))
+        if len(rows) >= 40:
+            mean, amp, at = first_harmonic(rows)
+            wire = (fit["advance"] * (at - fit["theta20"]) / SECTOR) % 20
+            print("  %-6s n=%3d  %+.2f mm all round, %.2f mm turning with the angle (peak at wire %.1f), "
+                  "%.2f mm rms left" % (name, len(rows), mean, amp, wire,
+                                        lens.rms([v - mean - amp * math.cos(t - at) for t, v in rows])))
     print(" ONE HOMOGRAPHY THROUGH EVERY CROSSING (in-sample):")
     for label, k in (("kappa 0", 0.0), ("kappa %.2e (#1560's)" % MEASURED_KAPPA, MEASURED_KAPPA)):
         res = residuals_under(crossings, fit_joint(crossings, k), 1.0, k, 0.0, 1.0)
@@ -377,6 +463,22 @@ def measure(tag, cam, frames_dir, fit):
     print(" BAND MIDDLES, TODAY (%d of 40):" % len(mids))
     print(fmt_row("treble middle, 103 mm", summarise(today, "t_mid")))
     print(fmt_row("doubles middle, 166 mm (extrap.)", summarise(today, "d_mid")))
+    # Is today's radial error the same all the way round (a scale, a bloom, a lens) or
+    # does it turn with the angle (a tilt, a centre)? mean + first harmonic, per band.
+    for ring, label in (("t_mid", "treble middle"), ("d_mid", "doubles middle")):
+        rows = [(r[1] * SECTOR, r[2]) for r in today if r[0] == ring]
+        if len(rows) >= 8:
+            mean, amp, at = first_harmonic(rows)
+            print("  %-34s radial = %+.2f mm all round, %.2f mm turning with the angle (peak at wire %.1f), "
+                  "%.2f mm rms left" % (label + ", by angle", mean, amp, at / SECTOR % 20,
+                                        lens.rms([v - mean - amp * math.cos(t - at) for t, v in rows])))
+    hfit = inv3(fit_joint(mids, 0.0))
+    centre = apply(hfit, 0.0, 0.0)
+    cmm = apply(hinv, centre[0], centre[1])
+    print("  the fitted homography's board centre sits (%+.2f, %+.2f) px from the detected bull "
+          "(%.0f, %.0f), which today's map reads as %.2f mm off centre" %
+          (centre[0] - fit["bull"][0], centre[1] - fit["bull"][1], fit["bull"][0], fit["bull"][1],
+           math.hypot(cmm[0], cmm[1]) / fit["unit"]))
     print(" BAND MIDDLES, ONE HOMOGRAPHY (in-sample, then held out odd/even wires):")
     for label, k in (("kappa 0", 0.0), ("kappa #1560", MEASURED_KAPPA), ("kappa fitted", None)):
         kk = fit_kappa(mids)[0] if k is None else k
@@ -393,6 +495,17 @@ def measure(tag, cam, frames_dir, fit):
         print(fmt_row("held out,  " + label, summarise(pooled)))
         if k is not None:
             print(fmt_row("  held out, treble middle", summarise(pooled, "t_mid")))
+    # A kappa fitted on two radii is one number about the treble against the doubles, and
+    # so is the treble band's middle not being at 103 mm. The same crossings, kappa 0,
+    # the treble middle's millimetres scanned instead: if this fits as well, these
+    # crossings cannot tell a lens from the paint.
+    def with_treble_at(mm):
+        return [dict(c, mm=mm) if c["ring"] == "t_mid" else c for c in mids]
+    best = min((101.0 + 0.05 * i for i in range(61)),
+               key=lambda mm: rms2(residuals_under(with_treble_at(mm), fit_joint(with_treble_at(mm), 0.0), 1.0, 0.0, 0.0, 1.0)))
+    moved = with_treble_at(best)
+    print(fmt_row("in-sample, kappa 0, treble at %.2f" % best,
+                  summarise(residuals_under(moved, fit_joint(moved, 0.0), 1.0, 0.0, 0.0, 1.0))))
 
 
 # ---------------------------------------------------------------------------- the check
@@ -489,6 +602,41 @@ def run_synthetic():
           hit is not None and abs(hit[0] - 620.0) < 1e-6 and abs(hit[1] - 300.0) < 1e-6,
           "a radius of a 120 px circle about (500,300), from (560,300), meets it at %s" % (hit,))
 
+    # half height: a blurred band of known edges, bright on one side of the board and dim
+    # on the other, is read at its edges either way; a fixed cut is not
+    class Drawn:
+        w, h = 1280, 720
+
+        def bandness(self, x, y):
+            r = math.hypot(x - 640.0, y - 360.0)
+            bright = 90.0 if x > 640.0 else 30.0
+            inside = 0.5 * (math.erf((r - 140.0) / 2.5) - math.erf((r - 151.0) / 2.5))
+            return bright * inside
+    ident = [1.0, 0.0, -640.0, 0.0, 1.0, -360.0, 0.0, 0.0, 1.0]  # px about the centre
+    # a map that puts the treble band (99..107 mm) where this band was drawn, 1.4 px/mm
+    edges = half_height_edges(Drawn(), (640.0, 360.0), ident, 1.4)
+    rin = [math.hypot(x - 640.0, y - 360.0) for x, y in edges["t_in"]]
+    rout = [math.hypot(x - 640.0, y - 360.0) for x, y in edges["t_out"]]
+    worst = max([abs(r - 140.0) for r in rin] + [abs(r - 151.0) for r in rout] + [99.0] * (0 if rin else 1))
+    check("edges: half height reads the edges of a band, bright or dim",
+          len(rin) >= 700 and worst < 0.15,
+          "%d rays, worst edge %.3f px from the drawn 140 / 151 px" % (len(rin), worst))
+    cut_bright = [r for r in (140.0 + 0.01 * i for i in range(-800, 800))
+                  if 90.0 * 0.5 * (math.erf((r - 140.0) / 2.5) - math.erf((r - 151.0) / 2.5)) >= 26.0]
+    cut_dim = [r for r in (140.0 + 0.01 * i for i in range(-800, 800))
+               if 30.0 * 0.5 * (math.erf((r - 140.0) / 2.5) - math.erf((r - 151.0) / 2.5)) >= 26.0]
+    check("edges: a fixed cut moves with the brightness (the control)",
+          cut_bright and cut_dim and (cut_dim[0] - cut_bright[0]) > 2.0,
+          "a cut at 26 puts the inner edge at %.2f px on the bright side and %.2f on the dim" %
+          (cut_bright[0] if cut_bright else -1, cut_dim[0] if cut_dim else -1))
+
+    # the harmonic: a planted mean, amplitude and peak come back
+    rows = [(k * SECTOR, -1.5 + 0.8 * math.cos(k * SECTOR - 1.0)) for k in range(20)]
+    mean, amp, at = first_harmonic(rows)
+    check("harmonic: a planted mean and turn are read back",
+          abs(mean + 1.5) < 1e-9 and abs(amp - 0.8) < 1e-9 and abs(at - 1.0) < 1e-9,
+          "mean %+.3f amplitude %.3f peak %.3f rad" % (mean, amp, at))
+
     print("I1992 synthetic: %d failed%s" % (len(bad), (" -- " + "; ".join(bad)) if bad else ""))
     return 1 if bad else 0
 
@@ -498,6 +646,9 @@ def main():
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument("--frames")
     ap.add_argument("--fits", nargs="*", default=[], help="tag=<replay log holding I1647FIT lines>")
+    ap.add_argument("--edges", choices=("half", "threshold"), default="half",
+                    help="half: each band's edge at half its own height (default); "
+                         "threshold: i1560's fixed bandness cut, the first count's")
     args = ap.parse_args()
     if args.synthetic:
         sys.exit(run_synthetic())
@@ -507,7 +658,7 @@ def main():
         tag, path = spec.split("=", 1)
         fits = read_fits(path)
         for cam in sorted(fits):
-            measure(tag, cam, args.frames, fits[cam])
+            measure(tag, cam, args.frames, fits[cam], args.edges)
 
 
 if __name__ == "__main__":
