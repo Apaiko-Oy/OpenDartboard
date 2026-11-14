@@ -1835,6 +1835,10 @@ int GeometryDetector::replayKeptWindows(const string &directory)
             calibrations = kept.cameras;
             if (calibration_refusal.empty())
             {
+                printf("I1991 REPLAY-CALIBRATION %s cameras=%zu records=%s\n", account.calibration.c_str(),
+                       calibrations.size(),
+                       kept.legacy_records ? "before-the-ring-refit (turnaus#1997: read without that tail, as utils/cache.hpp reads them)"
+                                           : "this-build's");
                 applyConfiguredAnchors(); // #1363: stated in configuration, never in the file
             }
             else

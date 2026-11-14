@@ -21,6 +21,7 @@
 // #1886: a Windows board asks not to sleep while it runs; OD_KEEP_AWAKE=off is the pin.
 #include "utils/keep_awake.hpp"
 #include "communication/turnaus_client.hpp"
+#include "detector/geometry/geometry_detector.hpp" // turnaus#1995: --replay-windows
 #include "communication/pairing_prompt.hpp"
 #include "utils/console_prompt.hpp"
 // #1305: --check-update. Reads the manifest this board's channel publishes, verifies it,

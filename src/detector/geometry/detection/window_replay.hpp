@@ -23,6 +23,7 @@
 //               to this build's sizeof, and a difference is said with both numbers -- no
 //               size is written in this file, because the struct is not this file's to
 //               freeze (utils/cache.hpp makes the same refusal for a live start, #1330).
+//               A record written before turnaus#1997 is read as cache.hpp reads it.
 
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
@@ -177,6 +178,7 @@ namespace window_replay
     {
         std::vector<DartboardCalibration> cameras;
         std::string refusal; // empty when read
+        bool legacy_records = false; // written before turnaus#1997: read without the ring refit's tail
     };
 
     /**
@@ -211,11 +213,20 @@ namespace window_replay
                           std::to_string(cache::geometry::VERSION);
             return out;
         }
-        if (header.record_bytes != (uint32_t)sizeof(DartboardCalibration))
+        // turnaus#1997 grew the struct by its ring refit, LAST, and utils/cache.hpp still
+        // reads a record written before that as the struct without its tail (the tail stays
+        // as constructed: no refit). A kept window is held to the same rule and to the same
+        // constant -- an offsetof in geometry_calibration.hpp, not a number here -- so a
+        // directory kept before the change is not thrown away by it. Any other stated size
+        // is another layout and is refused with both numbers.
+        const bool before_the_refit = header.record_bytes == (uint32_t)kCalibrationRecordBytesBefore1997;
+        if (header.record_bytes != (uint32_t)sizeof(DartboardCalibration) && !before_the_refit)
         {
             out.refusal = said + "states records of " + std::to_string(header.record_bytes) +
                           " bytes and this build's DartboardCalibration is " + std::to_string(sizeof(DartboardCalibration)) +
-                          " bytes: another layout of the struct, so it is refused rather than read at the wrong offsets";
+                          " bytes (" + std::to_string(kCalibrationRecordBytesBefore1997) +
+                          " before its ring refit, which is also read): another layout of the struct, so it is "
+                          "refused rather than read at the wrong offsets";
             return out;
         }
         if (header.count == 0 || header.count > 16)
@@ -224,11 +235,30 @@ namespace window_replay
             return out;
         }
         out.cameras.resize(header.count);
-        f.read((char *)out.cameras.data(), (std::streamsize)(sizeof(DartboardCalibration) * header.count));
+        for (DartboardCalibration &camera : out.cameras)
+        {
+            f.read((char *)&camera, (std::streamsize)header.record_bytes);
+        }
         if (!f.good())
         {
             out.cameras.clear();
             out.refusal = said + "ends before its " + std::to_string(header.count) + " records do";
+            return out;
+        }
+        out.legacy_records = before_the_refit;
+        // turnaus#1997: a record says which OD_RING_REFIT it was written under, and its maps
+        // are that setting's. A replay under the other would score through maps the board
+        // never fitted for it, so it is refused, as a start refuses such a cache.
+        for (const DartboardCalibration &camera : out.cameras)
+        {
+            if (camera.ringRefit.asked != (int32_t)ring_refit::asked())
+            {
+                out.refusal = said + "was written with OD_RING_REFIT " + ring_refit::wordOf(camera.ringRefit.asked) +
+                              " and this replay runs with OD_RING_REFIT " + ring_refit::wordOf((int32_t)ring_refit::asked()) +
+                              ": its maps are not this setting's, so it is not scored through";
+                out.cameras.clear();
+                return out;
+            }
         }
         return out;
     }
