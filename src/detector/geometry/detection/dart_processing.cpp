@@ -1,5 +1,6 @@
 #include "dart_processing.hpp"
 #include "frame_keep.hpp"
+#include "window_keep.hpp"
 #include "utils/cycle_cost.hpp"
 #include <iostream>
 #include <cstdlib>
@@ -1523,6 +1524,19 @@ namespace dart_processing
         // `advanceResetIsPerCamera` and the block below the vote.
         vector<Mat> window_frames(current_frames.size());
 
+        // turnaus#1991: under OD_KEEP_WINDOWS, what each camera's stage READ in this window
+        // -- its references and scalars as they stood before the vote moved any of them.
+        // Mat headers only (every later move reassigns, none writes in place); empty and
+        // untouched unless the switch is set.
+        const bool keep_window = window_keep::enabled();
+        window_keep::Window kept_window;
+        if (keep_window)
+        {
+            kept_window.window = window_serial;
+            kept_window.board_state_before = static_cast<int>(best_previous_state);
+            kept_window.cameras.resize(current_frames.size());
+        }
+
         // #1552: which cameras cast a reversion vote in THIS window -- what the memory
         // is set from, after the vote, so a reversion in the window that reconciles
         // CLEAN leaves nothing behind.
@@ -1588,6 +1602,21 @@ namespace dart_processing
             else
             {
                 cvtColor(background_frames[i], background_gray, COLOR_BGR2GRAY);
+            }
+            if (keep_window) // turnaus#1991: before this camera's stage moves anything
+            {
+                window_keep::Camera &k = kept_window.cameras[i];
+                k.clean = background_gray;
+                k.fresh = working_backgrounds[i];
+                k.previous_state = static_cast<int>(previous_states[i]);
+                k.previous_board_change = previous_board_change[i];
+                k.frames = frames_accumulated[i];
+                k.reported_tips = reported_tips[i];
+                if (i < boards.size())
+                {
+                    k.board_known = boards[i].known;
+                    k.board = boards[i].edge;
+                }
             }
 
             cycle_cost::Scope cumul_timer(cycle_cost::D_CUMUL);
@@ -2472,6 +2501,14 @@ namespace dart_processing
         if (called_a_dart)
         {
             frame_keep::deposit(window_serial, window_frames);
+            if (keep_window) // turnaus#1991: the same moment, with what the window was read against
+            {
+                for (size_t i = 0; i < kept_window.cameras.size() && i < window_frames.size(); i++)
+                {
+                    kept_window.cameras[i].settled = window_frames[i];
+                }
+                window_keep::deposit(kept_window);
+            }
         }
         if (result.rim_carried)
         {
