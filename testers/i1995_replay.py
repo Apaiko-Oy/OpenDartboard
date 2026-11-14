@@ -27,8 +27,12 @@ over the SAME kept directory. Each prediction is printed before its run.
       radius and angle at least; every dart whose account names no working background reads
       exactly as pushed.
   M2  window_replay.hpp no longer holds the calibration's stated record size to the struct.
-      PREDICTION: `layout` is red -- the altered file is read instead of refused, no dart is
-      `calibration-refused`, and `replay` on the unaltered directory stays green.
+      PREDICTION: `layout` is red and `replay` on the unaltered directory stays green.
+      (First written predicting that the altered file would be READ and no dart refused.
+      The run said otherwise: the mutant believes the stated size, reads that many bytes a
+      record, and runs off the end of the file, so all the darts are still refused -- by
+      "ends before its records do", with neither size named. Red for the reason the check
+      holds, the naming, and not for the reason predicted.)
 
 I1995_REUSE=1 reads the kept directory and the pushes a previous run left under /out instead
 of running the rig again (a developer's shortcut; the gate never sets it).
@@ -260,8 +264,8 @@ def main():
             check(not [r for r in bare if r in mdiffs],
                   "M1: no dart without a working background moved (%d of them; %d darts moved in all)" % (len(bare), len(mdiffs)))
         print("==== M2: the calibration's stated record size is not held to the struct ====")
-        print("PREDICTION: `layout` red -- the altered file is read, no dart is calibration-refused; `replay` on the "
-              "unaltered directory stays green", flush=True)
+        print("PREDICTION: `layout` red -- the refusal no longer names the two sizes; `replay` on the unaltered "
+              "directory stays green", flush=True)
         m2 = mutant("M2", "src/detector/geometry/detection/window_replay.hpp", SIZE_RULE, "if (false)")
         if m2:
             ok, text = layout_case(m2, kept, switches, "M2-layout")
