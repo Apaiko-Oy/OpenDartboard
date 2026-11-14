@@ -99,8 +99,8 @@ namespace ring_refit
      * What the census must read through the refitted map. TURNING is the fit's own work
      * (a tilt, a centre) and is held to a millimetre. ALL ROUND is not all the fit's: on
      * every rig fixture a projective map through the four edges leaves the treble's edges
-     * at -0.7 / -0.4 mm and the doubles' at -0.3 / +0.9..+1.2 -- the doubles band reads
-     * 9.3 mm wide where the spec's is 8, and the treble sits 0.9 mm in of the doubles
+     * at -0.6..-1.3 / -0.4..+0.1 mm and the doubles' at -0.3..-0.8 / +1.0..+1.6 -- the doubles
+     * band reads 9.3-10.3 mm wide where the spec's is 8, and the treble sits 0.9 mm in of the doubles
      * (#1992's 102.2 against 103). That is the board's paint against the spec's radii, the
      * spec's radii are what this fit assumes, and no projective map removes it; a bound
      * of 1.0 mm refused seven cameras of nine for it. So the bound is 2.0.

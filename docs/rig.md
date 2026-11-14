@@ -3690,24 +3690,24 @@ are taken for its two wires.
 `OD_MAX_CYCLES=40`, `runs-wt-1997/ringline/on2-*`; the opening window, mm, all round, and
 the largest turning of the four):
 
-| fixture cam | treble inner / outer | doubles inner / outer | turning, at most | today (#1992's ring line): treble inner, doubles outer turning |
+| fixture cam | treble inner / outer | doubles inner / outer | turning, at most | today (#1992's census): treble middle all round, outer doubles turning |
 |---|---|---|---|---|
-| r18 1 | -0.8 / -0.2 | -0.6 / +1.2 | 0.2 | -3.3, 4.7 |
-| r18 2 | -0.9 / -0.3 | -0.4 / +1.1 | 0.4 | -3.9, 4.6 |
-| r18 3 | -0.9 / +0.1 | -0.8 / +1.2 | 0.3 | -2.5, 3.9 |
-| r22 1 | -0.7 / -0.4 | -0.3 / +1.0 | 0.3 | (-1.0 in the census) |
-| r22 2 | -0.9..-0.8 / -0.3..-0.2 | -0.5 / +1.1 | 0.2 | -1.7..-2.1, 1.7..2.5 |
-| r22 3 | -1.3 / -0.2 | -0.5 / +1.4 | 0.6 | -4.2, 4.2 |
-| r29 1 | -0.6 / -0.4 | -0.4 / +1.0 | 0.2 | |
-| r29 2 | -0.9 / -0.3 | -0.5 / +1.1 | 0.2 | |
-| r29 3 (7 looks of 10) | -1.2 / -0.4..-0.3 | -0.7..-0.6 / +1.5..+1.6 | 0.5 | -3.6..-4.0, 3.2..3.7 on the three looks kept |
+| r18 1 | -0.8 / -0.2 | -0.6 / +1.2 | 0.2 | -2.88, 4.60 |
+| r18 2 | -0.9 / -0.3 | -0.4 / +1.1 | 0.4 | -3.17, 4.60 |
+| r18 3 | -0.9 / +0.1 | -0.8 / +1.2 | 0.3 | -1.99, 3.93 |
+| r22 1 | -0.7 / -0.4 | -0.3 / +1.0 | 0.3 | -1.01, 1.69 |
+| r22 2 | -0.9..-0.8 / -0.3..-0.2 | -0.5 / +1.1 | 0.2 | -1.70, 2.32 |
+| r22 3 | -1.3 / -0.2 | -0.5 / +1.4 | 0.6 | -3.40, 4.25 |
+| r29 1 | -0.6 / -0.4 | -0.4 / +1.0 | 0.2 | -1.18, 1.96 |
+| r29 2 | -0.9 / -0.3 | -0.5 / +1.1 | 0.2 | -1.83, 2.23 |
+| r29 3 (7 looks of 10) | -1.2 / -0.4..-0.3 | -0.7..-0.6 / +1.5..+1.6 | 0.5 | -3.05, 3.34 (the three looks kept read the treble's inner edge -3.6..-4.0) |
 
 The dev windows read the same to 0.1 mm (r22 camera 3 +1.5, r29 camera 3 +1.6 at the
 doubles). **Turning is under 0.6 mm on every camera: the tilt is gone.** **All round is
 not within the millimetre the issue asked, and the exceptions are one pattern, not nine
 faults**: the doubles ring's outer edge reads +1.0..+1.6 on every camera (past 1.0 on seven
 of nine) and the treble's inner edge -0.6..-1.3 (past 1.0 on r22 camera 3 and r29 camera
-3). The doubles band reads 9.3-9.9 mm wide where the spec's is 8 and the treble sits about
+3). The doubles band reads 9.3-10.3 mm wide where the spec's is 8 and the treble sits about
 0.9 mm in of the doubles -- #1992's 102.2 against 103. That is the board's paint against
 the spec's radii and no projective map removes it; a 1.0 mm all-round bound refused seven
 cameras of nine for it, which is why the bound in the code is 2.0 (`kAllRoundMm`).
@@ -3751,7 +3751,8 @@ r22 v8.1 stays T1 further from the wire; the four T9 readings at 106.35-107.59 p
 spec's 107 under `on` (predicted at least two; all four); about 80/86 under `on` (79).
 Did not hold: r22 dev window 3 was predicted to move OUT too little and it moved IN 1.6 mm,
 so it is lost under `bloom` as well (81, not 82); and "no wedge call moves" -- three do,
-on r29, two fixed and one broken, each within 0.3 mm of arc of a wire.
+on r29: the dart fixed in both windows sat 0.03-0.4 mm of arc from its wire, and the one
+broken sat 2.8 mm inside S17 and was moved 2.8 mm, onto the wire.
 
 **What this says.**
 
