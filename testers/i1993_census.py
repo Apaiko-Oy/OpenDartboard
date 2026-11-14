@@ -13,6 +13,12 @@
         I1993 PLANE-*    (only where the log carries `I1993 PLANE`, OD_PLANE_CENSUS=1) the
                          shadow signature on refused and on valid figures, and the retry
 
+  i1993_census.py --live LOG [LOG ...]
+      A shipped log carries no entry and no fresh change, so neither count above can be made
+      on it. What it carries is each dart's place in its visit (SCORE lines between ENDs) and
+      which cameras were refused not-straight (the PATH and LINES sentences):
+        I1993 LIVE-ORDINAL  darts with a not-straight camera, by the dart's place in its visit
+
   i1993_census.py --self-test
 """
 import math
@@ -169,6 +175,33 @@ def plane_tally(plane):
             "".join(" w%d/c%s:%s->%s" % (f["window"], f["cam"], f["rms"], f["retry_rms"]) for f in mine if f["retry"] == "pass")))
 
 
+def live_darts(lines):
+    """[(place in visit, cameras refused not-straight)] off a shipped log's sentences."""
+    out, ordinal, bent = [], 0, 0
+    for raw in lines:
+        line = ANSI.sub("", raw)
+        if "PATH: DEGRADED" in line or "] - LINES:" in line or " - LINES:" in line:
+            bent = max(bent, len(re.findall(r"cam \d: no usable axis: (?:not a shaft[^;]*; )?not straight", line)))
+        elif "SCORE: END" in line:
+            ordinal, bent = 0, 0
+        elif "SCORE: " in line:
+            ordinal += 1
+            out.append((min(ordinal, 3), bent))
+            bent = 0
+    return out
+
+
+def live(paths):
+    for path in paths:
+        darts = live_darts(open(path, errors="replace"))
+        for o in (1, 2, 3):
+            mine = [b for place, b in darts if place == o]
+            print("I1993 LIVE-ORDINAL log=%s dart_of_visit=%d darts=%d with_not_straight=%d (%.1f%%) cameras_not_straight=%d" % (
+                os.path.basename(os.path.dirname(path)) + "/" + os.path.basename(path), o, len(mine),
+                sum(1 for b in mine if b), 100.0 * sum(1 for b in mine if b) / max(1, len(mine)), sum(mine)))
+    return 0
+
+
 def self_test():
     bad = 0
 
@@ -196,6 +229,12 @@ def self_test():
     expect("signature: a tenth of the figure over 40 mm", has_signature({"px": "1000", "co": "100", "ext": "40.0"}), True)
     expect("signature: the tip's own crossing is not one", has_signature({"px": "1000", "co": "300", "ext": "24.0"}), False)
     expect("signature: a few far pixels are not one", has_signature({"px": "1000", "co": "99", "ext": "90.0"}), False)
+    expect("live: place in the visit and the cameras refused", live_darts([
+        "x - LINES: 2 of 3 cameras' lines solved this dart (cam 2: no usable axis: not straight: the kept",
+        "x - SCORE: S5 | Position", "x - SCORE: T20 | Position",
+        "x - PATH: DEGRADED -- (cam 1: no usable axis: not a shaft: extent; not straight: the; cam 3: no usable axis: not straight: x",
+        "x - SCORE: S1 | Position", "x - SCORE: END | Position", "x - SCORE: S1 | Position"]),
+           [(1, 1), (2, 0), (3, 2), (1, 0)])
     print("I1993 CENSUS SELF-TEST %s" % ("PASS" if not bad else "FAIL (%d)" % bad))
     return 1 if bad else 0
 
@@ -205,5 +244,7 @@ if __name__ == "__main__":
         sys.exit(self_test())
     if len(sys.argv) == 3 and sys.argv[1] == "--bakeoff":
         sys.exit(bakeoff(sys.argv[2]))
+    if len(sys.argv) >= 3 and sys.argv[1] == "--live":
+        sys.exit(live(sys.argv[2:]))
     print(__doc__)
     sys.exit(2)
