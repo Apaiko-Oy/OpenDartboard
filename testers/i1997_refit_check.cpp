@@ -306,7 +306,7 @@ int main()
 
     {
         cv::Mat cut = frame.clone();
-        cut(cv::Rect(840, 0, cut.cols - 840, cut.rows)).setTo(cv::Scalar(0, 0, 0));
+        cut(cv::Rect(760, 0, cut.cols - 760, cut.rows)).setTo(cv::Scalar(0, 0, 0));
         const Result clipped = fit(cut, today.plane.Hinv, today.unitPerMm, bull, ringMm, On);
         say(clipped.map.state == Off && clipped.story.find("degrees is missing from") != std::string::npos &&
                 clipped.story.find("this camera keeps today's map") != std::string::npos,

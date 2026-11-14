@@ -42,8 +42,8 @@
  * A CAMERA WHOSE RINGS DO NOT READ KEEPS TODAY'S MAP AND SAYS SO: a ring the census
  * cannot read, a ring with an arc of more than `kMaxGapDeg` missing (the frame's edge on
  * the live Pi's camera 2, a hand), a fit that does not settle, or -- the acceptance asked
- * of the result itself -- a ring the census still reads more than `kWithinMm` off, all
- * round or turning, through the refitted map.
+ * of the result itself -- a ring the census still reads more than `kAllRoundMm` off all
+ * round or `kTurningMm` turning, through the refitted map.
  *
  * `OD_RING_REFIT=on` refits and scores the treble at the spec's own edges: #1553's bloom
  * adjustment (the treble boundary moved to the mask's traced edge) is dropped on a
@@ -89,10 +89,24 @@ namespace ring_refit
         return setting == On ? "on" : setting == Bloom ? "bloom" : "unset";
     }
 
-    /** A ring with a wider arc than this missing does not hold a projective fit. Degrees. */
-    inline constexpr double kMaxGapDeg = 45.0;
-    /** What the census must read through the refitted map, all round and turning, mm. */
-    inline constexpr double kWithinMm = 1.0;
+    /**
+     * A ring with a wider arc than this missing is not fitted through. Degrees. Measured,
+     * not chosen blind: at 45 the rig fixtures' own openings refused two cameras whose
+     * doubles ring is hidden for 46 and 50 degrees and whose other three rings are whole.
+     */
+    inline constexpr double kMaxGapDeg = 90.0;
+    /**
+     * What the census must read through the refitted map. TURNING is the fit's own work
+     * (a tilt, a centre) and is held to a millimetre. ALL ROUND is not all the fit's: on
+     * every rig fixture a projective map through the four edges leaves the treble's edges
+     * at -0.7 / -0.4 mm and the doubles' at -0.3 / +0.9..+1.2 -- the doubles band reads
+     * 9.3 mm wide where the spec's is 8, and the treble sits 0.9 mm in of the doubles
+     * (#1992's 102.2 against 103). That is the board's paint against the spec's radii, the
+     * spec's radii are what this fit assumes, and no projective map removes it; a bound
+     * of 1.0 mm refused seven cameras of nine for it. So the bound is 2.0.
+     */
+    inline constexpr double kTurningMm = 1.0;
+    inline constexpr double kAllRoundMm = 2.0;
 
     /**
      * One camera's refitted map, as plain data: it rides on `DartboardCalibration`, which
@@ -387,7 +401,7 @@ namespace ring_refit
             {
                 off += (off.empty() ? "" : ", ") + std::string(ringName(ring)) + " not read";
             }
-            else if (std::fabs(r.allRoundMm) > kWithinMm || r.turningMm > kWithinMm)
+            else if (std::fabs(r.allRoundMm) > kAllRoundMm || r.turningMm > kTurningMm)
             {
                 off += (off.empty() ? "" : ", ") + std::string(ringName(ring)) + " " +
                        detail::num("%+.1f", r.allRoundMm) + " mm all round and " +
@@ -399,7 +413,8 @@ namespace ring_refit
         {
             out.story = "ring refit (#1997): through the refitted map the census still reads " +
                         (off.empty() ? std::string("no map at all") : off) + ", past the " +
-                        detail::num("%.1f", kWithinMm) + " mm asked of it" + kept;
+                        detail::num("%.1f", kAllRoundMm) + " mm all round and " +
+                        detail::num("%.1f", kTurningMm) + " mm turning asked of it" + kept;
             return out;
         }
         const cv::Matx33d H = cur.inv();

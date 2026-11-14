@@ -74,7 +74,7 @@ PY
     "        if (e == nullptr || std::strcmp(e, \"on\") == 0)" \
     2 parse: default: || BAD=1
   run_mutation any_gap detector/geometry/calibration/ring_refit.hpp \
-    "    inline constexpr double kMaxGapDeg = 45.0;" "    inline constexpr double kMaxGapDeg = 400.0;" \
+    "    inline constexpr double kMaxGapDeg = 90.0;" "    inline constexpr double kMaxGapDeg = 400.0;" \
     1 clipped: || BAD=1
   [ $BAD -eq 0 ] && echo "I1997 refit check: the tree green, four mutations red as predicted"
   exit $BAD
