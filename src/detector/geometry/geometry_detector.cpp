@@ -737,6 +737,7 @@ DetectorResult GeometryDetector::process(const vector<camera::Frame> &frames)
 
     // Process scoring using the new scoring system
     cycle_cost::Scope score_timer(cycle_cost::SCORE);
+    score_processing::agreeInBoardPlane(dart_result, calibrations); // turnaus#1993: nothing unless switched on
     score_processing::ScoreResult score_result = score_processing::processScore(background_frames, dart_result, calibrations, debug_mode);
     score_timer.stop();
 
@@ -1915,7 +1916,8 @@ int GeometryDetector::replayKeptWindows(const string &directory)
                 cannot += ",reread-hold";
             }
 
-            const dart_processing::DartStateResult dart = dart_processing::closeKeptWindow(account.window, boards);
+            dart_processing::DartStateResult dart = dart_processing::closeKeptWindow(account.window, boards);
+            score_processing::agreeInBoardPlane(dart, calibrations); // turnaus#1993
             const score_processing::ScoreResult score =
                 score_processing::processScore(backgrounds, dart, calibrations, false);
             state = dart_processing::getDartBoardStateName(dart.previous_state) + ">" +

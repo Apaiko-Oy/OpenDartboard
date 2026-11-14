@@ -4090,3 +4090,176 @@ the switch was then graded on. The whole `run_all.sh`, and the hand-linked teste
 than `1510-fitcensus`. The live census infers "placed a tip" from the refusal's words; it
 was not checked against a log that carries `I1512CAM`. The binary the bakeoff ran differs
 from the pushed tree by one comment line in `entry_intersection.hpp`.
+
+## Not-straight silhouettes (turnaus#1993): the census of shadows that agree in the board plane and of neighbours in the visit, before any switch
+
+**What was already there, read before anything was counted.** The issue calls both mechanisms
+untried. The second is not: `OD_AXIS_STACK` (turnaus#1684, branch `issue-stacked-axis` at
+4ea4474, never merged) subtracted the standing figures of the visit's earlier darts from a
+refused figure and fitted again. It fired 1 / 9 / 10 times on r18 / r22 / r29, adopted
+0 / 1 / 4, recovered one camera of three on its target dart (r29 v10.3), and its only changed
+score was a loss (r29 opening v9.3, T19 to S19). Its finding was that a landing dart knocks
+the standing one, so the older dart is outlined a few pixels beside its own earlier figure.
+And a shadow test exists already: #1554's, by intensity polarity, inside the axis fit
+(`shadowPx`, `applied` on every `I1511AXIS` line).
+
+**The live kept frames, measured:** `sessions/2026-10-15/frames` holds 123 pictures, 41 darts
+by three cameras, each one settled picture (#1787's `frame_keep`). No reference picture and
+no calibration is beside them, so no fresh change can be cut from them and nothing can be
+carried to a board plane: count (a) cannot be made on any live dart today. The first live
+windows that can answer it are #1991's `OD_KEEP_WINDOWS`, and none has been collected.
+
+**The two counts, and what each is.** Over the six graded replays of the bakeoff (the pin
+left out), every camera-window refused `not-straight`:
+
+- (a) *the shadow signature.* The camera's figure pixels and every other camera's fresh
+  on-board change are carried to the board plane (each camera's own map and anchor, sequence
+  space, millimetres). A figure pixel COINCIDES when another camera has fresh change within
+  6 mm of it there. Two cameras' pictures of one dart cross at its tip and nowhere else (the
+  lines cross at about 60 degrees), so every dart coincides near its entry: about 22 mm of
+  each streak at this tolerance. The signature is therefore stated as: coincident pixels at
+  least 10% of the figure AND spread over at least 40 mm of the board (the diagonal of their
+  2nd-98th percentile box). The valid figures are counted the same way as the control.
+- (b) *a neighbour.* An earlier dart of the same visit entered within 25 mm on the board
+  (15 and 40 beside it); a dart's place is its solved entry, or the middle of the thrown
+  cell where nothing solved.
+
+**Predictions, written before either count** (2026-11-14):
+
+1. (b) 35-45% of the not-straight refusals have a neighbour within 25 mm (#1684 counted 13
+   of 32 within 30 px on the dev windows), and the first dart of a visit is refused less
+   often per camera than the second and third.
+2. (a) at most 15% of the not-straight refusals carry the signature, and the valid figures
+   carry it at about the same rate -- that is, I expect the board plane NOT to separate a
+   shadow from a dart at a 6 mm tolerance. If the refused figures carry it at three times
+   the valid figures' rate or more, the prediction is wrong and the mechanism is supported.
+3. Dropping the coincident pixels and fitting again passes the gate on at most 5 of the
+   refusals pooled over the six replays.
+4. #1554's intensity test already `applied` on fewer than 10% of the refused figures.
+
+**The counts** (`testers/i1993_census.py --bakeoff`, on runs-wt-1994/bake-unset for (b) and
+on this tree's `OD_PLANE_CENSUS=1` bakeoff for (a); 68 not-straight camera-windows on the six
+graded replays, cameras 19 / 34 / 15, 46 of them on vote darts. A first count read 76: the
+ordinal join of unannotated rig-20260929 names one window for two darts of an unplaced
+visit, and the tester now counts a window once.)
+
+| prediction | count | verdict |
+|---|---|---|
+| 1. 35-45% have an earlier dart of the visit within 25 mm | 14 of 68 (21%); 4 within 15 mm, 30 (44%) within 40 mm; 15 have no earlier dart placed | **wrong**, lower |
+| 1. the first dart of a visit is refused less often | per fitted camera-window: 1st 14/135 (10.4%), 2nd 19/138 (13.8%), 3rd 35/134 (26.1%) | held |
+| 2. at most 15% carry the shadow signature, the valid figures about as often | refused 0 of 68; valid 2 of 337 | held |
+| 3. at most 5 second fits pass the gate | 56 fitted again, **1** passed | held |
+| 4. #1554's polarity test `applied` on under 10% of the refused | 24 of 68 (35%) | **wrong** |
+
+By replay, (b) within 15 / 25 / 40 mm: r18 dev and opening 0 / 0 / 0 of 4 each; r22 dev
+2 / 3 / 7 of 11, opening 2 / 3 / 7 of 12; r29 dev 0 / 4 / 8 of 18, opening 0 / 4 / 8 of 19.
+The places are coarse: 22 of the 68 sit on a solved entry, 46 on the published radius at the
+middle angle of the thrown cell (up to half a wedge off, 16 mm at the treble), none on a
+bare cell middle. The 25 mm figure is good to about one row either side; the ordinal trend
+does not depend on it.
+
+(a) in full. Median share of the figure that coincides at 6 mm: refused 2.0% (p90 5.9%),
+valid 2.8% (p90 8.2%). Median span of the coincident pixels: refused 16.5 mm (p90 26.2),
+valid 17.8 mm (p90 21.7). That is the dart's own entry and nothing more, on both: two
+cameras' pictures of one dart cross at its tip, about 20 mm of each at this tolerance, and
+the refused figures carry no more of it than the straight ones. On the 20 kept windows of
+rig-20260918 the same count at 3, 6 and 10 mm: refused 0 / 0 / 0 of 4 with the signature,
+valid 0 / 1 / 1 of 44; no second fit passed at any of the three.
+
+The one second fit that passed is r29 dev v1.1 camera 2, 2.63 px to 2.44 px: 122 of 7,821
+pixels dropped over 19.7 mm, which is the tip's own crossing. It is a figure 0.13 px over
+the gate losing its last millimetres, not a shadow removed, and the same dart in the opening
+window (2.57 px) did not pass.
+
+**Live, what can be counted** (`i1993_census.py --live`, the PATH and LINES sentences, a
+dart's place read from the SCORE lines between ENDs): darts with a not-straight camera, by
+place in the visit --
+
+| session | 1st | 2nd | 3rd |
+|---|---|---|---|
+| 2026-10-15 | 457 of 1,079 (42.4%) | 651 of 1,041 (62.5%) | 687 of 970 (70.8%) |
+| 2026-10-17 | 66 of 231 (28.6%) | 107 of 220 (48.6%) | 121 of 203 (59.6%) |
+| 2026-10-20 | 20 of 37 (54.1%) | 22 of 30 (73.3%) | 14 of 25 (56.0%) |
+
+(2026-10-15: 483 + 769 + 922 = 2,174 camera refusals, #1911's figure.) A Casual visit that
+ran past three darts counts its later darts as third.
+
+**What the census says.**
+
+- *Shadows that agree in the board plane: nothing to act on.* No refused figure on the
+  fixtures carries one. This is not the tolerance being too wide to see it -- at 3 mm the
+  answer is the same on the kept windows -- it is that the refused figures hold no second
+  cluster of change on the board face at all. Whatever bends them stands off the board.
+  The fixtures are one rig under one light; a live board's 42% of first darts refused
+  (against the fixtures' 10%) is a different population, and it cannot be asked this
+  question until kept windows (#1991) exist for it.
+- *The visit's earlier darts: the effect is real and it is not nearness.* A third dart is
+  refused two and a half times as often as a first on the fixtures and 1.7 times live, but
+  only a fifth of the fixtures' refusals have an earlier dart within 25 mm. #1684's
+  subtraction acts on overlap in the picture, and measured 0 / 1 / 4 adoptions. It was not
+  built again here: the census gives it fewer targets than #1684 counted (13 of 32 within
+  30 px), and its measured result stands.
+- *#1554's polarity test applied on 24 of the 68* and they were refused all the same, so a
+  third of the refusals already had their shadow-classified pixels taken out.
+
+**`OD_PLANE_DROP=on`** (off unset) is the first mechanism as a switch, built with the census
+because the census needed its second fit: a figure refused `not-straight` is fitted again
+without its coincident pixels, every gate unchanged, and that fit is the camera's axis only
+if it passes them all (`plane_agreement.hpp`; `score_processing::agreeInBoardPlane`, called
+before the score on a live window and on a kept one). The tip and the vote are untouched.
+`OD_PLANE_CENSUS=1` prints the `I1993 PLANE` line and adopts nothing; `OD_PLANE_TOL_MM`
+moves the 6 mm. Unset, a window keeps none of the inputs and nothing is computed.
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, three runs, 860-868 s wall each at load 1-2; runs-wt-1993/bake-census,
+bake-on, bake-unset). **Unset is the baseline line for line**: against
+runs-wt-1994/bake-unset/1555 the seven replay logs, seven censuses and both pooled files
+(7,443 lines) differ in the seven `END OF FOOTAGE` wall-clock lines and nothing else, and no
+`I1993` line is printed. The census run differs from it by its own `I1993 PLANE` lines only.
+
+| | unset | `OD_PLANE_DROP=on` |
+|---|---|---|
+| second fits made (r18 dev / opening / pin, r22 dev / opening, r29 dev / opening) | -- | 3 / 3 / 3, 10 / 11, 14 / 15 |
+| adopted | -- | 0 / 0 / 0, 0 / 0, **1** / 0 |
+| three-line solves, six graded replays (of 151 darts) | 79 | 80 |
+| two-line solves / no entry | 35 / 37 | 34 / 37 |
+| not-straight (cam 1 / 2 / 3), on vote darts | 19 / 34 / 15 = 68, 46 | 19 / 33 / 15 = 67, 46 |
+| not-a-shaft / rim-only / no-figure | 4 / 45 / 1 | 4 / 45 / 1 |
+| r18+r22 | 82/86, 2 phantoms (0 scoring) | 82/86, 2 phantoms (0 scoring) |
+| pooled | 143..149/158 | 143..149/158 |
+
+The one changed dart: r29 dev v1.1 (thrown S5, window 1). Off: S5 from cameras 1 and 3,
+entry (68.4, -18.4) mm, 3.67 mm from the wedge wire, published at confidence 0.9. On: S5
+from three lines, entry (69.0, -21.0) mm, 1.35 mm from the wire, published at 0.7. Same
+score; the third line moved the entry 2.7 mm toward the 5/20 wire and the flag lowered the
+confidence. No other row of any replay moved, and no vote dart gained a line.
+
+**Verdict.** Negative. The switch does on the fixtures what the census said it would: one
+adoption in 59 second fits, and that one is the gate's margin. Default off; there is no
+case here for turning it on, and a fair case for removing the adoption and keeping only the
+census line for the first live kept windows.
+
+**Tested** by `1993-plane` (`testers/i1993_check.sh`): 25 assertions on points planted in
+the board plane, then five mutations of a scratch copy of `plane_agreement.hpp`, each
+predicted before it was run. On the first run one assertion was red ON THE TREE (`tol:` asked
+that a line 4 mm from its twin not coincide at 2 mm; a 1 mm raster rounds both, so it does),
+which put one extra red in three of the five mutations; with the assertion asking 1 mm all
+five hold: *self-compared* 9 (`cross:` 3, `shadow:` 1, `tol:` 1, `self:` 2, `fit:` 2),
+*tolerance-ignored* 1 (`tol:`), *default-moved* 1 (`unset:`), *gates-ignored* 1 (`adopt:`),
+*any-refusal* 2 (`retry:`). Then `i1993_census.py --self-test` (12 checks).
+
+**Not done, not measured.** The issue's third bullet (#1910's extra settled frames tried
+only where the average was refused: #1910 is unmerged and was not brought in) and its fourth
+(`OD_SHAFT_ONLY` and `OD_UNDISTORT` beside these on a replay corpus: none exists). The
+subtraction of earlier darts' figures (above). Count (a) on any live dart. `OD_PLANE_DROP`
+at a tolerance other than 6 mm through the bakeoff, or beside any other switch. The whole
+`run_all.sh`. The 10% and 40 mm of the signature were set from the geometry before the
+count and never tuned; a shadow shorter than 40 mm on the board would not be called one,
+but the shares (2% against 2.8%) say the same thing without the threshold.
+
+**The gate, on this tree** (2026-11-14, `OD_SKIP_BUILD=1 testers/run_all.sh` by full label,
+one at a time after the bakeoffs): `1993-plane` PASS 108 s, `1512-intersect` PASS 32 s,
+`1450-seal` PASS 11 s, `1994-fuse` PASS 97 s, `1510-fitcensus` PASS 258 s, `1995-replay`
+PASS 320 s; `testers/census.sh` passes. The binary the three bakeoffs and the gate ran is
+the one built at d11eb50; the commits after it touch `testers/i1993_census.py`, the check's
+one assertion and this file.

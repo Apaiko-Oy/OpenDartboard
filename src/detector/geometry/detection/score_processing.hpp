@@ -2411,6 +2411,17 @@ namespace score_processing
                               orientation_processing::DerivedAnchor());
 
     // Process dart scoring from tip detection results
+    /**
+     * turnaus#1993: fresh change that agrees in the board plane across cameras
+     * (plane_agreement.hpp). Under OD_PLANE_CENSUS=1 it prints one `I1993 PLANE` line per
+     * fitted camera; under OD_PLANE_DROP=on a figure refused `not-straight` is fitted again
+     * without its coincident pixels and, where that fit passes every gate, becomes the
+     * camera's axis. With neither set it returns at once and `dart_result` is untouched.
+     * Returns the number of axes adopted.
+     */
+    int agreeInBoardPlane(dart_processing::DartStateResult &dart_result,
+                          const vector<DartboardCalibration> &calibrations);
+
     ScoreResult processScore(
         const vector<Mat> &background_frames,
         const dart_processing::DartStateResult &dart_result,
