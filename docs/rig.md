@@ -4239,7 +4239,7 @@ adoption in 59 second fits, and that one is the gate's margin. Default off; ther
 case here for turning it on, and a fair case for removing the adoption and keeping only the
 census line for the first live kept windows.
 
-**Tested** by `1993-plane` (`testers/i1993_check.sh`): 22 assertions on points planted in
+**Tested** by `1993-plane` (`testers/i1993_check.sh`): 25 assertions on points planted in
 the board plane, then five mutations of a scratch copy of `plane_agreement.hpp`, each
 predicted before it was run. On the first run one assertion was red ON THE TREE (`tol:` asked
 that a line 4 mm from its twin not coincide at 2 mm; a 1 mm raster rounds both, so it does),
@@ -4256,3 +4256,10 @@ at a tolerance other than 6 mm through the bakeoff, or beside any other switch. 
 `run_all.sh`. The 10% and 40 mm of the signature were set from the geometry before the
 count and never tuned; a shadow shorter than 40 mm on the board would not be called one,
 but the shares (2% against 2.8%) say the same thing without the threshold.
+
+**The gate, on this tree** (2026-11-14, `OD_SKIP_BUILD=1 testers/run_all.sh` by full label,
+one at a time after the bakeoffs): `1993-plane` PASS 108 s, `1512-intersect` PASS 32 s,
+`1450-seal` PASS 11 s, `1994-fuse` PASS 97 s, `1510-fitcensus` PASS 258 s, `1995-replay`
+PASS 320 s; `testers/census.sh` passes. The binary the three bakeoffs and the gate ran is
+the one built at d11eb50; the commits after it touch `testers/i1993_census.py`, the check's
+one assertion and this file.
