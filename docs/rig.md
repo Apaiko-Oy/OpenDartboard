@@ -4077,6 +4077,10 @@ run, **all three held on the first run**:
 
 Then `i1994_census.py --self-test` (11 checks).
 
+**The gate, on this tree** (2026-11-14, `OD_SKIP_BUILD=1 testers/run_all.sh` by full label):
+`1995-replay` PASS 367 s, `1510-fitcensus` PASS 245 s, `1512-intersect` PASS 22 s,
+`1450-seal` PASS 10 s, `1994-fuse` PASS 87 s; `testers/census.sh` passes.
+
 **Not run, not measured.** `OD_FUSE=all` through the bakeoff (the budget was two runs). The
 switch beside `OD_SOLVE_CONTROL`, `OD_SISAL_MM`, `OD_STRAIGHT_PX`, `OD_SHAFT_ONLY` or
 `OD_RING_REFIT`. A live board, a kept live window, the grader on a marked day. The Turnaus
