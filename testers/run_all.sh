@@ -107,6 +107,18 @@ tester 1912-push-lane     "bash '$T/i1912_check.sh'"
 # adds the 24-column shape (`inferred` appended last) and three predicted mutations of it:
 # 1.8 s on 2026-10-14 at load ~2, rc=0.
 tester 1789-truth         "bash '$T/i1789_check.sh'"
+# turnaus#1991: OD_KEEP_WINDOWS (window_keep.hpp) -- every published dart's window on disk,
+# content-named and bounded oldest first -- and i1991_grade.py, a session's darts graded
+# against its truth line. Two pure checks in one container with four mutations, each made
+# on a copy and predicted first: pictures evicted before their account and a re-used
+# picture not re-dated both turn `every account on disk has every picture it names` red by
+# the picture's role; one replay read changed moves exactly exact/diffs/same/fixed; the
+# grader made to grade every dart against what was published turns its self-test red on the
+# corrected dart. The tree is mounted read-only; no detector binary, no build directory, no
+# network: OD_SKIP_BUILD changes nothing about it. MEASURED 2026-11-14 on the 4-core box at
+# load ~5, rc=0: 79 s wall (three -O1 compiles of the keep check; the python is under a
+# second). No `slow`: well inside the default 1200.
+tester 1991-windows       "bash '$T/i1991_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
