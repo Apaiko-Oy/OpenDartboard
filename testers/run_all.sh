@@ -138,6 +138,15 @@ tester 1991-rig           "bash '$T/i1991_run.sh'"
 # instrument (docs/rig.md) and is not run here. MEASURED 2026-11-14 on the 4-core box,
 # alone at load about 2, to completion, rc=0: 14 s. No `slow`.
 tester 1992-crossings     "bash '$T/i1992_check.sh'"
+# turnaus#1992: OD_RING_CENSUS's reading (ring_census.hpp), pure -- a board drawn through a
+# known map with the treble band 2 mm inward all round and the doubles band turned 3 mm
+# with the angle, read back to 0.1 mm bright and at a third of the brightness; the parse
+# and the default; the line's words; a black frame reading nothing. Then three predicted
+# mutations of a scratch copy of the header: the edge at 0.3 of the height (5 labels), the
+# residual's sign (3), unset reading on (2). Four compiles of one header against OpenCV,
+# no detector binary. MEASURED 2026-11-14 on the 4-core box at load about 4, to
+# completion, rc=0: 36 s. No `slow`.
+tester 1992-ringline      "bash '$T/i1992_ring_check.sh'"
 
 # The census first, because it is about this list itself and costs no container: a tester
 # this file does not name is outside the gate, which is #1335's own shape one level down
