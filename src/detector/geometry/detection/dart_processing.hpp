@@ -1228,3 +1228,41 @@ namespace dart_processing
     void withdrawCalledDart(const DartStateResult &called);
 
 } // namespace dart_processing
+
+namespace window_keep
+{
+    struct Window; // window_keep.hpp: one published dart's window as OD_KEEP_WINDOWS wrote it
+}
+
+namespace dart_processing
+{
+    /**
+     * turnaus#1995: close a KEPT window (OD_KEEP_WINDOWS, turnaus#1991) again, through
+     * processDartState itself.
+     *
+     * Everything the close reads that is not in a picture is a static of
+     * dart_processing.cpp, so this is where a replay has to enter. It first puts every
+     * one of those statics back to what a process that has closed no window holds, and
+     * then seats, per camera, what the account kept: the state before, the cumulative
+     * figure one window ago (#1518, #1648), #1552's reversion memory, the tips reported
+     * this visit (#1535), the working background and the clean reference -- and the
+     * board's state before. Reset first and seated second on purpose: a replay walks a
+     * visit in order, and what the previous dart's close LEFT in a static is usually what
+     * the next dart's account says, so a seat that was never made would be covered by the
+     * dart before it. After the reset it is covered by nothing.
+     *
+     * The window is then opened and closed in one call: the settled picture is handed in
+     * as the one frame of a window one frame long, so the average is the picture, byte
+     * for byte, cut to the same area (#1687) the live window cut it to. Not one line of
+     * processDartState knows it is being replayed.
+     *
+     * NOT seated, and it cannot be: `last_reversion_clean_ms` is a reading of the motion
+     * clock and is left at "no END yet" (-1), so OD_BODY_WINDOW's too-soon clause never
+     * holds a replayed dart. Nothing calls this but GeometryDetector::replayKeptWindows
+     * (`--replay-windows <directory>`); a board that is scoring never reaches it.
+     */
+    DartStateResult closeKeptWindow(const window_keep::Window &kept,
+                                    const vector<motion_processing::BoardExtent> &boards,
+                                    const DartParams &params = DartParams());
+
+} // namespace dart_processing

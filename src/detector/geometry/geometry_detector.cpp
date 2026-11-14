@@ -13,6 +13,7 @@
 #include "calibration/wire_processing.hpp"
 #include "detection/dart_processing.hpp"
 #include "detection/score_processing.hpp"
+#include "detection/window_replay.hpp"
 #include "utils.hpp"
 #include "utils/board_sight.hpp"
 #include "utils/cycle_cost.hpp"
@@ -1746,4 +1747,222 @@ GeometryReview GeometryDetector::reviewGeometry(const vector<camera::Frame> &fra
                           to_string(witnesses) + " of " + to_string((int)calibrations.size()) +
                               " cameras vouch for the board being where it was, the last of them " +
                               last_account};
+}
+
+// ---- turnaus#1995: a kept window, closed again by this binary ----------------------------
+//
+// `opendartboard --replay-windows <directory>` and nothing else reaches this: no camera is
+// opened, nothing is calibrated, no socket is bound and nothing is posted. For every account
+// OD_KEEP_WINDOWS wrote under <directory> (turnaus#1991), in the order the darts were
+// published, the window is closed again by dart_processing::closeKeptWindow -- the seat --
+// and scored by score_processing::processScore through the calibration that start kept,
+// with OD_CAMERA_WEDGES applied to it as a start applies it (after the file was written).
+// One line a dart on stdout, plain, in the shape testers/i1991_grade.py --replay reads:
+//
+//   I1991 REPLAY ref=<reference> sector=<..|-> path=<geometry|vote|refused> cameras=<1,2,3|->
+//                reason=<slug|-> window=<n> state=<before>><after> radius=<..|none>
+//                angle=<..|none> cannot=<token,token,...>
+//
+// `cannot` is what THIS dart's replay did not have, said on every line because a reader of
+// one line has not read the top of the file:
+//
+//   reversion-clock      last_reversion_clean_ms is a reading of the motion clock and is not
+//                        kept; the replay holds "no END yet", so OD_BODY_WINDOW's too-soon
+//                        clause never holds a replayed dart
+//   before-close         the motion event, the frames the average was taken of and the
+//                        exposure: the replay starts at the settled picture
+//   unpublished-windows  a window that called no dart has no account. What it left behind
+//                        (a held re-base, #1690; a CLEAN adoption) is in the NEXT account's
+//                        references, so that dart replays; the window itself cannot be asked
+//   derived-anchor:N     camera N cannot read its wedge from its own calibration, so the
+//                        scorer leans on the anchor it derived from EARLIER darts (#1486) --
+//                        a static of score_processing.cpp that no account holds. The replay
+//                        derives it again from the darts replayed before this one, which is
+//                        the same only if the directory starts where the session did
+//   board:N              the account's fitted board for camera N is not the one the kept
+//                        calibration gives (a start under --reuse-calibration that set a
+//                        quiet camera aside): the window is closed on the account's board,
+//                        the scorer reads the calibration's
+//   switches:A+B         OD_ switches the board ran under that this process does not, or
+//                        the reverse. They are read once a process, so the caller sets them
+//   reread-hold          the board ran OD_REREAD_HOLD=on; its memory is a clock and the
+//                        replay applies no hold
+//
+// Returns 0 when every account was read and closed (whatever it read), 1 when any was
+// refused, 2 when the directory holds none.
+static string replaySector(const string &score)
+{
+    // TurnausClient::postableSector's three translations, so a line reads as the push did.
+    return score == "MISS" ? "None" : score == "BULL" ? "Bull" : score == "OUTER" ? "25" : score;
+}
+
+int GeometryDetector::replayKeptWindows(const string &directory)
+{
+    const vector<string> files = window_replay::accountsIn(directory);
+    printf("I1991 REPLAY-OF %s accounts=%zu calibration_record_bytes=%zu (this build's DartboardCalibration)\n",
+           directory.c_str(), files.size(), sizeof(DartboardCalibration));
+    printf("I1991 REPLAY-CANNOT every line: reversion-clock (last_reversion_clean_ms is a clock), before-close "
+           "(motion, the window's frames, exposure), unpublished-windows (a window that called no dart has no account)\n");
+    if (files.empty())
+    {
+        printf("I1991 REPLAY-SUMMARY accounts=0: nothing under %s/darts\n", directory.c_str());
+        fflush(stdout);
+        return 2;
+    }
+
+    // The switches this process does not share with the board that kept a dart. The three
+    // that name the keeping itself and the run's length decide nothing in a window's close.
+    const map<string, string> mine = window_keep::switches();
+    const auto ignored = [](const string &name)
+    {
+        return name == "OD_KEEP_WINDOWS" || name == "OD_KEEP_WINDOWS_MB" || name == "OD_MAX_CYCLES";
+    };
+
+    string calibration_held; // the kept calibration `calibrations` was read from
+    string calibration_refusal;
+    int replayed = 0, refused = 0;
+    for (const string &file : files)
+    {
+        window_replay::Account account = window_replay::readAccount(directory, file);
+        string reason = account.refusal_slug;
+        string why = account.refusal;
+
+        if (reason.empty() && (account.calibration != calibration_held || calibration_held.empty()))
+        {
+            window_replay::KeptCalibration kept = window_replay::readCalibration(directory, account.calibration);
+            calibration_held = account.calibration;
+            calibration_refusal = kept.refusal;
+            calibrations = kept.cameras;
+            if (calibration_refusal.empty())
+            {
+                applyConfiguredAnchors(); // #1363: stated in configuration, never in the file
+            }
+            else
+            {
+                printf("I1991 REPLAY-REFUSED calibration=%s %s (turnaus#1995)\n",
+                       account.calibration.empty() ? "-" : account.calibration.c_str(), calibration_refusal.c_str());
+            }
+        }
+        if (reason.empty() && !calibration_refusal.empty())
+        {
+            reason = "calibration-refused";
+            why = calibration_refusal;
+        }
+        if (reason.empty() && calibrations.size() != account.window.cameras.size())
+        {
+            reason = "calibration-cameras";
+            why = "the kept calibration holds " + to_string(calibrations.size()) + " cameras and the account " +
+                  to_string(account.window.cameras.size());
+        }
+
+        string cannot = "reversion-clock,before-close,unpublished-windows";
+        string sector = "-", path = "refused", cameras = "-", state = "-", radius = "none", angle = "none";
+        if (reason.empty())
+        {
+            vector<motion_processing::BoardExtent> boards(account.window.cameras.size());
+            vector<Mat> backgrounds(account.window.cameras.size());
+            for (size_t i = 0; i < boards.size(); i++)
+            {
+                const window_keep::Camera &k = account.window.cameras[i];
+                boards[i].known = k.board_known;
+                boards[i].edge = k.board;
+                const bool calibrated_known = calibrations[i].sees_board && calibrations[i].ellipses.hasValidDoubles;
+                const RotatedRect &edge = calibrations[i].ellipses.outerDoubleEllipse;
+                if (calibrated_known != k.board_known ||
+                    (k.board_known && (norm(edge.center - k.board.center) > 0.01 ||
+                                       fabs(edge.size.width - k.board.size.width) > 0.01 ||
+                                       fabs(edge.size.height - k.board.size.height) > 0.01 ||
+                                       fabs(edge.angle - k.board.angle) > 0.01)))
+                {
+                    cannot += ",board:" + to_string(i + 1);
+                }
+                if (calibrations[i].sees_board && !orientation_processing::wedgeCanBeRead(calibrations[i].orientation))
+                {
+                    cannot += ",derived-anchor:" + to_string(i + 1);
+                }
+                if (!k.clean.empty())
+                {
+                    cvtColor(k.clean, backgrounds[i], COLOR_GRAY2BGR); // the scorer reads its size
+                }
+            }
+            string differ;
+            for (const auto &kv : account.switches)
+            {
+                const auto it = mine.find(kv.first);
+                if (!ignored(kv.first) && (it == mine.end() || it->second != kv.second))
+                {
+                    differ += (differ.empty() ? "" : "+") + kv.first;
+                }
+            }
+            for (const auto &kv : mine)
+            {
+                if (!ignored(kv.first) && !account.switches.count(kv.first))
+                {
+                    differ += (differ.empty() ? "" : "+") + kv.first;
+                }
+            }
+            if (!differ.empty())
+            {
+                cannot += ",switches:" + differ;
+            }
+            const auto hold = account.switches.find("OD_REREAD_HOLD");
+            if (hold != account.switches.end() && hold->second == "on")
+            {
+                cannot += ",reread-hold";
+            }
+
+            const dart_processing::DartStateResult dart = dart_processing::closeKeptWindow(account.window, boards);
+            const score_processing::ScoreResult score =
+                score_processing::processScore(backgrounds, dart, calibrations, false);
+            state = dart_processing::getDartBoardStateName(dart.previous_state) + ">" +
+                    dart_processing::getDartBoardStateName(dart.current_state);
+            if (!score.valid)
+            {
+                reason = "no-dart-called";
+            }
+            else if (score.score == "END")
+            {
+                reason = "read-as-takeout";
+            }
+            else
+            {
+                sector = replaySector(score.score);
+                path = score.from_geometry ? "geometry" : "vote";
+                cameras.clear();
+                for (int c : score.cameras_used)
+                {
+                    cameras += (cameras.empty() ? "" : ",") + to_string(c);
+                }
+                if (cameras.empty())
+                {
+                    cameras = "-";
+                }
+                char buf[32];
+                if (score.board.has_radius)
+                {
+                    snprintf(buf, sizeof(buf), "%.4f", score.board.radius);
+                    radius = buf;
+                }
+                if (score.board.has_angle)
+                {
+                    snprintf(buf, sizeof(buf), "%.4f", score.board.angle);
+                    angle = buf;
+                }
+            }
+            replayed++;
+        }
+        else
+        {
+            refused++;
+            printf("I1991 REPLAY-REFUSED ref=%s %s\n", account.reference.c_str(), why.c_str());
+        }
+        printf("I1991 REPLAY ref=%s sector=%s path=%s cameras=%s reason=%s window=%ld state=%s radius=%s angle=%s cannot=%s\n",
+               account.reference.c_str(), sector.c_str(), path.c_str(), cameras.c_str(),
+               reason.empty() ? "-" : reason.c_str(), account.window.window, state.c_str(), radius.c_str(),
+               angle.c_str(), cannot.c_str());
+        fflush(stdout);
+    }
+    printf("I1991 REPLAY-SUMMARY accounts=%zu closed=%d refused=%d\n", files.size(), replayed, refused);
+    fflush(stdout);
+    return refused == 0 ? 0 : 1;
 }
