@@ -3441,7 +3441,7 @@ exposure hold, which frames were averaged -- and a window that published no dart
 as the caution it is -- and not on the 158 alone. Until then the 158 are what there is,
 and a 2-to-5-dart difference on them is a hypothesis.
 
-## The wire-crossing census (turnaus#1992): how the board is fitted, where its crossings land on all nine cameras, and what a joint fit would buy -- measured, nothing switched
+## The wire-crossing census (turnaus#1992): how the board is fitted, where its crossings land on all nine cameras, what a joint fit would buy -- and `OD_RING_CENSUS`, the rings said at start, opt-in
 
 **How the board is fitted today, read from the source.** One camera's map
 (`board_model::fitBoardToCamera`, the `BoardFit` every dart is carried through by
@@ -3570,29 +3570,68 @@ odd wires and reads the even, then the reverse, pooled.
   nine**, and 3-4 px to one side on camera 3 of rig-20260918 / 22. The map takes the bull
   as its origin and the bull's offset in the doubles ellipse as its whole tilt.
 
-**What was not built, and why.** No `OD_` switch and no new start-up line. The fit this
-census argues for is not the one the issue describes: it wants no radial term, and its input
-is the frame (band edges at half height), which `fitBoardToCamera` never sees -- it is pure
-over `DartboardCalibration`, recomputed at five call sites, so a refitted map has to be
+**`OD_RING_CENSUS=on`: the rings, said at start (`ring_census.hpp`).** The census's `ring
+alone` rows need no wire, so they are in the detector: each passed look prints one more
+line after its `board model` line,
+
+`Camera 3 rings at half height (#1992): the treble ring's inner edge -4.2 mm all round, 2.7
+mm turning with the angle (629 rays, 1.3 mm rms left); the treble ring's outer edge -3.5 mm
+all round, 2.3 mm turning ...; the doubles ring's inner edge -3.2 mm all round, 3.6 mm
+turning ...; the doubles ring -1.8 mm all round, 4.2 mm turning ... -- each band's own edge
+on 720 rays, through this map; + is read further out than the ring is`
+
+(rig-20260922 camera 3, the opening). The edges are found as the census finds them -- half
+the band's own height on each ray, sought within 9 mm of where the map puts the band -- and
+carried through `BoardFit::plane.Hinv`; a point more than 2 mm off the median of its eleven
+neighbours in angle is dropped, then anything past three sigma of the mean-and-turn fit; a
+ring with under 180 of the 720 rays is `not read`, by name. Under `--reuse-calibration` the
+start looks at no board, so the line is said there of that start's own frames through the
+cached map, as `Camera N (cached map) rings at half height ...` -- a nudged camera on a
+cached map is the fault it would show. **Measurement only**: nothing reads the reading, no
+fit, no score and no cache byte moves; unset, empty or any word but `on` is off and nothing
+in it runs. `i1555_run.sh` forwards it.
+
+On the real binary (dev build, `OD_SEEK_VIDEO=off OD_MAX_CYCLES=40`, 2026-11-14,
+`runs-wt-1992/ringline`): 3 / 8 / 12 lines on rig-20260918 / 22 / 29 (one per passed look),
+agreeing with the python census's `ring alone` rows to 0.1 mm on the same cameras (r18
+camera 1: -3.3 / 1.1, -3.0 / 1.7, -3.4 / 3.2, -2.4 / 4.7 against -3.33 / 1.18, -3.00 / 1.72,
+-3.36 / 3.18, -2.40 / 4.60). rig-20260929 camera 3's ten looks read its treble at -3.0..-4.1
+mm all round and 1.2..3.7 mm turning: the looks are not one map. Unset on the same three
+clips prints none, and the two logs differ, the ring lines apart, in five lines a run each
+that are the run's own (three `CAPANCHOR` host times, the cycle budget's `loop_ms`, and the
+token or the restart's due time). A second start under `--reuse-calibration` in
+rig-20260918's run directory printed the three `(cached map)` lines with the fresh look's
+numbers; unset, none (`runs-wt-1992/ringcache-1`). **Not run: the bakeoff off / on** -- the
+switch adds log lines and feeds nothing, and the comparison above is 40 cycles a clip, not
+the seven whole replays.
+
+**What it is for.** Switched on at Pelipaikka it answers #1936's premise on the live board
+without a replay: whether the cameras that lost trebles read the treble ring inward, and by
+how much, before a dart is thrown. On these fixtures it names rig-20260922 camera 3 (the
+doubles ring turning 4.2 mm) at its first look.
+
+**What was not built, and why.** No switch that changes the fit. The fit this census argues
+for is not the one the issue describes: it wants no radial term, and its input is the frame
+(band edges at half height), which `fitBoardToCamera` never sees -- it is pure over
+`DartboardCalibration` and recomputed at five call sites, so a refitted map has to be
 carried on the calibration and through the cache (#1330), with the cache refusing a
 calibration written under the other setting. That is a slice of its own and it needs both
-bakeoffs. **The bakeoff was not run**: no switch exists, so off and on are one binary. The
-2026-10-23 darts were not re-read (no replay of that session exists, #1991). `OD_UNDISTORT`
-(#1905) is untouched and independent: it bends the dart's axis by #1560's kappa and leaves
-the map alone; this census says that kappa has the wrong sign for the board's rings, which
-is the experiment #1905 named (`OD_UNDISTORT=+1.5e-7`) and nobody has run.
+bakeoffs. The 2026-10-23 darts were not re-read (no replay of that session exists, #1991).
+`OD_UNDISTORT` (#1905) is untouched and independent: it bends the dart's axis by #1560's
+kappa and leaves the map alone; this census says that kappa has the wrong sign for the
+board's rings, which is the experiment #1905 named (`OD_UNDISTORT=+1.5e-7`) and nobody has
+run.
 
 **What to build next, in order, each measurable against this census.**
 
-1. *The start-up line, in the detector.* The `ring alone` rows need no wire: half-height
-   band edges along rays guided by the fit, through the fit, mean and first harmonic per
-   ring. `Camera 3 rings: outer doubles -1.9 mm all round, 4.3 mm turning` is the line that
-   would have named rig-20260922 camera 3 before a dart was thrown, and switched on at
-   Pelipaikka it answers #1936's premise on the live board without a replay.
+1. *Read the line on the live board.* `OD_RING_CENSUS=on` for one evening at Pelipaikka,
+   and the day's log beside its truth line (#1991's grade): do the cameras and looks with
+   the treble read furthest inward lose the trebles?
 2. *The refit, behind a switch.* The projective map through the four rings' half-height
    edges (circles fix the plane and its centre without the bull; the comb keeps the
-   rotation), kappa 0, treble radii as the spec has them. Acceptance: this census's `today`
-   column falls to its `kappa 0` column on all nine, then the bakeoff off / on.
+   rotation), kappa 0, treble radii as the spec has them. Acceptance: `OD_RING_CENSUS`
+   reads every ring within a millimetre all round and turning on all nine, this census's
+   `today` column falls to its `kappa 0` column, then the bakeoff off / on.
 3. *Only then* the question of 102.2 against 103 mm -- which is a question about where the
    treble's **wires** are, and wants a wire locator (the spider is a bright ridge; this
    census reads paint).
@@ -3605,4 +3644,12 @@ each turning exactly those red: the radial sign flipped (`residual: sign and spl
 `lens:` checks and `holdout: the even wires are predicted from the odd`); the naming one
 wire on (`naming:`); the band's edge taken at 0.3 of its height (`edges: half height reads
 the edges of a band, bright or dim`). The measurement itself is an instrument and is not
-registered: about a minute for the nine frames.
+registered: about a minute for the nine frames. And by `1992-ringline`
+(`testers/i1992_ring_check.sh`, 36 s, four compiles of `ring_census.hpp` against OpenCV):
+`testers/i1992_ring_check.cpp` draws a board through a known map with the treble band 2 mm
+inward all round and the doubles band turned 3 mm with the angle, and reads back -1.95 /
+-2.06 and 3.02 / 2.97, the same at a third of the brightness; the parse, the default, the
+line's words and a black frame. Three mutations of a scratch copy of the header, each
+predicted: the edge at 0.3 of the height (5 labels: `treble:` `doubles:` `width:` `dim:`
+`story:`), the residual's sign (3: `treble:` `dim:` `story:`), unset reading on (2: `parse:`
+`default:`).
