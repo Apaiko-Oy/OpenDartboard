@@ -274,7 +274,7 @@ namespace entry_intersection
         // the solve NO line pull with its placed tip, as a point constraint of sigma
         // tipSigmaMm on each axis; `fuseEveryTip` (OD_FUSE=all) lets every camera's tip in,
         // line or no line. A tip enters only on the board (tipMaxRadiusMm: the doubles' outer
-        // wire -- a "tip" at 285 mm is the flight end, 29 of them on the fixtures) and only
+        // wire -- a "tip" at 285 mm is the flight end or the surround: 78 of the 407 placed on the fixtures) and only
         // within tipAgreeMm of what the lines, or the other tips, already say.
         //
         // 7.5 is MEASURED, not chosen (testers/i1994_census.py --bakeoff, the 2026-11-14
