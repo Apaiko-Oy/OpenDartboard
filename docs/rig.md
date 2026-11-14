@@ -3319,3 +3319,124 @@ the "not straight" refusals (centreline scatter against the 2.5 px gate), the "r
 the maintainer's measurement on the rig -- same box, lights on, auto against fixed -- and its
 figures belong here when it is made. A fixed exposure should also make #1646's settle hold
 fire less; the hold itself is unchanged.
+
+## A corpus of live darts: every window kept, and a session graded (turnaus#1991)
+
+**Why.** Every accuracy switch since #1905 was accepted or refused on the bakeoff's 158
+fixture darts, on differences of 2 to 5. Meanwhile the live board posts thousands of darts
+a day with the thrower's corrections beside them (turnaus#1786's truth line) and none of
+them can be read again. This section is what was measured about that, the switch that
+starts a corpus, and the grader -- and what is still missing, which is the replay itself.
+
+**What #1787 keeps today, measured on 2026-10-15 (device/2, 3,090 darts).** `day.json`
+lists 41 kept darts, all `state: kept`; they are exactly the 41 darts with a correction
+(39 sector corrections and 2 `removed`), because Turnaus asks for a dart's frames when it
+is corrected and the board answers from a ring of the last ten. For each there is one
+**averaged settled grey 8-bit PNG per camera** and nothing else: 123 files, 49,210,445
+bytes, 400,085 a picture, **1,200,255 bytes a dart**. Not the frames the average was taken
+of, not for any uncorrected dart, and -- the part that decides it -- **not what the settled
+picture was read against.**
+
+**A kept dart cannot be replayed, and here is what a window reads** (`dart_processing.cpp`,
+`processDartState`, from the window's close on). Per camera:
+
+| read | what it is | in #1787's keep |
+|---|---|---|
+| the settled picture | the window's average (`window_frames`) | yes |
+| the clean reference | #1518: the last scene the vote reconciled CLEAN, the calibration background until then; the cumulative diff, the CLEAN ceiling, #1518's reversion | **no** |
+| the working background | the settled picture of the visit's previous called dart; the fresh figure, the tip, the axis fit's pixels and the reference of #1554's shadow test | **no** (it is the previous dart's settled picture, kept only if that dart was corrected too) |
+| previous state, the cumulative figure one window ago, #1552's reversion memory, the tips reported this visit (#1535) | statics of the translation unit | **no** |
+| the fitted board (`BoardExtent`) and the calibration the solve and the vote score through | measured at start | **no** |
+
+So the hypothesis in the issue holds: the 123 pictures are evidence for a person and not
+input for a detector. Nothing replays from them; two consecutive corrected darts of one
+visit would give one fresh figure with no scalars, which is not a window.
+
+**`OD_KEEP_WINDOWS=<directory>`, opt-in** (`src/detector/geometry/detection/window_keep.hpp`).
+For every PUBLISHED dart -- named, like #1787's, when `TurnausClient::offer` mints the
+reference -- the board writes the row above: `darts/<reference>.json` (per camera the three
+pictures' names, the scalars, the board; the state before; the `OD_*` environment, a
+credential-named one withheld; the calibration's name), `pics/<content hash>.png`, and
+`calibration/<hash>.dat`, a copy of `cache/geometry_calibration.dat` as this start wrote
+it. `OD_KEEP_WINDOWS_MB` bounds the directory (default 4096), oldest dart first. Pictures
+are named by content because a visit repeats them, and a shared picture is dated by the
+last dart that used it, so an account on disk always has every picture it names. The
+scoring thread pays nine `clone()`s per published dart; hashing, PNG encoding and writing
+are a writer thread's, and a writer more than eight darts behind drops the newest and says
+so. Unset, a window costs one static bool and no output moves.
+
+**What it costs.** `i1991_keep_check.cpp` prints it on every run, on a rig-20260918 frame:
+
+| figure | bytes | how |
+|---|---|---|
+| one settled PNG, fixture / live | 385,844 / 400,085 | the check / 2026-10-15's 123 files |
+| a three-dart visit, content-named | 4,634,943 (12 pictures, not 27) | MEASURED by the check |
+| one dart, content-named | 1,544,981 fixture, **about 1.60 MB live** (x 400,085 / 385,844) | 4 pictures a dart |
+| one dart if every picture were written every time | about 3.1 MB fixture, 3.2 MB live | 8 pictures a dart (6, 9, 9) |
+| the real binary on rig-20260918, 20 published darts | 30,982,459: **1,549,123 a dart**, 81 pictures (4.05 a dart) | MEASURED by `i1991_rig.py` |
+| a 3,090-dart day | **about 4.9 GB** content-named, 9.9 GB otherwise | arithmetic on the above |
+| one marked span (2026-10-15, 486 darts) | about 780 MB | the same |
+
+So a day does not fit the default 4 GB bound (it holds about 2,500 darts, the newest), a
+32 GB card holds five or six days if told to, and **a day is not an upload**: #1787's
+frame answer is base64 in JSON, one dart a request. **Not measured on the Pi:** the
+writer's twelve PNG encodes a visit, and what they do to a scoring cycle beside it. That
+is the first thing to measure when the switch is first set on device/2, with #1685's cycle
+lines.
+
+**On the real binary.** `testers/i1991_rig.py` pushes rig-20260918 at the Turnaus stub
+with the switch set and again unset: 20 darts counted, 20 accounts, every picture and the
+start's calibration on disk, no settled picture equal to its own reference in 60
+camera-windows, and all 39 links from a dart to the one before it hold -- a later dart's
+working background is the previous kept dart's settled picture, byte for byte. Unset, no
+file and no `I1991` line; both runs pushed the same 20 sectors, which is printed and not
+asserted, because two replays are not one (#1826).
+
+**Getting a span onto a development machine: copy the directory**, for now --
+`rsync -a root@<board>:<directory>/ sessions/<day>/windows/` after the session, with the
+day's truth line fetched as above. No Turnaus change is needed for that and none was made.
+An operator endpoint would need a chunked binary upload of roughly 780 MB a span, which is
+a different route from the frame answer and its own issue.
+
+**The grader.** `testers/i1991_grade.py --truth <line> --board | --replay <file>` grades a
+day's darts and says what its truth is worth on every run: a **corrected** dart's truth is
+the correction; an **uncorrected dart inside the span** (first to last standing sector
+correction, #1874's span) is taken as published, which is *probably right, not certainly*
+-- the marker lets some misreads stand -- so a rate over those is agreement with the
+board, not accuracy; **outside the span truth is unknown and nothing is graded.** `turn`,
+`removed` and inferred darts are in no rate. A replay is a file of `I1991 REPLAY ref=
+sector= path= cameras= reason=` lines; every dart it reads differently from what the board
+published is one `I1991 DIFF` line, as fixed / broke / moved / phantom-unread / unknown.
+
+What the board itself scores, which is the line a replay has to reproduce and then beat
+(`--board`, the saved device/2 days; `corrected_exact` is 0 by construction):
+
+| day | span | graded | corrected | three-camera | vote path |
+|---|---|---|---|---|---|
+| 2026-10-13 | 6-90 | 85 | 6 | 36 (42%) | 19 (22%) |
+| 2026-10-15 | 2519-3004 | 459 | 39 | 178 (39%) | 191 (42%) |
+| 2026-10-16 | 8-471 | 429 | 24 | 143 (33%) | 92 (21%) |
+| 2026-10-17 | 212-589 | 375 | 23 | 185 (49%) | 93 (25%) |
+| 2026-10-20 | 5-93 | 89 | 10 | 26 (29%) | 40 (45%) |
+| all | | **1,437** | **102** | 568 (40%) | 435 (30%) |
+
+(2026-10-14 and -19 carry no standing sector correction, so nothing on them is graded.)
+That corrects the issue's arithmetic: the days on disk hold **102 darts whose truth a
+person asserted and 1,335 probably-right ones**, not thousands of corrected darts. It is
+still nine times the 158, and none of it is a fixture the constants were fitted to.
+
+**What is not built: the replay.** Nothing yet runs a kept window through the binary. It
+needs (1) a seam in `dart_processing.cpp` that seats the statics from an account and runs
+the close on the kept pictures (the average of one frame is that frame), (2) the scorer
+handed the saved calibration -- `geometry_calibration.dat` is the build's own struct, so a
+replay build whose `DartboardCalibration` differs must refuse it, as `cache::geometry::load`
+does -- and (3) the `I1991 REPLAY` line. And no session on disk has windows: the switch
+has to run on device/2 through one marked session of 300 darts before the acceptance
+criterion "replays and reproduces what the board published" can be asked at all. What a
+kept window cannot replay, by construction: anything before the close -- the settle, the
+exposure hold, which frames were averaged -- and a window that published no dart.
+
+**The rule, from the day the replay exists.** A default changes on the corpus's rows --
+`fixed`, `broke` and `moved` inside marked spans, with `broke` on uncorrected darts read
+as the caution it is -- and not on the 158 alone. Until then the 158 are what there is,
+and a 2-to-5-dart difference on them is a hypothesis.

@@ -29,6 +29,7 @@
 #include "push_answer.hpp"
 #include "../detector/detector_interface.hpp"
 #include "../detector/geometry/detection/frame_keep.hpp"
+#include "../detector/geometry/detection/window_keep.hpp"
 #include <algorithm>
 #include <string>
 #include <vector>

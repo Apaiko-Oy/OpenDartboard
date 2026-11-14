@@ -1033,6 +1033,8 @@ bool TurnausClient::offer(const DetectorResult &result)
         // window's settled frames (deposited by dart_processing at the vote) take the name
         // Turnaus will ask for them by. A no-op unless OD_KEEP_FRAMES is set.
         frame_keep::commit(reference, result.window_ordinal);
+        // turnaus#1991: and, under OD_KEEP_WINDOWS, the whole window goes to disk under it.
+        window_keep::commit(reference, result.window_ordinal);
     }
 
     {
