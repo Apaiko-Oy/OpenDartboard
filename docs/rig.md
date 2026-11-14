@@ -3900,3 +3900,193 @@ fixture, not a substitute. Unset byte-identity was argued, not measured (no line
 live path changed; `--help` gains three lines). The whole `run_all.sh`, the bakeoff, and the
 hand-linked testers other than `1510-fitcensus` were not run. The grader was not run on a
 replay of a marked day, because there is none.
+
+## `OD_FUSE` (turnaus#1994): a camera's tip as a weak point constraint in the solve, opt-in -- the census first
+
+**Why.** A dart is published by the geometric solve of the cameras' lines or, where that
+refuses, by a vote on the score strings each camera read from its own tip; the two share no
+evidence. #1994 asks for one weighted solve, and for the bound on what any such fusion can
+gain to be counted **before** it is built. The census was committed first (f38e7e7).
+
+**The census, fixtures** (`python3 testers/i1994_census.py --bakeoff <1555 dir>`, over
+`runs-wt-1997/bake-unset/1555`, today's baseline, 82/86 and 61..67/72; the pin replay left
+out). 147 graded rows over the six replays, 8 wrong (5 darts, three of them wrong in both
+windows); the undetected dart and visit 12's three ambiguous ones are not readings and are
+in neither count. Each row has an **evidence class**: what a fused solve could add.
+
+| class | what it is | right | wrong |
+|---|---|---|---|
+| L3 | three lines solved it; no camera is left out | 75 | 4 |
+| L2+T | two lines, and the third camera placed a tip on the board | 20 | 0 |
+| L2 | two lines, the third camera placed no tip on the board | 14 | 1 |
+| L1+T | one line (no solve today) and another camera's tip | 16 | 0 |
+| L1 | one line, no other tip | 9 | 0 |
+| T2+ | no line, two or more tips on the board | 4 | 3 |
+| T1 | no line, one tip | 1 | 0 |
+
+The wrong rows, and what separated the camera that was right from the ones that decided:
+
+| row | thrown, published | class | each camera's own reading | what separated them |
+|---|---|---|---|---|
+| r18 v5.1, both windows | S15, T15 (geometry) | L3 | cam 2 S15, cam 3 T15, cam 1's tip off the board (r 292) | nothing a weight can see: the entry is 1.5 mm inside the treble's wire, cam 2's and cam 3's lines sit -1.7 and +1.7 mm either side of it, and cam 2's straightness is in the middle (0.79 px of 0.59, 0.79, 2.43). The tips' radii are 94.9 and 98.7 |
+| r29 v3.1, both windows | S13, S6 (geometry) | L3 | cam 2 S13, cam 3 S13, cam 1's tip off the board (r 286) | the entry is 0.36 and 0.03 mm past the wedge wire; both placed tips are 6-12 mm inside S13. The two cameras that read it right also gave lines, so their tips are not in the solve |
+| r29-dev v9.3 | T19, S19 (geometry) | L2 | cam 2 T19, cam 3 S19 | two lines, entry 3.3 mm from the ring wire; cam 1 is not straight at 39.7 px and its tip is at r 259, off the board |
+| r22-dev v7.2 | S3, S19 (vote) | T2+ | cam 1 S19 (0.8 mm from the wire), cam 2 S3 | the two tips are 32 mm apart in radius alone (22.5 and 54.6); every axis is not straight (3.3-5.3 px) |
+| r29 v10.3, both windows | S17, S3 (vote) | T2+ | cam 1 S3, cam 2 S3, cam 3 S17 (dev) / S2 (opening) | three tips at r 40, 29 and 65, all within 2 mm of a wedge wire; every axis not straight |
+
+**The fixtures' upper bound, stated before the switch was built.** *Oracle:* on 7 of the 8
+wrong rows some camera's own reading held the thrown cell, so a chooser that always knew
+which camera to believe gains 7 rows (4 darts). No rule here is that chooser: 55 of the 139
+right rows also carry a camera whose own reading is wrong. *Reach:* a fused solve has a
+constraint today's solve lacks on 3 wrong rows (the T2+ ones) and on 40 right ones (L2+T,
+L1+T, T2+); on those 3 the tips are 11-36 mm apart, which is not two readings of one point.
+On the 4 wrong L3 rows the cameras that read the dart right already have their lines in the
+solve. **So the bound on the fixtures for a tip entering where a camera has no line is 0 to
+1 dart**, with 40 standing rows exposed.
+
+The placed tips themselves, against the solved entry (on the board, r <= 170 mm): from
+cameras that gave a line, n=255, median 6.9 mm, p90 11.7, 239 within 15 mm; from cameras
+that gave none, n=20, median 8.8, 18 within 15 and the other two 183-186 mm off. Of the 407 tips
+placed over all windows of the six replays, 78 sit beyond the doubles' wire (r 171-297):
+the flight's end or the surround, not a tip in the board.
+
+**The census, live** (`--live LOG TRUTH ...`, the eight device/2 days in `sessions/`,
+2026-10-13..23; 10-19 joins nothing, every row is DROPPED). A shipped log carries **no
+camera's own reading** (`I1628LONE` and `I1512CAM` are behind the census pin), so the
+oracle bound **cannot be computed live**. What the log does carry is each camera's axis
+refusal, so the evidence class can be recovered, with "placed a tip" taken as "its refusal
+is not rim-only" (#1689). 4,430 COUNTED darts joined; 105 corrected to a sector (removed
+darts and Casual turn totals, 122, are no misreading).
+
+| path | class | standing | corrected | corrected to a cell the board offered |
+|---|---|---|---|---|
+| geometry | L3 | 1,473 | 27 | 27 |
+| geometry | L2+T | 1,553 | 29 | 29 |
+| geometry | L2 | 102 | 7 | 7 |
+| vote | L1+T | 452 | 25 | 22 |
+| vote | L1 | 221 | 4 | 2 |
+| vote | T2+ | 131 | 6 | 4 |
+| vote | T1 | 247 | 7 | 2 |
+| vote | none | 24 | 0 | 0 |
+
+**The live bound: 60 of the 105 corrections are in a class the fused solve can reach, 55 of
+them one wire away (corrected to the alternative or a candidate), beside 2,136 standing
+darts in the same classes.** It is a bound on where the switch can act, not on what it
+gains: whether the tip that would enter held the right cell is not in any log. "Standing"
+is not "right" outside a day's marked span. The truth lines' `cameras` column reads 28
+three-camera solves of 52 on 2026-10-20, not the 18 of 84 the issue's brief carried; that
+figure was not reproduced.
+
+**What the switch does.** `OD_FUSE=on` (unset: today's solve, no tip ever a constraint).
+In `entry_intersection::solveEntry` the lines are weighted as they always were (each by its
+perpendicular sigma at the entry: the lateral floor, the direction floor over the lever,
+#1911's scale). Then:
+
+- *The lines crossed.* A camera that gave the crossing no line (refused axis, or excluded as
+  the liar) enters with its placed tip as a point constraint of **7.5 mm** a side (the 8.8 mm
+  median above over 1.177), if the tip is on the board (r <= 170 mm) and within 15 mm
+  (`tipAgreeMm`, the corroboration distance the solve already had) of the lines' own entry.
+  A tip farther off is refused by name and the lines' entry stands unmoved.
+- *One line, or lines that will not cross.* Another camera's tip within 15 mm of the line
+  gives an entry (several tips must also lie within 15 mm of each other).
+- *No line.* Two or more tips within 15 mm of each other give an entry at their weighted
+  mean. **One tip alone gives none**: it is one camera's reading and the vote publishes it,
+  flagged, as today.
+
+The covariance, the redundancy (#1681), the across-wire sigma and the flag all come from
+that one solve; a two-line solve with a tip in it no longer reads redundancy 0. The story:
+a `FUSED:` line under the switch names every constraint and its weight (`FUSED: cam 1 line
+sigma 6.2 mm, cam 3 line sigma 3.5 mm; cam 2 tip sigma 7.5 mm (4.1 mm from the entry); the
+tip(s) moved the lines' entry 3.2 mm`), or the refusal; `UNCERTAINTY`'s provenance reads `a
+fused solve: 2 line(s) and 1 camera tip(s) as point constraints`; `PATH` and `LINES` keep
+their words (`LINES` still counts lines), and `cameras_used` in the pushed body gains the
+cameras whose tips entered. `I1994FUSE` is the census line. `OD_FUSE=all` also lets a
+camera that gave a line give its tip to a crossing; it was run on the kept windows only.
+
+**The bakeoff** (`OD_WINDOW_UNIT=cycles OD_SPIKE_THRESHOLD=0.006 OD_LONE_CAMERA=on
+testers/i1555_run.sh`, one binary, seven replays each, runs-wt-1994/bake-unset and
+bake-on, 899 s and 850 s wall at load 1.1-1.3). **Unset is the baseline line for line**:
+against `runs-wt-1997/bake-unset/1555` all seven replay logs (6,508 lines), the seven
+censuses and both pooled files differ in nothing but `Processing: <ms>` and the
+`CAPANCHOR` host clock, and no `FUSED` or `I1994FUSE` line is printed.
+
+| | unset | `OD_FUSE=on` |
+|---|---|---|
+| pooled | 143..149/158 | 142..148/158 |
+| r18+r22 | 82/86 | 82/86 |
+| rig-20260918 | 38/40 | 38/40 |
+| rig-20260922 | 44/46 | 44/46 |
+| rig-20260929 | 61..67/72 | 60..66/72 |
+| phantoms (r18+r22) | 2 (0 scoring) | 2 (0 scoring), the same unclaimed lines |
+
+**One dart changed its score, right to wrong; none wrong to right.** Over the six graded
+replays the switch asked 151 solves: 96 were the lines alone, 18 had a tip enter a
+crossing, 16 were an entry where the lines alone refused, 21 stayed refused (the three
+wrong T2+ rows among them: their tips sit past 15 mm apart, as the census said). Every row
+whose published line changed:
+
+| row | thrown | unset | on | which constraint |
+|---|---|---|---|---|
+| r29-opening v9.3 | T19 | **T19** vote (cam 2's lone reading), 0.7 | **S19** geometry, WIRE-UNCERTAIN, flagged with T19, 0.7 | cam 2's line + cam 3's tip (7.1 mm from the entry; cam 3 not straight at 2.63 px against 2.5); the entry is 1.4 mm outside the treble's outer wire. It is the dart the dev window's two-line solve already publishes S19 |
+| r18 v2.3, both windows | S5 | S5 geometry, WIRE-UNCERTAIN (ring wire 3.1 / 5.4 mm), 0.7 / 0.9 | S5 geometry, SOLVED, 0.9 | cam 2's tip beside lines 1 and 3 moved the entry 3.2 / 2.7 mm outward, to 6.1 / 7.7 mm from the wire |
+| r29 v5.3, both windows | S3 | S3 geometry, WIRE-UNCERTAIN, 0.7 | S3 geometry, WIRE-UNCERTAIN, 0.9 | cam 3's tip beside lines 1 and 2 moved the entry 5.5 / 5.9 mm |
+| r18 v6.3, both windows | S2 | S2 vote, 0.7 | S2 geometry, WIRE-UNCERTAIN, 0.9 | cam 2's line + cam 3's tip (1.7 / 1.5 mm from the entry) |
+| r18 v7.2, both windows | S20 | S20 vote, 0.9 | S20 geometry, SOLVED, 0.9 | cam 1's line + cam 2's tip (4.3 / 4.6 mm) |
+| r18-opening v7.1 | S5 | S5 vote, 0.9 | S5 geometry, WIRE-UNCERTAIN, 0.7 | cam 1's line + cam 2's tip (3.7 mm) |
+| r22 v3.2, both windows | D20 | D20 vote, 0.7 | D20 geometry, WIRE-UNCERTAIN, 0.7 | cam 3's line + cam 2's tip (3.2 / 3.0 mm) |
+| r22 v5.3, both windows | S7 | S7 vote, 0.9 | S7 geometry, WIRE-UNCERTAIN, 0.7 | cam 3's line + the tips of cams 1 and 2 |
+| r29 v2.2, both windows | T14 | T14 vote, 0.7 | T14 geometry, WIRE-UNCERTAIN, 0.7 | cam 3's line + cam 1's tip; cam 2's tip refused, off the board at r 219 |
+| r29 v2.3, both windows | T11 | T11 vote, 0.7 | T11 geometry, WIRE-UNCERTAIN, 0.7 | cam 3's line + cam 1's tip; cam 2's tip refused, 50 mm off the line |
+| r29 v7.3, both windows | S12 | S12 vote, 0.7 | S12 geometry, SOLVED, 0.9 | cam 1's line + cam 2's tip (2.0 mm) |
+
+(The pin replay changes three rows' solver outcome and no published field.) Fifteen rows
+moved from the vote to a solved entry with the same score, and the sixteenth is the loss.
+The other 14 crossings a tip entered changed no published field. So on the fixtures the
+switch buys **a position and a sigma of its own for 15 darts the vote published with neither, and
+no score** -- and it costs one: where a lone reading was right and the second camera's tip
+was 7 mm out, the fused entry follows the pair across a ring wire. r22 v3.2 and r29 v2.3 are
+the two darts `OD_VOTE_WEIGHT=fit` broke (#1908); here both keep their score.
+
+**The kept windows** (`opendartboard --replay-windows runs-wt-1995/1995/windows`, the 20
+rig-20260918 darts, under five seconds a pass): unset, `on` and `all` publish the same 20
+sectors. `on` moves three darts (one tip into a crossing, 3.2 mm; two vote darts to a
+solved entry). `all` moves 15 of the 20 by up to 2.7 mm of radius and changes no sector --
+v5.1 stays T15 (radius 0.5665 to 0.5667). **No live kept window exists** (#1991's corpus
+is still unmade), so the switch has been graded on fixtures alone, and **the fixture rows do
+not decide the default**: 147 rows hold one dart of difference, and the live classes the
+switch reaches (L2+T and L1+T, 54 corrections beside 2,005 standing) are the ones no
+fixture row can speak for.
+
+**The default stays off**; it is the maintainer's call. What the measurement says: no score
+gained anywhere, one lost, and 15 vote publishes given a position and a sigma.
+
+**Tested** by `1994-fuse` (`testers/i1994_check.sh`, 98 s): 29 assertions on planted boards
+-- the third camera's tip entering a two-line solve and pulling it 1.29 mm of the 6 between
+them, 4.65 mm when claimed at 2.0 mm; the redundancy going 0.00 to 0.19; a tip 30 mm off,
+or at r 285, refused by name with the entry unmoved; one line and a tip, and two tips 8 mm
+apart, giving an entry; two tips 30 mm apart, one tip alone, and a camera's line with its
+own tip giving none; off answering today's solve and today's refusal word for word -- then
+three mutations of a scratch copy of `entry_intersection.hpp`, each predicted before it was
+run, **all three held on the first run**:
+
+- *weights ignored* (a tip's weight 1 whatever its sigma). Predicted 3 red, `weight:` 3. Held.
+- *the tip constraint dropped* (no tip reaches the normal equations). Predicted 9 red:
+  `enter:` 1, `weight:` 2, `check:` 2, `all:` 1, `oneline:` 1, `tips:` 2. Held.
+- *the default moved* (`fuseTips = true`). Predicted 9 red: `unset:` 4, `enter:` 1,
+  `check:` 2, `floor:` 2. Held.
+
+Then `i1994_census.py --self-test` (11 checks).
+
+**The gate, on this tree** (2026-11-14, `OD_SKIP_BUILD=1 testers/run_all.sh` by full label):
+`1995-replay` PASS 367 s, `1510-fitcensus` PASS 245 s, `1512-intersect` PASS 22 s,
+`1450-seal` PASS 10 s, `1994-fuse` PASS 87 s; `testers/census.sh` passes.
+
+**Not run, not measured.** `OD_FUSE=all` through the bakeoff (the budget was two runs). The
+switch beside `OD_SOLVE_CONTROL`, `OD_SISAL_MM`, `OD_STRAIGHT_PX`, `OD_SHAFT_ONLY` or
+`OD_RING_REFIT`. A live board, a kept live window, the grader on a marked day. The Turnaus
+side of a pushed body whose `cameras_used` names a camera that gave a tip and no line, or of
+a geometry publish from one line. The 7.5 mm and the 15 mm were read off the same fixtures
+the switch was then graded on. The whole `run_all.sh`, and the hand-linked testers other
+than `1510-fitcensus`. The live census infers "placed a tip" from the refusal's words; it
+was not checked against a log that carries `I1512CAM`. The binary the bakeoff ran differs
+from the pushed tree by one comment line in `entry_intersection.hpp`.

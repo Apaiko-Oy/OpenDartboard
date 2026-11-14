@@ -1285,6 +1285,15 @@ tester 1907-shaft-only    "bash '$T/i1907_check.sh'"
 # predicted to turn named assertions red. Compiles only. Then i1908_vote_census.py
 # --self-test (turnaus#1941): the live census's sentence reader and weights, a tenth of a second.
 tester 1908-vote-weight   "bash '$T/i1908_check.sh'"
+# turnaus#1994: OD_FUSE (off unset; `on` a tip where the camera gave no line, `all` every tip),
+# a camera's placed tip as a weak point constraint in the geometric solve. One compile of the
+# tree (a two-line solve pulled under half way by the third camera's tip and checked by it; a
+# tip 30 mm off or off the board refused by name; one line and a tip, and two agreeing tips,
+# giving an entry; one tip alone giving none; off answering today's solve) plus three of a
+# mutated scratch copy of entry_intersection.hpp (weights ignored, the tip constraint dropped,
+# the default moved), each predicted to turn named assertions red. Then i1994_census.py
+# --self-test. Compiles only.
+tester 1994-fuse          "bash '$T/i1994_check.sh'"
 # turnaus#1906: OD_FOCAL_PX (unset: the 120-degree guess), the focal length perspective
 # processing's solvePnP is given, one value or a comma list per camera. One compile of the tree
 # (the pin's parse refusing every malformed list whole, slot i reaching camera i, the guess past

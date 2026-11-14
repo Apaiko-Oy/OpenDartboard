@@ -268,7 +268,44 @@ namespace entry_intersection
         // off and is the default: score_processing reads OD_SISAL_MM into it, and a caller
         // that leaves it alone gets the solve every build before this one made.
         double sisalMm = 0.0;
+
+        // turnaus#1994: OD_FUSE. Off (the default) is the solve every build before this one
+        // made, to the byte: no tip is ever a constraint. `fuseTips` lets a camera that gave
+        // the solve NO line pull with its placed tip, as a point constraint of sigma
+        // tipSigmaMm on each axis; `fuseEveryTip` (OD_FUSE=all) lets every camera's tip in,
+        // line or no line. A tip enters only on the board (tipMaxRadiusMm: the doubles' outer
+        // wire -- a "tip" at 285 mm is the flight end or the surround: 78 of the 407 placed on the fixtures) and only
+        // within tipAgreeMm of what the lines, or the other tips, already say.
+        //
+        // 7.5 is MEASURED, not chosen (testers/i1994_census.py --bakeoff, the 2026-11-14
+        // baseline): the on-board tips of cameras that gave no line sit median 8.8 mm from
+        // the solved entry (n=20), and a two-dimensional Gaussian's median radius is 1.177
+        // sigma. The tips of cameras that did give a line read 6.9 mm (n=255), 5.9 a side.
+        // Either is wider than a line's own 4-7 mm across itself, which is what "weak" means.
+        bool fuseTips = false;
+        bool fuseEveryTip = false;
+        double tipSigmaMm = 7.5;
+        double tipMaxRadiusMm = 170.0;
     };
+
+    /** OD_FUSE: unset or anything unrecognised is off; `on` is the issue's rule (a tip
+     *  where the camera has no line); `all` lets every on-board tip in. */
+    enum class FuseMode
+    {
+        Off,
+        Spare,
+        Every
+    };
+    inline FuseMode fuseModeFrom(const char *e)
+    {
+        const std::string v = e == nullptr ? "" : e;
+        return v == "on" ? FuseMode::Spare : v == "all" ? FuseMode::Every : FuseMode::Off;
+    }
+    inline FuseMode fuseModeFromEnvironment()
+    {
+        static const FuseMode v = fuseModeFrom(std::getenv("OD_FUSE"));
+        return v;
+    }
 
     /**
      * #1556: THE FLAG CENSUS, AND THE NUMBER A CONSUMER HAS TO CARRY.
@@ -371,6 +408,12 @@ namespace entry_intersection
         cv::Point2f tipMm;            // canonical
         double tipRadiusMm = 0.0;
         double tipDistanceMm = -1.0;  // from the solved entry; -1 where nothing solved
+
+        // turnaus#1994: this camera's tip entered the solve as a point constraint (never
+        // without OD_FUSE), at this sigma; or it was offered and refused, and why.
+        bool tipEntered = false;
+        double tipSigmaMm = 0.0;
+        std::string tipRefusal;
     };
 
     /** The named outcomes. Everything but Solved and UncertainAcrossWire leaves the
@@ -553,6 +596,16 @@ namespace entry_intersection
         // `sisalApplied` where the entry above IS the slid one; `sisalShiftMm` how far it
         // moved, `sisalElevationDeg` the axis's angle to the board, `sisalStory` the words
         // (including why it did not slide). All empty / -1 where sisalMm is 0.
+        // turnaus#1994: the fused solve's account. `fuseAsked` is OD_FUSE on for this solve;
+        // `tipsEntered` the point constraints in it; `fuseShiftMm` how far they moved the
+        // lines' own entry (-1 where the lines alone had none); `fusedWithoutCrossing` an
+        // entry today's solve refused (fewer than two crossing lines) that tips made.
+        bool fuseAsked = false;
+        int tipsEntered = 0;
+        double fuseShiftMm = -1.0;
+        bool fusedWithoutCrossing = false;
+        std::string fuseRefusal;
+
         bool sisalApplied = false;
         double sisalShiftMm = -1.0;
         double sisalElevationDeg = -1.0;
@@ -951,6 +1004,21 @@ namespace entry_intersection
                 b1 -= w * con.nx * con.c;
                 b2 -= w * con.ny * con.c;
             }
+            // turnaus#1994: a tip that entered is a point -- the identity, weighted. No
+            // constraint has tipEntered without OD_FUSE, so the sums above are the whole
+            // solve then, in the order they always ran.
+            for (const Constraint &con : cons)
+            {
+                if (!con.tipEntered)
+                {
+                    continue;
+                }
+                const double w = 1.0 / std::max(1e-6, con.tipSigmaMm * con.tipSigmaMm);
+                a11 += w;
+                a22 += w;
+                b1 += w * con.tipMm.x;
+                b2 += w * con.tipMm.y;
+            }
             const double det = a11 * a22 - a12 * a12;
             if (!(std::fabs(det) > 1e-12) || !std::isfinite(det))
             {
@@ -1026,7 +1094,125 @@ namespace entry_intersection
             return detail::exclusionsListed(out.constraints);
         };
 
-        if ((int)usable.size() < 2)
+        // turnaus#1994: the entry where the lines alone give none. With one line (or lines
+        // that will not cross) a tip is admitted when it lies within tipAgreeMm of every
+        // line; the admitted tips must also lie within tipAgreeMm of each other, and with no
+        // line at all there must be two. Anything less is today's refusal, word for word:
+        // one camera's tip is one camera's reading, and that is the vote's to publish.
+        cv::Point2f X(0.f, 0.f);
+        cv::Matx22d cov;
+        out.fuseAsked = params.fuseTips;
+        auto tipOffered = [&](const Constraint &con, bool hasLine) -> bool
+        {
+            return con.tipPlaced && (params.fuseEveryTip || !hasLine);
+        };
+        auto tipDistance = [](const Constraint &a, const cv::Point2f &at) -> double
+        {
+            return std::sqrt((double)(a.tipMm.x - at.x) * (a.tipMm.x - at.x) +
+                             (double)(a.tipMm.y - at.y) * (a.tipMm.y - at.y));
+        };
+        auto tryTipSolve = [&]() -> bool
+        {
+            std::vector<Constraint *> admitted;
+            for (Constraint &con : out.constraints)
+            {
+                // Never the tip of a camera whose line is already here, `all` or not: one
+                // camera's line and its own tip are one camera's reading.
+                if (!con.tipPlaced || con.usable)
+                {
+                    continue;
+                }
+                if (con.tipRadiusMm > params.tipMaxRadiusMm)
+                {
+                    con.tipRefusal = "off the board at r " + detail::fmt("%.1f", con.tipRadiusMm) + " mm";
+                    continue;
+                }
+                double worst = 0.0;
+                int worstCam = -1;
+                for (const Constraint *line : usable)
+                {
+                    const double d = std::fabs(line->nx * con.tipMm.x + line->ny * con.tipMm.y + line->c);
+                    if (d > worst)
+                    {
+                        worst = d;
+                        worstCam = line->camera + 1;
+                    }
+                }
+                if (worst > params.tipAgreeMm)
+                {
+                    con.tipRefusal = detail::fmt("%.1f", worst) + " mm off cam " + std::to_string(worstCam) +
+                                     "'s line, past " + detail::fmt("%.0f", params.tipAgreeMm);
+                    continue;
+                }
+                admitted.push_back(&con);
+            }
+            double spread = 0.0;
+            for (size_t i = 0; i < admitted.size(); i++)
+            {
+                for (size_t j = i + 1; j < admitted.size(); j++)
+                {
+                    spread = std::max(spread, tipDistance(*admitted[i], admitted[j]->tipMm));
+                }
+            }
+            const size_t need = usable.empty() ? 2 : 1;
+            if (admitted.size() < need)
+            {
+                out.fuseRefusal = std::to_string(admitted.size()) + " tip(s) on the board beside " +
+                                  std::to_string(usable.size()) + " line(s), and " +
+                                  (usable.empty() ? "one tip is one camera's reading"
+                                                  : "no tip lies on the line");
+                return false;
+            }
+            if (spread > params.tipAgreeMm)
+            {
+                for (Constraint *con : admitted)
+                {
+                    con->tipRefusal = "the tips sit " + detail::fmt("%.1f", spread) + " mm apart, past " +
+                                      detail::fmt("%.0f", params.tipAgreeMm);
+                }
+                out.fuseRefusal = "the tips sit " + detail::fmt("%.1f", spread) + " mm apart, past " +
+                                  detail::fmt("%.0f", params.tipAgreeMm) + ", so they place nothing together";
+                return false;
+            }
+            for (Constraint *con : admitted)
+            {
+                con->tipEntered = true;
+                con->tipSigmaMm = params.tipSigmaMm;
+            }
+            bool ok = true;
+            for (Constraint *con : usable)
+            {
+                con->sigmaPerpMm = con->sigmaScale;
+            }
+            ok = detail::solveOnce(out.constraints, X, cov);
+            for (int pass = 0; ok && pass < 2; pass++)
+            {
+                for (Constraint *con : usable)
+                {
+                    detail::weighAt(*con, X, params);
+                }
+                ok = detail::solveOnce(out.constraints, X, cov);
+            }
+            if (!ok)
+            {
+                for (Constraint *con : admitted)
+                {
+                    con->tipEntered = false;
+                }
+                out.fuseRefusal = "the fused normal matrix is singular";
+                return false;
+            }
+            out.tipsEntered = (int)admitted.size();
+            out.fusedWithoutCrossing = true;
+            return true;
+        };
+        bool tipSolved = false;
+
+        if ((int)usable.size() < 2 && params.fuseTips)
+        {
+            tipSolved = tryTipSolve();
+        }
+        if ((int)usable.size() < 2 && !tipSolved)
         {
             out.outcome = Outcome::TooFewConstraints;
             out.story = "no entry: " + std::to_string(usable.size()) +
@@ -1045,7 +1231,11 @@ namespace entry_intersection
                     std::max(out.bestPairAngleDeg, detail::crossingAngleDeg(*usable[i], *usable[j]));
             }
         }
-        if (out.bestPairAngleDeg < params.minPairAngleDeg)
+        if (!tipSolved && out.bestPairAngleDeg < params.minPairAngleDeg && params.fuseTips)
+        {
+            tipSolved = tryTipSolve();
+        }
+        if (!tipSolved && out.bestPairAngleDeg < params.minPairAngleDeg)
         {
             out.outcome = Outcome::NearParallel;
             out.story = "near-parallel: the best crossing angle among " +
@@ -1061,8 +1251,6 @@ namespace entry_intersection
         // which is not known until an entry is. solveActive is that whole recipe over
         // whatever is not excluded, so the joint solve and every leave-one-out below
         // are one procedure.
-        cv::Point2f X(0.f, 0.f);
-        cv::Matx22d cov;
 
         // Consistency, judged as a chi-square over the joint residuals -- NOT as a
         // per-line sigma gate, and the difference was measured before it was chosen:
@@ -1134,14 +1322,14 @@ namespace entry_intersection
             return n;
         };
 
-        if (!solveActive(X, cov))
+        if (!tipSolved && !solveActive(X, cov))
         {
             out.outcome = Outcome::NearParallel;
             out.story = "near-parallel: the weighted normal matrix is singular past the angle gate";
             return out;
         }
 
-        int active = (int)usable.size();
+        int active = tipSolved ? 0 : (int)usable.size();
         if (active >= 3)
         {
             const int dof = active - 2;
@@ -1251,6 +1439,58 @@ namespace entry_intersection
                     }
                 }
                 out.bestPairAngleDeg = pairAngle;
+            }
+        }
+        // turnaus#1994: the lines have crossed, and a camera left out of that crossing pulls
+        // with its tip -- if the tip is on the board and within tipAgreeMm of the lines' own
+        // entry. A tip farther off is refused by name and the lines' entry stands as it was.
+        if (params.fuseTips && !tipSolved)
+        {
+            const cv::Point2f linesX = X;
+            const cv::Matx22d linesCov = cov;
+            int entered = 0;
+            for (Constraint &con : out.constraints)
+            {
+                if (!tipOffered(con, con.usable && !con.excluded))
+                {
+                    continue;
+                }
+                const double d = tipDistance(con, linesX);
+                if (con.tipRadiusMm > params.tipMaxRadiusMm)
+                {
+                    con.tipRefusal = "off the board at r " + detail::fmt("%.1f", con.tipRadiusMm) + " mm";
+                }
+                else if (d > params.tipAgreeMm)
+                {
+                    con.tipRefusal = detail::fmt("%.1f", d) + " mm from the lines' entry, past " +
+                                     detail::fmt("%.0f", params.tipAgreeMm);
+                }
+                else
+                {
+                    con.tipEntered = true;
+                    con.tipSigmaMm = params.tipSigmaMm;
+                    entered++;
+                }
+            }
+            if (entered > 0)
+            {
+                if (solveActive(X, cov))
+                {
+                    out.tipsEntered = entered;
+                    out.fuseShiftMm = std::sqrt((double)(X.x - linesX.x) * (X.x - linesX.x) +
+                                                (double)(X.y - linesX.y) * (X.y - linesX.y));
+                }
+                else
+                {
+                    for (Constraint &con : out.constraints)
+                    {
+                        con.tipEntered = false;
+                    }
+                    solveActive(X, cov);
+                    X = linesX;
+                    cov = linesCov;
+                    out.fuseRefusal = "the fused normal matrix is singular";
+                }
             }
         }
         for (Constraint *con : usable)
@@ -1456,7 +1696,8 @@ namespace entry_intersection
             const board_model::ModelScore ms = board_model::scoreFromModel(profile, *ev.fit, ev.anchor, img);
             out.scoreByCamera += (out.scoreByCamera.empty() ? "" : "/") + ms.score;
             words.push_back(ms.score);
-            if (con.usable && !con.excluded && out.scoredThroughCamera < 0)
+            if (((con.usable && !con.excluded) || (out.usableConstraints == 0 && con.tipEntered)) &&
+                out.scoredThroughCamera < 0)
             {
                 out.scoredThroughCamera = ev.camera;
                 out.score = ms;
@@ -1759,6 +2000,12 @@ namespace entry_intersection
      */
     inline std::string sigmaProvenance(const EntrySolution &sol)
     {
+        if (sol.solved && sol.tipsEntered > 0)
+        {
+            // turnaus#1994: the sigma is the fused solve's, and it says what is in it.
+            return "a fused solve: " + std::to_string(sol.usableConstraints) + " line(s) and " +
+                   std::to_string(sol.tipsEntered) + " camera tip(s) as point constraints (OD_FUSE, turnaus#1994)";
+        }
         if (!sol.solved || !sol.uncontrolled)
         {
             return std::string();
@@ -1797,6 +2044,72 @@ namespace entry_intersection
      * Empty -- and so nothing printed -- on an unsolved dart and on a solve that used every
      * offered camera's line. The caller asks it only on the geometric path.
      */
+    /**
+     * turnaus#1994: which constraints entered the solve and at what weight, one sentence,
+     * printed as its own `FUSED:` line under OD_FUSE and never without it. A line's weight
+     * is its perpendicular sigma at the entry, a tip's the point sigma; a tip that was
+     * offered and refused is named with its reason.
+     */
+    inline std::string fusionAccount(const EntrySolution &sol)
+    {
+        if (!sol.fuseAsked)
+        {
+            return std::string();
+        }
+        std::string lines, tips, refused;
+        for (const Constraint &con : sol.constraints)
+        {
+            const std::string cam = "cam " + std::to_string(con.camera + 1);
+            if (sol.solved && con.usable && !con.excluded)
+            {
+                lines += (lines.empty() ? "" : ", ") + cam + " line sigma " +
+                         detail::fmt("%.1f", con.sigmaPerpMm) + " mm";
+            }
+            if (con.tipEntered)
+            {
+                tips += (tips.empty() ? "" : ", ") + cam + " tip sigma " +
+                        detail::fmt("%.1f", con.tipSigmaMm) + " mm (" +
+                        detail::fmt("%.1f", con.tipDistanceMm) + " mm from the entry)";
+            }
+            else if (!con.tipRefusal.empty())
+            {
+                refused += (refused.empty() ? "" : "; ") + cam + " tip refused: " + con.tipRefusal;
+            }
+        }
+        std::string s = "FUSED: ";
+        if (!sol.solved)
+        {
+            s += "no entry -- " + (sol.fuseRefusal.empty() ? std::string("the lines refused and no tip was offered")
+                                                           : sol.fuseRefusal);
+        }
+        else if (sol.tipsEntered == 0)
+        {
+            s += "the lines alone (" + lines + "); no tip entered";
+        }
+        else if (sol.fusedWithoutCrossing)
+        {
+            s += "an entry the lines alone refused -- " + (lines.empty() ? std::string("no line") : lines) +
+                 "; " + tips;
+        }
+        else
+        {
+            s += lines + "; " + tips + "; the tip(s) moved the lines' entry " +
+                 detail::fmt("%.1f", sol.fuseShiftMm) + " mm";
+        }
+        return s + (refused.empty() ? "" : " [" + refused + "]");
+    }
+
+    /** turnaus#1994's census line, one per solve asked under OD_FUSE and the census pin. */
+    inline std::string censusFuseLine(const EntrySolution &sol, long window)
+    {
+        char line[200];
+        snprintf(line, sizeof(line),
+                 "I1994FUSE window=%ld solved=%d lines=%d tips=%d shift_mm=%.2f without_crossing=%d score=%s",
+                 window, sol.solved ? 1 : 0, sol.usableConstraints, sol.tipsEntered, sol.fuseShiftMm,
+                 sol.fusedWithoutCrossing ? 1 : 0, sol.score.valid ? sol.score.score.c_str() : "NONE");
+        return line;
+    }
+
     inline std::string missingLinesAccount(const EntrySolution &sol)
     {
         if (!sol.solved || sol.usableConstraints >= sol.offeredConstraints)
