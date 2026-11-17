@@ -7,6 +7,7 @@
 #include <chrono>
 #include <sstream>
 #include <algorithm>
+#include <vector>
 
 using namespace std;
 
@@ -233,9 +234,38 @@ namespace logging
         return result;
     }
 
+    /**
+     * turnaus#2003: ONE THREAD'S LINES, HELD UNTIL IT IS KNOWN WHETHER THEY ARE NEWS.
+     *
+     * A refused camera is calibrated a second time on the same picture with the dark red
+     * set aside (geometry_calibration::calibrateSingleCamera). If that reading is refused
+     * too, the first reading's refusal stands and the second said nothing anybody needs --
+     * and must print nothing, or every refused look of every board would write its lines
+     * twice. If it calibrates, its lines are the camera's calibration and are all wanted.
+     * Which of the two it is, is known only when the reading is over.
+     *
+     * So while a `Held` is alive on a thread, that thread's lines go into it and nowhere
+     * else, and whoever holds them writes them through `log` afterwards or lets them go.
+     * thread_local, so a heartbeat on another thread is written when it is said. A null pointer -- one thread-local read per line -- on every
+     * thread that holds nothing.
+     */
+    struct HeldLine
+    {
+        string message;
+        LogLevel level;
+        string moduleName;
+    };
+    inline thread_local vector<HeldLine> *heldLines = nullptr;
+
     // Main logging function
     inline void log(const string &message, LogLevel level = LogLevel::INFO, const string &moduleName = "SYSTEM")
     {
+        if (heldLines != nullptr)
+        {
+            heldLines->push_back({message, level, moduleName});
+            return;
+        }
+
         // Only print if the log level is at or below the global threshold (lower number = higher priority)
         if (level > globalLogLevel)
             return;
@@ -299,6 +329,20 @@ namespace logging
             }
         }
     }
+
+    /**
+     * turnaus#2003: holds this thread's lines while it lives (see `heldLines`). The lines
+     * are the holder's: taken out of `lines` and written through `log` once this is gone,
+     * or left to go with it. Not nested.
+     */
+    struct Held
+    {
+        vector<HeldLine> lines;
+        Held() { heldLines = &lines; }
+        ~Held() { heldLines = nullptr; }
+        Held(const Held &) = delete;
+        Held &operator=(const Held &) = delete;
+    };
 
     // Convenience functions for different log levels
     inline void error(const string &message, const string &module = "SYSTEM")

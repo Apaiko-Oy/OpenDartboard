@@ -73,13 +73,81 @@ namespace color_processing
             o << fixed << setprecision(places) << v;
             return o.str();
         }
+
+        /**
+         * turnaus#2003: takes out of `redMask` every pixel whose chroma is below Otsu's cut
+         * over the chroma of the pixels in it. ColorParams::darkRedSetAside holds the
+         * measurement and the reason; this is the arithmetic and nothing else.
+         */
+        RedKeyReading setTheDarkRedAside(const Mat &filteredFrame, Mat &redMask)
+        {
+            RedKeyReading reading;
+            Mat chroma(filteredFrame.size(), CV_8U);
+            int hist[256] = {0};
+            for (int y = 0; y < filteredFrame.rows; y++)
+            {
+                const Vec3b *in = filteredFrame.ptr<Vec3b>(y);
+                const uchar *keyed = redMask.ptr<uchar>(y);
+                uchar *out = chroma.ptr<uchar>(y);
+                for (int x = 0; x < filteredFrame.cols; x++)
+                {
+                    out[x] = (uchar)(max({in[x][0], in[x][1], in[x][2]}) - min({in[x][0], in[x][1], in[x][2]}));
+                    if (keyed[x])
+                    {
+                        hist[out[x]]++;
+                        reading.keyed++;
+                    }
+                }
+            }
+            if (reading.keyed == 0)
+            {
+                return reading;
+            }
+
+            // Otsu over the red-keyed pixels alone: cv::threshold's would be taken over the
+            // whole picture, where the room outnumbers the board.
+            double sumAll = 0.0;
+            for (int k = 0; k < 256; k++)
+            {
+                sumAll += (double)k * hist[k];
+            }
+            double below = 0.0, sumBelow = 0.0, best = -1.0;
+            for (int k = 0; k < 256; k++)
+            {
+                below += hist[k];
+                if (below == 0.0)
+                {
+                    continue;
+                }
+                const double above = reading.keyed - below;
+                if (above == 0.0)
+                {
+                    break;
+                }
+                sumBelow += (double)k * hist[k];
+                const double gap = sumBelow / below - (sumAll - sumBelow) / above;
+                const double between = below * above * gap * gap;
+                if (between > best)
+                {
+                    best = between;
+                    reading.cut = k + 1;
+                }
+            }
+            for (int k = 0; k < reading.cut; k++)
+            {
+                reading.setAside += hist[k];
+            }
+            redMask &= (chroma >= reading.cut);
+            return reading;
+        }
     }
 
     Mat processColors(
         const Mat &roiFrame,
         int camera_idx,
         bool debug_mode,
-        const ColorParams &params)
+        const ColorParams &params,
+        RedKeyReading *redKey)
     {
 
         Mat redMask, greenMask;
@@ -151,6 +219,22 @@ namespace color_processing
 
         // Combine standard detection with adaptive detection
         redMask = redMask1 | redMask2 | adaptiveRedMask;
+
+        // turnaus#2003: a second reading of a refused camera, and only that
+        // (ColorParams::darkRedSetAside). Before the morphology, because the closings
+        // below are what join a black bed's speckle into the spoke that bridges two rings.
+        if (params.darkRedSetAside)
+        {
+            const RedKeyReading reading = setTheDarkRedAside(filteredFrame, redMask);
+            log_debug("Camera " + log_string(camera_idx + 1) + " red key, the dark red set aside: " +
+                      log_string(reading.setAside) + " of the " + log_string(reading.keyed) +
+                      " px keyed red have a chroma under " + log_string(reading.cut) +
+                      " (max-min of B,G,R; Otsu over those pixels) and are not red for this reading");
+            if (redKey != nullptr)
+            {
+                *redKey = reading;
+            }
+        }
 
         // Detect green color
         inRange(hsvFrame,
