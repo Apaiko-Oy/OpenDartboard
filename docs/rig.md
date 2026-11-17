@@ -4411,6 +4411,17 @@ pictures show, and a rejected model keeps a camera out of the geometric solve; b
 board the second reading seals a camera on and the first does not, and it was found, not
 looked for.
 
+**The gate, on this tree** (2026-11-17/18, `OD_SKIP_BUILD=1 testers/run_all.sh` by label,
+one at a time, another session's work on the box throughout, load 6..10): `1555-bakeoff`
+the tester's own `rc=0` in 937 s (above; run_all's verdict line for it was lost, because
+`run_all.sh` was edited while it ran), `2003-harrows` PASS 280 s, `census` PASS 17 s,
+`1733-rescued` PASS 233 s, `bull-colour` PASS 111 s, `1605-looks` PASS 474 s,
+`1456-bestlook` PASS 376 s. The binary the bakeoff, `1733-rescued` and `bull-colour` measured was built at
+b8b032a; `1605-looks` and `1456-bestlook` refuse a binary older than its source and ran
+on a rebuild at 0d36efb, whose `src/` differs from b8b032a's in comments only. Not run:
+the rest of `run_all.sh` (171 testers), any Windows build (`logging::heldLines` is an
+`inline thread_local`, new to this tree), and `OD_RED_KEY=always` on any Winmau fixture.
+
 **Not done, not known.**
 - One still per camera, one evening. The averaged frame that failed first (bull (673,359),
   33 of 120 rays) and the frames of the 31 looks were not kept; the second reading is
