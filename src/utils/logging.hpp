@@ -246,8 +246,8 @@ namespace logging
      *
      * So while a `Held` is alive on a thread, that thread's lines go into it and nowhere
      * else, and whoever holds them writes them through `log` afterwards or lets them go.
-     * thread_local, so a heartbeat on another thread is written when it is said. A null pointer -- one thread-local read per line -- on every
-     * thread that holds nothing.
+     * thread_local, so a heartbeat on another thread is written when it is said. A null
+     * pointer -- one thread-local read per line -- on every thread that holds nothing.
      */
     struct HeldLine
     {

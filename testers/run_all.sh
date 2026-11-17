@@ -500,6 +500,21 @@ tester 1423-ringidentity  "bash '$T/i1423_run.sh'"
 # so the `slow` line is twice the measured cost, #1341's rule.
 tester 1748-scale         "bash '$T/i1748_run.sh'"
 slow 1500
+# turnaus#2003: the club's Harrows board, off the board's own start-up pictures of the
+# evening camera 1 was set aside (testers/fixtures2003/, three stills, 2026-11-17 21:12).
+# Camera 1's lamp-lit black beds key red and bridge its rings into one region; a camera
+# refused at the ring is read a second time with the dark red set aside. Asserted: under
+# the OD_RED_KEY=first pin camera 1 is refused at the ring (the control -- a camera 1 that
+# calibrates as keyed means the pictures no longer hold the fault), unset it calibrates
+# with its bull within 5 px of (698,297) and says once that it was read twice, and
+# cameras 2 and 3 are byte for byte what the pin reads; and a picture both readings refuse
+# (the middle of camera 1's board alone) logs unset what it logs under the pin, line for
+# line. Compiles the calibration sources directly, like 1748; no detector binary, so
+# OD_SKIP_BUILD changes nothing. One compile and eleven stills. MEASURED 2026-11-18 on the
+# 4-core box at load 7-10 with another session's work alongside, rc=0: 225 s wall with nine
+# of the eleven stills (before the twice-refused picture was added), nearly all of it the
+# one -O1 compile. No `slow`: well inside the default 1200.
+tester 2003-harrows       "bash '$T/i2003_run.sh'"
 
 # #1467: the wire stage fits a twenty-fold model instead of counting to twenty. Six
 # sections, the last of which plants a board plane built with no bull in it -- #1466's
