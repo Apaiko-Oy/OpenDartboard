@@ -432,10 +432,56 @@ namespace color_processing
 
         // Visualization parameters
         int nearbyColorCheckDistance = 2; // Pixel distance to check for nearby colors in visualization
+
+        /**
+         * turnaus#2003: THE DARK RED SET ASIDE. False is the key as it has always been.
+         *
+         * The red key is hue, with a saturation floor of 60 and a value floor of 60, each
+         * lowered towards the top of the frame (SECTION 2's ramp: 30 and 40 at row 0). HSV
+         * saturation is chroma divided by value, so a pixel that is nearly black and faintly
+         * warm clears that floor on almost no colour at all: a black bed read under a lamp
+         * as B,G,R = 52,52,66 has a chroma of 14 and a saturation of 54 (47 once filtered).
+         * Measured on the club's Harrows board on 2026-11-17 (testers/fixtures2003/, the
+         * board's own start-up pictures), of the pixels the key called red:
+         *
+         *   camera 1   value 40..79: 19,983 of 49,112   the ring, where sampled: 228..254
+         *   camera 2   value 40..79:  7,240 of 35,127
+         *   camera 3   value 40..79:  1,314 of 26,740
+         *
+         * and on camera 1, the flattest and most lamp-lit of the three, those black beds
+         * run from the bull out through the trebles to the doubles, so the mask is one
+         * region where a board has three rings: the doubles mask was 83,941 px, the rays
+         * traced from the bull met "a ring" at the first bed, the doubles ellipse fitted
+         * at 42x78 px on a board spanning 312, and the camera was refused on the averaged
+         * frame and on all 31 further looks.
+         *
+         * Chroma -- max minus min over B, G, R, on the same filtered frame the key reads --
+         * is what the two populations differ in, and it is #1656's measure for the same
+         * reason (bull_processing::refineBullCentre: "a black single's saturation is noise
+         * divided by a small value, while its chroma is small"). The cut is Otsu's over the
+         * chroma of the pixels this pass keyed red, so it moves with the light rather than
+         * being a number fitted to one evening; on the three pictures it reads 69, 68 and
+         * 61, between a dark mode at 10..39 and the ring's at 60..150.
+         *
+         * It is NOT applied to a first reading. geometry_calibration reads a camera as
+         * keyed, and only a camera that reading refused is read again with this set -- so
+         * a camera that calibrates today is measured on the mask it always was.
+         */
+        bool darkRedSetAside = false;
+    };
+
+    /** turnaus#2003: what setting the dark red aside did, for the line that says it was done. */
+    struct RedKeyReading
+    {
+        int cut = 0;      // the chroma a red pixel had to reach (Otsu over the red-keyed pixels)
+        int keyed = 0;    // pixels the hue/saturation/value key called red in this pass
+        int setAside = 0; // of those, the ones below the cut
     };
 
     // Input: roiFrame → Output: redGreenFrame (with red=bull, green=rings)
-    Mat processColors(const Mat &roiFrame, int camera_idx = 0, bool debug_mode = false, const ColorParams &params = ColorParams());
+    // `redKey` is written only under `params.darkRedSetAside`, and may be null.
+    Mat processColors(const Mat &roiFrame, int camera_idx = 0, bool debug_mode = false, const ColorParams &params = ColorParams(),
+                      RedKeyReading *redKey = nullptr);
 
     // Helper for when individual masks are needed
     pair<Mat, Mat> getIndividualColorMasks(const Mat &roiFrame, const ColorParams &params = ColorParams());

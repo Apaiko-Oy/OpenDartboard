@@ -3,6 +3,9 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <cstdlib>
+#include <map>
+#include <vector>
 
 #include "utils.hpp"
 #include "board_sight.hpp"
@@ -234,7 +237,173 @@ namespace geometry_calibration
         }                                     \
     } while (0)
 
+    /**
+     * turnaus#2003: `OD_RED_KEY`, and what a refused camera is given before it is refused.
+     *
+     *   unset, `second`   a camera refused AT THE RING STAGE as keyed is read once more,
+     *                     on the same picture, with the dark red set aside
+     *                     (color_processing::ColorParams::darkRedSetAside), and that
+     *                     reading is the camera's if it calibrates
+     *   `first`           one reading, as keyed: this function as it stood before #2003
+     *   `always`          the dark red is set aside on the first reading and there is no
+     *                     second. A measuring switch: it changes the mask of a camera that
+     *                     calibrates today, and it has not been run on the Winmau fixtures.
+     *
+     * The default is `second` because it cannot move a camera that calibrates: the first
+     * reading is this function's old body, unchanged, and its answer is returned untouched
+     * whenever it is a board.
+     *
+     * AND IT IS NOT GIVEN TO EVERY REFUSAL, which is what keeps it off the Winmau fixtures.
+     * A refused look that a second reading turned into a board would change which look is
+     * sealed (#1456), and the fixtures have refused looks: rig-20260922 and rig-20260929
+     * are refused on their averaged frames as clipped by the frame and on wire coherence
+     * (0.578 and 0.318 against 0.6). Neither is what a bridged mask does. A bridged mask
+     * fails where the ring is traced, in one of two ways, and `ringIsNotTheBoards` below
+     * is those two and nothing wider:
+     *
+     *   the doubles ring could not be fitted         the club's averaged frame at 21:09:
+     *                                                33 of 120 rays gave a boundary point
+     *   the ring it traced is under half the span    its 31 looks: a conic of 29 px on a
+     *   its own colour was measured at               board spanning 311..312 px
+     *
+     * The span is the doubles ring or the treble ring (#1423), so a doubles ring traced
+     * through that colour reaches 1.0 or 1.59 of it; on the fixtures and on the club's two
+     * calibrating cameras it reads 0.98 to 1.65. Under half of it is inside the trebles
+     * whichever ring the span is. The bakeoff's six runs on main hold no line of either
+     * kind -- 0 `no ray-traced doubles ring` and 0 `neither the doubles ring nor the treble
+     * ring` beside 62 bull-carve lines -- so on them this never runs.
+     */
+    enum class RedKey
+    {
+        Second,
+        First,
+        Always,
+    };
+
+    static RedKey redKeyAsked()
+    {
+        static const RedKey asked = []
+        {
+            const char *e = std::getenv("OD_RED_KEY");
+            const string v = e ? string(e) : string();
+            if (v == "first")
+            {
+                return RedKey::First;
+            }
+            if (v == "always")
+            {
+                return RedKey::Always;
+            }
+            return RedKey::Second;
+        }();
+        return asked;
+    }
+
+    /** How small a traced doubles ring may be beside the span of the colour it was traced through. */
+    static constexpr double kRingOfSpanFloor = 0.5;
+
+    /**
+     * turnaus#2003: whether a refused reading failed where a bridged mask fails, in words
+     * for the line that says a second reading was taken; empty when it did not.
+     */
+    static string ringIsNotTheBoards(const DartboardCalibration &refused, bool ringNotFitted)
+    {
+        if (ringNotFitted)
+        {
+            return "its doubles ring could not be fitted (" + to_string(refused.look.outer_points) +
+                   " of the rays traced from its bull gave a boundary point)";
+        }
+        const double span = refused.look.board_span_px;
+        if (!refused.ellipses.hasValidDoubles || span <= 0.0)
+        {
+            return string();
+        }
+        const double reach = ellipse_processing::ringReach(refused.ellipses.outerDoubleEllipse);
+        if (reach >= kRingOfSpanFloor * span)
+        {
+            return string();
+        }
+        return "the doubles ring it traced reaches " + to_string((int)lround(reach)) + " px where its own colour spans " +
+               to_string((int)lround(span)) + " px, and a doubles ring is the outermost colour on a board";
+    }
+
+    static DartboardCalibration calibrateAsKeyed(const Mat &frame, int cameraIdx, bool debugMode, RefusalIs voice,
+                                                 bool darkRedSetAside, color_processing::RedKeyReading *redKey,
+                                                 bool *ringNotFitted);
+
     DartboardCalibration calibrateSingleCamera(const Mat &frame, int cameraIdx, bool debugMode, RefusalIs voice)
+    {
+        const RedKey key = redKeyAsked();
+        if (key == RedKey::Always)
+        {
+            color_processing::RedKeyReading reading;
+            return calibrateAsKeyed(frame, cameraIdx, debugMode, voice, true, &reading, nullptr);
+        }
+
+        // What the fault record held before this camera was read, because a first reading
+        // that is overturned below must not leave its sentence in a first-fault-wins slot
+        // about a camera that is scoring -- #1733's hazard, one function further in.
+        const string boardFaultBefore = board_sight::faultDetail();
+        const map<int, string> cameraFaultsBefore = board_sight::cameraFaults();
+
+        bool ringNotFitted = false;
+        const DartboardCalibration first =
+            calibrateAsKeyed(frame, cameraIdx, debugMode, voice, false, nullptr, &ringNotFitted);
+        if (first.sees_board || frame.empty() || key == RedKey::First)
+        {
+            return first;
+        }
+        const string ringFault = ringIsNotTheBoards(first, ringNotFitted);
+        if (ringFault.empty())
+        {
+            return first;
+        }
+
+        // [===A SECOND READING===] turnaus#2003. The camera was refused at the ring, and
+        // its refusal has been said in its own words above. The same picture, read once
+        // more with the dark red set aside; every line of that reading is held, because it
+        // is news only if it calibrates.
+        const string boardFaultAfter = board_sight::faultDetail();
+        const map<int, string> cameraFaultsAfter = board_sight::cameraFaults();
+
+        color_processing::RedKeyReading reading;
+        DartboardCalibration second;
+        vector<logging::HeldLine> said;
+        {
+            logging::Held held;
+            second = calibrateAsKeyed(frame, cameraIdx, debugMode, voice, true, &reading, nullptr);
+            said.swap(held.lines);
+        }
+        if (!second.sees_board)
+        {
+            // `said` is dropped: the first reading's refusal stands, word for word, and so
+            // does what it recorded.
+            board_sight::faultDetail() = boardFaultAfter;
+            board_sight::cameraFaults() = cameraFaultsAfter;
+            return first;
+        }
+
+        board_sight::faultDetail() = boardFaultBefore;
+        board_sight::cameraFaults() = cameraFaultsBefore;
+        log_info("Camera " + log_string(cameraIdx + 1) + " read a second time with the dark red set aside, and "
+                 "it calibrated (turnaus#2003): as keyed, " + log_string_src(ringFault) + ". Of the " +
+                 log_string(reading.keyed) + " px keyed red in its region " + log_string(reading.setAside) +
+                 " have a chroma under " + log_string(reading.cut) +
+                 " (max-min of B,G,R; Otsu over those pixels) -- black beds under a lamp clear the "
+                 "red key's saturation floor on almost no colour and join the rings into one region. "
+                 "Without them R=" + log_string_src(to_string(second.wires.fit_coherence)) + ", bull (" +
+                 log_string(second.bullCenter.x) + "," + log_string(second.bullCenter.y) +
+                 "); the lines below are that reading's [OD_RED_KEY=first reads once, as keyed]");
+        for (const logging::HeldLine &line : said)
+        {
+            logging::log(line.message, line.level, line.moduleName);
+        }
+        return second;
+    }
+
+    static DartboardCalibration calibrateAsKeyed(const Mat &frame, int cameraIdx, bool debugMode, RefusalIs voice,
+                                                 bool darkRedSetAside, color_processing::RedKeyReading *redKey,
+                                                 bool *ringNotFitted)
     {
         // A further look is not a new attempt to be announced: the LOOK AGAIN line has
         // already said which cameras are being looked at again and how many times. ERROR
@@ -281,6 +450,7 @@ namespace geometry_calibration
         // of it, the same function `processBull` calls, not a second opinion -- and only
         // then a region, drawn around what was found.
         color_processing::ColorParams colorParams;
+        colorParams.darkRedSetAside = darkRedSetAside; // turnaus#2003: a second reading, or OD_RED_KEY=always
         Mat fullFrameColours = color_processing::processColors(orginalFrame, cameraIdx, false, colorParams);
 
         bull_processing::BullParams bullParams;
@@ -494,7 +664,7 @@ namespace geometry_calibration
         // is the board's radius; `boardRadiusOfSpan()` decides what an Unknown gets, in
         // one place. The first pass could not have this: the identity is read from it.
         colorParams.statedBoardRadius = board.radius * ring.boardRadiusOfSpan();
-        Mat redGreenFrame = color_processing::processColors(roiFrame, cameraIdx, debugMode, colorParams);
+        Mat redGreenFrame = color_processing::processColors(roiFrame, cameraIdx, debugMode, colorParams, redKey);
 
 
         // [===STEP 2.6:===] #1378: DID THE REGION CUT COLOURED BOARD?
@@ -749,6 +919,10 @@ namespace geometry_calibration
         // things done about them.
         if (!ellipseData.hasValidDoubles)
         {
+            if (ringNotFitted != nullptr)
+            {
+                *ringNotFitted = true; // turnaus#2003: one of the two ways a bridged mask fails
+            }
             const string reason = ellipseReport.doublesFailure.empty()
                                       ? string("the stage did not say why")
                                       : ellipseReport.doublesFailure;
