@@ -1,6 +1,12 @@
 // turnaus#2003: what one camera's calibration reads on one STILL picture.
 //
-//   i2003_still_census <picture> <camera-index> [debug]
+//   i2003_still_census <picture> <camera-index> [debug|middle]
+//
+//     debug    the calibration's debug pictures, under debug_frames/ in the working directory
+//     middle   everything but the middle of the board painted black before it is read: an
+//              ellipse of 120x70 px about (698,297), camera 1's bull. What is left is the
+//              bull and the beds round it, so the ring cannot be traced with the dark red
+//              or without it -- a picture BOTH readings refuse, which no camera gave us.
 //
 // The club's board was changed from the Winmau Blade 6 to a Harrows board, and on
 // 2026-11-17 at 21:09 camera 1 was refused on the averaged frame and on all 31 further
@@ -67,7 +73,7 @@ int main(int argc, char **argv)
 {
     if (argc < 3)
     {
-        std::cerr << "usage: i2003_still_census <picture> <camera-index> [debug]" << std::endl;
+        std::cerr << "usage: i2003_still_census <picture> <camera-index> [debug|middle]" << std::endl;
         return 2;
     }
     const std::string picture = argv[1];
@@ -76,11 +82,19 @@ int main(int argc, char **argv)
 
     logging::setLogLevel(logging::LogLevel::DEBUG);
 
-    const cv::Mat frame = cv::imread(picture, cv::IMREAD_COLOR);
+    cv::Mat frame = cv::imread(picture, cv::IMREAD_COLOR);
     if (frame.empty())
     {
         std::cerr << "cannot read " << picture << std::endl;
         return 2;
+    }
+    if (argc > 3 && std::string(argv[3]) == "middle")
+    {
+        cv::Mat keep = cv::Mat::zeros(frame.size(), CV_8U);
+        cv::ellipse(keep, cv::Point(698, 297), cv::Size(120, 70), 0, 0, 360, cv::Scalar(255), cv::FILLED);
+        cv::Mat middle = cv::Mat::zeros(frame.size(), frame.type());
+        frame.copyTo(middle, keep);
+        frame = middle;
     }
 
     const std::string tag = "picture=" + baseNameOf(picture) + " cam=" + std::to_string(cameraIndex + 1);

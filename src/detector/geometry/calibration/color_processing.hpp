@@ -440,19 +440,19 @@ namespace color_processing
          * lowered towards the top of the frame (SECTION 2's ramp: 30 and 40 at row 0). HSV
          * saturation is chroma divided by value, so a pixel that is nearly black and faintly
          * warm clears that floor on almost no colour at all: a black bed read under a lamp
-         * as B,G,R = 52,52,66 has a chroma of 14 and a saturation of 54. Measured on the
-         * club's Harrows board on 2026-11-17 (testers/fixtures2003/, the board's own
-         * start-up pictures), of the pixels the key called red:
+         * as B,G,R = 52,52,66 has a chroma of 14 and a saturation of 54 (47 once filtered).
+         * Measured on the club's Harrows board on 2026-11-17 (testers/fixtures2003/, the
+         * board's own start-up pictures), of the pixels the key called red:
          *
-         *   camera 1   value 40..79: 19,963 of 49,112   the ring itself: value 200+
+         *   camera 1   value 40..79: 19,983 of 49,112   the ring, where sampled: 228..254
          *   camera 2   value 40..79:  7,240 of 35,127
-         *   camera 3   value 40..79:  1,316 of 26,740
+         *   camera 3   value 40..79:  1,314 of 26,740
          *
          * and on camera 1, the flattest and most lamp-lit of the three, those black beds
          * run from the bull out through the trebles to the doubles, so the mask is one
          * region where a board has three rings: the doubles mask was 83,941 px, the rays
-         * traced from the bull met "the ring" 20 px out, the doubles ellipse fitted at
-         * 42x78 px on a board spanning 312, and the camera was refused on the averaged
+         * traced from the bull met "a ring" at the first bed, the doubles ellipse fitted
+         * at 42x78 px on a board spanning 312, and the camera was refused on the averaged
          * frame and on all 31 further looks.
          *
          * Chroma -- max minus min over B, G, R, on the same filtered frame the key reads --

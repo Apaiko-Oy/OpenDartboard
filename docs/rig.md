@@ -144,6 +144,16 @@ a WARN naming that camera. A cache written before this change is corrected the s
 at start, from the reading it holds. `OD_BOARD=auto` restores the measured board (#1498,
 #1501), where clip wires anchor and the reader only agrees or disagrees.
 
+**The club's board is a Harrows since late October 2026 (turnaus#2003), and the detector
+still takes it as a Blade 6.** Nothing here models a second board: the scoring radii, the
+ring bands and the `BOARD RECOGNITION` sentence are the Winmau's, and that line is not
+true of the club's board. What calibration assumes about colour is one key, not a board's:
+a doubles and a treble ring of red and green beds, red at hue 0..20 or 160..180 and green
+at 38..88, each with a saturation and a value floor of 60, the red floors lowered towards
+the top of the frame (to 30 and 40). The Harrows' red is a salmon (hue 4..8, saturation
+124..142 where the ring was sampled) and keys; its green keys. What did not hold on it is the floor: see
+"A board whose black beds key red" below.
+
 ## Fixtures
 
 - `mocks/rig-20260918/` — evidence, with `GROUND-TRUTH.md` (21 throws, 2 misses).
@@ -157,6 +167,11 @@ at start, from the reading it holds. `OD_BOARD=auto` restores the measured board
   re-report, and whose cumulative figure fell, vote CLEAN.
 - `mocks/cam_*.mp4` — upstream footage, **never evidence** (#1478); see
   `mocks/DO-NOT-USE-cam_1-cam_2-cam_3.md`.
+- `testers/fixtures2003/camera_{0,1,2}_background.jpg` — the club's Harrows board, empty,
+  evening light, 1280x720, three stills and no footage: `cache/backgrounds/` as the board
+  wrote it on 2026-11-17 at 21:12, the start that set camera 1 aside. Each is the mean of
+  the thirty frames after the last look (#1605), through one JPEG encode. File 0 is the
+  log's camera 1. No darts, so calibration only (turnaus#2003).
 - A lit, clean, complete re-recording is wanted: turnaus#1558.
 
 **Five mock-era testers were retired, 2026-10-13 (turnaus#1478, removed in turnaus#1941).**
@@ -4263,3 +4278,152 @@ one at a time after the bakeoffs): `1993-plane` PASS 108 s, `1512-intersect` PAS
 PASS 320 s; `testers/census.sh` passes. The binary the three bakeoffs and the gate ran is
 the one built at d11eb50; the commits after it touch `testers/i1993_census.py`, the check's
 one assertion and this file.
+
+## A board whose black beds key red (turnaus#2003): a second reading at the ring, `OD_RED_KEY`, default
+
+**The fault.** On 2026-11-17 at 21:09 the club's board, a Harrows since late October,
+refused camera 1 on the averaged frame (`the doubles ring could not be fitted ... 120 rays
+traced, 33 gave a boundary point`) and on all 31 further looks (`the fitted conic is 29 px
+and this board's radius by its ring identity is 311 px`, two wire candidates, R=0), and set
+it aside. Cameras 2 and 3 were sealed. Two afternoon starts the same day sealed camera 1 on
+11 and 5 of 12 looks.
+
+**Reproduced off a still.** The board's own `cache/backgrounds/` of that start
+(`testers/fixtures2003/`) through `geometry_calibration::calibrateSingleCamera`
+(`testers/i2003_still_census.cpp`), on main f954238:
+
+| camera | sees | bull | span | ring identity | traced doubles | wire candidates | R |
+|---|---|---|---|---|---|---|---|
+| 1 | no | (698,297) | 312 px | doubles | 39 px | 2 | 0 |
+| 2 | yes | (652,229) | 339 px | doubles | 334 px | 61 | 0.657 |
+| 3 | yes | (656,300) | 202 px | trebles | 333 px | 54 | 0.868 |
+
+Camera 1's row is the log's look for look: a board of 311..312 px, a conic of 28..29 px
+there and 39 px here, two candidates, R=0. The still is a thirty-frame mean through a JPEG
+and a look is one frame. Camera 2's twelve live looks read R=0.601..0.961 with the bull
+anywhere in (644..652,223..232), and its still reads 0.657 at (652,229): inside that, at
+the low end. Camera 3's read 0.833..0.895 at (656,299..300), and its still 0.868.
+
+**The first stage that is wrong is the colour key, and the bull is right.** The bull is
+found at (698,297) by the nested green-and-red rule, where the afternoon's sealed looks put
+it. (The averaged frame's (673,359) is a different picture, taken two seconds after the
+cameras opened, and there is no copy of it.) What is wrong is the mask the ring is traced
+through. Of the pixels the key called red:
+
+| camera | keyed red | value 40..79 | the ring itself |
+|---|---|---|---|
+| 1 | 49,112 px | 19,983 (41%) | value 228..254, saturation 124..142, at four points |
+| 2 | 35,127 px | 7,240 (21%) | |
+| 3 | 26,740 px | 1,314 (5%) | |
+
+Those are black beds. One of camera 1's reads B,G,R = 52,52,66: hue 0, value 65, a
+saturation of 47 on a chroma of 14, under a red floor the frame's ramp has lowered to 40
+at that row (200). HSV saturation is chroma over value, so a nearly black pixel with a faint
+warm cast clears the floor on almost no colour. On camera 1 -- the flattest view, and the
+one the lamp is behind -- they run along the beds from the bull through the trebles to the
+doubles, so the doubles mask is one region of 83,941 px where it should be a ring, the rays
+from the bull meet "a ring" at the first bed, and the doubles ellipse is fitted at 42x78 px. The
+cream beds do not key (saturation 12..18). The Harrows' red and green are not the fault.
+
+**The change.** A camera refused *at the ring* is read a second time, on the same picture,
+with the dark red set aside (`color_processing::ColorParams::darkRedSetAside`): every
+red-keyed pixel whose chroma (max minus min of B, G, R) is under Otsu's cut over the
+red-keyed pixels is not red for that reading. The cut reads 69, 68 and 61 on the three
+stills, between a dark mode at 10..39 and the ring's at 60..150. If the second reading
+calibrates it is the camera's, and one INFO line says so with both counts and the cut; if
+it does not, its lines are dropped (`logging::Held`) and the first refusal stands word for
+word. "At the ring" is two exits and nothing wider: the doubles ring could not be fitted,
+or the ring that was traced reaches under half the span of the colour it was traced through
+(the span is the doubles or the treble ring, so a real one reads 0.98..1.65 of it).
+
+`OD_RED_KEY=first` is one reading as keyed, the detector before this. `OD_RED_KEY=always`
+sets the dark red aside on the first reading; it has **not** been run on the Winmau
+fixtures and is there to measure with.
+
+**On the stills.**
+
+| camera | `first` (main) | unset | `always` |
+|---|---|---|---|
+| 1 | refused, R=0 | **R=0.882**, bull (698,298), 2.6 mm fitted / 4.4 mm held out, read twice | R=0.882 |
+| 2 | R=0.657, bull (652,229), 3.3 / 6.8 mm | the same row, read once | R=0.906, bull (646,228), 2.3 / 3.5 mm |
+| 3 | R=0.868, bull (656,300), 2.7 / 4.0 mm | the same row, read once | R=0.862, bull (656,300), 2.0 / 3.8 mm |
+
+Camera 1 calibrates at any fixed chroma cut tried from 20 to 90 (R 0.868..0.924), so the
+result does not hang on where Otsu lands. Camera 2 is the one to watch: two of its twelve
+live looks passed at R=0.607 and 0.601 against a gate of 0.6, with the bull 4..6 px from
+where its best looks put it, and under `always` its still reads 0.906 at the best looks'
+bull. A camera 2 look that falls under the gate is refused on coherence, which is not one
+of the ring's exits, and gets no second reading. That is a reason to measure `always` on
+the fixtures; it is not a result.
+
+**Why it is the default, and what that rests on.** The first reading is the old function
+body, unchanged, and its answer is returned untouched whenever it is a board; so a camera
+that calibrates is measured as it was. A refused look that a second reading rescued would
+change which look is sealed (#1456), and the Winmau fixtures do have refused readings --
+clipped by the frame, and wire coherence 0.578 and 0.318 against 0.6 -- which is why the
+second reading is given to the ring's two exits only. Neither occurs on the fixtures.
+
+**The bakeoff** (`OD_SKIP_BUILD=1 testers/run_all.sh 1555-bakeoff`, 2026-11-17 23:46, the
+binary built at b8b032a, 937 s wall at 83% host busy, load 3.7 at the start and 9.5 at the
+end, the tester's own `rc=0`), against the #1993 gate's unset run of 2026-11-14 on this box
+(`runs-wt-1993/1555/`, the tree main f954238 merged):
+
+| | main (2026-11-14) | this branch |
+|---|---|---|
+| POOLED-r18+r22 | 82/86 | 82/86 |
+| POOLED, six runs | 143..149/158 | 143..149/158 |
+| `I1555 ACCURACY`, `I1555 POOLED`, `I1536`, `I1657` lines of `out.txt` | 646 lines | the same 646, no line differing |
+| `SCORE:` lines, seven replays | 26, 26, 26, 28, 30, 46, 46 | the same, no line differing |
+| calibration lines (the ring, wire, mask, orientation and LOOK AGAIN lines), seven replays | 24, 24, 24, 160, 60, 28, 100 | the same, no line differing |
+| second readings taken | | 0 in all seven |
+
+Timestamps and `Processing: N ms` stripped before comparing, nothing else. Each replay's
+log is one line shorter here: the 2026-11-14 run had `OD_SPIKE_THRESHOLD=0.006` in its
+environment, which is the default value and prints one WARN. The pin was not run through
+the bakeoff: with no second reading taken, unset and `first` are the same run.
+
+**Tested** by `2003-harrows` (`testers/i2003_run.sh`), which compiles the calibration from
+source and reads the three stills three ways on one binary. Under the pin camera 1 is
+refused, and at the ring (39.4 px traced on a span of 311.6): that is the control, and a
+camera 1 that calibrated as keyed would mean the pictures no longer hold the fault. Unset
+it calibrates with its bull within 5 px of (698,297) and the log says once that it was read
+a second time; cameras 2 and 3 are the pin's rows byte for byte and are read once. A fourth
+picture is made for the path no camera gave: camera 1's still with everything but the
+middle of the board painted black is refused at the ring by both readings (37 of 120 rays),
+and its log unset is the pin's line for line at DEBUG, one refusal -- a second reading that
+does not calibrate says nothing.
+
+The same harness on main f954238's `src/` (`testers/i2003_run.sh <tree>`, the fix taken out
+whole) is red, rc=1, and names the camera:
+
+```
+FAIL camera 1 did not calibrate on the club's Harrows board: sees=0 whole=0 trusted=0 geometryAccepted=0 R=0.000000 conic=39.4 span=311.6
+FAIL said the log names a second reading of camera 1 0 time(s), not once
+FAIL always camera 1 did not calibrate with the dark red set aside from the start: sees=0 R=0.000000
+```
+
+Two things were tried by hand on the way to that fourth picture and are worth knowing.
+With camera 1's doubles ring painted out, whole or over 250 degrees of it, the second
+reading *calibrates* -- on the treble ring (R=0.73 and 0.72, a conic of 183 px), with the
+board model then rejected (`geometryAccepted=0`, 6.6 and 67.9 mm). The first reading
+refuses both pictures. A doubles ring that does not key at all is not what the club's
+pictures show, and a rejected model keeps a camera out of the geometric solve; but it is a
+board the second reading seals a camera on and the first does not, and it was found, not
+looked for.
+
+**Not done, not known.**
+- One still per camera, one evening. The averaged frame that failed first (bull (673,359),
+  33 of 120 rays) and the frames of the 31 looks were not kept; the second reading is
+  argued for them from the log's numbers, not run on them.
+- Why the afternoon passes and the evening does not is consistent with this (a lamp behind
+  camera 1 lifts black beds over the value floor) and is not shown: there is no afternoon
+  picture in colour.
+- Camera 2 (above). A camera that calibrates is not read twice and a coherence refusal is
+  not the ring's, so the default leaves it a hair over the gate on its worst looks.
+- Darts. No footage of a dart on this board exists, so nothing here says the Harrows
+  scores: its wire, its bed widths and its number ring are not the Blade 6's, and
+  `BOARD RECOGNITION` still says Winmau.
+- Wanted from the board: `--debug` logs or kept frames of one evening start and one
+  afternoon start (the averaged frame and a few looks per camera, in colour), and a short
+  recording with darts.
+

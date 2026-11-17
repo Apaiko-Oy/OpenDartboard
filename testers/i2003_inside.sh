@@ -25,6 +25,10 @@
 #   untouched   cameras 2 and 3 calibrate, are not read twice, and their rows are byte for
 #               byte the pin's: a camera that calibrates as keyed is measured as it was
 #   always      camera 1 calibrates with the dark red set aside from the start too
+#   twice       a picture both readings refuse (the census's `middle`: camera 1's still
+#               with everything but the middle of the board painted black) is refused at
+#               the ring, and its log unset is the pin's line for line at DEBUG -- a second
+#               reading that does not calibrate says nothing and leaves one refusal
 set -u
 
 SRC="${1:-/app}"
@@ -152,6 +156,29 @@ for i in 1 2; do
   R=$(row always "$i")
   echo "     always camera $((i + 1)) (reported, not asserted): sees=$(field "$R" sees) R=$(field "$R" R) bull $(field "$R" bull) against R=$(field "$(row first "$i")" R) as keyed"
 done
+
+echo
+echo "=== a picture both readings refuse ==========================================="
+mkdir -p "$OUT/twice" && cd "$OUT/twice" || exit 2
+env -u OD_RED_KEY "$OUT/census" "$FIX/camera_0_background.jpg" 0 middle 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/twice_unset.txt"
+OD_RED_KEY=first "$OUT/census" "$FIX/camera_0_background.jpg" 0 middle 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/twice_first.txt"
+cd / || exit 2
+R=$(grep -a "^I2003 " "$OUT/twice_first.txt" | head -1)
+RING=$(grep -a -c "did not calibrate: the doubles ring could not be fitted" "$OUT/twice_first.txt")
+if [ "$(field "$R" sees)" = 0 ] && [ "$RING" = 1 ]; then
+  say "OK   twice the middle of camera 1's board alone is refused at the ring as keyed: $(grep -a -o '120 rays traced, [0-9]* gave a boundary point' "$OUT/twice_first.txt" | head -1)" ok
+else
+  say "FAIL twice the middle of camera 1's board alone is not refused at the ring as keyed (sees=$(field "$R" sees), $RING ring refusals), so no second reading is taken of it and the rest of this section proves nothing" bad
+fi
+LINES=$(wc -l < "$OUT/twice_unset.txt")
+DIFFER=$(diff "$OUT/twice_first.txt" "$OUT/twice_unset.txt" | grep -c '^[<>]')
+REFUSALS=$(grep -a -c "did not calibrate" "$OUT/twice_unset.txt")
+if [ "$LINES" -gt 10 ] && [ "$DIFFER" = 0 ] && [ "$REFUSALS" = 1 ]; then
+  say "OK   twice unset it is refused too, in the pin's $LINES lines at DEBUG with none differing and one refusal" ok
+else
+  say "FAIL twice unset, the twice-refused picture's log is $LINES lines with $DIFFER differing from the pin's and $REFUSALS refusals (wanted: none differing, one refusal):" bad
+  diff "$OUT/twice_first.txt" "$OUT/twice_unset.txt" | cut -c1-240 | head -12
+fi
 
 echo
 if [ "$FAILED" = 0 ]; then
