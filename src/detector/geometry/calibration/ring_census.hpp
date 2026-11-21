@@ -150,13 +150,13 @@ namespace ring_census
             }
             for (int i = 0; i < n; i++)
             {
-                double near[11];
+                double window[11];
                 for (int j = -5; j <= 5; j++)
                 {
-                    near[j + 5] = rows[((i + j) % n + n) % n].second;
+                    window[j + 5] = rows[((i + j) % n + n) % n].second;
                 }
-                std::sort(near, near + 11);
-                if (std::fabs(rows[i].second - near[5]) <= 2.0)
+                std::sort(window, window + 11);
+                if (std::fabs(rows[i].second - window[5]) <= 2.0)
                 {
                     kept.push_back(rows[i]);
                 }
